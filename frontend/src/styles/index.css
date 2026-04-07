@@ -487,3 +487,306 @@ h1, h2, h3 {
     align-self: center;
   }
 }
+
+/* ── Player Badge ─────────────────────────────────────────── */
+
+.player-sidebar-card {
+  position: relative;
+  border-left: 3px solid var(--civic-blue);
+  border-radius: 8px;
+  background: rgba(59, 89, 152, 0.04);
+}
+
+.player-badge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: var(--civic-blue);
+  padding: 1px 6px;
+  border-radius: 9999px;
+  line-height: 1.4;
+}
+
+/* ── Chat Mode Toggle ─────────────────────────────────────── */
+
+.chat-mode-toggle {
+  display: flex;
+  gap: 1px;
+  border-radius: 9999px;
+  border: 1px solid var(--card-border);
+  padding: 2px;
+  background: var(--township-paper);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.chat-mode-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--township-ink-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.chat-mode-toggle-btn--active {
+  background: var(--civic-blue);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(59, 89, 152, 0.3);
+}
+
+.chat-mode-toggle-btn:not(.chat-mode-toggle-btn--active):hover {
+  color: var(--township-ink);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ── Keyboard Hint Overlay ────────────────────────────────── */
+
+.keyboard-hint {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  animation: keyboard-hint-enter 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.keyboard-hint-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  border-radius: 16px;
+  background: rgba(250, 247, 242, 0.88);
+  backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid rgba(232, 224, 212, 0.6);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.keyboard-hint-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.keyboard-hint-keys {
+  display: flex;
+  gap: 3px;
+}
+
+.keyboard-hint-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: #fff;
+  border: 1px solid #d4cfc6;
+  box-shadow: 0 1px 0 1px rgba(0, 0, 0, 0.06), inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--township-ink);
+}
+
+.keyboard-hint-click {
+  padding: 0 8px !important;
+  font-size: 9px !important;
+}
+
+.keyboard-hint-label {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--township-ink-muted);
+}
+
+.keyboard-hint-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--card-border);
+}
+
+@keyframes keyboard-hint-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ── Onboarding Layout ────────────────────────────────────── */
+
+.onboarding-layout {
+  position: relative;
+  height: calc(100vh - 56px);
+  overflow: hidden;
+}
+
+.onboarding-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Frosted glass input overlay */
+.onboarding-overlay-backdrop {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  animation: onboarding-slide-up 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.onboarding-overlay {
+  width: 100%;
+  max-width: 480px;
+  padding: 20px 24px 24px;
+  border-radius: 20px 20px 0 0;
+  background: rgba(250, 247, 242, 0.88);
+  backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid rgba(232, 224, 212, 0.6);
+  border-bottom: none;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.06);
+}
+
+.onboarding-overlay-title {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--township-ink);
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.onboarding-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--card-border);
+  background: #fff;
+  font-size: 16px;
+  font-family: Inter, sans-serif;
+  color: var(--township-ink);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.onboarding-input:focus {
+  border-color: var(--civic-blue);
+  box-shadow: 0 0 0 3px rgba(59, 89, 152, 0.1);
+}
+
+.onboarding-textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--card-border);
+  background: #fff;
+  font-size: 14px;
+  font-family: Inter, sans-serif;
+  color: var(--township-ink);
+  outline: none;
+  resize: none;
+  transition: border-color 0.2s;
+}
+
+.onboarding-textarea:focus {
+  border-color: var(--civic-blue);
+  box-shadow: 0 0 0 3px rgba(59, 89, 152, 0.1);
+}
+
+.onboarding-overlay-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.onboarding-char-count {
+  font-size: 11px;
+  color: var(--township-ink-muted);
+}
+
+.onboarding-submit {
+  padding: 10px 24px;
+  border-radius: 10px;
+  background: var(--civic-blue);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.onboarding-submit:hover:not(:disabled) {
+  background: var(--civic-blue-light);
+  transform: translateY(-1px);
+}
+
+.onboarding-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Progress dots */
+.onboarding-progress {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.onboarding-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--card-border);
+  transition: all 0.3s;
+}
+
+.onboarding-dot--done {
+  background: var(--civic-blue);
+}
+
+.onboarding-dot--active {
+  background: var(--civic-blue);
+  width: 18px;
+  animation: dot-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+@keyframes onboarding-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

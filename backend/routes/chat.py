@@ -12,6 +12,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 class ChatRequest(BaseModel):
     message: str
+    user_profile: dict | None = None
 
 
 class ChatResponse(BaseModel):
@@ -19,6 +20,19 @@ class ChatResponse(BaseModel):
     agent_id: str
     agent_name: str
     opinion: dict | None = None
+
+
+class AutoChatRequest(BaseModel):
+    user_profile: dict
+    conversation_history: list[dict] = []
+
+
+class AutoChatResponse(BaseModel):
+    user_message: str
+    agent_response: str
+    agent_id: str
+    agent_name: str
+    should_end: bool
 
 
 @router.post("/{agent_id}")
@@ -40,11 +54,22 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
     # Build system prompt with full context
     system_prompt = _build_chat_system_prompt(agent_state)
 
+    # Enrich the user message with profile context if available
+    if req.user_profile:
+        p = req.user_profile
+        user_intro = (
+            f"A person named {p.get('name', 'someone')} from {p.get('town', 'the area')}, "
+            f"who cares about {', '.join(p.get('top_concerns', ['the election']))}, "
+            f"approaches you and says: \"{req.message}\""
+        )
+    else:
+        user_intro = f"A person approaches you and says: \"{req.message}\""
+
     messages = [
         {
             "role": "user",
             "content": (
-                f"A person approaches you and says: \"{req.message}\"\n\n"
+                f"{user_intro}\n\n"
                 f"Respond naturally in character. If they're asking about the election, "
                 f"share your genuine views. If they ask about something else, respond "
                 f"as yourself. Keep it conversational — 2-4 sentences."
@@ -60,7 +85,7 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
         model=agent_state.definition.model,
     )
 
-    response_text = result.get("text", "...")
+    response_text = result.get("text") or "..."
 
     # Add this chat to agent's memory
     agent_state.add_memory(f"Chat: Someone asked me '{req.message[:80]}'. I said: '{response_text[:80]}...'")
@@ -81,6 +106,137 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
         agent_id=agent_id,
         agent_name=agent_state.definition.name,
         opinion=opinion_data,
+    )
+
+
+@router.post("/auto/{agent_id}")
+async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> AutoChatResponse:
+    """Auto-agent mode: generate both user and agent messages for a natural conversation."""
+    orchestrator = request.app.state.orchestrator
+    anthropic_client = request.app.state.anthropic_client
+
+    agent_state = orchestrator.get_agent_state(agent_id)
+    if agent_state is None:
+        return AutoChatResponse(
+            user_message="...",
+            agent_response=f"Agent '{agent_id}' not found.",
+            agent_id=agent_id,
+            agent_name="System",
+            should_end=True,
+        )
+
+    p = req.user_profile
+    turn_num = len(req.conversation_history) // 2
+
+    # ── Step 1: Generate user's message ──────────────────────
+    user_persona_prompt = _build_user_persona_prompt(p)
+
+    user_context = ""
+    if req.conversation_history:
+        user_context = "\n\nConversation so far:\n"
+        for msg in req.conversation_history[-6:]:
+            role = "You" if msg.get("role") == "user" else agent_state.definition.name
+            user_context += f"{role}: {msg.get('content', '')}\n"
+
+    user_messages = [
+        {
+            "role": "user",
+            "content": (
+                f"You're having a casual conversation with {agent_state.definition.name}, "
+                f"a {agent_state.definition.occupation} in {agent_state.definition.town}."
+                f"{user_context}\n\n"
+                f"{'Start a conversation about the election or local issues.' if turn_num == 0 else 'Continue the conversation naturally.'} "
+                f"Speak as yourself — 2-3 sentences. Be genuine and specific to your concerns."
+            ),
+        }
+    ]
+
+    user_result = await anthropic_client.call_agent(
+        system_prompt=user_persona_prompt,
+        messages=user_messages,
+        tools=None,
+        max_tokens=1200,
+    )
+
+    user_message = user_result.get("text") or "What do you think about the election?"
+
+    # ── Step 2: Generate agent's response ────────────────────
+    agent_system = _build_chat_system_prompt(agent_state)
+
+    if p:
+        user_intro = (
+            f"A person named {p.get('name', 'someone')} from {p.get('town', 'the area')}, "
+            f"who cares about {', '.join(p.get('top_concerns', ['the election']))}, "
+            f"says: \"{user_message}\""
+        )
+    else:
+        user_intro = f"Someone says: \"{user_message}\""
+
+    # Include conversation history for context
+    history_ctx = ""
+    if req.conversation_history:
+        history_ctx = "\n\nEarlier in this conversation:\n"
+        for msg in req.conversation_history[-6:]:
+            role = p.get("name", "Them") if msg.get("role") == "user" else "You"
+            history_ctx += f"{role}: {msg.get('content', '')}\n"
+
+    agent_messages = [
+        {
+            "role": "user",
+            "content": (
+                f"{history_ctx}\n\n{user_intro}\n\n"
+                f"Respond naturally in character. Keep it conversational — 2-4 sentences."
+            ),
+        }
+    ]
+
+    agent_result = await anthropic_client.call_agent(
+        system_prompt=agent_system,
+        messages=agent_messages,
+        tools=None,
+        max_tokens=1200,
+        model=agent_state.definition.model,
+    )
+
+    agent_response = agent_result.get("text") or "..."
+
+    # Record in memory
+    agent_state.add_memory(
+        f"Chat: {p.get('name', 'Someone')} said '{user_message[:60]}'. I said: '{agent_response[:60]}...'"
+    )
+
+    # Determine if conversation should end
+    should_end = turn_num >= 3
+
+    return AutoChatResponse(
+        user_message=user_message,
+        agent_response=agent_response,
+        agent_id=agent_id,
+        agent_name=agent_state.definition.name,
+        should_end=should_end,
+    )
+
+
+def _build_user_persona_prompt(profile: dict) -> str:
+    """Build a system prompt for the user's AI persona."""
+    name = profile.get("name", "A voter")
+    town = profile.get("town", "NJ-11")
+    leaning = profile.get("political_leaning", "undecided")
+    concerns = ", ".join(profile.get("top_concerns", ["the election"]))
+    personality = profile.get("personality", "A local resident interested in the election.")
+
+    return (
+        f"You are {name}, a resident of {town} in New Jersey's 11th Congressional District.\n"
+        f"Political leaning: {leaning}\n"
+        f"Top concerns: {concerns}\n"
+        f"About you: {personality}\n\n"
+        f"The NJ-11 special election is on April 16, 2026. "
+        f"Candidates: Analilia Mejia (D), Joe Hathaway (R), Alan Bond (I). "
+        f"Early voting is happening now.\n\n"
+        f"You're having a casual conversation with a neighbor about the election. "
+        f"Speak naturally as yourself — 2-3 sentences. Reference your personal concerns "
+        f"and experiences. Be genuine, curious, and opinionated based on your background. "
+        f"Don't be generic — be specific to your situation."
     )
 
 
