@@ -60,6 +60,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   protected isMoving = false;
   protected isPlayer = false;
   protected homeY = 0; // base Y for idle bob
+  protected spriteBaseScale = SPRITE_SCALE;
 
   constructor(scene: Phaser.Scene, x: number, y: number, cfg: AgentConfig) {
     super(scene, x, y);
@@ -117,6 +118,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       resolution: 2,
     });
     this.nameLabel.setOrigin(0.5, 0);
+    this.nameLabel.setVisible(false); // Rendered by DOM CanvasOverlay instead
     this.add(this.nameLabel);
 
     // ── Speech bubble ─────────────────────────────────────────
@@ -191,7 +193,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
     this.isMoving = true;
     this.idleTween?.stop();
+    this.charSprite?.setScale(this.spriteBaseScale); // reset breathing scaleY
     this.shadowTween?.stop();
+    this.groundShadow.setScale(1); // reset shadow scale
     this.moveTween?.stop();
 
     // Walk animation
@@ -337,27 +341,31 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.charSprite.setFrame(IDLE_FRAMES[dir]);
   }
 
-  /** Gentle vertical bob + shadow breath when standing still. */
+  /** Breathing idle: subtle scaleY pulse + inverse shadow shrink. */
   protected beginIdle() {
     this.playIdle(this.currentDirection);
 
-    const period = 1300 + Math.random() * 600;
+    const period = 1200;
     const phase = Math.random() * period;
 
-    this.idleTween = this.scene.tweens.add({
-      targets: this,
-      y: this.homeY - 2.5,
-      duration: period,
-      yoyo: true,
-      repeat: -1,
-      ease: "Sine.easeInOut",
-      delay: phase,
-    });
+    // Breathing: subtle vertical scale on character sprite
+    if (this.charSprite) {
+      this.idleTween = this.scene.tweens.add({
+        targets: this.charSprite,
+        scaleY: this.spriteBaseScale * 1.03,
+        duration: period,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+        delay: phase,
+      });
+    }
 
+    // Shadow inverse: shrink when character "inhales"
     this.shadowTween = this.scene.tweens.add({
       targets: this.groundShadow,
-      scaleX: 0.78,
-      scaleY: 0.78,
+      scaleX: 0.92,
+      scaleY: 0.85,
       duration: period,
       yoyo: true,
       repeat: -1,
@@ -396,6 +404,89 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     // Specular
     this.fallbackBody.fillStyle(0xffffff, 0.22);
     this.fallbackBody.fillCircle(-6, cy - 8, 10);
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // State-driven emotes
+  // ────────────────────────────────────────────────────────────
+
+  /** Show an overhead emote based on agent state. */
+  showEmote(type: "reflecting" | "opinion_changed") {
+    if (type === "reflecting") {
+      const dots = this.scene.add.text(0, BUBBLE_TIP_Y - 20, "...", {
+        fontFamily: "Inter, monospace",
+        fontSize: "14px",
+        fontStyle: "bold",
+        color: "#666666",
+        resolution: 2,
+      });
+      dots.setOrigin(0.5, 0.5);
+      this.add(dots);
+      dots.setDepth(500);
+
+      // Gentle bob
+      this.scene.tweens.add({
+        targets: dots,
+        y: BUBBLE_TIP_Y - 23,
+        duration: 500,
+        yoyo: true,
+        repeat: 5,
+        ease: "Sine.easeInOut",
+      });
+
+      // Auto-destroy after 3s
+      this.scene.time.delayedCall(3000, () => {
+        this.scene.tweens.add({
+          targets: dots,
+          alpha: 0,
+          duration: 200,
+          onComplete: () => dots.destroy(),
+        });
+      });
+    } else if (type === "opinion_changed") {
+      // Create a runtime 4x4 pixel texture if it doesn't exist
+      if (!this.scene.textures.exists("emote-particle")) {
+        const canvas = this.scene.textures.createCanvas("emote-particle", 4, 4);
+        if (canvas) {
+          canvas.context.fillStyle = "#ffffff";
+          canvas.context.fillRect(0, 0, 4, 4);
+          canvas.refresh();
+        }
+      }
+
+      const tint = Phaser.Display.Color.HexStringToColor(this.opinionColor).color;
+      const cx = this.x;
+      const cy = this.y - FRAME_H * 0.5;
+
+      // Emit burst particles
+      const emitter = this.scene.add.particles(cx, cy, "emote-particle", {
+        speed: { min: 40, max: 100 },
+        angle: { min: 220, max: 320 },
+        lifespan: 600,
+        quantity: 10,
+        tint: tint,
+        scale: { start: 1.5, end: 0 },
+        alpha: { start: 1, end: 0 },
+        gravityY: 80,
+        emitting: false,
+      });
+      emitter.setDepth(500);
+      emitter.explode(10);
+
+      // Auto-destroy after particles expire
+      this.scene.time.delayedCall(800, () => emitter.destroy());
+    }
+  }
+
+  /** Export position data for DOM overlay rendering. */
+  getOverlayInfo(): { id: string; name: string; x: number; y: number; visible: boolean } {
+    return {
+      id: this.agentId,
+      name: this.agentName.split(/[\s"'&]/)[0],
+      x: this.x,
+      y: this.y + LABEL_Y,
+      visible: this.visible && this.alpha > 0,
+    };
   }
 
   /** Multi-layered proximity glow — shown when the player is nearby. */

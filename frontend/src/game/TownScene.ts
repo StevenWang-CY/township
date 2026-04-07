@@ -71,6 +71,8 @@ export class TownScene extends Phaser.Scene {
   private characterKeys: Set<string> = new Set();
   // Wander waypoints: all non-road landmark centers
   private wanderPoints: Array<{ x: number; y: number }> = [];
+  // Tilemap collision layer for player physics
+  private collisionLayer: Phaser.Tilemaps.TilemapLayer | null = null;
 
   constructor() {
     super({ key: "TownScene" });
@@ -156,6 +158,11 @@ export class TownScene extends Phaser.Scene {
     // Y-based depth sort – characters "behind" others appear further back
     this.agentSprites.forEach((s) => s.syncDepth());
     this.playerSprite?.updatePlayer(delta);
+
+    // Player ↔ tilemap collision (physics-enabled player only)
+    if (this.playerSprite && this.collisionLayer) {
+      this.physics.collide(this.playerSprite, this.collisionLayer);
+    }
   }
 
   /* ── Agent Management (called from React / TownView) ──── */
@@ -204,6 +211,30 @@ export class TownScene extends Phaser.Scene {
 
   updateAgentOpinion(agentId: string, candidate: string) {
     this.agentSprites.get(agentId)?.setOpinionColor(this.opinionColor(candidate));
+  }
+
+  showAgentEmote(agentId: string, type: "reflecting" | "opinion_changed") {
+    this.agentSprites.get(agentId)?.showEmote(type);
+  }
+
+  /** Export all agent positions for the DOM overlay. */
+  getOverlayData(): { id: string; name: string; x: number; y: number; visible: boolean; type: "agent" | "landmark" }[] {
+    const data: { id: string; name: string; x: number; y: number; visible: boolean; type: "agent" | "landmark" }[] = [];
+
+    // Agent labels
+    this.agentSprites.forEach((sprite) => {
+      const info = sprite.getOverlayInfo();
+      data.push({ ...info, type: "agent" });
+    });
+
+    // Landmark labels (static positions)
+    for (const lm of this.landmarks) {
+      const cx = lm.x + lm.width / 2;
+      const cy = lm.y + lm.height / 2;
+      data.push({ id: `lm-${lm.name}`, name: lm.name, x: cx, y: cy, visible: true, type: "landmark" });
+    }
+
+    return data;
   }
 
   clearAgents() {
@@ -435,7 +466,7 @@ export class TownScene extends Phaser.Scene {
       npc.setScale(1.9);
       npc.setOrigin(0.5, 1);
       npc.setDepth(50 + sy);
-      npc.setAlpha(0.65); // subdued so they don't compete with named agents
+      npc.setAlpha(1); // fully opaque — visual hierarchy via scale, not alpha
 
       // Pick a random walk animation
       const dirs = ["down", "left", "right", "up"] as const;
@@ -546,32 +577,25 @@ export class TownScene extends Phaser.Scene {
       terrain?.setScale(scale).setAlpha(0.92);
       bridge?.setScale(scale);
       deco?.setScale(scale);
+
+      // Store terrain layer for player collision
+      if (terrain) {
+        this.collisionLayer = terrain;
+        // Collide with water/wall tiles (tile index 0 = empty, exclude it)
+        terrain.setCollisionByExclusion([-1, 0]);
+      }
     }
   }
 
   private drawLandmarkLabel(lm: Landmark, accent: string) {
     const g = this.add.graphics();
-    const cx = lm.x + lm.width / 2;
-    const cy = lm.y + lm.height / 2;
 
-    // Subtle zone tint
+    // Subtle zone tint (keep for visual grounding)
     g.fillStyle(Phaser.Display.Color.HexStringToColor(accent).color, 0.07);
     g.fillRoundedRect(lm.x - 4, lm.y - 4, lm.width + 8, lm.height + 8, 5);
-
-    // Label pill
-    const tw = Math.max(lm.name.length * 6.2, 55);
-    g.fillStyle(0x000000, 0.46);
-    g.fillRoundedRect(cx - tw / 2, cy - 9, tw, 18, 5);
-
-    this.add.text(cx, cy, lm.name, {
-      fontFamily: "Inter, sans-serif",
-      fontSize: "9px",
-      fontStyle: "bold",
-      color: "#ffffff",
-      resolution: 2,
-    }).setOrigin(0.5, 0.5).setDepth(48);
-
     g.setDepth(45);
+
+    // Text labels now rendered by DOM CanvasOverlay — no Phaser text here
   }
 
   private buildEnvironmentFX() {
@@ -594,6 +618,9 @@ export class TownScene extends Phaser.Scene {
       });
     }
 
+    // Check if WebGL is available for PointLight support
+    const hasWebGL = this.game.renderer.type === Phaser.WEBGL;
+
     for (const lm of this.landmarks) {
       const cx = lm.x + lm.width / 2;
       const cy = lm.y + lm.height / 2;
@@ -601,43 +628,61 @@ export class TownScene extends Phaser.Scene {
       if (lm.type === "park" && this.textures.exists("campfire")) {
         const fire = this.add.sprite(cx, cy, "campfire").setScale(1.4).setDepth(12).setAlpha(0.85);
         fire.play("campfire-burn");
-        // Warm light pulse
-        const light = this.add.graphics();
-        light.fillStyle(0xff8800, 0.07);
-        light.fillCircle(cx, cy, 40);
-        light.setDepth(11);
-        this.tweens.add({ targets: light, alpha: 0.01, duration: 600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+
+        if (hasWebGL) {
+          // PointLight: warm orange atmospheric glow with pulse
+          const pl = this.add.pointlight(cx, cy, 0xff8800, 120, 0.4, 0.06);
+          pl.setDepth(11);
+          this.tweens.add({
+            targets: pl,
+            intensity: { from: 0.25, to: 0.55 },
+            radius: { from: 100, to: 140 },
+            duration: 800,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.easeInOut",
+          });
+        } else {
+          // Fallback: Graphics-based warm light
+          const light = this.add.graphics();
+          light.fillStyle(0xff8800, 0.07);
+          light.fillCircle(cx, cy, 40);
+          light.setDepth(11);
+          this.tweens.add({ targets: light, alpha: 0.01, duration: 600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+        }
       }
 
       if (lm.type === "church" && this.textures.exists("sparkle")) {
         const sp = this.add.sprite(cx, lm.y + 8, "sparkle").setDepth(12).setAlpha(0.55);
         sp.play("sparkle-anim");
+
+        if (hasWebGL) {
+          // PointLight: golden subtle glow at churches
+          const pl = this.add.pointlight(cx, lm.y + 8, 0xffd700, 80, 0.2, 0.08);
+          pl.setDepth(11);
+          this.tweens.add({
+            targets: pl,
+            intensity: { from: 0.15, to: 0.3 },
+            duration: 1200,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.easeInOut",
+          });
+        }
       }
+    }
+
+    // Global ambient warmth — large low-intensity centered PointLight
+    if (hasWebGL) {
+      const W = Number(this.game.config.width);
+      const H = Number(this.game.config.height);
+      const ambient = this.add.pointlight(W / 2, H / 2, 0xffe4b5, 600, 0.08, 0.01);
+      ambient.setDepth(1);
     }
   }
 
-  private buildTitleBanner(W: number) {
-    const names: Record<string, string> = {
-      dover: "Dover",
-      montclair: "Montclair",
-      parsippany: "Parsippany–Troy Hills",
-      randolph: "Randolph",
-    };
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.28);
-    bg.fillRoundedRect(W / 2 - 130, 7, 260, 32, 9);
-    bg.setDepth(120);
-
-    this.add.text(W / 2, 23, names[this.townId] ?? this.townId, {
-      fontFamily: "Playfair Display, Georgia, serif",
-      fontSize: "17px",
-      fontStyle: "bold",
-      color: "#ffffff",
-      stroke: "#000000",
-      strokeThickness: 2,
-      resolution: 2,
-    }).setOrigin(0.5, 0.5).setDepth(121);
+  private buildTitleBanner(_W: number) {
+    // Title banner now rendered as DOM element in TownView.tsx
   }
 
   /* ── Utility ─────────────────────────────────────────────── */
