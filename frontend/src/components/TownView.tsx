@@ -4,6 +4,7 @@ import Phaser from "phaser";
 import { TownScene } from "../game/TownScene";
 import { GAME_CONFIG } from "../game/config";
 import { useUserProfile } from "../context/UserProfileContext";
+import { CanvasOverlay } from "./CanvasOverlay";
 import ChatPanel from "./ChatPanel";
 import AgentCard from "./AgentCard";
 import type { AgentState, TownId, SimulationEvent } from "../types/messages";
@@ -249,16 +250,26 @@ export default function TownView({ ws }: TownViewProps) {
           break;
         case "opinion_changed":
           scene.updateAgentOpinion(evt.agent_id, evt.new_opinion.candidate);
+          scene.showAgentEmote(evt.agent_id, "opinion_changed");
           break;
         case "conversation_started":
-          // Show speech bubble for participants
+          // Show reflecting emote + speech bubble for participants
           for (const pid of evt.conversation.participants) {
+            scene.showAgentEmote(pid, "reflecting");
             scene.showAgentSpeech(pid, `Discussing: ${evt.conversation.topic}`);
           }
           break;
       }
     }
   }, [ws.events.length, town]);
+
+  /* ── Overlay data callback ─────────────────────────────────── */
+
+  const getOverlayData = useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scene || !scene.scene.isActive()) return [];
+    return scene.getOverlayData();
+  }, []);
 
   /* ── UI Callbacks ────────────────────────────────────────── */
 
@@ -277,15 +288,34 @@ export default function TownView({ ws }: TownViewProps) {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Town header */}
         <div
-          className="px-6 py-3 flex items-center gap-4 border-b"
-          style={{ borderColor: "var(--card-border)", background: "var(--township-paper)" }}
+          className="px-6 py-3 flex items-center gap-4"
+          style={{
+            background: "var(--warm-glass)",
+            backdropFilter: "blur(var(--warm-glass-blur))",
+            WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
+            borderBottom: "1px solid var(--warm-glass-border)",
+          }}
         >
-          <div className="w-3 h-3 rounded-full" style={{ background: meta.color }} />
+          <div
+            className="w-3 h-3 rounded-full"
+            style={{
+              background: meta.color,
+              animation: "pulse-glow 2s ease-in-out infinite",
+            }}
+          />
           <div>
-            <h2 className="text-lg font-bold" style={{ fontFamily: "Playfair Display, serif", color: meta.color }}>
+            <h2
+              className="font-semibold"
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "18px",
+                fontWeight: 600,
+                color: "var(--text-primary)",
+              }}
+            >
               {meta.name}
             </h2>
-            <p className="text-xs" style={{ color: "var(--township-ink-muted)" }}>
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-muted)" }}>
               {meta.tagline} | {meta.county} County | Pop. {meta.population}
             </p>
           </div>
@@ -302,6 +332,34 @@ export default function TownView({ ws }: TownViewProps) {
         {/* Phaser canvas */}
         <div className="town-canvas-wrapper flex-1 relative" style={{ background: "#e8dcc8" }}>
           <div ref={gameContainerRef} className="absolute inset-0" />
+          <div className="canvas-vignette" />
+
+          {/* DOM overlay for agent/landmark labels */}
+          <CanvasOverlay gameRef={gameRef} getOverlayData={getOverlayData} />
+
+          {/* DOM title banner (replaces Phaser canvas text) */}
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+            <div
+              className="px-6 py-1.5 rounded-lg"
+              style={{
+                background: "rgba(0, 0, 0, 0.28)",
+                backdropFilter: "blur(4px)",
+                borderRadius: "9px",
+              }}
+            >
+              <span
+                className="text-base font-bold"
+                style={{
+                  fontFamily: "var(--font-display)",
+                  color: "#ffffff",
+                  textShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                {meta.name}
+              </span>
+            </div>
+          </div>
 
           {/* Keyboard hint overlay */}
           {showKeyboardHint && isOnboarded && (
@@ -312,12 +370,31 @@ export default function TownView({ ws }: TownViewProps) {
 
       {/* Sidebar: agent list */}
       <div className="town-view-sidebar">
-        <div className="px-3 py-2 border-b" style={{ borderColor: "var(--card-border)" }}>
-          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--township-ink-muted)" }}>
+        <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(180,160,120,0.12)" }}>
+          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{
+            fontFamily: "var(--font-display)",
+            color: "var(--gold-accent)",
+            letterSpacing: "2.5px",
+            fontSize: "11px",
+          }}>
             Residents ({townAgents.length + (playerAgentState ? 1 : 0)})
           </h3>
+          {/* Ornamental separator */}
+          <svg width="120" height="8" viewBox="0 0 120 8" className="mt-2 opacity-60">
+            <defs>
+              <linearGradient id="sidebar-sep" x1="0%" y1="50%" x2="100%" y2="50%">
+                <stop offset="0%" stopColor="var(--gold-accent)" stopOpacity="0" />
+                <stop offset="30%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="var(--gold-accent)" stopOpacity="0.5" />
+                <stop offset="70%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
+                <stop offset="100%" stopColor="var(--gold-accent)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <line x1="0" y1="4" x2="120" y2="4" stroke="url(#sidebar-sep)" strokeWidth="1" />
+            <rect x="55" y="1" width="6" height="6" rx="0.5" transform="rotate(45 58 4)" fill="var(--gold-accent)" opacity="0.4" />
+          </svg>
         </div>
-        <div className="flex-1 overflow-y-auto px-1.5 py-1.5 flex flex-col gap-0.5">
+        <div className="flex-1 overflow-y-auto px-1.5 py-1.5 flex flex-col gap-0">
           {/* Player card at top */}
           {playerAgentState && (
             <div className="player-sidebar-card">
@@ -332,8 +409,13 @@ export default function TownView({ ws }: TownViewProps) {
         </div>
 
         {/* Recent events for this town */}
-        <div className="border-t px-3 py-2" style={{ borderColor: "var(--card-border)" }}>
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--township-ink-muted)" }}>
+        <div className="border-t px-3 py-2" style={{ borderColor: "rgba(180,160,120,0.12)" }}>
+          <h3 className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{
+            fontFamily: "var(--font-display)",
+            color: "var(--gold-accent)",
+            letterSpacing: "2px",
+            fontSize: "11px",
+          }}>
             Recent Activity
           </h3>
           <div className="flex flex-col gap-1 max-h-[120px] overflow-y-auto">
@@ -342,14 +424,20 @@ export default function TownView({ ws }: TownViewProps) {
               .slice(-5)
               .reverse()
               .map((evt, i) => (
-                <p key={i} className="text-[10px]" style={{ color: "var(--township-ink-muted)" }}>
-                  {eventLabel(evt)}
-                </p>
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
+                    {eventLabel(evt)}
+                  </p>
+                </div>
               ))}
             {ws.events.filter((e) => "town" in e && (e as any).town === town).length === 0 && (
-              <p className="text-[10px] italic" style={{ color: "var(--township-ink-muted)" }}>
-                Waiting for simulation events...
-              </p>
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
+                <p className="italic" style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
+                  Waiting for simulation events...
+                </p>
+              </div>
             )}
           </div>
         </div>

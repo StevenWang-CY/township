@@ -1,13 +1,32 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
 
-/* ── Township Design System ────────────────────────────────── */
+/* ── Township Design System — Genshin Mondstadt Warmth ─────── */
 
 :root {
-  /* Core palette */
-  --township-bg: #FAF7F2;
-  --township-paper: #F5F0E8;
-  --township-ink: #2C2416;
-  --township-ink-muted: #6B5E4F;
+  /* ── Base warmth (civic warmth identity) ── */
+  --bg-cream: #F5EDE0;
+  --bg-warm: #EDE4D3;
+  --bg-paper: #FAF6EF;
+  --bg-card: #FFFFFF;
+  --shadow-soft: 0 2px 12px rgba(120, 100, 70, 0.08);
+  --shadow-hover: 0 4px 20px rgba(120, 100, 70, 0.13);
+
+  /* Legacy aliases */
+  --township-bg: var(--bg-cream);
+  --township-paper: var(--bg-warm);
+  --township-ink: #2C2520;
+  --township-ink-muted: #6B5E52;
+
+  /* ── Text (dark-on-light for clarity) ── */
+  --text-primary: #2C2520;
+  --text-secondary: #6B5E52;
+  --text-muted: #9A8E80;
+
+  /* ── Genshin-borrowed: Gold ornamental accents ── */
+  --gold-accent: #C4A35A;
+  --gold-light: #D9C48E;
+  --gold-glow: rgba(196, 163, 90, 0.25);
 
   /* Civic blues */
   --civic-blue: #3B5998;
@@ -19,33 +38,71 @@
   --bond: #9CA3AF;
   --undecided: #D1D5DB;
 
-  /* Town accent colors */
-  --dover: #E8763B;
-  --montclair: #6B5CE7;
-  --parsippany: #2DA8A8;
-  --randolph: #4A9B5C;
+  /* ── Town identity colors (Genshin region-coding) ── */
+  --dover: #C0792A;
+  --dover-accent: #C0792A;
+  --dover-light: #F0D8B8;
+  --montclair: #4A8FBF;
+  --montclair-accent: #4A8FBF;
+  --montclair-light: #C8DEF0;
+  --parsippany: #5D9E4F;
+  --parsippany-accent: #5D9E4F;
+  --parsippany-light: #D0E8C8;
+  --randolph: #8B7D6B;
+  --randolph-accent: #8B7D6B;
+  --randolph-light: #DDD5C8;
 
   /* Surfaces */
-  --card-bg: #FFFFFF;
+  --card-bg: var(--bg-card);
   --card-border: #E8E0D4;
-  --card-shadow: 0 2px 8px rgba(44, 36, 22, 0.08);
+  --card-shadow: var(--shadow-soft);
+
+  /* ── Genshin-borrowed: Motion ── */
+  --ease-genshin: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── Typography ── */
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Inter', -apple-system, sans-serif;
+
+  /* ── Genshin-borrowed: Warm glass (NOT dark glass) ── */
+  --warm-glass: rgba(255, 252, 245, 0.72);
+  --warm-glass-border: rgba(180, 160, 120, 0.18);
+  --warm-glass-blur: 12px;
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* Force nearest-neighbor scaling on Phaser canvas — HD-2D crisp pixels */
+canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ── Warm glass utility ───────────────────────────────────── */
+
+.warm-glass {
+  background: var(--warm-glass);
+  backdrop-filter: blur(var(--warm-glass-blur));
+  -webkit-backdrop-filter: blur(var(--warm-glass-blur));
+  border: 1px solid var(--warm-glass-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-soft);
+}
+
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background: var(--township-bg);
-  color: var(--township-ink);
+  font-family: var(--font-body);
+  background: var(--bg-cream);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3 {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-display);
 }
 
 /* ── Animation Keyframes ───────────────────────────────────── */
@@ -101,6 +158,117 @@ h1, h2, h3 {
 @keyframes ripple {
   0% { transform: scale(0.8); opacity: 0.6; }
   100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* ── Genshin Particle Floats ─────────────────────────────── */
+
+@keyframes particle-float-0 {
+  0%   { transform: translate(0, 0) scale(0.8); opacity: 0; }
+  10%  { opacity: 0.22; }
+  90%  { opacity: 0.12; }
+  100% { transform: translate(25px, -180px) scale(0.3); opacity: 0; }
+}
+@keyframes particle-float-1 {
+  0%   { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  12%  { opacity: 0.18; }
+  88%  { opacity: 0.1; }
+  100% { transform: translate(-20px, -200px) scale(0.35); opacity: 0; }
+}
+@keyframes particle-float-2 {
+  0%   { transform: translate(0, 0) scale(0.9); opacity: 0; }
+  15%  { opacity: 0.2; }
+  85%  { opacity: 0.15; }
+  100% { transform: translate(35px, -160px) scale(0.4); opacity: 0; }
+}
+@keyframes particle-float-3 {
+  0%   { transform: translate(0, 0) scale(0.7); opacity: 0; }
+  8%   { opacity: 0.15; }
+  92%  { opacity: 0.1; }
+  100% { transform: translate(-15px, -220px) scale(0.25); opacity: 0; }
+}
+
+@keyframes cloud-drift {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(80px); }
+}
+
+@keyframes compass-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes waypoint-burst {
+  0%   { transform: scale(1); opacity: 0.3; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes badge-pop-in {
+  0%   { transform: scale(0.8); opacity: 0; }
+  60%  { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes sparkle {
+  0%   { transform: scale(0); opacity: 0; }
+  50%  { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(0); opacity: 0; }
+}
+
+@keyframes stagger-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes gold-border-flash {
+  0%   { box-shadow: inset 0 0 0 2px var(--gold-accent); }
+  100% { box-shadow: inset 0 0 0 2px transparent; }
+}
+
+/* ── Genshin Warm Vignette (over Phaser canvas) ─────────── */
+
+.canvas-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 100px rgba(80, 60, 30, 0.08);
+  z-index: 5;
+}
+.canvas-vignette::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse, transparent 60%, rgba(240,230,210,0.12));
+}
+
+/* ── Ornamental Separator ────────────────────────────────── */
+
+.ornamental-sep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 140px;
+  height: 12px;
+  margin: 0 auto;
+}
+
+/* ── Ambient Particles Container ─────────────────────────── */
+
+.ambient-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.ambient-particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--gold-accent);
+  will-change: transform, opacity;
 }
 
 /* ── Chat Bubble Styles ────────────────────────────────────── */
@@ -190,8 +358,8 @@ h1, h2, h3 {
   color: var(--mejia);
 }
 .opinion-badge--hathaway {
-  background: color-mix(in srgb, var(--hathaway) 15%, white);
-  color: var(--hathaway);
+  background: rgba(192, 121, 42, 0.12);
+  color: #C0792A;
 }
 .opinion-badge--bond {
   background: color-mix(in srgb, var(--bond) 15%, white);
@@ -211,17 +379,17 @@ h1, h2, h3 {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #C4B5A0;
+  background: rgba(196, 163, 90, 0.2);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #A0937E;
+  background: rgba(196, 163, 90, 0.35);
 }
 
 /* ── Slide panel ───────────────────────────────────────────── */
 
 .slide-panel-enter {
-  animation: slide-in-right 0.3s ease-out forwards;
+  animation: slide-in-right 0.35s var(--ease-genshin) forwards;
 }
 
 .slide-panel-exit {
@@ -350,9 +518,9 @@ h1, h2, h3 {
 }
 
 .town-view-sidebar {
-  width: 260px;
-  border-left: 1px solid var(--card-border);
-  background: var(--township-bg);
+  width: 280px;
+  border-left: 1px solid rgba(180,160,120,0.15);
+  background: var(--bg-paper);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -548,6 +716,42 @@ h1, h2, h3 {
 .chat-mode-toggle-btn:not(.chat-mode-toggle-btn--active):hover {
   color: var(--township-ink);
   background: rgba(0, 0, 0, 0.04);
+}
+
+/* ── Canvas DOM Overlay Labels ────────────────────────────── */
+
+.overlay-agent-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: center;
+  translate: -50% -50%;
+  color: #ffffff;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6), 0 0 1px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.overlay-landmark-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: center;
+  translate: -50% -50%;
+  background: rgba(0, 0, 0, 0.46);
+  color: #ffffff;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* ── Keyboard Hint Overlay ────────────────────────────────── */

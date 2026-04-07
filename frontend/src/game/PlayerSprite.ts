@@ -44,11 +44,23 @@ export class PlayerSprite extends AgentSprite {
     if (this.charSprite && cfg.spriteKey === "char-player") {
       this.charSprite.setScale(PLAYER_SPRITE_SCALE);
     }
+    this.spriteBaseScale = PLAYER_SPRITE_SCALE;
+
+    // Enable physics body for tilemap collision
+    scene.physics.world.enable(this);
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    if (body) {
+      body.setSize(24, 16);
+      body.setOffset(-12, -8); // center on feet
+      body.setCollideWorldBounds(true);
+    }
 
     // ── Keyboard setup ──────────────────────────────────────
     const kb = scene.input.keyboard;
     if (kb) {
       this.cursors = kb.createCursorKeys();
+      // Release Space capture so it can be typed in DOM inputs (chat bar)
+      kb.removeCapture(Phaser.Input.Keyboard.KeyCodes.SPACE);
       this.wasd = kb.addKeys("W,A,S,D") as any;
       this.eKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.E);
       kb.on("keydown-E", () => this.onInteract());
@@ -215,11 +227,14 @@ export class PlayerSprite extends AgentSprite {
   // Frame update — keyboard movement + proximity detection
   // ──────────────────────────────────────────────────────────────
 
-  updatePlayer(delta: number) {
+  updatePlayer(_delta: number) {
+    const body = this.body as Phaser.Physics.Arcade.Body | undefined;
+
     // Skip movement if input is disabled or a text field is focused
     const active = document.activeElement;
     const typing = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
     if (!this.inputEnabled || typing) {
+      body?.setVelocity(0, 0);
       if (this.wasMoving) {
         this.wasMoving = false;
         this.playIdle(this.currentDirection);
@@ -250,7 +265,9 @@ export class PlayerSprite extends AgentSprite {
       // Stop idle tween if we were standing
       if (!this.wasMoving) {
         this.idleTween?.stop();
+        this.charSprite?.setScale(this.spriteBaseScale);
         this.shadowTween?.stop();
+        this.groundShadow.setScale(1);
       }
 
       // Determine facing direction
@@ -264,18 +281,26 @@ export class PlayerSprite extends AgentSprite {
         this.playWalk(this.currentDirection);
       }
 
-      // Update position
-      const speed = PLAYER_SPEED * (delta / 1000);
-      this.x = Phaser.Math.Clamp(this.x + vx * speed, 40, 1160);
-      this.y = Phaser.Math.Clamp(this.y + vy * speed, 40, 760);
+      // Velocity-based movement (respects physics collision)
+      if (body) {
+        body.setVelocity(vx * PLAYER_SPEED, vy * PLAYER_SPEED);
+      } else {
+        // Fallback: direct position (no physics body)
+        const speed = PLAYER_SPEED * (_delta / 1000);
+        this.x = Phaser.Math.Clamp(this.x + vx * speed, 40, 1160);
+        this.y = Phaser.Math.Clamp(this.y + vy * speed, 40, 760);
+      }
       this.homeY = this.y;
 
       this.wasMoving = true;
-    } else if (this.wasMoving) {
-      // Just stopped — play idle
-      this.wasMoving = false;
-      this.playIdle(this.currentDirection);
-      this.beginIdle();
+    } else {
+      body?.setVelocity(0, 0);
+      if (this.wasMoving) {
+        // Just stopped — play idle
+        this.wasMoving = false;
+        this.playIdle(this.currentDirection);
+        this.beginIdle();
+      }
     }
 
     this.syncDepth();

@@ -449,54 +449,76 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
       <div
         className={`chat-panel fixed top-0 right-0 h-full w-[400px] max-w-full flex flex-col z-50 slide-panel-enter ${mobileExpanded ? "chat-panel--expanded" : ""}`}
         style={{
-          background: "var(--card-bg)",
-          borderLeft: "1px solid var(--card-border)",
-          boxShadow: "-4px 0 24px rgba(0,0,0,0.08)",
+          background: "var(--bg-paper)",
+          borderLeft: "1px solid var(--warm-glass-border)",
+          boxShadow: "-8px 0 30px rgba(100,80,50,0.08)",
         }}
       >
         {/* Header */}
         <div
-          className="px-4 py-3 flex items-start gap-3 border-b"
-          style={{ borderColor: "var(--card-border)", background: "var(--township-paper)" }}
+          className="px-4 py-3 flex flex-col"
+          style={{ background: "var(--bg-warm)" }}
         >
-          <div
-            className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold shrink-0"
-            style={{
-              background: agent.color || meta.color,
-              boxShadow: `0 0 0 3px ${opinionColor}`,
-            }}
-          >
-            {initials}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm" style={{ color: "var(--township-ink)" }}>
-              {agent.name}
-            </h3>
-            <p className="text-xs" style={{ color: "var(--township-ink-muted)" }}>
-              {agent.occupation}
-            </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`town-badge town-badge--${agent.town}`}>{meta.name}</span>
-              <span className={`opinion-badge opinion-badge--${agent.opinion?.candidate || "undecided"}`}>
-                {opinionLabel}
-                {agent.opinion?.confidence ? ` ${agent.opinion.confidence}%` : ""}
-              </span>
+          <div className="flex items-start gap-3">
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center text-white shrink-0"
+              style={{
+                background: agent.color || meta.color,
+                border: `3px solid ${meta.color}`,
+                fontFamily: "var(--font-display)",
+                fontSize: "20px",
+                fontWeight: 700,
+              }}
+            >
+              {initials}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 style={{ fontFamily: "var(--font-display)", fontSize: "18px", color: "var(--text-primary)", fontWeight: 600 }}>
+                {agent.name}
+              </h3>
+              <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-secondary)" }}>
+                {agent.occupation}
+              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`town-badge town-badge--${agent.town}`}>{meta.name}</span>
+                <span className={`opinion-badge opinion-badge--${agent.opinion?.candidate || "undecided"}`}>
+                  {opinionLabel}
+                  {agent.opinion?.confidence ? ` ${agent.opinion.confidence}%` : ""}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: "var(--text-muted)", transition: "color 150ms" }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+                aria-label="Close chat"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+              {profile && (
+                <ChatModeToggle mode={chatMode} onChange={setChatMode} />
+              )}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-black/5 transition-colors"
-              aria-label="Close chat"
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-            {profile && (
-              <ChatModeToggle mode={chatMode} onChange={setChatMode} />
-            )}
-          </div>
+          {/* Ornamental separator */}
+          <svg width="100%" height="8" viewBox="0 0 360 8" preserveAspectRatio="none" className="mt-3">
+            <defs>
+              <linearGradient id="chat-sep" x1="0%" y1="50%" x2="100%" y2="50%">
+                <stop offset="0%" stopColor="var(--gold-accent)" stopOpacity="0" />
+                <stop offset="30%" stopColor="var(--gold-accent)" stopOpacity="0.3" />
+                <stop offset="50%" stopColor="var(--gold-accent)" stopOpacity="0.45" />
+                <stop offset="70%" stopColor="var(--gold-accent)" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="var(--gold-accent)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <line x1="0" y1="4" x2="360" y2="4" stroke="url(#chat-sep)" strokeWidth="1" />
+            <rect x="174" y="1" width="6" height="6" rx="0.5" transform="rotate(45 177 4)" fill="var(--gold-accent)" opacity="0.4" />
+          </svg>
         </div>
 
         {/* Messages */}
