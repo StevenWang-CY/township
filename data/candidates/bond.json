@@ -1,0 +1,41 @@
+{
+  "name": "Alan Bond",
+  "party": "Independent",
+  "party_label": "Hope for Tomorrow!",
+  "background": "Montclair resident. Dartmouth BA, Harvard MBA. Former Wall Street fund manager.",
+  "residence": "Montclair",
+  "fraud_conviction": {
+    "description": "Served 6 years in federal prison (2003–2008) after conviction on 6 counts of fraud for a $6.9M pension fund 'cherry-picking' scheme.",
+    "sentence": "6 years federal prison",
+    "years_served": "2003–2008",
+    "charges": "6 counts of fraud",
+    "amount": "$6.9M pension fund cherry-picking scheme"
+  },
+  "positions": [
+    {
+      "issue": "Affordability",
+      "stance": "Supports affordability measures (limited details available)"
+    },
+    {
+      "issue": "Education",
+      "stance": "Supports education improvements (limited details available)"
+    },
+    {
+      "issue": "Healthcare",
+      "stance": "Supports healthcare access (limited details available)"
+    },
+    {
+      "issue": "Community Safety",
+      "stance": "Supports community safety (limited details available)"
+    }
+  ],
+  "endorsements": [],
+  "debate_participation": {
+    "excluded": true,
+    "note": "Excluded from the only debate (April 1, 2026)"
+  },
+  "sources": [
+    "Ballotpedia (ballotpedia.org/Alan_Bond)",
+    "Patch.com Montclair (March 28, 2026)"
+  ]
+}

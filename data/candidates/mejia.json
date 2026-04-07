@@ -1,0 +1,76 @@
+{
+  "name": "Analilia Mejia",
+  "party": "Democrat",
+  "background": "Co-executive director, Center for Popular Democracy. Daughter of Colombian/Dominican immigrants. Former national political director, Bernie Sanders 2020 campaign. Former deputy director, U.S. Women's Bureau (Biden admin).",
+  "residence": "Glen Ridge",
+  "positions": [
+    {
+      "issue": "Healthcare",
+      "stance": "Medicare for All"
+    },
+    {
+      "issue": "Minimum Wage",
+      "stance": "$25 minimum wage"
+    },
+    {
+      "issue": "Education",
+      "stance": "Free public college, student loan cancellation"
+    },
+    {
+      "issue": "Labor",
+      "stance": "PRO Act"
+    },
+    {
+      "issue": "Immigration/ICE",
+      "stance": "Abolish ICE"
+    },
+    {
+      "issue": "Supreme Court",
+      "stance": "Supreme Court reform"
+    },
+    {
+      "issue": "Israel/Gaza",
+      "stance": "Called Netanyahu a war criminal. Condition aid on human rights.",
+      "quote": "Called Netanyahu a war criminal"
+    },
+    {
+      "issue": "One Big Beautiful Bill",
+      "stance": "Opposes it"
+    },
+    {
+      "issue": "Gateway Tunnel",
+      "stance": "Supports — rare common ground with Hathaway"
+    },
+    {
+      "issue": "Trump",
+      "stance": "Called Hathaway a 'rubber stamp for Trump'"
+    }
+  ],
+  "endorsements": [
+    "Bernie Sanders",
+    "Elizabeth Warren",
+    "Alexandria Ocasio-Cortez (AOC)",
+    "Ayanna Pressley",
+    "Pramila Jayapal",
+    "Ro Khanna"
+  ],
+  "primary_result": {
+    "date": "2026-02-05",
+    "outcome": "Won upset primary over former Rep. Tom Malinowski",
+    "spending": "~$600k vs. Malinowski's $1.2M"
+  },
+  "debate_performance": {
+    "date": "2026-04-01",
+    "format": "Virtual, hosted by NJ Globe + Rider University's Rebovich Institute",
+    "key_quotes": [
+      "Called Hathaway a 'wolf in sheep's clothing'",
+      "Called Hathaway a 'rubber stamp for Trump'"
+    ],
+    "note": "Mejia initially refused the League of Women Voters debate (cancelled March 20)"
+  },
+  "sources": [
+    "Wikipedia (en.wikipedia.org/wiki/Analilia_Mejia)",
+    "Ballotpedia",
+    "analiliafornj.com/economy-for-everyone"
+  ]
+}
