@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import Phaser from "phaser";
 import { TownScene } from "../game/TownScene";
 import { GAME_CONFIG } from "../game/config";
+import { useUserProfile } from "../context/UserProfileContext";
 import ChatPanel from "./ChatPanel";
 import AgentCard from "./AgentCard";
 import type { AgentState, TownId, SimulationEvent } from "../types/messages";
@@ -59,17 +60,60 @@ const DEMO_AGENTS: Record<TownId, AgentState[]> = {
   ],
 };
 
+/* ── Keyboard Hint Overlay ────────────────────────────────── */
+
+function KeyboardHint({ onDismiss }: { onDismiss: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 5000);
+    const onKey = () => { onDismiss(); clearTimeout(timer); };
+    window.addEventListener("keydown", onKey, { once: true });
+    return () => { clearTimeout(timer); window.removeEventListener("keydown", onKey); };
+  }, [onDismiss]);
+
+  return (
+    <div className="keyboard-hint">
+      <div className="keyboard-hint-inner">
+        <div className="keyboard-hint-group">
+          <div className="keyboard-hint-keys">
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+          </div>
+          <span className="keyboard-hint-label">Move</span>
+        </div>
+        <div className="keyboard-hint-divider" />
+        <div className="keyboard-hint-group">
+          <div className="keyboard-hint-keys">
+            <kbd>E</kbd>
+          </div>
+          <span className="keyboard-hint-label">Talk</span>
+        </div>
+        <div className="keyboard-hint-divider" />
+        <div className="keyboard-hint-group">
+          <div className="keyboard-hint-keys">
+            <kbd className="keyboard-hint-click">Click</kbd>
+          </div>
+          <span className="keyboard-hint-label">Chat</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── TownView Component ───────────────────────────────────── */
+
 export default function TownView({ ws }: TownViewProps) {
   const { townId } = useParams<{ townId: string }>();
   const town = (townId as TownId) || "dover";
   const meta = TOWN_META[town];
+  const { profile, isOnboarded } = useUserProfile();
 
   const gameContainerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const sceneRef = useRef<TownScene | null>(null);
+  const playerSpawnedRef = useRef(false);
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [showKeyboardHint, setShowKeyboardHint] = useState(true);
   const lastProcessedEvent = useRef(0);
 
   // Get agents for this town
@@ -80,6 +124,19 @@ export default function TownView({ ws }: TownViewProps) {
   })();
 
   const selectedAgent = townAgents.find((a) => a.id === selectedAgentId) || null;
+
+  // Build a player AgentState for the sidebar
+  const playerAgentState: AgentState | null = profile && profile.town === town ? {
+    id: profile.agentId,
+    name: profile.name,
+    town: profile.town as TownId,
+    occupation: "You",
+    opinion: { candidate: "undecided", confidence: 0, reasoning: "", top_issue: profile.topConcerns[0] || "" },
+    location: "Exploring",
+    current_activity: "Walking around",
+    initials: profile.initials,
+    color: profile.color,
+  } : null;
 
   /* ── Initialize Phaser ───────────────────────────────────── */
 
@@ -100,19 +157,35 @@ export default function TownView({ ws }: TownViewProps) {
 
     gameRef.current = game;
 
-    // Listen for agent clicks from Phaser
+    // Listen for agent clicks and player events from Phaser
     const checkScene = setInterval(() => {
       const activeScene = game.scene.getScene("TownScene") as TownScene | undefined;
       if (activeScene && activeScene.scene.isActive()) {
         clearInterval(checkScene);
+
         activeScene.events.on("agent-clicked", (agentId: string) => {
           setSelectedAgentId(agentId);
           setChatOpen(true);
         });
 
+        activeScene.events.on("player-interact", (agentId: string) => {
+          setSelectedAgentId(agentId);
+          setChatOpen(true);
+        });
+
+        activeScene.events.on("proximity-agent", (_agentId: string | null) => {
+          // Could show a UI indicator — for now proximity is handled in-game
+        });
+
         // Add demo agents
         for (const agent of townAgents) {
           activeScene.addAgent(agent);
+        }
+
+        // Spawn player if onboarded
+        if (isOnboarded && profile && !playerSpawnedRef.current) {
+          activeScene.addPlayer(profile);
+          playerSpawnedRef.current = true;
         }
       }
     }, 200);
@@ -122,8 +195,27 @@ export default function TownView({ ws }: TownViewProps) {
       game.destroy(true);
       gameRef.current = null;
       sceneRef.current = null;
+      playerSpawnedRef.current = false;
     };
   }, [town]);
+
+  /* ── Spawn player when profile becomes available ────────── */
+
+  useEffect(() => {
+    if (!isOnboarded || !profile || playerSpawnedRef.current) return;
+    const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
+    if (!scene || !scene.scene.isActive()) return;
+    scene.addPlayer(profile);
+    playerSpawnedRef.current = true;
+  }, [isOnboarded, profile]);
+
+  /* ── Toggle player input when chat opens/closes ─────────── */
+
+  useEffect(() => {
+    const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
+    if (!scene || !scene.scene.isActive()) return;
+    scene.setPlayerInputEnabled(!chatOpen);
+  }, [chatOpen]);
 
   /* ── Sync agents to Phaser when WS data updates ──────────── */
 
@@ -175,6 +267,10 @@ export default function TownView({ ws }: TownViewProps) {
     setChatOpen(true);
   }, []);
 
+  const handleCloseChat = useCallback(() => {
+    setChatOpen(false);
+  }, []);
+
   return (
     <div className="town-view-layout">
       {/* Main area */}
@@ -206,6 +302,11 @@ export default function TownView({ ws }: TownViewProps) {
         {/* Phaser canvas */}
         <div className="town-canvas-wrapper flex-1 relative" style={{ background: "#e8dcc8" }}>
           <div ref={gameContainerRef} className="absolute inset-0" />
+
+          {/* Keyboard hint overlay */}
+          {showKeyboardHint && isOnboarded && (
+            <KeyboardHint onDismiss={() => setShowKeyboardHint(false)} />
+          )}
         </div>
       </div>
 
@@ -213,10 +314,18 @@ export default function TownView({ ws }: TownViewProps) {
       <div className="town-view-sidebar">
         <div className="px-3 py-2 border-b" style={{ borderColor: "var(--card-border)" }}>
           <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--township-ink-muted)" }}>
-            Residents ({townAgents.length})
+            Residents ({townAgents.length + (playerAgentState ? 1 : 0)})
           </h3>
         </div>
         <div className="flex-1 overflow-y-auto px-1.5 py-1.5 flex flex-col gap-0.5">
+          {/* Player card at top */}
+          {playerAgentState && (
+            <div className="player-sidebar-card">
+              <AgentCard agent={playerAgentState} compact onClick={() => {}} />
+              <span className="player-badge">YOU</span>
+            </div>
+          )}
+          {/* NPC agents */}
           {townAgents.map((agent) => (
             <AgentCard key={agent.id} agent={agent} compact onClick={() => openChat(agent.id)} />
           ))}
@@ -247,7 +356,7 @@ export default function TownView({ ws }: TownViewProps) {
       </div>
 
       {/* Chat panel */}
-      {chatOpen && <ChatPanel agent={selectedAgent} onClose={() => setChatOpen(false)} />}
+      {chatOpen && <ChatPanel agent={selectedAgent} onClose={handleCloseChat} />}
     </div>
   );
 }

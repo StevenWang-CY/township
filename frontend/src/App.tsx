@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import { useWebSocket } from "./hooks/useWebSocket";
+import { UserProfileProvider } from "./context/UserProfileContext";
 import DistrictMap from "./components/DistrictMap";
 import TownView from "./components/TownView";
+import OnboardingView from "./components/OnboardingView";
 import Dashboard from "./components/Dashboard";
 import GodsView from "./components/GodsView";
 
@@ -12,6 +14,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
+    <UserProfileProvider>
     <div className="min-h-screen flex flex-col">
       {/* ── Header ───────────────────────────────────────── */}
       <header
@@ -97,11 +100,13 @@ export default function App() {
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<DistrictMap />} />
+          <Route path="/onboarding" element={<OnboardingView />} />
           <Route path="/town/:townId" element={<TownView ws={ws} />} />
           <Route path="/dashboard" element={<Dashboard ws={ws} />} />
           <Route path="/gods-view" element={<GodsView ws={ws} />} />
         </Routes>
       </main>
     </div>
+    </UserProfileProvider>
   );
 }
