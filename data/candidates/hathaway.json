@@ -1,0 +1,58 @@
+{
+  "name": "Joe Hathaway",
+  "party": "Republican",
+  "background": "Randolph Township councilman and former mayor. Yale '09 (Political Science). Former aide to Gov. Chris Christie. Ran unopposed in Republican primary.",
+  "residence": "Randolph",
+  "positioning": "Self-described 'new generation Republican'",
+  "positions": [
+    {
+      "issue": "Taxes",
+      "stance": "Lower taxes, tax freeze for first-time homebuyers"
+    },
+    {
+      "issue": "Education/Student Loans",
+      "stance": "Cap student loan interest rates"
+    },
+    {
+      "issue": "One Big Beautiful Bill",
+      "stance": "Supports it"
+    },
+    {
+      "issue": "Gateway Tunnel",
+      "stance": "Pro-Gateway Tunnel — rare common ground with Mejia"
+    },
+    {
+      "issue": "Israel/Gaza",
+      "stance": "Unconditional aid to Israel"
+    },
+    {
+      "issue": "Workforce",
+      "stance": "Workforce training investment"
+    },
+    {
+      "issue": "Biden 2020",
+      "stance": "Acknowledged Biden won 2020"
+    },
+    {
+      "issue": "Trump Third Term",
+      "stance": "Would oppose Trump third term"
+    }
+  ],
+  "endorsements": [],
+  "primary_result": {
+    "outcome": "Ran unopposed in Republican primary"
+  },
+  "debate_performance": {
+    "date": "2026-04-01",
+    "format": "Virtual, hosted by NJ Globe + Rider University's Rebovich Institute",
+    "key_quotes": [
+      "Called Mejia 'radical socialist'",
+      "Attacked Mejia as antisemitic for calling Netanyahu a war criminal"
+    ]
+  },
+  "sources": [
+    "joehathawayforcongress.com/platform",
+    "Morristown Green (March 30, 2026)",
+    "The Setonian (April 3, 2026)"
+  ]
+}

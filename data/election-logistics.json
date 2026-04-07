@@ -1,0 +1,45 @@
+{
+  "race": "Special election for NJ's 11th Congressional District (U.S. House of Representatives)",
+  "reason": "Mikie Sherrill (D) vacated the seat after winning the 2025 NJ gubernatorial election",
+  "election_day": {
+    "date": "2026-04-16",
+    "day_of_week": "Thursday",
+    "hours": "6:00 AM – 8:00 PM"
+  },
+  "early_voting": {
+    "dates": "April 6–14, 2026",
+    "hours_weekday": "Mon–Sat 10 AM – 8 PM",
+    "hours_sunday": "Sun 10 AM – 6 PM",
+    "note": "Early voting is currently underway"
+  },
+  "mail_ballot_deadlines": {
+    "apply_by_mail": "April 9, 2026",
+    "apply_in_person": "April 15, 2026, 3:00 PM"
+  },
+  "voter_registration": {
+    "as_of": "2026-04-01",
+    "democrats": 229561,
+    "republicans": 164954,
+    "unaffiliated": 203543,
+    "total": 598058
+  },
+  "district_stats": {
+    "cook_pvi": "D+5",
+    "population": 779403,
+    "median_hh_income": 137244,
+    "foreign_born_pct": "21.6%",
+    "foreign_born_count": 168000,
+    "non_english_households_pct": "29.6%",
+    "top_non_english_languages": [
+      { "language": "Spanish", "households": 92826, "pct": "12.6%" },
+      { "language": "Chinese (incl. Mandarin/Cantonese)", "households": 18046, "pct": "2.45%" },
+      { "language": "Gujarati", "households": 8962, "pct": "1.22%" }
+    ]
+  },
+  "sources": [
+    "NJ Division of Elections (nj.gov/state/elections/special-election.shtml)",
+    "Patch.com Livingston, 'NJ-11 Debate Between Mejia, Hathaway: 5 Things To Know,' April 2, 2026",
+    "Ballotpedia, citing 2024 and 2020 presidential results",
+    "DataUSA, ACS 2024 5-year (datausa.io/profile/geo/congressional-district-11-nj)"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "Montclair",
+  "county": "Essex County",
+  "tagline": "The Progressive Hub",
+  "demographics": {
+    "population": 40341,
+    "median_age": 39.9,
+    "median_hh_income": 151075,
+    "per_capita_income": 91351,
+    "poverty_rate": "7.5%",
+    "racial_composition": {
+      "white_non_hispanic": "~57–59%",
+      "black_african_american": "~18–19%",
+      "asian": "~5–6%",
+      "hispanic_latino": "~10–11%"
+    },
+    "foreign_born_pct": "~16–17%"
+  },
+  "character": "Progressive, racially diverse, affluent, arts/culture hub. Alan Bond lives here; Mejia in neighboring Glen Ridge. Strong progressive lean.",
+  "landmarks": [
+    { "name": "Bloomfield Ave", "type": "commercial", "description": "Commercial strip, main thoroughfare", "x": 400, "y": 80 },
+    { "name": "Bay Street Station", "type": "transit", "description": "NJ Transit commuter rail station", "x": 200, "y": 180 },
+    { "name": "Montclair Art Museum", "type": "cultural", "description": "Art museum and cultural center", "x": 600, "y": 150 },
+    { "name": "Town Hall", "type": "civic", "description": "Montclair municipal government", "x": 350, "y": 250 },
+    { "name": "Public Library", "type": "civic", "description": "Montclair Public Library", "x": 500, "y": 300 },
+    { "name": "Anderson Park", "type": "park", "description": "Public park and green space", "x": 650, "y": 350 },
+    { "name": "Upper Montclair Residential", "type": "residential", "description": "Upper Montclair affluent residential area", "x": 300, "y": 450 },
+    { "name": "St. Paul Baptist Church", "type": "religious", "description": "Historic Black church", "x": 550, "y": 500 }
+  ],
+  "color_theme": {
+    "primary": "#4A90D9",
+    "secondary": "#2C5F8A"
+  },
+  "sources": [
+    "Census Reporter, ACS 2024 5-year",
+    "Point2Homes, ACS 2019-2023"
+  ]
+}

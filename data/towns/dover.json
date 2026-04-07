@@ -1,0 +1,49 @@
+{
+  "name": "Dover",
+  "county": "Morris County",
+  "tagline": "The Working-Class Heart",
+  "demographics": {
+    "population": 18435,
+    "median_age": 41.0,
+    "median_hh_income": 70519,
+    "per_capita_income": 38130,
+    "poverty_rate": "11.6%",
+    "racial_composition": {
+      "hispanic_latino": "69–75%",
+      "white_non_hispanic": "~14%",
+      "black_african_american": "~6–9%"
+    },
+    "foreign_born_pct": "51.5%",
+    "us_citizens_pct": "67.3%",
+    "language_stats": {
+      "non_english_at_home": "68.9%",
+      "spanish_at_home": "66.0%"
+    },
+    "top_ancestry": [
+      { "group": "Colombian", "pct": "15.2%" },
+      { "group": "Mexican", "pct": "14.9%" },
+      { "group": "Puerto Rican", "pct": "11.1%" },
+      { "group": "Ecuadorian", "pct": "5.6%" }
+    ]
+  },
+  "character": "Majority-Hispanic working-class town. 51.5% foreign-born. Median income less than half of Randolph's. The community most directly affected by ICE enforcement and healthcare affordability. Profoundly underrepresented in NJ-11 political coverage.",
+  "landmarks": [
+    { "name": "Blackwell Street", "type": "commercial", "description": "Historic main street", "x": 400, "y": 100 },
+    { "name": "Dover NJ Transit Station", "type": "transit", "description": "NJ Transit commuter rail station", "x": 200, "y": 200 },
+    { "name": "St. Mary's Catholic Church", "type": "religious", "description": "Catholic church serving the community", "x": 600, "y": 150 },
+    { "name": "Latino Businesses Area", "type": "commercial", "description": "Bodegas, taquerias, barber shops", "x": 400, "y": 300 },
+    { "name": "Public Housing", "type": "residential", "description": "Public housing complex", "x": 150, "y": 400 },
+    { "name": "Dover Public Library", "type": "civic", "description": "Public library", "x": 550, "y": 400 },
+    { "name": "Factory/Warehouse", "type": "industrial", "description": "Factory and warehouse district", "x": 700, "y": 500 }
+  ],
+  "color_theme": {
+    "primary": "#D4A056",
+    "secondary": "#8B5E3C"
+  },
+  "sources": [
+    "BiggestUSCities.com, Census 2024 estimates",
+    "newjersey-demographics.com, ACS 2023",
+    "DataUSA, ACS 2023",
+    "Wikipedia, 2010 Census"
+  ]
+}

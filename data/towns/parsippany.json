@@ -1,0 +1,38 @@
+{
+  "name": "Parsippany-Troy Hills",
+  "county": "Morris County",
+  "tagline": "The Suburban Melting Pot",
+  "demographics": {
+    "population": 56397,
+    "median_age": 42.5,
+    "median_hh_income": 112327,
+    "per_capita_income": 61016,
+    "poverty_rate": "4.8%",
+    "racial_composition": {
+      "white": "~47–50%",
+      "asian": "~35–38%",
+      "black_african_american": "~3.5%",
+      "hispanic_latino": "~8%"
+    },
+    "foreign_born_pct": "~37%"
+  },
+  "character": "District's largest town, dramatically Asian-American (primarily Indian/South Asian). Corporate hub, swing-voter territory.",
+  "landmarks": [
+    { "name": "Corporate Office Park", "type": "commercial", "description": "Major corporate and business hub", "x": 350, "y": 100 },
+    { "name": "Lake Parsippany Clubhouse", "type": "community", "description": "Lakeside community clubhouse", "x": 600, "y": 150 },
+    { "name": "Route 46 Indian Corridor", "type": "commercial", "description": "Indian restaurant and grocery corridor along Route 46", "x": 400, "y": 250 },
+    { "name": "Hindu Temple", "type": "religious", "description": "Hindu temple serving South Asian community", "x": 200, "y": 300 },
+    { "name": "Residential Subdivisions", "type": "residential", "description": "Suburban residential subdivisions", "x": 500, "y": 400 },
+    { "name": "NJ Transit Bus Stop", "type": "transit", "description": "NJ Transit bus stop for commuters", "x": 150, "y": 450 },
+    { "name": "Public Library", "type": "civic", "description": "Parsippany Public Library", "x": 650, "y": 500 }
+  ],
+  "color_theme": {
+    "primary": "#E8A245",
+    "secondary": "#B07830"
+  },
+  "sources": [
+    "Census Reporter, ACS 2024 5-year",
+    "Point2Homes, ACS 2019-2023",
+    "World Population Review, ACS 2024"
+  ]
+}

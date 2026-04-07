@@ -1,0 +1,489 @@
+@import "tailwindcss";
+
+/* ── Township Design System ────────────────────────────────── */
+
+:root {
+  /* Core palette */
+  --township-bg: #FAF7F2;
+  --township-paper: #F5F0E8;
+  --township-ink: #2C2416;
+  --township-ink-muted: #6B5E4F;
+
+  /* Civic blues */
+  --civic-blue: #3B5998;
+  --civic-blue-light: #5B7EC0;
+
+  /* Candidate colors */
+  --mejia: #3B82F6;
+  --hathaway: #EF4444;
+  --bond: #9CA3AF;
+  --undecided: #D1D5DB;
+
+  /* Town accent colors */
+  --dover: #E8763B;
+  --montclair: #6B5CE7;
+  --parsippany: #2DA8A8;
+  --randolph: #4A9B5C;
+
+  /* Surfaces */
+  --card-bg: #FFFFFF;
+  --card-border: #E8E0D4;
+  --card-shadow: 0 2px 8px rgba(44, 36, 22, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--township-bg);
+  color: var(--township-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3 {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+/* ── Animation Keyframes ───────────────────────────────────── */
+
+@keyframes agent-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px currentColor); }
+  50% { filter: drop-shadow(0 0 12px currentColor); }
+}
+
+@keyframes opinion-shift {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes typing-dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+@keyframes pin-bounce {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-8px); }
+  60% { transform: translateY(-4px); }
+}
+
+@keyframes ripple {
+  0% { transform: scale(0.8); opacity: 0.6; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* ── Chat Bubble Styles ────────────────────────────────────── */
+
+.chat-bubble {
+  padding: 10px 14px;
+  border-radius: 16px;
+  max-width: 85%;
+  line-height: 1.5;
+  font-size: 0.875rem;
+  animation: fade-in-up 0.3s ease-out;
+}
+
+.chat-bubble--agent {
+  background: var(--township-paper);
+  border: 1px solid var(--card-border);
+  border-bottom-left-radius: 4px;
+  align-self: flex-start;
+}
+
+.chat-bubble--user {
+  background: var(--civic-blue);
+  color: white;
+  border-bottom-right-radius: 4px;
+  align-self: flex-end;
+}
+
+.chat-bubble--system {
+  background: transparent;
+  color: var(--township-ink-muted);
+  font-style: italic;
+  font-size: 0.8rem;
+  text-align: center;
+  align-self: center;
+}
+
+/* ── Town Accent Utilities ─────────────────────────────────── */
+
+.town-dover { --town-accent: var(--dover); }
+.town-montclair { --town-accent: var(--montclair); }
+.town-parsippany { --town-accent: var(--parsippany); }
+.town-randolph { --town-accent: var(--randolph); }
+
+.town-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.town-badge--dover {
+  background: color-mix(in srgb, var(--dover) 15%, white);
+  color: var(--dover);
+}
+.town-badge--montclair {
+  background: color-mix(in srgb, var(--montclair) 15%, white);
+  color: var(--montclair);
+}
+.town-badge--parsippany {
+  background: color-mix(in srgb, var(--parsippany) 15%, white);
+  color: var(--parsippany);
+}
+.town-badge--randolph {
+  background: color-mix(in srgb, var(--randolph) 15%, white);
+  color: var(--randolph);
+}
+
+/* ── Candidate Opinion Badge ───────────────────────────────── */
+
+.opinion-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.opinion-badge--mejia {
+  background: color-mix(in srgb, var(--mejia) 15%, white);
+  color: var(--mejia);
+}
+.opinion-badge--hathaway {
+  background: color-mix(in srgb, var(--hathaway) 15%, white);
+  color: var(--hathaway);
+}
+.opinion-badge--bond {
+  background: color-mix(in srgb, var(--bond) 15%, white);
+  color: #4B5563;
+}
+.opinion-badge--undecided {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #C4B5A0;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #A0937E;
+}
+
+/* ── Slide panel ───────────────────────────────────────────── */
+
+.slide-panel-enter {
+  animation: slide-in-right 0.3s ease-out forwards;
+}
+
+.slide-panel-exit {
+  animation: slide-out-right 0.25s ease-in forwards;
+}
+
+/* ── District Map ──────────────────────────────────────────── */
+
+.district-map-pin {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+.district-map-pin:hover {
+  transform: scale(1.15);
+}
+.district-map-pin:hover .pin-details {
+  opacity: 1;
+  transform: translateY(0);
+}
+.pin-details {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: all 0.2s ease;
+}
+
+.pin-ripple {
+  animation: ripple 2s ease-out infinite;
+}
+
+/* ── Mobile Responsive Styles ─────────────────────────────── */
+
+/* Mobile nav hamburger */
+.mobile-menu-btn {
+  display: none;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--township-ink);
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 768px) {
+  .mobile-menu-btn {
+    display: block;
+  }
+
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    background: rgba(250, 247, 242, 0.98);
+    border-bottom: 1px solid var(--card-border);
+    padding: 8px 16px;
+    gap: 4px;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+  }
+
+  .nav-links.nav-links--open {
+    display: flex;
+  }
+
+  .nav-links a {
+    width: 100%;
+    text-align: center;
+    padding: 10px 12px !important;
+  }
+}
+
+/* Dashboard responsive grid */
+.dashboard-town-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1280px) {
+  .dashboard-town-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-town-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1280px) {
+  .dashboard-agent-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-agent-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-agent-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* TownView responsive canvas */
+.town-view-layout {
+  display: flex;
+  height: calc(100vh - 56px);
+}
+
+.town-view-sidebar {
+  width: 260px;
+  border-left: 1px solid var(--card-border);
+  background: var(--township-bg);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .town-view-layout {
+    flex-direction: column;
+  }
+
+  .town-view-sidebar {
+    width: 100%;
+    max-height: 200px;
+    border-left: none;
+    border-top: 1px solid var(--card-border);
+  }
+
+  .town-canvas-wrapper {
+    min-height: 300px;
+    max-height: 50vh;
+  }
+}
+
+/* ChatPanel: full-screen overlay on mobile */
+.chat-panel-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .chat-panel-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 49;
+  }
+
+  .chat-panel {
+    position: fixed !important;
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 85vh !important;
+    border-radius: 16px 16px 0 0;
+    border-left: none !important;
+    animation: slide-up-mobile 0.3s ease-out forwards !important;
+  }
+
+  .chat-panel--expanded {
+    height: 85vh !important;
+  }
+}
+
+@keyframes slide-up-mobile {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* DistrictMap: larger touch targets */
+@media (max-width: 768px) {
+  .district-map-pin circle {
+    cursor: pointer;
+  }
+
+  /* Increase tap target size on touch devices */
+  .district-map-pin {
+    touch-action: manipulation;
+  }
+
+  .district-map-pin > circle:first-of-type {
+    r: 24;
+  }
+
+  .district-map-pin-hit-area {
+    r: 32;
+    fill: transparent;
+    cursor: pointer;
+  }
+}
+
+/* District map town cards responsive */
+.district-town-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .district-town-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .district-town-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* God's View responsive */
+@media (max-width: 768px) {
+  .gods-view-container {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* General responsive utilities */
+@media (max-width: 768px) {
+  .max-w-7xl {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* Stack overall donut + metrics vertically */
+  .dashboard-overview {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .dashboard-overview > div:first-child {
+    align-self: center;
+  }
+}

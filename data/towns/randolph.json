@@ -1,0 +1,41 @@
+{
+  "name": "Randolph",
+  "county": "Morris County",
+  "tagline": "The Republican Suburb",
+  "demographics": {
+    "population": 26604,
+    "median_age": 39.1,
+    "median_hh_income": 175000,
+    "per_capita_income": 75883,
+    "poverty_rate": "5.4%",
+    "racial_composition": {
+      "white": "~67–75%",
+      "asian": "~9–13%",
+      "hispanic_latino": "~7–12%",
+      "black_african_american": "~3–4%"
+    },
+    "bachelors_degree_plus": "68.4%",
+    "homeownership": "76.2%"
+  },
+  "character": "Hathaway's literal home base. Affluent, family-oriented, predominantly white but diversifying. Highest median income of the four towns. Republican-leaning but not monolithically so.",
+  "landmarks": [
+    { "name": "Randolph Town Hall", "type": "civic", "description": "Municipal government building", "x": 350, "y": 100 },
+    { "name": "Randolph High School", "type": "education", "description": "Township high school", "x": 600, "y": 120 },
+    { "name": "Commercial Strip", "type": "commercial", "description": "Local shops and businesses", "x": 400, "y": 250 },
+    { "name": "Residential Cul-de-sacs", "type": "residential", "description": "Large-lot residential cul-de-sacs", "x": 200, "y": 350 },
+    { "name": "Youth Sports Fields", "type": "recreation", "description": "Community youth sports fields", "x": 550, "y": 350 },
+    { "name": "Hedden Park", "type": "park", "description": "Hedden Park entrance and trails", "x": 700, "y": 400 },
+    { "name": "Church", "type": "religious", "description": "Local church", "x": 150, "y": 450 },
+    { "name": "Randolph Diner", "type": "commercial", "description": "Local diner gathering spot", "x": 450, "y": 500 }
+  ],
+  "color_theme": {
+    "primary": "#C04040",
+    "secondary": "#8B2020"
+  },
+  "sources": [
+    "Census Reporter, ACS 2024 5-year",
+    "Randolph Township official website",
+    "World Population Review, ACS 2024",
+    "Point2Homes, ACS 2019-2023"
+  ]
+}
