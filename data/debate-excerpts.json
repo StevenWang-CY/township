@@ -1,0 +1,73 @@
+{
+  "debate": {
+    "date": "2026-04-01",
+    "format": "Virtual",
+    "host": "NJ Globe + Rider University's Rebovich Institute",
+    "note": "Only one debate occurred. Mejia initially refused the League of Women Voters debate (cancelled March 20). Bond was excluded."
+  },
+  "exchanges": [
+    {
+      "topic": "Affordability / Cost of Living",
+      "mejia_position": "Supports $25 minimum wage, free public college, student loan cancellation to address affordability",
+      "hathaway_position": "Supports lower taxes, tax freeze for first-time homebuyers, capping student loan interest rates",
+      "key_quote": "Hathaway called Mejia 'radical socialist'",
+      "tension_level": 4
+    },
+    {
+      "topic": "Healthcare / ACA",
+      "mejia_position": "Medicare for All",
+      "hathaway_position": "Opposes Medicare for All; supports One Big Beautiful Bill",
+      "key_quote": "ACA subsidy removal was a key point of contention",
+      "tension_level": 4
+    },
+    {
+      "topic": "Immigration / ICE",
+      "mejia_position": "Abolish ICE",
+      "hathaway_position": "Opposes abolishing ICE",
+      "key_quote": "Immigration enforcement was a sharp dividing line between candidates",
+      "tension_level": 5
+    },
+    {
+      "topic": "Israel / Gaza",
+      "mejia_position": "Condition aid on human rights. Called Netanyahu a war criminal.",
+      "hathaway_position": "Unconditional aid to Israel. Attacked Mejia as antisemitic for calling Netanyahu a war criminal.",
+      "key_quote": "Hathaway attacked Mejia as antisemitic for calling Netanyahu a war criminal",
+      "tension_level": 5
+    },
+    {
+      "topic": "Taxes / SALT Deduction",
+      "mejia_position": "Opposes One Big Beautiful Bill",
+      "hathaway_position": "Supports One Big Beautiful Bill; lower taxes",
+      "key_quote": "Hathaway supports One Big Beautiful Bill; Mejia opposes it",
+      "tension_level": 3
+    },
+    {
+      "topic": "Gateway Tunnel",
+      "mejia_position": "Gateway Tunnel is critical",
+      "hathaway_position": "Pro-Gateway Tunnel",
+      "key_quote": "Both agree Gateway Tunnel is critical (rare common ground)",
+      "tension_level": 1
+    },
+    {
+      "topic": "War with Iran",
+      "mejia_position": "Discussed as a debate topic",
+      "hathaway_position": "Discussed as a debate topic",
+      "key_quote": "War with Iran was among the key issues debated",
+      "tension_level": 3
+    },
+    {
+      "topic": "Trump Relationship",
+      "mejia_position": "Called Hathaway a 'rubber stamp for Trump'",
+      "hathaway_position": "Self-described 'new generation Republican.' Acknowledged Biden won 2020. Would oppose Trump third term.",
+      "key_quote": "Mejia called Hathaway 'wolf in sheep's clothing,' a 'rubber stamp for Trump'",
+      "tension_level": 5
+    }
+  ],
+  "sources": [
+    "Montclair Local (April 1–3, 2026)",
+    "NJ Monitor (April 1–3, 2026)",
+    "Morristown Green (April 1–3, 2026)",
+    "Jewish Insider (April 1–3, 2026)",
+    "Patch.com (April 1–3, 2026)"
+  ]
+}

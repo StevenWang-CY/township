@@ -1,0 +1,66 @@
+[
+  {
+    "id": "ice-dover",
+    "name": "ICE Enforcement in Dover",
+    "description": "ICE conducts a workplace enforcement operation at a Dover restaurant, detaining 3 undocumented workers. Community members report increased fear and reduced foot traffic on Blackwell Street.",
+    "category": "immigration",
+    "expected_impact": "Dover agents shift strongly toward Mejia on immigration. Randolph agents may shift toward Hathaway on 'law and order'. Parsippany split. Montclair outraged.",
+    "affected_towns": ["dover", "parsippany", "randolph", "montclair"]
+  },
+  {
+    "id": "healthcare-increase",
+    "name": "Healthcare Premiums Increase 20%",
+    "description": "New Jersey insurance commissioner announces that ACA marketplace premiums will increase by 20% next quarter due to the removal of enhanced subsidies in the One Big Beautiful Bill.",
+    "category": "healthcare",
+    "expected_impact": "Strong shift toward Mejia across Dover and Montclair. Parsippany healthcare workers galvanized. Randolph concerned about costs but split on solution.",
+    "affected_towns": ["dover", "montclair", "parsippany", "randolph"]
+  },
+  {
+    "id": "parsippany-layoffs",
+    "name": "Major Employer Announces Parsippany Layoffs",
+    "description": "A major pharmaceutical company headquartered in Parsippany announces 500 layoffs, citing federal regulatory uncertainty. Ripple effects expected across Morris County.",
+    "category": "economy",
+    "expected_impact": "Parsippany agents deeply anxious. Hathaway gains on pro-business platform. Dover worried about downstream effects. Randolph finance professionals concerned.",
+    "affected_towns": ["parsippany", "dover", "randolph"]
+  },
+  {
+    "id": "gateway-reversal",
+    "name": "Hathaway Reverses Gateway Tunnel Position",
+    "description": "Joe Hathaway announces he can no longer support the Gateway Tunnel project, citing cost overruns. This reverses his previous pro-Gateway stance shared with Mejia.",
+    "category": "infrastructure",
+    "expected_impact": "NJ Transit commuters in all towns shift toward Mejia. Randolph commuters especially affected. Montclair transit-dependent residents alarmed.",
+    "affected_towns": ["randolph", "montclair", "parsippany", "dover"]
+  },
+  {
+    "id": "school-cuts",
+    "name": "Morris County School Funding Cuts",
+    "description": "New Jersey announces a 15% reduction in state aid to Morris County school districts, effective next fiscal year. Randolph and Parsippany schools expected to be hardest hit.",
+    "category": "education",
+    "expected_impact": "Parents in Randolph and Parsippany shift focus to education. Undecided suburban parents may break toward whichever candidate addresses this. Dover less affected.",
+    "affected_towns": ["randolph", "parsippany", "montclair"]
+  },
+  {
+    "id": "rent-control",
+    "name": "Mejia Endorses Statewide Rent Control",
+    "description": "Analilia Mejia announces support for statewide rent control legislation, capping annual increases at 3%. Landlord associations immediately condemn the proposal.",
+    "category": "housing",
+    "expected_impact": "Renters in Dover and Montclair rally to Mejia. Property owners in Randolph and Parsippany push toward Hathaway. Sharp class divide visible.",
+    "affected_towns": ["dover", "montclair", "randolph", "parsippany"]
+  },
+  {
+    "id": "trump-endorsement",
+    "name": "Trump Endorses Hathaway",
+    "description": "Former President Trump posts on Truth Social endorsing Joe Hathaway, calling him 'a great young Republican who will fight for New Jersey.' Hathaway's campaign has not yet responded.",
+    "category": "national_politics",
+    "expected_impact": "Polarizing. Strengthens Hathaway with base Republicans in Randolph. Pushes unaffiliated voters in Montclair and Parsippany away. Dover largely indifferent to national politics.",
+    "affected_towns": ["randolph", "montclair", "parsippany", "dover"]
+  },
+  {
+    "id": "community-award",
+    "name": "Dover Restaurant Wins Regional Award",
+    "description": "La Finca, Carlos Restrepo's Colombian restaurant on Blackwell Street, wins 'Best New Jersey Restaurant' from NJ Monthly magazine. National media picks up the story as a symbol of immigrant entrepreneurship.",
+    "category": "community",
+    "expected_impact": "Positive community sentiment in Dover. Humanizes immigrant story across all towns. Subtle pro-Mejia effect as narrative aligns with her immigration stance.",
+    "affected_towns": ["dover", "montclair", "parsippany", "randolph"]
+  }
+]
