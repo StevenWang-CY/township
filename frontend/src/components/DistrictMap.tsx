@@ -672,21 +672,62 @@ export default function DistrictMap() {
             </path>
           </g>
         </svg>
+
+        {/* ── Ambient Floating Particles ──────────────────────── */}
+        <div className="ambient-particles">
+          <span className="ambient-particle" style={{ left: "12%", bottom: "8%", animation: "particle-float-0 14s 0s infinite", opacity: 0.2 }} />
+          <span className="ambient-particle" style={{ left: "28%", bottom: "15%", animation: "particle-float-1 12s 1s infinite", opacity: 0.18 }} />
+          <span className="ambient-particle" style={{ left: "45%", bottom: "22%", animation: "particle-float-2 16s 2.5s infinite", opacity: 0.22 }} />
+          <span className="ambient-particle" style={{ left: "62%", bottom: "10%", animation: "particle-float-3 11s 0.5s infinite", opacity: 0.15 }} />
+          <span className="ambient-particle" style={{ left: "78%", bottom: "30%", animation: "particle-float-0 18s 4s infinite", opacity: 0.2 }} />
+          <span className="ambient-particle" style={{ left: "15%", bottom: "40%", animation: "particle-float-1 13s 3s infinite", opacity: 0.17 }} />
+          <span className="ambient-particle" style={{ left: "35%", bottom: "5%", animation: "particle-float-2 15s 6s infinite", opacity: 0.25 }} />
+          <span className="ambient-particle" style={{ left: "55%", bottom: "35%", animation: "particle-float-3 10s 2s infinite", opacity: 0.19 }} />
+          <span className="ambient-particle" style={{ left: "85%", bottom: "18%", animation: "particle-float-0 17s 8s infinite", opacity: 0.16 }} />
+          <span className="ambient-particle" style={{ left: "22%", bottom: "48%", animation: "particle-float-1 14s 5s infinite", opacity: 0.21 }} />
+          <span className="ambient-particle" style={{ left: "70%", bottom: "42%", animation: "particle-float-2 12s 7s infinite", opacity: 0.18 }} />
+          <span className="ambient-particle" style={{ left: "40%", bottom: "12%", animation: "particle-float-3 16s 9s infinite", opacity: 0.23 }} />
+          <span className="ambient-particle" style={{ left: "90%", bottom: "25%", animation: "particle-float-0 11s 10s infinite", opacity: 0.15 }} />
+          <span className="ambient-particle" style={{ left: "50%", bottom: "50%", animation: "particle-float-1 18s 12s infinite", opacity: 0.2 }} />
+        </div>
       </div>
 
       {/* ── Election Info Banner ──────────────────────────────── */}
       <div
-        className="mt-6 max-w-2xl w-full rounded-xl px-6 py-4 text-center"
+        className="mt-6 max-w-2xl w-full rounded-xl px-6 py-4 text-center relative overflow-hidden"
         style={{
-          background: "linear-gradient(135deg, rgba(59,89,152,0.06), rgba(59,89,152,0.02))",
-          border: "1px solid rgba(59,89,152,0.12)",
-          animation: "fade-in-up 1s ease-out",
+          background: "var(--warm-glass)",
+          backdropFilter: "blur(var(--warm-glass-blur))",
+          WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
+          border: "1px solid var(--warm-glass-border)",
+          borderTop: "1px solid rgba(196, 163, 90, 0.3)",
+          animation: "stagger-in 0.5s var(--ease-genshin) backwards",
+          animationDelay: "500ms",
         }}
       >
-        <p className="text-sm font-semibold" style={{ color: "var(--civic-blue)" }}>
+        {/* Top-left corner ornament */}
+        <svg className="absolute top-2 left-2" width="20" height="20" viewBox="0 0 20 20" opacity="0.25">
+          <path d="M0,15 L0,3 C0,1.5 1.5,0 3,0 L15,0" fill="none" stroke="var(--gold-accent)" strokeWidth="1.5" />
+          <circle cx="0" cy="15" r="1.5" fill="var(--gold-accent)" />
+        </svg>
+        {/* Bottom-right corner ornament */}
+        <svg className="absolute bottom-2 right-2" width="20" height="20" viewBox="0 0 20 20" opacity="0.25">
+          <path d="M20,5 L20,17 C20,18.5 18.5,20 17,20 L5,20" fill="none" stroke="var(--gold-accent)" strokeWidth="1.5" />
+          <circle cx="20" cy="5" r="1.5" fill="var(--gold-accent)" />
+        </svg>
+        <p style={{
+          fontFamily: "var(--font-display)",
+          color: "var(--gold-accent)",
+          fontSize: "14px",
+          fontWeight: 600,
+        }}>
           NJ-11 Special Election — April 16, 2026
         </p>
-        <p className="text-xs mt-1" style={{ color: "var(--township-ink-muted)" }}>
+        <p className="mt-1" style={{
+          fontFamily: "var(--font-body)",
+          color: "var(--text-secondary)",
+          fontSize: "12px",
+        }}>
           Early voting happening now (April 6 – 14). 26 AI residents across 4 towns are deliberating.
         </p>
       </div>
