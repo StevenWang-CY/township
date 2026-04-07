@@ -96,16 +96,30 @@ export default function Dashboard({ ws }: DashboardProps) {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6" style={{ animation: "fade-in-up 0.5s ease-out" }}>
+    <div className="max-w-7xl mx-auto px-6 py-6" style={{ background: "var(--bg-cream)" }}>
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-6" style={{ animation: "stagger-in 0.5s var(--ease-genshin) backwards" }}>
         <h1
-          className="text-3xl font-bold"
-          style={{ fontFamily: "Playfair Display, serif", color: "var(--township-ink)" }}
+          className="text-3xl"
+          style={{ fontFamily: "var(--font-display)", color: "var(--text-primary)", fontWeight: 600, letterSpacing: "1px" }}
         >
           District Dashboard
         </h1>
-        <p className="text-sm mt-1" style={{ color: "var(--township-ink-muted)" }}>
+        {/* Ornamental separator */}
+        <svg width="140" height="10" viewBox="0 0 140 10" className="mt-1.5 mb-1">
+          <defs>
+            <linearGradient id="dash-sep" x1="0%" y1="50%" x2="100%" y2="50%">
+              <stop offset="0%" stopColor="var(--gold-accent)" stopOpacity="0" />
+              <stop offset="30%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
+              <stop offset="50%" stopColor="var(--gold-accent)" stopOpacity="0.5" />
+              <stop offset="70%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="var(--gold-accent)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="5" x2="140" y2="5" stroke="url(#dash-sep)" strokeWidth="1" />
+          <rect x="64" y="1.5" width="7" height="7" rx="1" transform="rotate(45 67.5 5)" fill="var(--gold-accent)" opacity="0.45" />
+        </svg>
+        <p className="text-sm" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
           Cross-town comparison of NJ-11 agent deliberation
           {ws.simulationRunning && ` | Round ${ws.currentRound}`}
         </p>
@@ -114,11 +128,19 @@ export default function Dashboard({ ws }: DashboardProps) {
       {/* Overall donut */}
       <div
         className="dashboard-overview rounded-xl px-6 py-5 mb-6 flex items-center gap-8"
-        style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)" }}
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--card-border)",
+          boxShadow: "var(--shadow-soft)",
+          animation: "stagger-in 0.5s var(--ease-genshin) backwards",
+          animationDelay: "80ms",
+        }}
       >
-        <OpinionChart opinions={overallOpinions} size={120} />
+        <div style={{ filter: "drop-shadow(0 0 8px rgba(196,163,90,0.15))" }}>
+          <OpinionChart opinions={overallOpinions} size={120} />
+        </div>
         <div className="flex-1">
-          <h3 className="font-semibold text-sm mb-2" style={{ color: "var(--township-ink)" }}>
+          <h3 className="font-semibold text-sm mb-2" style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", letterSpacing: "0.5px" }}>
             District-Wide Sentiment (26 agents)
           </h3>
           <div className="flex gap-6">
@@ -148,21 +170,26 @@ export default function Dashboard({ ws }: DashboardProps) {
           return (
             <div
               key={t}
-              className="rounded-xl p-4 cursor-pointer transition-all hover:scale-[1.02]"
+              className="rounded-xl p-4 cursor-pointer"
               style={{
-                background: "var(--card-bg)",
-                border: `1.5px solid var(--card-border)`,
-                boxShadow: "var(--card-shadow)",
+                background: "var(--bg-card)",
+                border: "1.5px solid var(--card-border)",
+                boxShadow: "var(--shadow-soft)",
                 borderTop: `3px solid ${meta.color}`,
+                transition: "all 250ms cubic-bezier(0.22, 1, 0.36, 1)",
+                animation: "stagger-in 0.4s var(--ease-genshin) backwards",
+                animationDelay: `${160 + towns.indexOf(t) * 80}ms`,
               }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "var(--shadow-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-soft)"; }}
               onClick={() => navigate(`/town/${t}`)}
             >
               <div className="flex items-center gap-2 mb-3">
                 <span className="w-3 h-3 rounded-full" style={{ background: meta.color }} />
-                <h3 className="font-semibold text-sm" style={{ color: meta.color }}>
+                <h3 className="font-semibold text-sm" style={{ fontFamily: "var(--font-display)", color: meta.color, fontWeight: 600 }}>
                   {meta.name}
                 </h3>
-                <span className="text-xs ml-auto" style={{ color: "var(--township-ink-muted)" }}>
+                <span className="text-xs ml-auto font-semibold" style={{ color: meta.color }}>
                   {meta.population}
                 </span>
               </div>
@@ -172,7 +199,7 @@ export default function Dashboard({ ws }: DashboardProps) {
               </div>
 
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--township-ink-muted)" }}>
+                <h4 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "1.5px", fontSize: "10px" }}>
                   Top Issues
                 </h4>
                 {issues.slice(0, 3).map((issue: string, i: number) => (

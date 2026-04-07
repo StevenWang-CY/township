@@ -445,6 +445,7 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
       <div
         className="chat-panel-backdrop"
         onClick={() => onClose()}
+        style={{ background: "rgba(0,0,0,0.12)" }}
       />
       <div
         className={`chat-panel fixed top-0 right-0 h-full w-[400px] max-w-full flex flex-col z-50 slide-panel-enter ${mobileExpanded ? "chat-panel--expanded" : ""}`}
@@ -525,6 +526,18 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
           {messages.map((msg) => (
             <div key={msg.id} className="flex flex-col">
+              {msg.role === "agent" && (
+                <span style={{
+                  fontFamily: "var(--font-body)",
+                  fontSize: "11px",
+                  color: meta?.color || "var(--text-secondary)",
+                  fontWeight: 600,
+                  marginBottom: "2px",
+                  display: "block",
+                }}>
+                  {agent?.name.split(" ")[0]}
+                </span>
+              )}
               <div className={`chat-bubble chat-bubble--${msg.role}`}>
                 {msg.content}
               </div>
@@ -547,8 +560,8 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
         </div>
 
         {/* Input */}
-        <div className="px-4 py-3 border-t" style={{ borderColor: "var(--card-border)" }}>
-          <div className="flex gap-2">
+        <div className="px-4 py-3" style={{ borderTop: "1px solid var(--warm-glass-border)", background: "var(--bg-paper)" }}>
+          <div className="relative">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -556,27 +569,35 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
               placeholder={
                 isAuto
                   ? "AI persona is speaking for you..."
-                  : `Ask ${agent.name.split(" ")[0]} anything...`
+                  : `Talk to ${agent.name.split(" ")[0]}...`
               }
-              className="flex-1 px-3 py-2 rounded-lg text-sm outline-none"
+              className="w-full pl-5 pr-14 py-3 rounded-full text-sm outline-none"
               style={{
-                background: isAuto ? "var(--card-border)" : "var(--township-paper)",
-                border: "1px solid var(--card-border)",
-                color: "var(--township-ink)",
+                background: "var(--bg-card)",
+                border: "1px solid rgba(180,160,120,0.2)",
+                fontFamily: "var(--font-body)",
+                fontSize: "13.5px",
+                color: "var(--text-primary)",
                 opacity: isAuto ? 0.5 : 1,
+                transition: "border-color 200ms, box-shadow 200ms",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = `${meta?.color || 'var(--gold-accent)'}80`;
+                e.currentTarget.style.boxShadow = `0 0 0 3px ${meta?.color || 'var(--gold-accent)'}14`;
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(180,160,120,0.2)';
+                e.currentTarget.style.boxShadow = 'none';
               }}
               disabled={sending || isAuto}
             />
             {isAuto ? (
               <button
-                onClick={() => {
-                  autoAbortRef.current = true;
-                  setChatMode("manual");
-                }}
-                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                onClick={() => { autoAbortRef.current = true; setChatMode("manual"); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 rounded-full text-xs font-medium"
                 style={{
-                  background: autoRunning ? "#EF4444" : "var(--township-paper)",
-                  color: autoRunning ? "#fff" : "var(--township-ink-muted)",
+                  background: autoRunning ? "#EF4444" : "transparent",
+                  color: autoRunning ? "#fff" : "var(--text-muted)",
                   border: autoRunning ? "none" : "1px solid var(--card-border)",
                 }}
               >
@@ -586,10 +607,15 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
               <button
                 onClick={sendMessage}
                 disabled={sending || !input.trim()}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-40"
-                style={{ background: "var(--civic-blue)" }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center text-white transition-all disabled:opacity-30"
+                style={{
+                  background: meta?.color || "var(--civic-blue)",
+                  transition: "all 200ms ease",
+                }}
               >
-                Send
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M1 7h10M8 4l3 3-3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </button>
             )}
           </div>
