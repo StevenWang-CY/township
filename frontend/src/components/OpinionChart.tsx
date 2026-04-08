@@ -82,8 +82,8 @@ export default function OpinionChart({ opinions, size = 140, showLegend = true }
           textAnchor="middle"
           fontSize="20"
           fontWeight="700"
-          fill="var(--township-ink)"
-          fontFamily="Inter, sans-serif"
+          fill="var(--text-primary)"
+          fontFamily="var(--font-display)"
         >
           {total}
         </text>
@@ -92,8 +92,8 @@ export default function OpinionChart({ opinions, size = 140, showLegend = true }
           y={cy + 12}
           textAnchor="middle"
           fontSize="9"
-          fill="var(--township-ink-muted)"
-          fontFamily="Inter, sans-serif"
+          fill="var(--text-muted)"
+          fontFamily="var(--font-body)"
         >
           agents
         </text>

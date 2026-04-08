@@ -18,23 +18,24 @@ export default function App() {
     <div className="min-h-screen flex flex-col">
       {/* ── Header ───────────────────────────────────────── */}
       <header
-        className="flex items-center justify-between px-6 py-3 border-b relative"
+        className="flex items-center justify-between px-6 py-3 relative"
         style={{
-          background: "rgba(250,247,242,0.95)",
-          borderColor: "var(--card-border)",
-          backdropFilter: "blur(8px)",
+          background: "var(--warm-glass)",
+          backdropFilter: "blur(var(--warm-glass-blur))",
+          WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
+          borderBottom: "1px solid var(--warm-glass-border)",
         }}
       >
-        <Link to="/" className="flex items-center gap-2 no-underline">
+        <Link to="/" className="flex items-center gap-2.5 no-underline">
           <span
-            className="text-2xl font-bold tracking-tight"
-            style={{ fontFamily: "Playfair Display, Georgia, serif", color: "var(--township-ink)" }}
+            className="text-2xl tracking-tight"
+            style={{ fontFamily: "var(--font-display)", color: "var(--text-primary)", fontWeight: 600, letterSpacing: "1px" }}
           >
             Township
           </span>
           <span
-            className="text-xs font-medium px-2 py-0.5 rounded-full"
-            style={{ background: "var(--civic-blue)", color: "#fff", letterSpacing: "0.04em" }}
+            className="text-xs font-medium px-2.5 py-0.5 rounded-full"
+            style={{ background: "var(--gold-accent)", color: "#fff", letterSpacing: "0.06em", fontFamily: "var(--font-body)" }}
           >
             NJ-11
           </span>
@@ -74,22 +75,36 @@ export default function App() {
                 key={link.to}
                 to={link.to}
                 onClick={() => setMenuOpen(false)}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                className="relative px-3 py-1.5 text-sm font-medium"
                 style={{
-                  color: active ? "var(--civic-blue)" : "var(--township-ink-muted)",
-                  background: active ? "rgba(59,89,152,0.08)" : "transparent",
+                  fontFamily: "var(--font-body)",
+                  fontSize: "13px",
+                  color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                  transition: "color 200ms ease",
                 }}
+                onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = "var(--text-primary)"; }}
+                onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = "var(--text-secondary)"; }}
               >
                 {link.label}
+                {/* Active underline in gold */}
+                {active && (
+                  <span
+                    className="absolute bottom-0 left-3 right-3 h-[2px] rounded-full"
+                    style={{ background: "var(--gold-accent)" }}
+                  />
+                )}
               </Link>
             );
           })}
 
           {/* Connection indicator */}
-          <div className="ml-3 flex items-center gap-1.5 text-xs" style={{ color: "var(--township-ink-muted)" }}>
+          <div className="ml-3 flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
             <span
               className="w-2 h-2 rounded-full"
-              style={{ background: ws.connected ? "#4A9B5C" : "#EF4444" }}
+              style={{
+                background: ws.connected ? "#4CAF50" : "#EF4444",
+                animation: ws.connected ? "pulse-glow 2s ease-in-out infinite" : "none",
+              }}
             />
             {ws.connected ? "Live" : "Offline"}
           </div>
