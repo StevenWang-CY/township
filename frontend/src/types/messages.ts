@@ -210,36 +210,36 @@ export const TOWN_META: Record<TownId, { name: string; tagline: string; populati
     name: "Dover",
     tagline: "The Working-Class Heart",
     population: "18,435",
-    color: "#E8763B",
+    color: "#C0792A",
     county: "Morris",
   },
   montclair: {
     name: "Montclair",
     tagline: "The Progressive Hub",
     population: "40,341",
-    color: "#6B5CE7",
+    color: "#4A8FBF",
     county: "Essex",
   },
   parsippany: {
     name: "Parsippany",
     tagline: "The Suburban Melting Pot",
     population: "56,397",
-    color: "#2DA8A8",
+    color: "#5D9E4F",
     county: "Morris",
   },
   randolph: {
     name: "Randolph",
     tagline: "The Republican Suburb",
     population: "26,604",
-    color: "#4A9B5C",
+    color: "#8B7D6B",
     county: "Morris",
   },
 };
 
 export const CANDIDATE_COLORS: Record<LeanId, string> = {
-  mejia: "#3B82F6",
-  hathaway: "#EF4444",
-  bond: "#9CA3AF",
+  mejia: "#4A8FBF",
+  hathaway: "#C0792A",
+  bond: "#9A8E80",
   undecided: "#D1D5DB",
 };
 
