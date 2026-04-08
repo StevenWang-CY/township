@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
+@import "tailwindcss";
 
 /* ── Township Design System — Genshin Mondstadt Warmth ─────── */
 
@@ -274,31 +274,32 @@ h1, h2, h3 {
 /* ── Chat Bubble Styles ────────────────────────────────────── */
 
 .chat-bubble {
-  padding: 10px 14px;
-  border-radius: 16px;
-  max-width: 85%;
-  line-height: 1.5;
-  font-size: 0.875rem;
-  animation: fade-in-up 0.3s ease-out;
+  padding: 12px 14px;
+  border-radius: 12px;
+  max-width: 80%;
+  line-height: 1.55;
+  font-size: 13.5px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  animation: fade-in-up 0.25s ease-out;
 }
 
 .chat-bubble--agent {
-  background: var(--township-paper);
-  border: 1px solid var(--card-border);
-  border-bottom-left-radius: 4px;
+  background: var(--bg-cream);
+  border: 1px solid rgba(180,160,120,0.15);
+  border-radius: 2px 12px 12px 12px;
   align-self: flex-start;
 }
 
 .chat-bubble--user {
-  background: var(--civic-blue);
-  color: white;
-  border-bottom-right-radius: 4px;
+  background: rgba(74,143,191,0.1);
+  border-radius: 12px 2px 12px 12px;
   align-self: flex-end;
 }
 
 .chat-bubble--system {
   background: transparent;
-  color: var(--township-ink-muted);
+  color: var(--text-muted);
   font-style: italic;
   font-size: 0.8rem;
   text-align: center;
@@ -400,10 +401,10 @@ h1, h2, h3 {
 
 .district-map-pin {
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: transform 0.3s var(--ease-genshin);
 }
 .district-map-pin:hover {
-  transform: scale(1.15);
+  transform: scale(1.12);
 }
 .district-map-pin:hover .pin-details {
   opacity: 1;
@@ -411,12 +412,21 @@ h1, h2, h3 {
 }
 .pin-details {
   opacity: 0;
-  transform: translateY(4px);
-  transition: all 0.2s ease;
+  transform: translateY(6px);
+  transition: all 0.25s var(--ease-genshin);
 }
 
 .pin-ripple {
   animation: ripple 2s ease-out infinite;
+}
+
+/* Waypoint hover — speed up pulse animations */
+.waypoint-marker:hover .waypoint-pulse {
+  animation-duration: 1.5s !important;
+}
+.waypoint-marker:hover .waypoint-core {
+  filter: brightness(1.2);
+  transition: filter 0.2s ease;
 }
 
 /* ── Mobile Responsive Styles ─────────────────────────────── */

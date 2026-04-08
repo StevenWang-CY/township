@@ -266,9 +266,9 @@ function TownMarker({
         {/* Town name */}
         <text
           x={pin.cx} y={pin.cy + 44}
-          textAnchor="middle" fontSize="12" fontWeight="700"
+          textAnchor="middle" fontSize="12" fontWeight="600"
           fill="#2C2416"
-          fontFamily="'Playfair Display', Georgia, serif"
+          fontFamily="var(--font-display)"
           letterSpacing="0.3"
         >
           {meta.name}
@@ -733,27 +733,27 @@ export default function DistrictMap() {
       </div>
 
       {/* ── Town Cards ───────────────────────────────────────── */}
-      <div
-        className="mt-6 district-town-cards max-w-3xl w-full"
-        style={{ animation: "fade-in-up 1.1s ease-out" }}
-      >
-        {(["montclair", "parsippany", "dover", "randolph"] as TownId[]).map((id) => {
+      <div className="mt-6 district-town-cards max-w-3xl w-full">
+        {(["montclair", "parsippany", "dover", "randolph"] as TownId[]).map((id, idx) => {
           const meta = TOWN_META[id];
           const isActive = hovered === id;
           return (
             <button
               key={id}
               onClick={() => goToTown(id)}
-              className="rounded-xl px-4 py-3 text-left transition-all hover:scale-[1.03] active:scale-[0.98]"
+              className="rounded-xl px-4 py-3 text-left hover:scale-[1.03] active:scale-[0.98]"
               style={{
                 background: isActive
                   ? `linear-gradient(135deg, rgba(${hexToRgb(meta.color)},0.08), var(--card-bg))`
                   : "var(--card-bg)",
                 border: `1.5px solid ${isActive ? meta.color : "var(--card-border)"}`,
+                borderLeft: `3px solid ${meta.color}`,
                 boxShadow: isActive
                   ? `0 4px 16px rgba(${hexToRgb(meta.color)},0.15)`
                   : "var(--card-shadow)",
-                transition: "all 0.3s ease",
+                transition: "all 250ms cubic-bezier(0.22, 1, 0.36, 1)",
+                animation: "stagger-in 0.5s var(--ease-genshin) backwards",
+                animationDelay: `${600 + idx * 100}ms`,
               }}
               onMouseEnter={() => setHovered(id)}
               onMouseLeave={() => setHovered(null)}
@@ -767,14 +767,28 @@ export default function DistrictMap() {
                     transition: "box-shadow 0.3s ease",
                   }}
                 />
-                <span className="font-semibold text-sm" style={{ color: "var(--township-ink)" }}>
+                <span style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                }}>
                   {meta.name}
                 </span>
               </div>
-              <p className="text-xs" style={{ color: "var(--township-ink-muted)" }}>
+              <p style={{
+                fontFamily: "var(--font-body)",
+                fontSize: "12px",
+                fontStyle: "italic",
+                color: "var(--text-muted)",
+              }}>
                 {meta.tagline}
               </p>
-              <p className="text-xs mt-1 font-medium" style={{ color: meta.color }}>
+              <p className="mt-1" style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                color: meta.color,
+              }}>
                 {meta.population}
               </p>
             </button>

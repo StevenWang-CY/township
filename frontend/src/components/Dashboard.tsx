@@ -222,16 +222,16 @@ export default function Dashboard({ ws }: DashboardProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {/* Consensus */}
         <div
-          className="rounded-xl p-5"
+          className="warm-glass rounded-xl p-5"
           style={{
-            background: "linear-gradient(135deg, rgba(74,155,92,0.04), rgba(74,155,92,0.01))",
-            border: "1px solid rgba(74,155,92,0.2)",
+            background: "rgba(255,252,245,0.8)",
+            borderLeft: "3px solid #5D9E4F",
           }}
         >
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ color: "#4A9B5C" }}>
+          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "#5D9E4F", letterSpacing: "0.5px" }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="7" stroke="#4A9B5C" strokeWidth="1.5" />
-              <path d="M5 8l2 2 4-4" stroke="#4A9B5C" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="8" cy="8" r="7" stroke="#5D9E4F" strokeWidth="1.5" />
+              <path d="M5 8l2 2 4-4" stroke="#5D9E4F" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             Consensus Zones
           </h3>
@@ -244,16 +244,16 @@ export default function Dashboard({ ws }: DashboardProps) {
 
         {/* Fault Lines */}
         <div
-          className="rounded-xl p-5"
+          className="warm-glass rounded-xl p-5"
           style={{
-            background: "linear-gradient(135deg, rgba(239,68,68,0.04), rgba(239,68,68,0.01))",
-            border: "1px solid rgba(239,68,68,0.2)",
+            background: "rgba(255,252,245,0.8)",
+            borderLeft: "3px solid #C0792A",
           }}
         >
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ color: "#EF4444" }}>
+          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "#C0792A", letterSpacing: "0.5px" }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v6M8 11.5v1" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round" />
-              <circle cx="8" cy="8" r="7" stroke="#EF4444" strokeWidth="1.5" />
+              <path d="M8 3v6M8 11.5v1" stroke="#C0792A" strokeWidth="1.5" strokeLinecap="round" />
+              <circle cx="8" cy="8" r="7" stroke="#C0792A" strokeWidth="1.5" />
             </svg>
             Fault Lines
           </h3>
@@ -267,7 +267,7 @@ export default function Dashboard({ ws }: DashboardProps) {
 
       {/* Agent Grid */}
       <div className="mb-4 flex items-center gap-2 flex-wrap">
-        <h3 className="font-semibold text-sm mr-2" style={{ color: "var(--township-ink)" }}>
+        <h3 className="font-semibold text-sm mr-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "1px" }}>
           All Agents
         </h3>
         {(

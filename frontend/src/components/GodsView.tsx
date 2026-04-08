@@ -104,16 +104,44 @@ export default function GodsView({ ws }: GodsViewProps) {
     : scenarios;
 
   return (
-    <div className="gods-view-container max-w-5xl mx-auto px-6 py-6" style={{ animation: "fade-in-up 0.5s ease-out" }}>
+    <div
+      className="gods-view-container max-w-5xl mx-auto px-6 py-6"
+      style={{
+        background: "var(--bg-warm)",
+        minHeight: "calc(100vh - 56px)",
+        backgroundImage: "radial-gradient(ellipse at center, rgba(255,252,245,0.4) 0%, transparent 70%)",
+      }}
+    >
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-6 text-center" style={{ animation: "stagger-in 0.5s var(--ease-genshin) backwards" }}>
+        {/* Decorative eye icon */}
+        <svg width="40" height="40" viewBox="0 0 40 40" className="mx-auto mb-3" style={{ color: "var(--gold-accent)" }}>
+          <circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+          <ellipse cx="20" cy="20" rx="14" ry="9" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.6" />
+          <circle cx="20" cy="20" r="5" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.6" />
+          <circle cx="20" cy="20" r="2" fill="currentColor" opacity="0.5" />
+        </svg>
         <h1
-          className="text-3xl font-bold"
-          style={{ fontFamily: "Playfair Display, serif", color: "var(--township-ink)" }}
+          className="text-3xl"
+          style={{ fontFamily: "var(--font-display)", color: "var(--text-primary)", fontWeight: 600, letterSpacing: "1.5px" }}
         >
           God's View
         </h1>
-        <p className="text-sm mt-1" style={{ color: "var(--township-ink-muted)" }}>
+        {/* Ornamental separator */}
+        <svg width="140" height="10" viewBox="0 0 140 10" className="mx-auto mt-1.5 mb-2">
+          <defs>
+            <linearGradient id="gv-sep" x1="0%" y1="50%" x2="100%" y2="50%">
+              <stop offset="0%" stopColor="var(--gold-accent)" stopOpacity="0" />
+              <stop offset="30%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
+              <stop offset="50%" stopColor="var(--gold-accent)" stopOpacity="0.5" />
+              <stop offset="70%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="var(--gold-accent)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="5" x2="140" y2="5" stroke="url(#gv-sep)" strokeWidth="1" />
+          <rect x="64" y="1.5" width="7" height="7" rx="1" transform="rotate(45 67.5 5)" fill="var(--gold-accent)" opacity="0.45" />
+        </svg>
+        <p className="text-sm" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
           Inject a hypothetical scenario and see how every agent reacts in real time.
         </p>
       </div>
@@ -121,8 +149,8 @@ export default function GodsView({ ws }: GodsViewProps) {
       {/* Scenario Library */}
       <div className="mb-6">
         <h2
-          className="text-lg font-semibold mb-3"
-          style={{ fontFamily: "Playfair Display, serif", color: "var(--township-ink)" }}
+          className="text-lg mb-3"
+          style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", fontWeight: 600, letterSpacing: "1px" }}
         >
           Scenario Library
         </h2>
@@ -247,10 +275,20 @@ export default function GodsView({ ws }: GodsViewProps) {
 
       {/* Prompt input (free-text) */}
       <div
-        className="rounded-xl p-5 mb-6"
-        style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)" }}
+        className="rounded-xl p-5 mb-6 relative overflow-hidden"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--card-border)", boxShadow: "var(--shadow-soft)" }}
       >
-        <label className="block text-sm font-semibold mb-2" style={{ color: "var(--township-ink)" }}>
+        {/* Corner ornaments */}
+        <svg className="absolute top-2 left-2" width="20" height="20" viewBox="0 0 20 20" opacity="0.2">
+          <path d="M0,15 L0,3 C0,1.5 1.5,0 3,0 L15,0" fill="none" stroke="var(--gold-accent)" strokeWidth="1.5" />
+          <circle cx="0" cy="15" r="1.5" fill="var(--gold-accent)" />
+        </svg>
+        <svg className="absolute bottom-2 right-2" width="20" height="20" viewBox="0 0 20 20" opacity="0.2">
+          <path d="M20,5 L20,17 C20,18.5 18.5,20 17,20 L5,20" fill="none" stroke="var(--gold-accent)" strokeWidth="1.5" />
+          <circle cx="20" cy="5" r="1.5" fill="var(--gold-accent)" />
+        </svg>
+
+        <label className="block text-sm font-semibold mb-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "0.5px" }}>
           What if...
         </label>
         <textarea
@@ -260,9 +298,19 @@ export default function GodsView({ ws }: GodsViewProps) {
           rows={3}
           className="w-full px-4 py-3 rounded-lg text-sm resize-none outline-none"
           style={{
-            background: "var(--township-paper)",
-            border: "1px solid var(--card-border)",
-            color: "var(--township-ink)",
+            background: "var(--bg-card)",
+            border: "1px solid rgba(180,160,120,0.2)",
+            color: "var(--text-primary)",
+            fontFamily: "var(--font-body)",
+            transition: "border-color 200ms, box-shadow 200ms",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "rgba(196,163,90,0.5)";
+            e.currentTarget.style.boxShadow = "0 0 0 3px rgba(196,163,90,0.08)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "rgba(180,160,120,0.2)";
+            e.currentTarget.style.boxShadow = "none";
           }}
         />
 
@@ -270,8 +318,17 @@ export default function GodsView({ ws }: GodsViewProps) {
           <button
             onClick={submit}
             disabled={loading || !prompt.trim()}
-            className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-40 hover:scale-[1.02] active:scale-[0.98]"
-            style={{ background: "var(--civic-blue)" }}
+            className="px-6 py-2.5 rounded-lg text-sm text-white disabled:opacity-40 active:scale-[0.97]"
+            style={{
+              background: "var(--gold-accent)",
+              fontFamily: "var(--font-display)",
+              fontWeight: 600,
+              letterSpacing: "1px",
+              transition: "all 200ms ease",
+              boxShadow: "0 2px 8px var(--gold-glow)",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.filter = "brightness(1.1)"; e.currentTarget.style.boxShadow = "0 0 16px var(--gold-glow)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = ""; e.currentTarget.style.boxShadow = "0 2px 8px var(--gold-glow)"; }}
           >
             {loading ? "Simulating..." : "Inject Scenario"}
           </button>
@@ -319,13 +376,15 @@ export default function GodsView({ ws }: GodsViewProps) {
                       key={t}
                       className="rounded-xl p-4"
                       style={{
-                        background: "var(--card-bg)",
+                        background: "var(--bg-card)",
                         border: "1px solid var(--card-border)",
                         borderTop: `3px solid ${meta.color}`,
-                        boxShadow: "var(--card-shadow)",
+                        boxShadow: "var(--shadow-soft)",
+                        animation: "stagger-in 0.4s var(--ease-genshin) backwards",
+                        animationDelay: `${(["dover","montclair","parsippany","randolph"].indexOf(t)) * 60}ms`,
                       }}
                     >
-                      <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ color: meta.color }}>
+                      <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: meta.color, letterSpacing: "0.5px" }}>
                         <span className="w-2.5 h-2.5 rounded-full" style={{ background: meta.color }} />
                         {meta.name}
                       </h3>

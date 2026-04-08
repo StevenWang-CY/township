@@ -154,7 +154,7 @@ export default function AgentCard({ agent, compact = false, onClick }: AgentCard
             <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-700"
-                style={{ width: `${confidence}%`, background: opinionColor }}
+                style={{ width: `${confidence}%`, background: opinionStyle.badgeText }}
               />
             </div>
             <span className="text-[10px] font-medium" style={{ color: "var(--township-ink-muted)" }}>
@@ -167,8 +167,8 @@ export default function AgentCard({ agent, compact = false, onClick }: AgentCard
       {/* Last activity */}
       {agent.current_activity && (
         <p
-          className="mt-2 text-xs truncate"
-          style={{ color: "var(--township-ink-muted)", fontStyle: "italic" }}
+          className="mt-2 truncate"
+          style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic" }}
         >
           {agent.current_activity}
         </p>

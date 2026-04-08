@@ -56,11 +56,12 @@ export class PlayerSprite extends AgentSprite {
     }
 
     // ── Keyboard setup ──────────────────────────────────────
+    // Disable global capture so keys pass through to DOM inputs (chat bar).
+    // Phaser key.isDown detection still works without capture.
     const kb = scene.input.keyboard;
     if (kb) {
+      kb.disableGlobalCapture();
       this.cursors = kb.createCursorKeys();
-      // Release Space capture so it can be typed in DOM inputs (chat bar)
-      kb.removeCapture(Phaser.Input.Keyboard.KeyCodes.SPACE);
       this.wasd = kb.addKeys("W,A,S,D") as any;
       this.eKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.E);
       kb.on("keydown-E", () => this.onInteract());
