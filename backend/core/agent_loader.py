@@ -19,7 +19,7 @@ def load_agent(filepath: Path) -> AgentDefinition:
         initial_lean=post.metadata["initial_lean"],
         top_concerns=post.metadata["top_concerns"],
         tools=post.metadata.get("tools", ["Discuss", "FormOpinion", "ReactToNews"]),
-        model=post.metadata.get("model", "claude-sonnet-4-6"),
+        model=post.metadata.get("model", "claude-sonnet-4-5"),
         system_prompt=post.content,
         # Phase 3 — optional living-world fields. Older personas without these
         # keys gracefully fall back to empty lists / dicts.

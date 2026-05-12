@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "07:00", location: "Residential Area", activity: "Chai, prayer, calls his brother in Toronto about the supply chain" }
   - { time: "09:30", location: "Indian Grocery", activity: "Picks up daily produce — coriander, ginger, fresh paneer" }

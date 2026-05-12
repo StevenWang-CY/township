@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "07:00", location: "Public Housing", activity: "Coffee in the kitchen Linda used to stand in, reads the Daily Record" }
   - { time: "09:00", location: "Town Park", activity: "Slow walk through what used to be Crescent Field, talks to nobody" }

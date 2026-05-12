@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "05:30", location: "Commercial Strip", activity: "Coffee at the shop, loads trucks, runs the day's crews" }
   - { time: "07:00", location: "Residential Cul-de-sacs", activity: "First lawn of the day — Frank DeLuca's flag-front yard among the regulars" }

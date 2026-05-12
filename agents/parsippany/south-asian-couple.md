@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "06:30", location: "Residential Area", activity: "Cold brew, scrolls Zillow listings she cannot afford, swears at the algorithm" }
   - { time: "07:30", location: "Community Center", activity: "Spin class — gets out the rage before work" }

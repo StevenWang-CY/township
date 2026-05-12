@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "05:15", location: "Residential Cul-de-sacs", activity: "Coffee, kisses Mo on the forehead, out the door before anyone else stirs" }
   - { time: "05:45", location: "Main Road", activity: "Drives to Dover Station, parks in his usual spot" }

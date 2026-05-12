@@ -65,7 +65,7 @@ These four towns span the district's full spectrum: income ($70k–$175k), race 
 │   ├── RoundManager  (5-round deliberation loop)           │
 │   ├── EventBus      (async pub/sub + WS forwarding)       │
 │   ├── AgentLoader   (.md frontmatter → AgentDefinition)   │
-│   └── AzureOpenAI   (gpt-5-mini, rate limiting, costs)    │
+│   └── Bedrock      (Claude Sonnet 4.5, prompt caching)   │
 │                                                           │
 │   Routes: /api/simulation/* · /api/chat/{id} · /api/gods-view
 └──────────────────────────────────────────────────────────┘
@@ -76,7 +76,7 @@ These four towns span the district's full spectrum: income ($70k–$175k), race 
 | Decision | Choice | Why |
 |---|---|---|
 | Backend | Python + FastAPI | Native async, Pydantic validation |
-| LLM | Azure OpenAI gpt-5-mini | Reasoning model with function calling; `max_completion_tokens` not `max_tokens` |
+| LLM | AWS Bedrock — Claude Sonnet 4.5 (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`) | Native Anthropic Messages API via `AsyncAnthropicBedrock`; prompt caching on the system block; bearer-token auth via `AWS_BEARER_TOKEN_BEDROCK` |
 | Frontend | React + Vite + Phaser 3 | Tilemap + animated character sprites |
 | Agent personas | Markdown + YAML frontmatter | Git-trackable, no-code editing, hot-reloadable |
 | Memory | Simple chronological list | All memories fit in prompt context for 3–5 rounds |
@@ -214,10 +214,9 @@ Inject variables (news events, policy announcements, hypothetical scenarios) and
 cd township
 pip install -r backend/requirements.txt
 
-AZURE_OPENAI_API_KEY=<your-key> \
-AZURE_OPENAI_ENDPOINT=https://<your-endpoint>.openai.azure.com/ \
-AZURE_OPENAI_API_VERSION=2025-01-01-preview \
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-5-mini \
+AWS_BEARER_TOKEN_BEDROCK=<your-bedrock-api-key> \
+AWS_REGION=us-east-2 \
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0 \
 python -m uvicorn backend.main:app --reload --port 8001
 ```
 
@@ -242,7 +241,7 @@ township/
 │   │   ├── agent_loader.py         # .md frontmatter → AgentDefinition
 │   │   └── event_bus.py            # Async pub/sub + WebSocket forwarding
 │   ├── providers/
-│   │   └── anthropic_client.py     # Azure OpenAI wrapper (named for backward compat)
+│   │   └── anthropic_client.py     # AsyncAnthropicBedrock wrapper (Claude Sonnet 4.5, prompt caching, bearer-token auth)
 │   ├── simulation/
 │   │   ├── orchestrator.py         # Multi-town parallel runner, DistrictSummary
 │   │   ├── round_manager.py        # 5-round simulation loop (673 lines)
@@ -308,4 +307,4 @@ Township runs server-side Python simulation (not client-side JS), uses Azure Ope
 | God's View (3 injections) | ~$1.00 |
 | **Total demo budget** | **~$7.50** |
 
-*gpt-5-mini uses `max_completion_tokens` (not `max_tokens`) and consumes reasoning tokens internally. All token budgets set to 1200–1600 to account for ~256 reasoning tokens per call.*
+*Claude Sonnet 4.5 on Bedrock is priced at $3/M input and $15/M output. Prompt caching on the system block (the agent persona) is enabled by default and reduces repeated-call input cost by ~85%. Set `BEDROCK_CACHE_SYSTEM=0` to disable.*

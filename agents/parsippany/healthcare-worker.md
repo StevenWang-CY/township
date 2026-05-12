@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "06:00", location: "Residential Area", activity: "Coffee and a banana, Tagalog FaceTime with mom in Quezon City" }
   - { time: "08:30", location: "Community Center", activity: "Reports for shift at the urgent care clinic — triage, sutures, IVs" }

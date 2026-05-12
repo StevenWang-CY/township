@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "06:00", location: "Public Housing", activity: "Cafe con leche on the stove, prayers at the small altar for Ramon" }
   - { time: "08:30", location: "St. Mary's Church", activity: "Daily mass — front row, left side" }

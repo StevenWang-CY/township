@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "05:30", location: "Residential Area", activity: "Morning puja at the home shrine, lights diya for Hansaben" }
   - { time: "07:00", location: "Residential Area", activity: "Makes chai for Mehul before he leaves for work" }
