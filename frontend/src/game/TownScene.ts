@@ -5,7 +5,7 @@ import { TOWN_ACCENT, TOWN_MAP_KEY } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
 import type { UserProfile } from "../context/UserProfileContext";
 import { AGENT_CUSTOMIZATION, ALL_CHARACTER_KEYS, resolveAgentSprite } from "./spriteCustomization";
-import { drawLandmarkBuilding } from "./LandmarkArt";
+import { drawLandmarkBuilding, drawStreetlamp, type StreetlampHandle } from "./LandmarkArt";
 import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange } from "./AmbientLines";
@@ -46,6 +46,8 @@ interface AgentRecord {
   routine?: Routine;
   topConcerns: string[];
   lastRoutineTime?: string;
+  /** Per-agent idle-thought bank (from agent.idle_thoughts). */
+  idleThoughts?: string[];
 }
 
 /* ── TownScene ──────────────────────────────────────────────── */
@@ -66,6 +68,10 @@ export class TownScene extends Phaser.Scene {
   // World clock + sky overlay
   private worldClock = new WorldClock({ startHour: 8, minutesPerSecond: 1 });
   private skyOverlay?: Phaser.GameObjects.Rectangle;
+
+  // Streetlamps (drawn over landmarks, glow at night)
+  private streetlamps: StreetlampHandle[] = [];
+  private currentlyNight = false;
 
   // Encounter scheduling
   private encounterTimer?: Phaser.Time.TimerEvent;
@@ -131,6 +137,9 @@ export class TownScene extends Phaser.Scene {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
 
+    // Generate outfit/accessory overlay textures programmatically (FIX 17).
+    this.generateOverlayTextures();
+
     // Tilemap
     this.buildTilemap(W, H);
 
@@ -187,6 +196,30 @@ export class TownScene extends Phaser.Scene {
       this.playerSpawnPending = null;
       this.addPlayer(p);
     }
+
+    // Tap-to-walk on mobile (FIX 15): pointer-down on the scene tweens the
+    // player toward the tap point. Capped at 400 px.
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer, targets: any[]) => {
+      // Skip if pointer was over an interactive target (agent click etc.)
+      if (targets && targets.length > 0) return;
+      const player = this.playerSprite;
+      if (!player || !player.inputEnabled) return;
+      // Skip while the touch joystick is active (PlayerSprite owns that).
+      if ((player as any).joystick?.active) return;
+
+      // Translate screen coords to world coords through the camera.
+      const cam = this.cameras.main;
+      const wx = p.worldX ?? cam.scrollX + p.x / cam.zoom;
+      const wy = p.worldY ?? cam.scrollY + p.y / cam.zoom;
+      const dx = wx - player.x;
+      const dy = wy - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 20) return;
+      const capped = Math.min(dist, 400);
+      const tx = player.x + (dx / dist) * capped;
+      const ty = player.y + (dy / dist) * capped;
+      player.moveToPosition(tx, ty);
+    });
   }
 
   /* ── Update (called every frame) ────────────────────────── */
@@ -199,6 +232,13 @@ export class TownScene extends Phaser.Scene {
     if (this.worldClock.minute !== prevMin || this.worldClock.hour !== prevHour) {
       this.refreshSkyOverlay();
       this.tickRoutines();
+      // Update streetlamp night-mode at top of each hour
+      if (this.worldClock.hour !== prevHour) this.applyStreetlampNight();
+    }
+
+    // Streetlamp flicker (low-probability per frame)
+    if (this.currentlyNight) {
+      for (const l of this.streetlamps) l.flicker();
     }
 
     // Y-based depth sort – characters "behind" others appear further back
@@ -247,6 +287,7 @@ export class TownScene extends Phaser.Scene {
       sprite,
       routine: agent.routine ? new Routine(agent.routine) : undefined,
       topConcerns: [],
+      idleThoughts: (agent as any).idle_thoughts ?? undefined,
     };
     this.agentRecords.set(agent.id, record);
 
@@ -283,6 +324,37 @@ export class TownScene extends Phaser.Scene {
     this.agentSprites.get(agentId)?.playGesture(gesture);
   }
 
+  /** Backend conversation_started → pair sprites face each other + go "talking". */
+  handleConversationStarted(conversation: { participants: string[] }) {
+    if (!conversation || !Array.isArray(conversation.participants)) return;
+    const sprites = conversation.participants
+      .map((id) => this.agentSprites.get(id))
+      .filter((s): s is AgentSprite => !!s);
+    if (sprites.length < 2) return;
+    for (let i = 0; i < sprites.length; i++) {
+      const me = sprites[i];
+      const other = sprites[(i + 1) % sprites.length];
+      me.faceToward(other.x, other.y);
+      me.setActivity("talking");
+    }
+  }
+
+  /** Backend conversation_ended → walk talkers back to idle. */
+  handleConversationEnded(_conversationId: string) {
+    this.agentSprites.forEach((s) => {
+      if (s.getActivity() === "talking") s.setActivity("idle");
+    });
+  }
+
+  /** Cross-town gossip pulse — flash a "!" emote on the from-agent if present. */
+  handleCrossTownGossip(evt: { from_agent: string; to_agent: string; message: string }) {
+    const sprite = this.agentSprites.get(evt.from_agent);
+    if (!sprite) return;
+    sprite.showEmote("reflecting");
+    // Show the message briefly as a speech bubble
+    sprite.showSpeechBubble(evt.message, 2400);
+  }
+
   setAgentActivity(agentId: string, activity: AgentActivity) {
     this.agentSprites.get(agentId)?.setActivity(activity);
   }
@@ -292,6 +364,7 @@ export class TownScene extends Phaser.Scene {
     this.worldClock.setTime(h, m);
     this.refreshSkyOverlay();
     this.tickRoutines();
+    this.applyStreetlampNight();
   }
 
   /** Forward weather to the WeatherScene. */
@@ -492,9 +565,14 @@ export class TownScene extends Phaser.Scene {
 
       const target = this.pickWanderTarget();
       sp.moveToPosition(target.x, target.y, () => {
-        // Occasionally show an idle thought after arriving
+        // Occasionally show an idle thought after arriving.
+        // Prefer the agent's own bank (from agent.idle_thoughts) over generic.
         if (Math.random() < 0.28) {
-          const thought = IDLE_THOUGHTS[Math.floor(Math.random() * IDLE_THOUGHTS.length)];
+          const rec = this.agentRecords.get(agentId);
+          const bank = rec?.idleThoughts && rec.idleThoughts.length > 0
+            ? rec.idleThoughts
+            : IDLE_THOUGHTS;
+          const thought = bank[Math.floor(Math.random() * bank.length)];
           this.time.delayedCall(600, () => sp.showSpeechBubble(thought, 3200));
         }
         // Re-schedule next wander
@@ -646,7 +724,9 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  /* ── Ambient Background NPCs ──────────────────────────────── */
+  /* ── Ambient Background NPCs (use AgentSprite for richness) ──── */
+
+  private ambientNPCs: AgentSprite[] = [];
 
   private spawnAmbientNPCs() {
     const W = Number(this.game.config.width);
@@ -663,50 +743,32 @@ export class TownScene extends Phaser.Scene {
       const sx = Phaser.Math.Between(80, W - 80);
       const sy = Phaser.Math.Between(120, H - 120);
 
-      const npc = this.add.sprite(sx, sy, key, 1);
-      npc.setScale(1.9);
-      npc.setOrigin(0.5, 1);
-      npc.setDepth(50 + sy);
-      npc.setAlpha(1);
-
-      const dirs = ["down", "left", "right", "up"] as const;
-      const dir = dirs[Math.floor(Math.random() * dirs.length)];
-      const walkKey = `${key}-walk-${dir}`;
-      if (this.anims.exists(walkKey)) npc.play(walkKey);
+      const npc = new AgentSprite(this, sx, sy, {
+        id: `ambient-${i}-${charName}`,
+        name: "passerby",
+        initials: "",
+        color: "#aaa",
+        town: this.townId,
+        spriteKey: key,
+        ambient: true,
+      });
+      this.ambientNPCs.push(npc);
 
       this.scheduleAmbientWander(npc, W, H);
     }
   }
 
-  private scheduleAmbientWander(npc: Phaser.GameObjects.Sprite, W: number, H: number) {
+  private scheduleAmbientWander(npc: AgentSprite, W: number, H: number) {
     const delay = Phaser.Math.Between(2000, 9000);
     this.time.delayedCall(delay, () => {
       if (!npc.active) return;
-      const tx = Phaser.Math.Between(80, W - 80);
-      const ty = Phaser.Math.Between(120, H - 120);
-      const dx = tx - npc.x;
-      const dy = ty - npc.y;
-      const dist = Math.hypot(dx, dy);
-
-      let dir = "down";
-      if (Math.abs(dx) > Math.abs(dy)) dir = dx > 0 ? "right" : "left";
-      else dir = dy > 0 ? "down" : "up";
-      const wKey = `${npc.texture.key}-walk-${dir}`;
-      if (this.anims.exists(wKey)) npc.play(wKey, true);
-
-      this.tweens.add({
-        targets: npc,
-        x: tx,
-        y: ty,
-        duration: Phaser.Math.Clamp(dist * 4, 700, 3000),
-        ease: "Sine.easeInOut",
-        onUpdate: () => npc.setDepth(50 + npc.y),
-        onComplete: () => {
-          npc.stop();
-          npc.setFrame(1);
-          this.scheduleAmbientWander(npc, W, H);
-        },
-      });
+      // Prefer wandering between landmarks when available
+      const target = this.wanderPoints.length > 0
+        ? this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)]
+        : { x: Phaser.Math.Between(80, W - 80), y: Phaser.Math.Between(120, H - 120) };
+      const tx = Phaser.Math.Clamp(target.x + Phaser.Math.Between(-40, 40), 40, W - 40);
+      const ty = Phaser.Math.Clamp(target.y + Phaser.Math.Between(-30, 30), 40, H - 40);
+      npc.moveToPosition(tx, ty, () => this.scheduleAmbientWander(npc, W, H));
     });
   }
 
@@ -751,6 +813,81 @@ export class TownScene extends Phaser.Scene {
 
     for (let i = 0; i < 3; i++) {
       this.time.delayedCall(Phaser.Math.Between(1000, 5000), launchBird);
+    }
+  }
+
+  /* ── Generate outfit + accessory overlay textures ──────────── */
+
+  /**
+   * Build 96×128 (3×4 grid of 32×32 cells) textures for outfits + accessories
+   * since authored PNGs don't exist yet. Even a flat color block per cell is
+   * a clear "this NPC wears scrubs" affordance vs. no overlay at all.
+   */
+  private generateOverlayTextures() {
+    const outfits: Record<string, number> = {
+      "outfit-scrubs":   0x3aa1c4,  // teal medical scrubs
+      "outfit-labor":    0xc46a2a,  // safety orange
+      "outfit-business": 0x2a3a5a,  // dark navy suit
+      "outfit-parent":   0xa84a78,  // mauve / cardigan
+      "outfit-casual":   0x6a9a4a,  // moss green
+    };
+    for (const [key, color] of Object.entries(outfits)) {
+      if (this.textures.exists(key)) continue;
+      const g = this.add.graphics();
+      g.setVisible(false);
+      // 3 cols × 4 rows of 32×32 → 96×128
+      for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 3; col++) {
+          const cx = col * 32 + 16;
+          const cy = row * 32 + 32;
+          // Torso patch over the body's chest region
+          g.fillStyle(color, 0.85);
+          g.fillRect(cx - 7, cy - 14, 14, 9);
+          // Subtle highlight
+          g.fillStyle(0xffffff, 0.12);
+          g.fillRect(cx - 7, cy - 14, 14, 2);
+        }
+      }
+      g.generateTexture(key, 96, 128);
+      g.destroy();
+    }
+
+    const accessories: Record<string, (g: Phaser.GameObjects.Graphics, cx: number, cy: number) => void> = {
+      "accessory-kippah": (g, cx, cy) => {
+        // Small dark cap on crown of head
+        g.fillStyle(0x222244, 0.92);
+        g.fillEllipse(cx, cy - 26, 9, 3);
+      },
+      "accessory-hijab": (g, cx, cy) => {
+        // Colored arc covering the head
+        g.fillStyle(0x6a4a6a, 0.92);
+        g.fillEllipse(cx, cy - 24, 18, 13);
+        g.fillStyle(0x6a4a6a, 0.92);
+        g.fillRect(cx - 7, cy - 22, 14, 8);
+      },
+      "accessory-cap": (g, cx, cy) => {
+        // Baseball cap visor + crown
+        g.fillStyle(0x4a5a4a, 1);
+        g.fillEllipse(cx, cy - 25, 14, 6);
+        g.fillRect(cx - 6, cy - 24, 12, 4);
+        // Visor
+        g.fillStyle(0x222222, 1);
+        g.fillRect(cx - 8, cy - 22, 8, 2);
+      },
+    };
+    for (const [key, draw] of Object.entries(accessories)) {
+      if (this.textures.exists(key)) continue;
+      const g = this.add.graphics();
+      g.setVisible(false);
+      for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 3; col++) {
+          const cx = col * 32 + 16;
+          const cy = row * 32 + 32;
+          draw(g, cx, cy);
+        }
+      }
+      g.generateTexture(key, 96, 128);
+      g.destroy();
     }
   }
 
@@ -826,6 +963,71 @@ export class TownScene extends Phaser.Scene {
 
     // Environment decorations (campfire, sparkles, lighting)
     this.buildEnvironmentFX();
+
+    // Streetlamps — placed along roads + commercial buildings
+    this.addStreetlamps();
+  }
+
+  /** Place 6-10 streetlamps along roads and near commercial buildings. */
+  private addStreetlamps() {
+    // Clear stale lamps if any
+    for (const l of this.streetlamps) l.group.destroy();
+    this.streetlamps = [];
+
+    const placed: Array<{ x: number; y: number }> = [];
+    const tryAdd = (x: number, y: number) => {
+      // Spacing constraint — keep at least 90 px between lamps
+      for (const p of placed) {
+        if (Math.hypot(p.x - x, p.y - y) < 90) return;
+      }
+      const lamp = drawStreetlamp(this, x, y);
+      this.streetlamps.push(lamp);
+      placed.push({ x, y });
+    };
+
+    // Along roads — at the two ends
+    for (const lm of this.landmarks) {
+      if (lm.type !== "road") continue;
+      const cx = lm.x + lm.width / 2;
+      const cy = lm.y + lm.height / 2;
+      const horizontal = lm.width >= lm.height;
+      if (horizontal) {
+        tryAdd(lm.x + 18, cy - lm.height / 2 - 4);
+        tryAdd(lm.x + lm.width - 18, cy - lm.height / 2 - 4);
+      } else {
+        tryAdd(cx - lm.width / 2 - 4, lm.y + 18);
+        tryAdd(cx - lm.width / 2 - 4, lm.y + lm.height - 18);
+      }
+    }
+
+    // Near commercial buildings
+    for (const lm of this.landmarks) {
+      if (lm.type !== "commercial" && lm.type !== "building" && lm.type !== "commercial-strip") continue;
+      tryAdd(lm.x - 8, lm.y + lm.height + 4);
+      if (placed.length >= 10) break;
+    }
+
+    // Ensure at least 6 — back-fill near other landmarks
+    if (placed.length < 6) {
+      for (const lm of this.landmarks) {
+        if (lm.type === "road") continue;
+        tryAdd(lm.x + lm.width / 2, lm.y + lm.height + 6);
+        if (placed.length >= 6) break;
+      }
+    }
+
+    // Apply current time-of-day immediately
+    this.applyStreetlampNight();
+  }
+
+  private applyStreetlampNight() {
+    const h = this.worldClock.hour;
+    const night = h >= 19 || h < 6;
+    if (night === this.currentlyNight && this.streetlamps.length > 0) {
+      // Initial pass still needs alpha set
+    }
+    this.currentlyNight = night;
+    for (const l of this.streetlamps) l.setNight(night);
   }
 
   private buildEnvironmentFX() {

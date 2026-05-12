@@ -366,6 +366,70 @@ function mulberry32(seed: number) {
   };
 }
 
+/* ── Streetlamp helper (used by TownScene addStreetlamps) ──── */
+
+export interface StreetlampHandle {
+  group: Phaser.GameObjects.Container;
+  /** Yellow glow shown only at night. */
+  glow: Phaser.GameObjects.Graphics;
+  /** Set the visible alpha of the glow (call from clock tick). */
+  setNight: (isNight: boolean) => void;
+  /** Random per-frame flicker — call from scene update. */
+  flicker: () => void;
+}
+
+export function drawStreetlamp(scene: Phaser.Scene, x: number, y: number): StreetlampHandle {
+  const group = scene.add.container(x, y);
+
+  // Drop shadow
+  const shadow = scene.add.graphics();
+  shadow.fillStyle(0x000000, 0.18);
+  shadow.fillEllipse(0, 3, 12, 4);
+
+  // Lamp post
+  const post = scene.add.graphics();
+  post.fillStyle(0x4a4a4a, 1);
+  post.fillRect(-1, -22, 2, 22);
+  post.fillStyle(0x6a6a6a, 1);
+  post.fillRect(-1.5, -23, 3, 3);
+
+  // Fixture
+  const fix = scene.add.graphics();
+  fix.fillStyle(0x222222, 1);
+  fix.fillRoundedRect(-4, -28, 8, 5, 1);
+
+  // Night-time glow — invisible by default
+  const glow = scene.add.graphics();
+  glow.fillStyle(0xffd680, 0.55);
+  glow.fillCircle(0, -25, 14);
+  glow.fillStyle(0xfff0b0, 0.35);
+  glow.fillCircle(0, -25, 22);
+  glow.setAlpha(0);
+
+  group.add([shadow, post, fix, glow]);
+  group.setDepth(60 + y);
+
+  const setNight = (isNight: boolean) => {
+    scene.tweens.add({
+      targets: glow,
+      alpha: isNight ? 1 : 0,
+      duration: 800,
+      ease: "Sine.easeInOut",
+    });
+  };
+  const flicker = () => {
+    if (glow.alpha < 0.05) return;
+    // 0.5% chance per call to trigger a quick flicker
+    if (Math.random() < 0.005) {
+      const orig = glow.alpha;
+      glow.setAlpha(orig * 0.5);
+      scene.time.delayedCall(60, () => glow.setAlpha(orig));
+    }
+  };
+
+  return { group, glow, setNight, flicker };
+}
+
 /* ── Public dispatch ───────────────────────────────────────── */
 
 export function drawLandmarkBuilding(

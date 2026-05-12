@@ -218,8 +218,8 @@ const TOPIC_FALLBACKS: Record<string, string[]> = {
 
 function topicsForAgent(agent: AgentState): string[] {
   const out: string[] = [];
-  const top = agent.opinion?.top_issue;
-  if (top) out.push(top);
+  const tops = agent.opinion?.top_issues ?? [];
+  for (const t of tops) if (t && !out.includes(t)) out.push(t);
 
   // Town-specific defaults
   const townTopics: Record<string, string[]> = {

@@ -27,34 +27,34 @@ export const AGENT_CUSTOMIZATION: Record<string, SpriteCustomization> = {
   "carlos-restrepo":           { spriteKey: "char-Carlos_Gomez" },
   "miguel-hernandez":          { spriteKey: "char-Francisco_Lopez", outfitKey: "outfit-labor" },
   "maria-santos":              { spriteKey: "char-Carmen_Ortiz",    outfitKey: "outfit-scrubs" },
-  "esperanza-guzman":          { spriteKey: "char-Isabella_Rodriguez", tint: 0xd8d4cf },
+  "esperanza-guzman":          { spriteKey: "char-Isabella_Rodriguez", tint: 0xc4b8a6 },
   "sofia-ramirez":             { spriteKey: "char-Jane_Moreno" },
-  "tom-kowalski":              { spriteKey: "char-Wolfgang_Schulz", tint: 0xefe9dd },
+  "tom-kowalski":              { spriteKey: "char-Wolfgang_Schulz", tint: 0xd6cdb8 },
 
   // ── Montclair (7) ──────────────────────────────────────────
   "sarah-&-david-chen":        { spriteKey: "char-Mei_Lin" },
-  "rosa-chen":                 { spriteKey: "char-Yuriko_Yamamoto", tint: 0xe9e0c8 },
+  "rosa-chen":                 { spriteKey: "char-Yuriko_Yamamoto", tint: 0xd1c8b0 },
   "jordan-williams":           { spriteKey: "char-Latoya_Williams" },
   "carmen-&-alejandro-vargas": { spriteKey: "char-Maria_Lopez" },
   "rabbi-daniel-goldstein":    { spriteKey: "char-Adam_Smith",      accessoryKey: "accessory-kippah" },
   "priya-patel":               { spriteKey: "char-Ayesha_Khan" },
-  "margaret-\"peggy\"-o'brien":{ spriteKey: "char-Hailey_Johnson",  tint: 0xe5e1dc },
+  "margaret-\"peggy\"-o'brien":{ spriteKey: "char-Hailey_Johnson",  tint: 0xb8a896 },
 
   // ── Parsippany (7) ─────────────────────────────────────────
   "raj-&-sunita-krishnamurthy":{ spriteKey: "char-Rajiv_Patel" },
-  "kantibhai-\"kanti\"-desai": { spriteKey: "char-Eddy_Lin",        tint: 0xe6dccb },
+  "kantibhai-\"kanti\"-desai": { spriteKey: "char-Eddy_Lin",        tint: 0xc8b89c },
   "brian-mccarthy":            { spriteKey: "char-Sam_Moore" },
   "aisha-&-omar-khan":         { spriteKey: "char-Abigail_Chen",    accessoryKey: "accessory-hijab" },
   "pawan-sharma":              { spriteKey: "char-Giorgio_Rossi" },
-  "linda-morrison":            { spriteKey: "char-Jennifer_Moore",  tint: 0xe5e1dc },
+  "linda-morrison":            { spriteKey: "char-Jennifer_Moore",  tint: 0xa898a0 },
   "grace-reyes":               { spriteKey: "char-Tamara_Taylor",   outfitKey: "outfit-scrubs" },
 
   // ── Randolph (6) ───────────────────────────────────────────
   "michael-\"mike\"-brennan":  { spriteKey: "char-Arthur_Burton" },
   "jennifer-\"jen\"-russo":    { spriteKey: "char-Hailey_Johnson" },
-  "frank-deluca":              { spriteKey: "char-Arthur_Burton",   tint: 0xc8c4be, accessoryKey: "accessory-cap" },
+  "frank-deluca":              { spriteKey: "char-Arthur_Burton",   tint: 0xa8a098, accessoryKey: "accessory-cap" },
   "tyler-&-megan-hart":        { spriteKey: "char-Ryan_Park" },
-  "vikram-iyer":               { spriteKey: "char-Rajiv_Patel",     tint: 0xc4d4e8 },
+  "vikram-iyer":               { spriteKey: "char-Rajiv_Patel",     tint: 0x8aa0c8 },
   "tony-mancini":              { spriteKey: "char-John_Lin",        outfitKey: "outfit-labor" },
 };
 

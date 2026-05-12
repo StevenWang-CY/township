@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import OpinionChart from "./OpinionChart";
 import AgentCard from "./AgentCard";
 import PlayerHUD from "./PlayerHUD";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useRelationships } from "../hooks/useRelationships";
+import { useSimulation } from "../hooks/useSimulation";
 import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, OpinionChangedEvent, Relationship } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
 
@@ -30,6 +31,7 @@ interface DashboardProps {
     townSummaries: Record<TownId, any>;
     connected: boolean;
     currentRound: number;
+    totalRounds?: number;
     simulationRunning: boolean;
     events?: SimulationEvent[];
     relationships?: Record<string, Relationship>;
@@ -44,13 +46,47 @@ export default function Dashboard({ ws }: DashboardProps) {
   const { trustFor } = useRelationships(profile?.playerId, {
     liveRelationships: ws.relationships,
   });
+  const { startSimulation, loading: simStartLoading, error: simStartError } = useSimulation();
+  const [replayLoading, setReplayLoading] = useState(false);
 
-  // Fetch results
-  useEffect(() => {
+  // Fetch results — backend now returns a flat DistrictSummary (no envelope).
+  const refetchResults = useCallback(() => {
     fetch("/api/simulation/results")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setResults(d))
-      .catch(() => {});
+      .then((d) => {
+        if (!d) return;
+        // Tolerate both flat and legacy {summary: {...}} envelopes.
+        const flat = d.town_summaries ? d : (d.summary ?? null);
+        if (flat) setResults(flat as DistrictSummary);
+      })
+      .catch(() => { /* leave demo data alone */ });
+  }, []);
+
+  useEffect(() => {
+    refetchResults();
+  }, [refetchResults]);
+
+  // When the simulation finishes (running → not running), refetch results.
+  const [wasRunning, setWasRunning] = useState(false);
+  useEffect(() => {
+    if (ws.simulationRunning) setWasRunning(true);
+    else if (wasRunning && !ws.simulationRunning) {
+      setWasRunning(false);
+      refetchResults();
+    }
+  }, [ws.simulationRunning, wasRunning, refetchResults]);
+
+  const handleStart = useCallback(async () => {
+    if (ws.simulationRunning) return;
+    await startSimulation(5);
+  }, [startSimulation, ws.simulationRunning]);
+
+  const handleReplay = useCallback(async () => {
+    setReplayLoading(true);
+    try {
+      await fetch("/api/simulation/replay", { method: "POST" });
+    } catch { /* silent */ }
+    setReplayLoading(false);
   }, []);
 
   const allAgents = Object.values(ws.agents);
@@ -173,7 +209,7 @@ export default function Dashboard({ ws }: DashboardProps) {
           <h3 className="font-semibold text-sm mb-2" style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", letterSpacing: "0.5px" }}>
             District-Wide Sentiment (26 agents)
           </h3>
-          <div className="flex gap-6">
+          <div className="flex gap-6 mb-3">
             {(["mejia", "hathaway", "bond", "undecided"] as LeanId[]).map((k) => (
               <div key={k} className="text-center">
                 <div className="text-2xl font-bold" style={{ color: CANDIDATE_COLORS[k] }}>
@@ -184,6 +220,51 @@ export default function Dashboard({ ws }: DashboardProps) {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Simulation controls */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleStart}
+              disabled={ws.simulationRunning || simStartLoading}
+              className="px-4 py-2 rounded-lg text-sm text-white disabled:opacity-60"
+              style={{
+                background: ws.simulationRunning ? "var(--civic-blue)" : "var(--gold-accent)",
+                fontFamily: "var(--font-display)",
+                fontWeight: 600,
+                letterSpacing: "0.5px",
+                transition: "all 200ms ease",
+                cursor: ws.simulationRunning ? "default" : "pointer",
+                boxShadow: ws.simulationRunning ? "none" : "0 2px 8px var(--gold-glow)",
+              }}
+              title={ws.simulationRunning ? "Simulation is running" : "Start a fresh 5-round simulation"}
+            >
+              {ws.simulationRunning
+                ? `Running… Round ${ws.currentRound}/${ws.totalRounds || 5}`
+                : simStartLoading
+                  ? "Starting…"
+                  : "Start Simulation"}
+            </button>
+            <button
+              onClick={handleReplay}
+              disabled={ws.simulationRunning || replayLoading}
+              className="px-3 py-2 rounded-lg text-xs disabled:opacity-50"
+              style={{
+                background: "transparent",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--card-border)",
+                fontFamily: "var(--font-body)",
+                transition: "all 200ms ease",
+              }}
+              title="Replay the last cached simulation run"
+            >
+              {replayLoading ? "Replaying…" : "Replay last run"}
+            </button>
+            {simStartError && (
+              <span className="text-xs" style={{ color: "#EF4444" }}>
+                {simStartError}
+              </span>
+            )}
           </div>
         </div>
       </div>
