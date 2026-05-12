@@ -35,38 +35,38 @@ interface TownViewProps {
 
 const DEMO_AGENTS: Record<TownId, AgentState[]> = {
   dover: [
-    { id: "carlos-restrepo", name: "Carlos Restrepo", town: "dover", occupation: "Restaurant Owner", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issue: "healthcare" }, location: "La Finca Restaurant", current_activity: "Preparing lunch", initials: "CR", color: "#D48050" },
-    { id: "miguel-hernandez", name: "Miguel Hernandez", town: "dover", occupation: "Construction Worker", opinion: { candidate: "undecided", confidence: 30, reasoning: "", top_issue: "immigration" }, location: "Public Housing", current_activity: "Worrying about ICE", initials: "MH", color: "#B07040" },
-    { id: "maria-santos", name: "Maria Santos", town: "dover", occupation: "Nursing Assistant", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issue: "healthcare" }, location: "Dover Station", current_activity: "Commuting to work", initials: "MS", color: "#C06060" },
-    { id: "esperanza-guzman", name: "Esperanza Guzman", town: "dover", occupation: "Retired", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issue: "social security" }, location: "St. Mary's Church", current_activity: "After mass", initials: "EG", color: "#908070" },
-    { id: "sofia-ramirez", name: "Sofia Ramirez", town: "dover", occupation: "College Student (DACA)", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issue: "immigration" }, location: "Public Library", current_activity: "Studying", initials: "SR", color: "#A06888" },
-    { id: "tom-kowalski", name: "Tom Kowalski", town: "dover", occupation: "Retired Machinist", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issue: "taxes" }, location: "Bodega Row", current_activity: "Getting coffee", initials: "TK", color: "#707888" },
+    { id: "carlos-restrepo", name: "Carlos Restrepo", town: "dover", occupation: "Restaurant Owner", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issues: ["healthcare"] }, location: "La Finca Restaurant", current_activity: "Preparing lunch", initials: "CR", color: "#D48050" },
+    { id: "miguel-hernandez", name: "Miguel Hernandez", town: "dover", occupation: "Construction Worker", opinion: { candidate: "undecided", confidence: 30, reasoning: "", top_issues: ["immigration"] }, location: "Public Housing", current_activity: "Worrying about ICE", initials: "MH", color: "#B07040" },
+    { id: "maria-santos", name: "Maria Santos", town: "dover", occupation: "Nursing Assistant", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issues: ["healthcare"] }, location: "Dover Station", current_activity: "Commuting to work", initials: "MS", color: "#C06060" },
+    { id: "esperanza-guzman", name: "Esperanza Guzman", town: "dover", occupation: "Retired", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issues: ["social security"] }, location: "St. Mary's Church", current_activity: "After mass", initials: "EG", color: "#908070" },
+    { id: "sofia-ramirez", name: "Sofia Ramirez", town: "dover", occupation: "College Student (DACA)", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issues: ["immigration"] }, location: "Public Library", current_activity: "Studying", initials: "SR", color: "#A06888" },
+    { id: "tom-kowalski", name: "Tom Kowalski", town: "dover", occupation: "Retired Machinist", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issues: ["taxes"] }, location: "Bodega Row", current_activity: "Getting coffee", initials: "TK", color: "#707888" },
   ],
   montclair: [
-    { id: "sarah-&-david-chen", name: "Sarah & David Chen", town: "montclair", occupation: "Nonprofit Dir / Tech Mgr", opinion: { candidate: "mejia", confidence: 65, reasoning: "", top_issue: "education" }, location: "Bloomfield Ave", current_activity: "Working from home", initials: "SC", color: "#7868C0" },
-    { id: "rosa-chen", name: "Rosa Chen", town: "montclair", occupation: "Retired Teacher", opinion: { candidate: "mejia", confidence: 70, reasoning: "", top_issue: "education" }, location: "Bay Street Station", current_activity: "Walking", initials: "RC", color: "#906888" },
-    { id: "jordan-williams", name: "Jordan Williams", town: "montclair", occupation: "Painter / Barista", opinion: { candidate: "undecided", confidence: 30, reasoning: "", top_issue: "housing" }, location: "Art Museum", current_activity: "Sketching", initials: "JW", color: "#8878B0" },
-    { id: "carmen-&-alejandro-vargas", name: "Carmen & Alejandro Vargas", town: "montclair", occupation: "Nurse / Restaurant Mgr", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issue: "immigration" }, location: "Bloomfield Ave", current_activity: "At work", initials: "CV", color: "#C07060" },
-    { id: "rabbi-daniel-goldstein", name: "Rabbi Daniel Goldstein", town: "montclair", occupation: "Rabbi", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issue: "israel" }, location: "Anderson Park", current_activity: "Walking", initials: "DG", color: "#A08868" },
-    { id: "priya-patel", name: "Priya Patel", town: "montclair", occupation: "Boutique Owner", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issue: "taxes" }, location: "Boutique Row", current_activity: "Opening shop", initials: "PP", color: "#60A090" },
-    { id: "margaret-\"peggy\"-o'brien", name: "Margaret O'Brien", town: "montclair", occupation: "Retired Librarian", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issue: "social security" }, location: "Public Library", current_activity: "Reading", initials: "MO", color: "#8070A0" },
+    { id: "sarah-&-david-chen", name: "Sarah & David Chen", town: "montclair", occupation: "Nonprofit Dir / Tech Mgr", opinion: { candidate: "mejia", confidence: 65, reasoning: "", top_issues: ["education"] }, location: "Bloomfield Ave", current_activity: "Working from home", initials: "SC", color: "#7868C0" },
+    { id: "rosa-chen", name: "Rosa Chen", town: "montclair", occupation: "Retired Teacher", opinion: { candidate: "mejia", confidence: 70, reasoning: "", top_issues: ["education"] }, location: "Bay Street Station", current_activity: "Walking", initials: "RC", color: "#906888" },
+    { id: "jordan-williams", name: "Jordan Williams", town: "montclair", occupation: "Painter / Barista", opinion: { candidate: "undecided", confidence: 30, reasoning: "", top_issues: ["housing"] }, location: "Art Museum", current_activity: "Sketching", initials: "JW", color: "#8878B0" },
+    { id: "carmen-&-alejandro-vargas", name: "Carmen & Alejandro Vargas", town: "montclair", occupation: "Nurse / Restaurant Mgr", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issues: ["immigration"] }, location: "Bloomfield Ave", current_activity: "At work", initials: "CV", color: "#C07060" },
+    { id: "rabbi-daniel-goldstein", name: "Rabbi Daniel Goldstein", town: "montclair", occupation: "Rabbi", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issues: ["israel"] }, location: "Anderson Park", current_activity: "Walking", initials: "DG", color: "#A08868" },
+    { id: "priya-patel", name: "Priya Patel", town: "montclair", occupation: "Boutique Owner", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issues: ["taxes"] }, location: "Boutique Row", current_activity: "Opening shop", initials: "PP", color: "#60A090" },
+    { id: "margaret-\"peggy\"-o'brien", name: "Margaret O'Brien", town: "montclair", occupation: "Retired Librarian", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issues: ["social security"] }, location: "Public Library", current_activity: "Reading", initials: "MO", color: "#8070A0" },
   ],
   parsippany: [
-    { id: "raj-&-sunita-krishnamurthy", name: "Raj & Sunita Krishnamurthy", town: "parsippany", occupation: "Software Engineer / Accountant", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issue: "taxes" }, location: "Corporate Park", current_activity: "Working", initials: "RK", color: "#30A0A0" },
-    { id: "kantibhai-\"kanti\"-desai", name: "Kantibhai Desai", town: "parsippany", occupation: "Retired", opinion: { candidate: "undecided", confidence: 25, reasoning: "", top_issue: "family" }, location: "Hindu Temple", current_activity: "Morning prayers", initials: "KD", color: "#D0A050" },
-    { id: "brian-mccarthy", name: "Brian McCarthy", town: "parsippany", occupation: "Pharma Manager", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issue: "taxes" }, location: "NJ Transit Stop", current_activity: "Commuting", initials: "BM", color: "#708890" },
-    { id: "aisha-&-omar-khan", name: "Aisha & Omar Khan", town: "parsippany", occupation: "Marketing / Finance", opinion: { candidate: "mejia", confidence: 50, reasoning: "", top_issue: "housing" }, location: "Residential Area", current_activity: "Apartment hunting", initials: "AK", color: "#50B8A0" },
-    { id: "pawan-sharma", name: "Pawan Sharma", town: "parsippany", occupation: "Restaurant Owner", opinion: { candidate: "hathaway", confidence: 50, reasoning: "", top_issue: "business" }, location: "Indian Grocery", current_activity: "At restaurant", initials: "PS", color: "#B09060" },
-    { id: "linda-morrison", name: "Linda Morrison", town: "parsippany", occupation: "Retired VP", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issue: "healthcare" }, location: "Community Center", current_activity: "Morning walk", initials: "LM", color: "#808890" },
-    { id: "grace-reyes", name: "Grace Reyes", town: "parsippany", occupation: "Nurse", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issue: "healthcare" }, location: "Community Center", current_activity: "Volunteering", initials: "GR", color: "#6098C0" },
+    { id: "raj-&-sunita-krishnamurthy", name: "Raj & Sunita Krishnamurthy", town: "parsippany", occupation: "Software Engineer / Accountant", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issues: ["taxes"] }, location: "Corporate Park", current_activity: "Working", initials: "RK", color: "#30A0A0" },
+    { id: "kantibhai-\"kanti\"-desai", name: "Kantibhai Desai", town: "parsippany", occupation: "Retired", opinion: { candidate: "undecided", confidence: 25, reasoning: "", top_issues: ["family"] }, location: "Hindu Temple", current_activity: "Morning prayers", initials: "KD", color: "#D0A050" },
+    { id: "brian-mccarthy", name: "Brian McCarthy", town: "parsippany", occupation: "Pharma Manager", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issues: ["taxes"] }, location: "NJ Transit Stop", current_activity: "Commuting", initials: "BM", color: "#708890" },
+    { id: "aisha-&-omar-khan", name: "Aisha & Omar Khan", town: "parsippany", occupation: "Marketing / Finance", opinion: { candidate: "mejia", confidence: 50, reasoning: "", top_issues: ["housing"] }, location: "Residential Area", current_activity: "Apartment hunting", initials: "AK", color: "#50B8A0" },
+    { id: "pawan-sharma", name: "Pawan Sharma", town: "parsippany", occupation: "Restaurant Owner", opinion: { candidate: "hathaway", confidence: 50, reasoning: "", top_issues: ["business"] }, location: "Indian Grocery", current_activity: "At restaurant", initials: "PS", color: "#B09060" },
+    { id: "linda-morrison", name: "Linda Morrison", town: "parsippany", occupation: "Retired VP", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issues: ["healthcare"] }, location: "Community Center", current_activity: "Morning walk", initials: "LM", color: "#808890" },
+    { id: "grace-reyes", name: "Grace Reyes", town: "parsippany", occupation: "Nurse", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issues: ["healthcare"] }, location: "Community Center", current_activity: "Volunteering", initials: "GR", color: "#6098C0" },
   ],
   randolph: [
-    { id: "michael-\"mike\"-brennan", name: "Mike Brennan", town: "randolph", occupation: "Finance Director", opinion: { candidate: "hathaway", confidence: 70, reasoning: "", top_issue: "taxes" }, location: "Commercial Strip", current_activity: "Lunch break", initials: "MB", color: "#508858" },
-    { id: "jennifer-\"jen\"-russo", name: "Jen Russo", town: "randolph", occupation: "Stay-at-home Mom", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issue: "schools" }, location: "High School", current_activity: "PTA meeting", initials: "JR", color: "#68A060" },
-    { id: "frank-deluca", name: "Frank DeLuca", town: "randolph", occupation: "Retired Colonel", opinion: { candidate: "hathaway", confidence: 75, reasoning: "", top_issue: "security" }, location: "Randolph Diner", current_activity: "Morning coffee", initials: "FD", color: "#607860" },
-    { id: "tyler-&-megan-hart", name: "Tyler & Megan Hart", town: "randolph", occupation: "Project Mgr / PT", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issue: "housing" }, location: "Residential Cul-de-sacs", current_activity: "Reviewing mortgage", initials: "TH", color: "#80A868" },
-    { id: "vikram-iyer", name: "Vikram Iyer", town: "randolph", occupation: "Software Engineer", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issue: "schools" }, location: "Town Hall", current_activity: "Researching candidates", initials: "VI", color: "#409870" },
-    { id: "tony-mancini", name: "Tony Mancini", town: "randolph", occupation: "Landscaping Owner", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issue: "workers rights" }, location: "Commercial Strip", current_activity: "At work", initials: "TM", color: "#88A050" },
+    { id: "michael-\"mike\"-brennan", name: "Mike Brennan", town: "randolph", occupation: "Finance Director", opinion: { candidate: "hathaway", confidence: 70, reasoning: "", top_issues: ["taxes"] }, location: "Commercial Strip", current_activity: "Lunch break", initials: "MB", color: "#508858" },
+    { id: "jennifer-\"jen\"-russo", name: "Jen Russo", town: "randolph", occupation: "Stay-at-home Mom", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issues: ["schools"] }, location: "High School", current_activity: "PTA meeting", initials: "JR", color: "#68A060" },
+    { id: "frank-deluca", name: "Frank DeLuca", town: "randolph", occupation: "Retired Colonel", opinion: { candidate: "hathaway", confidence: 75, reasoning: "", top_issues: ["security"] }, location: "Randolph Diner", current_activity: "Morning coffee", initials: "FD", color: "#607860" },
+    { id: "tyler-&-megan-hart", name: "Tyler & Megan Hart", town: "randolph", occupation: "Project Mgr / PT", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issues: ["housing"] }, location: "Residential Cul-de-sacs", current_activity: "Reviewing mortgage", initials: "TH", color: "#80A868" },
+    { id: "vikram-iyer", name: "Vikram Iyer", town: "randolph", occupation: "Software Engineer", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issues: ["schools"] }, location: "Town Hall", current_activity: "Researching candidates", initials: "VI", color: "#409870" },
+    { id: "tony-mancini", name: "Tony Mancini", town: "randolph", occupation: "Landscaping Owner", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issues: ["workers rights"] }, location: "Commercial Strip", current_activity: "At work", initials: "TM", color: "#88A050" },
   ],
 };
 
@@ -133,6 +133,8 @@ export default function TownView({ ws }: TownViewProps) {
   const [debugOpen, setDebugOpen] = useState(false);
   const [listenOpen, setListenOpen] = useState(false);
   const [listenNearbyLandmark, setListenNearbyLandmark] = useState<string | null>(null);
+  const [gossipToast, setGossipToast] = useState<string | null>(null);
+  const gossipTimerRef = useRef<number | undefined>(undefined);
   const lastProcessedEvent = useRef(0);
 
   // Pre-chat snapshots for met/persuaded + journal
@@ -158,7 +160,7 @@ export default function TownView({ ws }: TownViewProps) {
     name: profile.name,
     town: profile.town as TownId,
     occupation: "You",
-    opinion: { candidate: "undecided", confidence: 0, reasoning: "", top_issue: profile.topConcerns[0] || "" },
+    opinion: { candidate: "undecided", confidence: 0, reasoning: "", top_issues: profile.topConcerns.length ? [profile.topConcerns[0]] : [] },
     location: "Exploring",
     current_activity: "Walking around",
     initials: profile.initials,
@@ -252,6 +254,14 @@ export default function TownView({ ws }: TownViewProps) {
     scene.setPlayerInputEnabled(!chatOpen);
   }, [chatOpen]);
 
+  /* ── Cleanup gossip toast timer on unmount ───────────────── */
+
+  useEffect(() => {
+    return () => {
+      if (gossipTimerRef.current) window.clearTimeout(gossipTimerRef.current);
+    };
+  }, []);
+
   /* ── Sync agents to Phaser when WS data updates ──────────── */
 
   useEffect(() => {
@@ -287,6 +297,7 @@ export default function TownView({ ws }: TownViewProps) {
           break;
         case "opinion_changed": {
           scene.updateAgentOpinion(evt.agent_id, evt.new_opinion.candidate);
+          // Wayfinding glow + "!" emote in the NEW candidate color (FIX 16)
           scene.showAgentEmote(evt.agent_id, "opinion_changed");
           const delta = evt.confidence_delta ?? Math.abs((evt.new_opinion.confidence ?? 0) - (evt.old_opinion?.confidence ?? 0));
           if (delta >= 0) {
@@ -295,11 +306,26 @@ export default function TownView({ ws }: TownViewProps) {
           break;
         }
         case "conversation_started":
+          // Backend-driven sims now also pair-face participants (FIX 5).
+          try { scene.handleConversationStarted(evt.conversation); } catch { /* ignore */ }
           for (const pid of evt.conversation.participants) {
             scene.showAgentEmote(pid, "reflecting");
             scene.showAgentSpeech(pid, `Discussing: ${evt.conversation.topic}`);
           }
           break;
+        case "conversation_ended":
+          try { scene.handleConversationEnded(evt.conversation_id); } catch { /* ignore */ }
+          break;
+        case "cross_town_gossip": {
+          const e = evt as any;
+          if (e.to_town === town) {
+            try { scene.handleCrossTownGossip(e); } catch { /* ignore */ }
+            setGossipToast(e.message);
+            window.clearTimeout(gossipTimerRef.current);
+            gossipTimerRef.current = window.setTimeout(() => setGossipToast(null), 1500);
+          }
+          break;
+        }
         case "news_injected":
           try { scene.playNewsBeat(); } catch { /* ignore */ }
           break;
@@ -568,10 +594,28 @@ export default function TownView({ ws }: TownViewProps) {
             <PlayerHUD worldClock={ws.worldClock} weather={ws.weather} />
           </div>
 
+          {/* Top-right clock chip (FIX 13) */}
+          <div className="world-clock-chip" aria-hidden="true">
+            <span className="world-clock-chip-icon">
+              {(ws.worldClock.hour >= 19 || ws.worldClock.hour < 6) ? "☾" : "☀"}
+            </span>
+            <span className="world-clock-chip-time">
+              {String(ws.worldClock.hour).padStart(2, "0")}:{String(ws.worldClock.minute).padStart(2, "0")}
+            </span>
+          </div>
+
           {/* Mini-map top-right */}
           <div className="town-minimap-wrapper">
             <MiniMap getData={getMiniMapData} onPinClick={handleMiniMapPin} />
           </div>
+
+          {/* Cross-town gossip toast */}
+          {gossipToast && (
+            <div className="gossip-toast" role="status">
+              <span className="gossip-toast-dot" />
+              {gossipToast}
+            </div>
+          )}
 
           {/* DOM title banner */}
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none">

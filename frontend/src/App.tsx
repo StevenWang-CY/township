@@ -209,6 +209,9 @@ function AppShell() {
 
       {/* Journal panel */}
       <Journal open={journalOpen} onClose={() => setJournalOpen(false)} />
+
+      {/* aria-live region for screen-reader speech mirror (FIX 14) */}
+      <div id="aria-live-speech" aria-live="polite" aria-atomic="true" className="sr-only" />
     </div>
   );
 }

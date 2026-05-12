@@ -48,6 +48,8 @@ export interface AgentConfig {
   accessoryKey?: string;
   tint?: number;
   partner?: { spriteKey?: string; name: string; initials: string; tint?: number };
+  /** Ambient background NPC — no opinion ring, no interaction, no nameplate. */
+  ambient?: boolean;
 }
 
 interface BubbleEntry {
@@ -102,6 +104,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   private currentActivity: AgentActivity = "idle";
   private currentGesture: GestureKind = "none";
   private hasPartner = false;
+  protected ambient = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, cfg: AgentConfig) {
     super(scene, x, y);
@@ -112,6 +115,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.agentColor = cfg.color;
     this.opinionColor = cfg.opinionColor ?? "#FFFFFF";
     this.homeY = y;
+    this.ambient = !!cfg.ambient;
 
     // ── Ground shadow ellipse ────────────────────────────────
     this.groundShadow = scene.add.ellipse(0, SHADOW_Y, 36, 12, 0x000000, 0.2);
@@ -119,7 +123,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
     // ── Opinion ring ─────────────────────────────────────────
     this.opinionRing = scene.add.graphics();
-    this.redrawRing();
+    if (!this.ambient) this.redrawRing();
     this.add(this.opinionRing);
 
     // ── Layered character sprite stack ───────────────────────
@@ -199,23 +203,29 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
     // ── Interaction ──────────────────────────────────────────
     this.setSize(48, FRAME_H + LABEL_Y + 12);
-    this.setInteractive({ cursor: "pointer" });
+    if (this.ambient) {
+      // Ambient NPCs: no interaction, no nameplate, no opinion ring.
+      this.nameLabel.setVisible(false);
+      this.opinionRing.setVisible(false);
+    } else {
+      this.setInteractive({ cursor: "pointer" });
 
-    this.on("pointerover", () => {
-      if (this.isMoving) return;
-      scene.tweens.add({ targets: this, scaleX: 1.1, scaleY: 1.1, duration: 110, ease: "Back.easeOut" });
-      this.nameLabel.setColor("#FFD700");
-    });
-    this.on("pointerout", () => {
-      scene.tweens.add({ targets: this, scaleX: 1, scaleY: 1, duration: 110, ease: "Back.easeOut" });
-      this.nameLabel.setColor("#ffffff");
-    });
-    this.on("pointerdown", () => {
-      if (!this.isPlayer) {
-        scene.events.emit("agent-clicked", this.agentId);
-      }
-      scene.tweens.add({ targets: this, scaleX: 0.9, scaleY: 0.9, duration: 65, yoyo: true, ease: "Quad.easeOut" });
-    });
+      this.on("pointerover", () => {
+        if (this.isMoving) return;
+        scene.tweens.add({ targets: this, scaleX: 1.1, scaleY: 1.1, duration: 110, ease: "Back.easeOut" });
+        this.nameLabel.setColor("#FFD700");
+      });
+      this.on("pointerout", () => {
+        scene.tweens.add({ targets: this, scaleX: 1, scaleY: 1, duration: 110, ease: "Back.easeOut" });
+        this.nameLabel.setColor("#ffffff");
+      });
+      this.on("pointerdown", () => {
+        if (!this.isPlayer) {
+          scene.events.emit("agent-clicked", this.agentId);
+        }
+        scene.tweens.add({ targets: this, scaleX: 0.9, scaleY: 0.9, duration: 65, yoyo: true, ease: "Quad.easeOut" });
+      });
+    }
 
     scene.add.existing(this);
     this.syncDepth();
@@ -258,8 +268,14 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.groundShadow.setScale(1); // reset shadow scale
     this.moveTween?.stop();
 
-    // Walk animation
+    // Walk animation — frameRate scales with stride length so long sprints
+    // cycle the legs faster than short hops.
     this.playWalk(this.currentDirection);
+    const frameRate = Phaser.Math.Clamp(6 + dist / 220, 5, 14);
+    if (this.bodySprite?.anims) this.bodySprite.anims.timeScale = frameRate / WALK_FPS;
+    if (this.outfitSprite?.anims) this.outfitSprite.anims.timeScale = frameRate / WALK_FPS;
+    if (this.accessorySprite?.anims) this.accessorySprite.anims.timeScale = frameRate / WALK_FPS;
+    if (this.coupleSprite?.anims) this.coupleSprite.anims.timeScale = frameRate / WALK_FPS;
 
     // Shadow squish while walking — variable frame rate by distance
     const squishDur = Phaser.Math.Clamp(180 + dist * 0.15, 220, 320);
@@ -291,6 +307,11 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         this.setScale(1);
         this.shadowTween?.stop();
         this.groundShadow.setScale(1);
+        // Reset animation timeScale to default after a walk.
+        if (this.bodySprite?.anims) this.bodySprite.anims.timeScale = 1;
+        if (this.outfitSprite?.anims) this.outfitSprite.anims.timeScale = 1;
+        if (this.accessorySprite?.anims) this.accessorySprite.anims.timeScale = 1;
+        if (this.coupleSprite?.anims) this.coupleSprite.anims.timeScale = 1;
         this.playIdle(this.currentDirection);
         this.currentActivity = "idle";
         this.beginIdle();
@@ -630,12 +651,16 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     }
   }
 
-  /** Body's anim advanced — propagate the frame to overlays. */
+  /** Body's anim advanced — propagate the frame to overlays + partner. */
   private syncOverlayFrame() {
     if (!this.bodySprite) return;
     const frame = this.bodySprite.frame.name;
     this.outfitSprite?.setFrame(frame);
     this.accessorySprite?.setFrame(frame);
+    // Partner shares the same stride — if it's not running its own anim, mirror frame.
+    if (this.coupleSprite && !this.coupleSprite.anims?.isPlaying) {
+      this.coupleSprite.setFrame(frame);
+    }
   }
 
   /** Breathing idle: subtle scaleY pulse + inverse shadow shrink. */

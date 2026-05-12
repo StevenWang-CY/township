@@ -119,6 +119,11 @@ function reducer(state: WsState, action: WsAction): WsState {
           return { ...state, events: newEvents };
 
         case "agent_speech": {
+          // Mirror to the aria-live region for screen readers (FIX 14).
+          if (typeof document !== "undefined") {
+            const node = document.getElementById("aria-live-speech");
+            if (node) node.textContent = `Agent ${evt.agent_name}: ${evt.text}`;
+          }
           if (!state.agents[evt.agent_id]) return { ...state, events: newEvents };
           const prev = state.agents[evt.agent_id];
           const next: AgentState = {
@@ -193,6 +198,13 @@ function reducer(state: WsState, action: WsAction): WsState {
             relationships: { ...state.relationships, [evt.agent_id]: next },
           };
         }
+
+        case "cross_town_gossip":
+          // Just record into the events stream — consumers handle UI side-effects.
+          return { ...state, events: newEvents };
+
+        case "god_view_injection":
+          return { ...state, events: newEvents };
 
         default:
           return { ...state, events: newEvents };

@@ -26,7 +26,9 @@ export interface Opinion {
   candidate: LeanId;
   confidence: number; // 0-100
   reasoning: string;
-  top_issue: string;
+  top_issues: string[];
+  dealbreaker?: string | null;
+  round_number?: number;
 }
 
 export interface AgentState {
@@ -57,6 +59,13 @@ export interface AgentState {
   gesture?: "nod" | "shake_head" | "shrug" | "laugh" | "point" | "none";
   gesture_at?: string; // ISO timestamp — consumers can compare for decay
   mood?: "positive" | "negative" | "neutral";
+  /** Per-agent idle-thought bank (sourced from agent .md frontmatter). */
+  idle_thoughts?: string[];
+  /** Optional routine — list of {time, location, activity}. */
+  routine?: Array<{ time: string; location: string; activity: string }>;
+  /** Optional relationship & goal metadata from agent .md. */
+  relationships?: Record<string, string>;
+  goals?: string[];
 }
 
 /* ── Conversations ─────────────────────────────────────────── */
@@ -225,6 +234,21 @@ export interface RelationshipUpdateEvent {
   classification: "agreeable" | "challenging" | "curious" | "hostile";
 }
 
+export interface CrossTownGossipEvent {
+  type: "cross_town_gossip";
+  from_town: TownId;
+  to_town: TownId;
+  from_agent: string;
+  to_agent: string;
+  message: string;
+}
+
+export interface GodViewInjectionEvent {
+  type: "god_view_injection";
+  variable: string;
+  description: string;
+}
+
 export type SimulationEvent =
   | AgentMovedEvent
   | ConversationStartedEvent
@@ -240,7 +264,9 @@ export type SimulationEvent =
   | GodsViewResultEvent
   | WorldClockTickEvent
   | WeatherChangedEvent
-  | RelationshipUpdateEvent;
+  | RelationshipUpdateEvent
+  | CrossTownGossipEvent
+  | GodViewInjectionEvent;
 
 /* ── Relationships (player ↔ agent) ────────────────────────── */
 

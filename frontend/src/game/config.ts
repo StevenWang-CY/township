@@ -14,7 +14,7 @@ export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
     arcade: { gravity: { x: 0, y: 0 } },
   },
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
 };
