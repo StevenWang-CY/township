@@ -1105,8 +1105,9 @@ export class TownScene extends Phaser.Scene {
     // Environment decorations (campfire, sparkles, lighting)
     this.buildEnvironmentFX();
 
-    // Streetlamps — placed along roads + commercial buildings
-    this.addStreetlamps();
+    // NOTE: Streetlamps used to be placed here AND by SceneAmbience, which
+    // doubled them along every road and read as a wall of orbs. SceneAmbience
+    // is now the single source. Old in-scene streetlamps removed.
   }
 
   /** Place 6-10 streetlamps along roads and near commercial buildings. */
