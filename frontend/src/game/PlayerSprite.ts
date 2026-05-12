@@ -89,14 +89,38 @@ export class PlayerSprite extends AgentSprite {
     }
 
     // ── Keyboard setup ──────────────────────────────────────
-    // Disable global capture so keys pass through to DOM inputs (chat bar).
+    // CRITICAL: every addKey()/addKeys()/createCursorKeys() call defaults to
+    // enableCapture=true, which Phaser implements as preventDefault() on the
+    // matching browser keydown. That eats the keys before the focused chat
+    // <input> can receive them — so typing W/A/S/D in the chat was impossible.
+    //
+    // We pass enableCapture=false to all of them. We still get Key.isDown
+    // state for movement polling, but Phaser stops calling preventDefault, so
+    // when the chat input is focused the same keystrokes also reach the DOM.
+    // (updatePlayer additionally checks document.activeElement to skip moving
+    //  while typing.)
+    const KC = Phaser.Input.Keyboard.KeyCodes;
     const kb = scene.input.keyboard;
     if (kb) {
       kb.disableGlobalCapture();
-      this.cursors = kb.createCursorKeys();
-      this.wasd = kb.addKeys("W,A,S,D") as any;
-      this.eKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.E);
-      kb.on("keydown-E", () => this.onInteract());
+      this.cursors = {
+        up:    kb.addKey(KC.UP,    false),
+        down:  kb.addKey(KC.DOWN,  false),
+        left:  kb.addKey(KC.LEFT,  false),
+        right: kb.addKey(KC.RIGHT, false),
+        space: kb.addKey(KC.SPACE, false),
+        shift: kb.addKey(KC.SHIFT, false),
+      } as Phaser.Types.Input.Keyboard.CursorKeys;
+      this.wasd = kb.addKeys("W,A,S,D", false) as any;
+      this.eKey = kb.addKey(KC.E, false);
+      kb.on("keydown-E", () => {
+        // Guard: if the user is typing in a text field, E is their input
+        // character, not an interaction command.
+        const active = document.activeElement;
+        const typing = !!active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || (active as HTMLElement).isContentEditable);
+        if (typing) return;
+        this.onInteract();
+      });
     }
 
     // ── "YOU" badge ─────────────────────────────────────────
@@ -485,12 +509,16 @@ export class PlayerSprite extends AgentSprite {
     }
 
     // Dwell-to-auto-talk: while standing still inside the radius, count up.
-    // Movement (this.wasMoving) resets the timer.
+    // Movement (this.wasMoving) resets the timer. Typing in a text field
+    // also pauses dwell so the chat can't reopen itself while the user types.
+    const activeEl = document.activeElement;
+    const typingNow = !!activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable);
     if (
       this.nearbyAgentId &&
       this.inputEnabled &&
       !this.wasMoving &&
       !this.dwellAutoFired &&
+      !typingNow &&
       DWELL_AUTO_TALK_MS > 0
     ) {
       const now = this.scene.time.now;
