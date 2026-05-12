@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "07:30", location: "Boutique Row", activity: "Wakes up in his Bloomfield Ave studio, paints for an hour before work" }
   - { time: "09:00", location: "Boutique Row", activity: "Pulls espresso shots at Fausto, draws on the back of receipts" }

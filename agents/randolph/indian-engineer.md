@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "07:00", location: "Residential Cul-de-sacs", activity: "Filter coffee, reads Hacker News and the visa-policy Reddit thread he hates" }
   - { time: "08:30", location: "Residential Cul-de-sacs", activity: "Drops Rohan at first grade, Anvi at preschool" }

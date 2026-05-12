@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "06:00", location: "Bay Street Station", activity: "Walks the dog along Bay Street, listens to NPR Morning Edition" }
   - { time: "08:30", location: "Public Library", activity: "Tutors a fifth-grader in math through the library literacy program" }

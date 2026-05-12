@@ -9,7 +9,7 @@ Civic swarm intelligence engine for NJ-11 special election (April 16, 2026).
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Backend | Python + FastAPI | Native async, Pydantic validation, Azure OpenAI SDK |
-| LLM | Azure OpenAI gpt-5-mini | Reasoning model with function calling; max_completion_tokens instead of max_tokens |
+| LLM | AWS Bedrock — Claude Sonnet 4.5 (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`) | Native Anthropic Messages API via `anthropic.AsyncAnthropicBedrock`; prompt caching on the system block; bearer-token auth via `AWS_BEARER_TOKEN_BEDROCK` |
 | Frontend | React + Vite + Phaser 3 | Tilemap + character sprites from Smallville/ai-town repos |
 | Agent personas | Markdown + YAML frontmatter | Git-trackable, no-code editing, hot-reloadable |
 | Memory | Simple list (not embeddings) | Sufficient for 3-5 rounds; all memories fit in prompt context |
@@ -35,7 +35,7 @@ Key details from our research of the Smallville repo:
 - [x] `backend/core/types.py` — All Pydantic models (AgentDefinition, AgentState, Opinion, SimulationEvent union, TownSummary, DistrictSummary)
 - [x] `backend/core/agent_loader.py` — Parses .md frontmatter → AgentDefinition, auto-discovers towns
 - [x] `backend/core/event_bus.py` — Async pub/sub with WebSocket forwarding + event log
-- [x] `backend/providers/anthropic_client.py` — AsyncAnthropic wrapper, rate limiting (Semaphore(10)), cost tracking
+- [x] `backend/providers/anthropic_client.py` — `AsyncAnthropicBedrock` wrapper, prompt caching, rate limiting (Semaphore(10)), cost + cache-hit tracking
 - [x] `backend/tools/schemas.py` — Discuss, FormOpinion, ReactToNews tool schemas + registry
 - [x] `backend/simulation/round_manager.py` — THE core: 5-round simulation loop (seed → conversations → news → opinion → final)
 - [x] `backend/simulation/orchestrator.py` — Multi-town parallel runner with asyncio.gather, DistrictSummary aggregation
@@ -92,13 +92,11 @@ Key details from our research of the Smallville repo:
 
 ```bash
 # Backend
-cd /Users/chuyuewang/Desktop/anthropichackathon-njtownship
+cd /Users/chuyuewang/Desktop/CS/Project/township
 pip install -r backend/requirements.txt
-pip install openai
-AZURE_OPENAI_API_KEY=<your-key> \
-AZURE_OPENAI_ENDPOINT=https://franklink-openai.openai.azure.com/ \
-AZURE_OPENAI_API_VERSION=2025-01-01-preview \
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-5-mini \
+AWS_BEARER_TOKEN_BEDROCK=<your-bedrock-api-key> \
+AWS_REGION=us-east-2 \
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0 \
 python -m uvicorn backend.main:app --reload --port 8001
 
 # Frontend (vite.config.ts proxies /api and /ws to port 8001)
@@ -122,7 +120,7 @@ township/
 │   │   ├── agent_loader.py          # .md → AgentDefinition
 │   │   └── event_bus.py             # Async pub/sub
 │   ├── providers/
-│   │   └── anthropic_client.py      # Claude API + cost tracking
+│   │   └── anthropic_client.py      # AsyncAnthropicBedrock wrapper + prompt caching + cost tracking
 │   ├── simulation/
 │   │   ├── orchestrator.py          # Multi-town parallel runner
 │   │   ├── round_manager.py         # THE core simulation loop (673 lines)
@@ -192,16 +190,18 @@ township/
 | Buffer | ~$2.00 |
 | **Total** | **~$7.50** |
 
-## Azure OpenAI Migration
+## AWS Bedrock Migration
 
-Switched from Anthropic Claude to Azure OpenAI (gpt-5-mini) on April 6, 2026:
-- **Client:** `backend/providers/anthropic_client.py` — rewrote to use `openai.AsyncAzureOpenAI`
-- **Class name:** Kept as `AnthropicClient` for backward compatibility (all import sites unchanged)
-- **Tool format:** Auto-converts Anthropic `input_schema` → OpenAI `function.parameters`
-- **Model mapping:** `claude-sonnet-4-6` → `gpt-5-mini` via MODEL_MAP dict
-- **Key difference:** gpt-5-mini uses `max_completion_tokens` (not `max_tokens`) and consumes reasoning tokens internally
-- **Token budget:** Increased all max_tokens to 1200-1600 to account for reasoning tokens (~256 per call)
-- **Env vars:** `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_DEPLOYMENT_NAME`
+Switched from Azure OpenAI (gpt-5-mini) to AWS Bedrock — Claude Sonnet 4.5 on 2026-05-12:
+- **Client:** `backend/providers/anthropic_client.py` — rewritten to use `anthropic.AsyncAnthropicBedrock`. Native Anthropic Messages API (tools already in Anthropic format, no schema translation needed).
+- **Class name:** Kept as `AnthropicClient` for backward compatibility — every import site (`round_manager`, `orchestrator`, all routes) works unchanged.
+- **Model:** Default `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (cross-region inference profile). Override via `BEDROCK_MODEL_ID`.
+- **Model mapping:** legacy `claude-sonnet-4-6`, `claude-haiku-3-5`, `gpt-5-mini`, `claude-opus-4-7` etc. all resolve via `MODEL_MAP` to a current Bedrock id.
+- **Auth:** Bearer-token via `AWS_BEARER_TOKEN_BEDROCK` (preferred; new Bedrock API-key auth). SigV4 via the standard AWS credential chain is the fallback.
+- **Region:** `AWS_REGION` (default `us-east-2`).
+- **Prompt caching:** the system block is sent with `cache_control: {type: "ephemeral"}` — cuts repeated-persona input cost by ~85%. Disable via `BEDROCK_CACHE_SYSTEM=0`.
+- **Cost tracking:** input, output, cache-read and cache-write tokens are all priced explicitly. Reported via `GET /` (`usage` field) and `GET /api/simulation/status`.
+- **Env vars:** `AWS_BEARER_TOKEN_BEDROCK`, `AWS_REGION`, `BEDROCK_MODEL_ID` (optional), `BEDROCK_CACHE_SYSTEM` (optional, default on).
 
 ## Game Assets Integration
 
@@ -217,7 +217,8 @@ Downloaded 50+ assets from Stanford Generative Agents + a16z ai-town repos:
 - `python-frontmatter` package imports as `frontmatter`, not `python_frontmatter`
 - Need to install deps with `python3 -m pip` to match the correct Python binary
 - Phaser.js adds ~1.4MB to bundle — acceptable for a game engine, but chunk splitting recommended for production
-- gpt-5-mini returns empty `content` if `max_completion_tokens` too low — reasoning tokens consume the budget
+- Anthropic SDK ≥ 0.45 needed for the `AWS_BEARER_TOKEN_BEDROCK` API-key auth path; older versions only support SigV4
+- Bedrock prompt-caching requires the system text to be sent as a content list (`[{"type":"text","text":..,"cache_control":{"type":"ephemeral"}}]`) — plain string disables caching
 - Port 8000 was already in use — switched to 8001 for backend
 
 ## Key Data Points

@@ -39,10 +39,11 @@ app.add_middleware(
 
 # Global state
 event_bus = EventBus()
-anthropic_client = AnthropicClient(
-    api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
-    max_concurrent=10,
-)
+# Bedrock client — auth is picked up from `AWS_BEARER_TOKEN_BEDROCK`
+# (preferred) or the standard AWS credential chain. Region comes from
+# `AWS_REGION` (default us-east-2). Model from `BEDROCK_MODEL_ID`
+# (default us.anthropic.claude-sonnet-4-5-20250929-v1:0).
+anthropic_client = AnthropicClient(max_concurrent=10)
 
 # Determine project root (parent of backend/)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

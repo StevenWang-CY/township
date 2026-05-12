@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "05:30", location: "Public Housing", activity: "Wakes up silently, packs lunch — pan dulce and a thermos" }
   - { time: "06:15", location: "Blackwell Street", activity: "Stands at the day-laborer corner, watches who pulls up" }

@@ -18,7 +18,7 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-6
+model: claude-sonnet-4-5
 routine:
   - { time: "06:30", location: "Watchung Plaza", activity: "Walks to morning coffee at his usual cafe, drafts sermon notes" }
   - { time: "08:30", location: "Town Hall", activity: "Stops by interfaith council meeting twice a month" }
