@@ -1,51 +1,30 @@
 import Phaser from "phaser";
-import { AgentSprite } from "./AgentSprite";
+import { AgentSprite, type AgentActivity, type GestureKind } from "./AgentSprite";
 import { PlayerSprite } from "./PlayerSprite";
-import { TOWN_LANDMARKS, TOWN_ACCENT, type Landmark } from "./config";
-import type { AgentState, TownId } from "../types/messages";
+import { TOWN_ACCENT, TOWN_MAP_KEY } from "./config";
+import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
 import type { UserProfile } from "../context/UserProfileContext";
+import { AGENT_CUSTOMIZATION, ALL_CHARACTER_KEYS, resolveAgentSprite } from "./spriteCustomization";
+import { drawLandmarkBuilding } from "./LandmarkArt";
+import { WorldClock } from "./WorldClock";
+import { Routine, type RoutineEntry } from "./Routine";
+import { pickExchange } from "./AmbientLines";
+import { FALLBACK_TOWN_DATA } from "../hooks/useTownData";
+import { WeatherScene } from "./WeatherScene";
 
-/* ── Character sprite → Smallville asset mapping ────────────── */
+/* ── Helper: fetch town data (single source of truth) ───────── */
 
-const AGENT_SPRITE_MAP: Record<string, string> = {
-  // Dover
-  "carlos-restrepo": "Carlos_Gomez",
-  "miguel-hernandez": "Francisco_Lopez",
-  "maria-santos": "Carmen_Ortiz",
-  "esperanza-guzman": "Isabella_Rodriguez",
-  "sofia-ramirez": "Jane_Moreno",
-  "tom-kowalski": "Tom_Moreno",
-  // Montclair
-  "sarah-&-david-chen": "Mei_Lin",
-  "rosa-chen": "Yuriko_Yamamoto",
-  "jordan-williams": "Latoya_Williams",
-  "carmen-&-alejandro-vargas": "Maria_Lopez",
-  "rabbi-daniel-goldstein": "Klaus_Mueller",
-  "priya-patel": "Ayesha_Khan",
-  "margaret-\"peggy\"-o'brien": "Jennifer_Moore",
-  // Parsippany
-  "raj-&-sunita-krishnamurthy": "Rajiv_Patel",
-  "kantibhai-\"kanti\"-desai": "Giorgio_Rossi",
-  "brian-mccarthy": "Sam_Moore",
-  "aisha-&-omar-khan": "Abigail_Chen",
-  "pawan-sharma": "Adam_Smith",
-  "linda-morrison": "Hailey_Johnson",
-  "grace-reyes": "Tamara_Taylor",
-  // Randolph
-  "michael-\"mike\"-brennan": "Arthur_Burton",
-  "jennifer-\"jen\"-russo": "Jennifer_Moore",
-  "frank-deluca": "Wolfgang_Schulz",
-  "tyler-&-megan-hart": "Ryan_Park",
-  "vikram-iyer": "Eddy_Lin",
-  "tony-mancini": "John_Lin",
-};
+async function fetchTownData(townId: TownId): Promise<TownData | null> {
+  try {
+    const r = await fetch(`/api/towns/${townId}`);
+    if (!r.ok) return null;
+    return (await r.json()) as TownData;
+  } catch {
+    return null;
+  }
+}
 
-const FALLBACK_SPRITES = [
-  "Carlos_Gomez", "Maria_Lopez", "Adam_Smith", "Abigail_Chen",
-  "Tom_Moreno", "Hailey_Johnson", "Rajiv_Patel", "Tamara_Taylor",
-];
-
-// Brief "overheard" snippets agents display while wandering
+// Generic fallback idle thoughts (used until per-agent banks are wired).
 const IDLE_THOUGHTS = [
   "Did you see that debate?",
   "Early voting ends the 14th.",
@@ -60,19 +39,36 @@ const IDLE_THOUGHTS = [
   "Think about the schools.",
 ];
 
+/* ── Internal agent record ─────────────────────────────────── */
+
+interface AgentRecord {
+  sprite: AgentSprite;
+  routine?: Routine;
+  topConcerns: string[];
+  lastRoutineTime?: string;
+}
+
 /* ── TownScene ──────────────────────────────────────────────── */
 
 export class TownScene extends Phaser.Scene {
   private townId: TownId = "dover";
   private agentSprites: Map<string, AgentSprite> = new Map();
+  private agentRecords: Map<string, AgentRecord> = new Map();
   private playerSprite: PlayerSprite | null = null;
-  private landmarks: Landmark[] = [];
+  private landmarks: LandmarkData[] = [];
   private landmarkPositions: Map<string, { x: number; y: number }> = new Map();
   private characterKeys: Set<string> = new Set();
-  // Wander waypoints: all non-road landmark centers
   private wanderPoints: Array<{ x: number; y: number }> = [];
-  // Tilemap collision layer for player physics
-  private collisionLayer: Phaser.Tilemaps.TilemapLayer | null = null;
+  private collisionGroup?: Phaser.Physics.Arcade.StaticGroup;
+  private townDataResolved = false;
+  private playerSpawnPending: UserProfile | null = null;
+
+  // World clock + sky overlay
+  private worldClock = new WorldClock({ startHour: 8, minutesPerSecond: 1 });
+  private skyOverlay?: Phaser.GameObjects.Rectangle;
+
+  // Encounter scheduling
+  private encounterTimer?: Phaser.Time.TimerEvent;
 
   constructor() {
     super({ key: "TownScene" });
@@ -80,34 +76,50 @@ export class TownScene extends Phaser.Scene {
 
   init(data: { townId: TownId }) {
     this.townId = data.townId;
-    this.landmarks = TOWN_LANDMARKS[this.townId] || [];
+    // Inline fallback until /api/towns resolves; overridden in create().
+    this.landmarks = (FALLBACK_TOWN_DATA[this.townId]?.landmarks ?? []).slice();
   }
 
   /* ── Preload ─────────────────────────────────────────────── */
 
   preload() {
     this.load.image("rpg-tileset", "/assets/tilesets/rpg-tileset.png");
-    this.load.tilemapTiledJSON("town-map", "/assets/maps/tilemap.json");
     this.load.image("magecity-bg", "/assets/tilesets/magecity.png");
     this.load.image("speech-bubble", "/assets/speech_bubble/v2.png");
+
+    // Town-aware tilemap. Until per-town files exist, fall back to shared tilemap.
+    const mapKey = TOWN_MAP_KEY[this.townId];
+    const mapUrl = `/assets/maps/${this.townId}.tmj`;
+    this.load.tilemapTiledJSON(mapKey, mapUrl);
+    // If per-town .tmj is missing, fall back to the shared default.
+    this.load.once(`fileerror-tilemapJSON-${mapKey}`, () => {
+      this.load.tilemapTiledJSON(mapKey, "/assets/maps/tilemap.json");
+      this.load.start();
+    });
 
     this.load.spritesheet("campfire", "/assets/spritesheets/campfire.png", { frameWidth: 32, frameHeight: 32 });
     this.load.spritesheet("sparkle", "/assets/spritesheets/gentlesparkle32.png", { frameWidth: 32, frameHeight: 32 });
 
-    // Character spritesheets (96 × 128 → 3 cols × 4 rows)
-    const allChars = new Set([...Object.values(AGENT_SPRITE_MAP), ...FALLBACK_SPRITES]);
-    for (const name of allChars) {
-      this.load.spritesheet(`char-${name}`, `/assets/characters/${name}.png`, {
+    // Character spritesheets — 32×32 frames
+    for (const fullKey of ALL_CHARACTER_KEYS) {
+      // ALL_CHARACTER_KEYS already prefixes "char-" — use rest as filename.
+      const fileName = fullKey.startsWith("char-") ? fullKey.slice(5) : fullKey;
+      this.load.spritesheet(fullKey, `/assets/characters/${fileName}.png`, {
         frameWidth: 32,
         frameHeight: 32,
       });
-      this.characterKeys.add(name);
+      this.characterKeys.add(fileName);
     }
 
     // Folk spritesheet as additional fallback
     this.load.spritesheet("folk", "/assets/characters/32x32folk.png", { frameWidth: 32, frameHeight: 32 });
 
-    // Player sprite (48×64 → 3 cols × 4 rows of 16×16 frames)
+    // Player sprite variants — try 32×32 player-N first, fall back to legacy 16-px.
+    for (let i = 1; i <= 6; i++) {
+      const key = `char-player-${i}`;
+      this.load.spritesheet(key, `/assets/characters/player-${i}.png`, { frameWidth: 32, frameHeight: 32 });
+      this.load.once(`fileerror-spritesheet-${key}`, () => {/* silently skip */});
+    }
     this.load.spritesheet("char-player", "/assets/characters/player.png", {
       frameWidth: 16, frameHeight: 16,
     });
@@ -122,21 +134,23 @@ export class TownScene extends Phaser.Scene {
     // Tilemap
     this.buildTilemap(W, H);
 
-    // Landmark overlays
-    const accent = TOWN_ACCENT[this.townId] || "#888";
-    for (const lm of this.landmarks) {
-      const cx = lm.x + lm.width / 2;
-      const cy = lm.y + lm.height / 2;
-      this.landmarkPositions.set(lm.name, { x: cx, y: cy });
-      if (lm.type !== "road") this.wanderPoints.push({ x: cx, y: cy });
-      this.drawLandmarkLabel(lm, accent);
-    }
+    // Sky overlay (depth 999) – starts at current hour tint.
+    this.skyOverlay = this.add.rectangle(0, 0, W, H, 0xffffff, 0).setOrigin(0, 0).setDepth(999);
+    this.refreshSkyOverlay();
 
-    // Add extra wander points scattered around the map
-    this.addScatteredWaypoints(W, H);
+    // Try to fetch authoritative town data; build landmarks immediately with
+    // current (fallback) data and re-render if the API supplies different
+    // landmark positions.
+    this.layoutLandmarksAndDecor();
 
-    // Environment decorations
-    this.buildEnvironmentFX();
+    fetchTownData(this.townId).then((d) => {
+      if (d && d.landmarks?.length) {
+        this.landmarks = d.landmarks;
+        this.townDataResolved = true;
+        // Re-layout (cheap — destroys old graphics and re-creates).
+        this.rebuildLandmarks();
+      }
+    });
 
     // Character walk / idle animations
     this.createCharacterAnimations();
@@ -150,24 +164,56 @@ export class TownScene extends Phaser.Scene {
 
     // Town title banner
     this.buildTitleBanner(W);
+
+    // Per-town flavor effects (papel-picado, ducks, dogs, etc.)
+    this.addTownFlavor(this.townId);
+
+    // Register + launch the Weather scene in parallel
+    if (!this.scene.get("WeatherScene")) {
+      this.scene.add("WeatherScene", WeatherScene, false);
+    }
+    this.scene.launch("WeatherScene", { townId: this.townId });
+
+    // Encounter conversations every 12-20s
+    this.encounterTimer = this.time.addEvent({
+      delay: 16000,
+      loop: true,
+      callback: () => this.tryEncounterConversation(),
+    });
+
+    // If a player spawn was queued before scene activation, run it now.
+    if (this.playerSpawnPending) {
+      const p = this.playerSpawnPending;
+      this.playerSpawnPending = null;
+      this.addPlayer(p);
+    }
   }
 
   /* ── Update (called every frame) ────────────────────────── */
 
   update(_time: number, delta: number) {
+    // Tick world clock and update sky tint when minute changes
+    const prevMin = this.worldClock.minute;
+    const prevHour = this.worldClock.hour;
+    this.worldClock.tick(delta);
+    if (this.worldClock.minute !== prevMin || this.worldClock.hour !== prevHour) {
+      this.refreshSkyOverlay();
+      this.tickRoutines();
+    }
+
     // Y-based depth sort – characters "behind" others appear further back
     this.agentSprites.forEach((s) => s.syncDepth());
     this.playerSprite?.updatePlayer(delta);
 
-    // Player ↔ tilemap collision (physics-enabled player only)
-    if (this.playerSprite && this.collisionLayer) {
-      this.physics.collide(this.playerSprite, this.collisionLayer);
+    // Player ↔ landmark collision
+    if (this.playerSprite && this.collisionGroup) {
+      this.physics.collide(this.playerSprite, this.collisionGroup);
     }
   }
 
   /* ── Agent Management (called from React / TownView) ──── */
 
-  addAgent(agent: AgentState) {
+  addAgent(agent: AgentState & { routine?: RoutineEntry[] }) {
     if (this.agentSprites.has(agent.id)) return;
 
     const base = this.landmarkPositions.get(agent.location) ??
@@ -176,8 +222,8 @@ export class TownScene extends Phaser.Scene {
     const sx = Phaser.Math.Clamp(base.x + Phaser.Math.Between(-55, 55), 40, 1160);
     const sy = Phaser.Math.Clamp(base.y + Phaser.Math.Between(-35, 35), 40, 760);
 
-    const charName = AGENT_SPRITE_MAP[agent.id] ??
-      FALLBACK_SPRITES[Math.floor(Math.random() * FALLBACK_SPRITES.length)];
+    const custom = resolveAgentSprite(agent.id);
+    const isCouple = /&/.test(agent.name);
 
     const sprite = new AgentSprite(this, sx, sy, {
       id: agent.id,
@@ -186,14 +232,30 @@ export class TownScene extends Phaser.Scene {
       color: agent.color ?? TOWN_ACCENT[this.townId] ?? "#888",
       town: agent.town,
       opinionColor: this.opinionColor(agent.opinion?.candidate),
-      spriteKey: this.textures.exists(`char-${charName}`) ? `char-${charName}` : undefined,
+      spriteKey: custom.spriteKey,
+      outfitKey: custom.outfitKey,
+      accessoryKey: custom.accessoryKey,
+      tint: custom.tint,
+      partner: isCouple
+        ? { spriteKey: custom.spriteKey, name: agent.name, initials: agent.initials ?? "", tint: 0xe5dcc8 }
+        : undefined,
     });
 
     this.agentSprites.set(agent.id, sprite);
 
-    // Stagger autonomous wandering so agents don't all leave at once
-    const initDelay = Phaser.Math.Between(1500, 6000);
-    this.time.delayedCall(initDelay, () => this.scheduleWander(agent.id));
+    const record: AgentRecord = {
+      sprite,
+      routine: agent.routine ? new Routine(agent.routine) : undefined,
+      topConcerns: [],
+    };
+    this.agentRecords.set(agent.id, record);
+
+    // If a routine is supplied, the clock tick drives motion. Otherwise we
+    // fall back to randomized wandering.
+    if (!record.routine) {
+      const initDelay = Phaser.Math.Between(1500, 6000);
+      this.time.delayedCall(initDelay, () => this.scheduleWander(agent.id));
+    }
   }
 
   moveAgent(agentId: string, toLocation: string) {
@@ -205,7 +267,7 @@ export class TownScene extends Phaser.Scene {
     sprite.moveToPosition(tx, ty);
   }
 
-  showAgentSpeech(agentId: string, text: string, duration = 5000) {
+  showAgentSpeech(agentId: string, text: string, duration?: number) {
     this.agentSprites.get(agentId)?.showSpeechBubble(text, duration);
   }
 
@@ -215,6 +277,63 @@ export class TownScene extends Phaser.Scene {
 
   showAgentEmote(agentId: string, type: "reflecting" | "opinion_changed") {
     this.agentSprites.get(agentId)?.showEmote(type);
+  }
+
+  playGesture(agentId: string, gesture: GestureKind) {
+    this.agentSprites.get(agentId)?.playGesture(gesture);
+  }
+
+  setAgentActivity(agentId: string, activity: AgentActivity) {
+    this.agentSprites.get(agentId)?.setActivity(activity);
+  }
+
+  /** Force the clock; called from WS world_clock_tick. */
+  setWorldTime(h: number, m: number) {
+    this.worldClock.setTime(h, m);
+    this.refreshSkyOverlay();
+    this.tickRoutines();
+  }
+
+  /** Forward weather to the WeatherScene. */
+  setWeather(w: WeatherKind) {
+    const ws = this.scene.get("WeatherScene") as any;
+    if (ws && typeof ws.setWeather === "function") ws.setWeather(w);
+  }
+
+  /** Camera beats — short, < 1.2s pan/zoom for narrative emphasis. */
+  playNewsBeat() {
+    const cam = this.cameras.main;
+    if (!cam) return;
+    const top = { x: cam.midPoint.x, y: 80 };
+    cam.pan(top.x, top.y, 350, "Sine.easeInOut");
+    cam.zoomTo(cam.zoom * 1.15, 300, "Sine.easeInOut");
+    this.time.delayedCall(700, () => {
+      if (this.playerSprite) {
+        cam.pan(this.playerSprite.x, this.playerSprite.y, 400, "Sine.easeInOut");
+      }
+      cam.zoomTo(cam.zoom / 1.15, 400, "Sine.easeInOut");
+    });
+  }
+
+  playOpinionShiftBeat(agentId: string) {
+    const cam = this.cameras.main;
+    const sprite = this.agentSprites.get(agentId);
+    if (!cam || !sprite) return;
+    const z = cam.zoom;
+    cam.pan(sprite.x, sprite.y, 280, "Sine.easeInOut");
+    cam.zoomTo(z * 1.2, 240, "Sine.easeInOut");
+    this.time.delayedCall(600, () => {
+      cam.zoomTo(z, 380, "Sine.easeInOut");
+      if (this.playerSprite) cam.pan(this.playerSprite.x, this.playerSprite.y, 380, "Sine.easeInOut");
+    });
+  }
+
+  playSimEndBeat() {
+    const cam = this.cameras.main;
+    if (!cam) return;
+    const z = cam.zoom;
+    cam.zoomTo(z * 0.7, 800, "Sine.easeInOut");
+    this.time.delayedCall(1000, () => cam.zoomTo(z, 700, "Sine.easeInOut"));
   }
 
   /** Export all agent positions for the DOM overlay. */
@@ -237,15 +356,44 @@ export class TownScene extends Phaser.Scene {
     return data;
   }
 
+  /** Minimap data — small representation of the current town. */
+  getMiniMapData(): {
+    width: number; height: number;
+    landmarks: { x: number; y: number; w: number; h: number; type: string; color?: string; name: string }[];
+    agents: { id: string; x: number; y: number; color: string }[];
+    player?: { x: number; y: number };
+  } {
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    return {
+      width: W,
+      height: H,
+      landmarks: this.landmarks.map((lm) => ({
+        x: lm.x, y: lm.y, w: lm.width, h: lm.height,
+        type: lm.type, color: lm.color, name: lm.name,
+      })),
+      agents: [...this.agentSprites.entries()]
+        .filter(([_, s]) => s !== this.playerSprite)
+        .map(([id, s]) => ({ id, x: s.x, y: s.y, color: TOWN_ACCENT[this.townId] ?? "#888" })),
+      player: this.playerSprite ? { x: this.playerSprite.x, y: this.playerSprite.y } : undefined,
+    };
+  }
+
   clearAgents() {
     this.agentSprites.forEach((s) => s.destroy());
     this.agentSprites.clear();
+    this.agentRecords.clear();
   }
 
   /* ── Player Management ──────────────────────────────────── */
 
   addPlayer(profile: UserProfile) {
     if (this.playerSprite) return; // already spawned
+    if (!this.scene.isActive()) {
+      // Queue until create() runs.
+      this.playerSpawnPending = profile;
+      return;
+    }
 
     // Spawn near the first landmark
     const firstLandmark = this.landmarks.find((l) => l.type !== "road") ?? this.landmarks[0];
@@ -255,7 +403,13 @@ export class TownScene extends Phaser.Scene {
     const sx = Phaser.Math.Clamp(base.x + Phaser.Math.Between(-30, 30), 60, 1140);
     const sy = Phaser.Math.Clamp(base.y + Phaser.Math.Between(-20, 20), 60, 740);
 
-    const spriteKey = this.textures.exists("char-player") ? "char-player" : undefined;
+    // Honor profile.spriteKey if it points to a loaded texture.
+    let spriteKey: string | undefined;
+    if (profile.spriteKey && this.textures.exists(profile.spriteKey)) {
+      spriteKey = profile.spriteKey;
+    } else if (this.textures.exists("char-player")) {
+      spriteKey = "char-player";
+    }
 
     this.playerSprite = new PlayerSprite(this, sx, sy, {
       id: profile.agentId,
@@ -307,7 +461,25 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  /* ── Autonomous Wandering ────────────────────────────────── */
+  /* ── Routines ─────────────────────────────────────────── */
+
+  private tickRoutines() {
+    if (this.agentRecords.size === 0) return;
+    for (const [id, rec] of this.agentRecords) {
+      if (!rec.routine) continue;
+      const entry = rec.routine.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+      if (!entry) continue;
+      if (rec.lastRoutineTime === entry.time) continue;
+      rec.lastRoutineTime = entry.time;
+
+      // If the target location is recognized, move there.
+      if (this.landmarkPositions.has(entry.location)) {
+        this.moveAgent(id, entry.location);
+      }
+    }
+  }
+
+  /* ── Autonomous Wandering (fallback when no routine) ───── */
 
   private scheduleWander(agentId: string) {
     const sprite = this.agentSprites.get(agentId);
@@ -341,7 +513,6 @@ export class TownScene extends Phaser.Scene {
   }
 
   private addScatteredWaypoints(W: number, H: number) {
-    // Add a grid of "street corner" waypoints for richer wandering
     const cols = 5, rows = 4;
     for (let c = 0; c < cols; c++) {
       for (let r = 0; r < rows; r++) {
@@ -353,16 +524,46 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
+  /* ── Encounter conversations ───────────────────────────── */
+
+  private tryEncounterConversation() {
+    if (this.agentSprites.size < 2) return;
+    const all = [...this.agentSprites.entries()].filter(([_, s]) => s !== this.playerSprite);
+    if (all.length < 2) return;
+
+    // Pick a random pair within 100px of each other.
+    Phaser.Utils.Array.Shuffle(all);
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        const a = all[i][1], b = all[j][1];
+        const d = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+        if (d <= 100) {
+          this.runEncounter(a, b);
+          return;
+        }
+      }
+    }
+  }
+
+  private runEncounter(a: AgentSprite, b: AgentSprite) {
+    // Face each other for ~3s, exchange two lines.
+    a.faceToward(b.x, b.y);
+    b.faceToward(a.x, a.y);
+    a.setActivity("talking");
+    b.setActivity("talking");
+
+    const exchange = pickExchange(undefined, undefined);
+    a.showSpeechBubble(exchange.a, 2400);
+    this.time.delayedCall(1500, () => b.showSpeechBubble(exchange.b, 2400));
+    this.time.delayedCall(4200, () => {
+      a.setActivity("idle");
+      b.setActivity("idle");
+    });
+  }
+
   /* ── Character Animations ────────────────────────────────── */
 
   private createCharacterAnimations() {
-    /**
-     * 96 × 128 spritesheet → 3 cols × 4 rows = 12 frames:
-     *   walk-down:  frames 0,1,2
-     *   walk-left:  frames 3,4,5
-     *   walk-right: frames 6,7,8
-     *   walk-up:    frames 9,10,11
-     */
     const dirs: Array<{ name: string; start: number; end: number; idle: number }> = [
       { name: "down",  start: 0, end: 2,  idle: 1  },
       { name: "left",  start: 3, end: 5,  idle: 4  },
@@ -384,8 +585,6 @@ export class TownScene extends Phaser.Scene {
             repeat: -1,
           });
         }
-        // Idle is handled as a stopped frame in AgentSprite, but create a subtle 2-frame
-        // "breathe" that cycles the 3 walk frames very slowly for resting characters
         const idleKey = `${key}-idle-${d.name}`;
         if (!this.anims.exists(idleKey)) {
           this.anims.create({
@@ -405,10 +604,9 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  /** Create walk/idle animations for the player sprite (16×16 frames, same layout). */
+  /** Create walk/idle animations for the player sprite variants. */
   private createPlayerAnimations() {
-    const key = "char-player";
-    if (!this.textures.exists(key)) return;
+    const playerKeys = ["char-player", "char-player-1", "char-player-2", "char-player-3", "char-player-4", "char-player-5", "char-player-6"];
 
     const dirs = [
       { name: "down", start: 0, end: 2, idle: 1 },
@@ -417,30 +615,33 @@ export class TownScene extends Phaser.Scene {
       { name: "up", start: 9, end: 11, idle: 10 },
     ];
 
-    for (const d of dirs) {
-      const walkKey = `${key}-walk-${d.name}`;
-      if (!this.anims.exists(walkKey)) {
-        this.anims.create({
-          key: walkKey,
-          frames: this.anims.generateFrameNumbers(key, { start: d.start, end: d.end }),
-          frameRate: 9,
-          repeat: -1,
-        });
-      }
-      const idleKey = `${key}-idle-${d.name}`;
-      if (!this.anims.exists(idleKey)) {
-        this.anims.create({
-          key: idleKey,
-          frames: [
-            { key, frame: d.idle },
-            { key, frame: d.start },
-            { key, frame: d.idle },
-            { key, frame: d.end },
-          ],
-          frameRate: 1.6,
-          repeat: -1,
-          repeatDelay: 1200,
-        });
+    for (const key of playerKeys) {
+      if (!this.textures.exists(key)) continue;
+      for (const d of dirs) {
+        const walkKey = `${key}-walk-${d.name}`;
+        if (!this.anims.exists(walkKey)) {
+          this.anims.create({
+            key: walkKey,
+            frames: this.anims.generateFrameNumbers(key, { start: d.start, end: d.end }),
+            frameRate: 9,
+            repeat: -1,
+          });
+        }
+        const idleKey = `${key}-idle-${d.name}`;
+        if (!this.anims.exists(idleKey)) {
+          this.anims.create({
+            key: idleKey,
+            frames: [
+              { key, frame: d.idle },
+              { key, frame: d.start },
+              { key, frame: d.idle },
+              { key, frame: d.end },
+            ],
+            frameRate: 1.6,
+            repeat: -1,
+            repeatDelay: 1200,
+          });
+        }
       }
     }
   }
@@ -466,15 +667,13 @@ export class TownScene extends Phaser.Scene {
       npc.setScale(1.9);
       npc.setOrigin(0.5, 1);
       npc.setDepth(50 + sy);
-      npc.setAlpha(1); // fully opaque — visual hierarchy via scale, not alpha
+      npc.setAlpha(1);
 
-      // Pick a random walk animation
       const dirs = ["down", "left", "right", "up"] as const;
       const dir = dirs[Math.floor(Math.random() * dirs.length)];
       const walkKey = `${key}-walk-${dir}`;
       if (this.anims.exists(walkKey)) npc.play(walkKey);
 
-      // Wander via tweens
       this.scheduleAmbientWander(npc, W, H);
     }
   }
@@ -489,7 +688,6 @@ export class TownScene extends Phaser.Scene {
       const dy = ty - npc.y;
       const dist = Math.hypot(dx, dy);
 
-      // Choose direction animation
       let dir = "down";
       if (Math.abs(dx) > Math.abs(dy)) dir = dx > 0 ? "right" : "left";
       else dir = dy > 0 ? "down" : "up";
@@ -523,7 +721,6 @@ export class TownScene extends Phaser.Scene {
 
       const bird = this.add.graphics();
       bird.lineStyle(2, 0x334455, 0.55);
-      // Simple "V" wings
       bird.lineBetween(-5, 0, 0, -3);
       bird.lineBetween(0, -3, 5, 0);
       bird.setPosition(x0, y);
@@ -531,7 +728,6 @@ export class TownScene extends Phaser.Scene {
 
       const duration = Phaser.Math.Between(6000, 12000);
 
-      // Wing-flap via scale tween
       this.tweens.add({
         targets: bird,
         scaleY: -1,
@@ -549,21 +745,21 @@ export class TownScene extends Phaser.Scene {
         onComplete: () => bird.destroy(),
       });
 
-      // Schedule next bird
       const nextDelay = Phaser.Math.Between(3000, 9000);
       this.time.delayedCall(nextDelay, launchBird);
     };
 
-    // Start a few birds at staggered times
     for (let i = 0; i < 3; i++) {
       this.time.delayedCall(Phaser.Math.Between(1000, 5000), launchBird);
     }
   }
 
-  /* ── Tilemap / Environment ───────────────────────────────── */
+  /* ── Tilemap / Landmark layout ─────────────────────────── */
 
   private buildTilemap(W: number, H: number) {
-    const map = this.make.tilemap({ key: "town-map" });
+    const mapKey = TOWN_MAP_KEY[this.townId];
+    if (!this.cache.tilemap.has(mapKey)) return;
+    const map = this.make.tilemap({ key: mapKey });
     const tileset = map.addTilesetImage("rpg-tileset", "rpg-tileset");
     if (tileset) {
       const scaleX = W / map.widthInPixels;
@@ -577,29 +773,62 @@ export class TownScene extends Phaser.Scene {
       terrain?.setScale(scale).setAlpha(0.92);
       bridge?.setScale(scale);
       deco?.setScale(scale);
-
-      // Store terrain layer for player collision
-      if (terrain) {
-        this.collisionLayer = terrain;
-        // Collide with water/wall tiles (tile index 0 = empty, exclude it)
-        terrain.setCollisionByExclusion([-1, 0]);
-      }
+      // NOTE: we no longer call setCollisionByExclusion — collisions come from
+      // the landmark static group instead.
     }
   }
 
-  private drawLandmarkLabel(lm: Landmark, accent: string) {
-    const g = this.add.graphics();
+  /** Wipes old landmark graphics + collision and re-creates from this.landmarks. */
+  private rebuildLandmarks() {
+    // Clear the existing static group; rebuilding is cheap.
+    this.collisionGroup?.clear(true, true);
+    this.collisionGroup = undefined;
+    this.landmarkPositions.clear();
+    this.wanderPoints = [];
+    this.layoutLandmarksAndDecor();
+  }
 
-    // Subtle zone tint (keep for visual grounding)
-    g.fillStyle(Phaser.Display.Color.HexStringToColor(accent).color, 0.07);
-    g.fillRoundedRect(lm.x - 4, lm.y - 4, lm.width + 8, lm.height + 8, 5);
-    g.setDepth(45);
+  private layoutLandmarksAndDecor() {
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    const accent = TOWN_ACCENT[this.townId] || "#888";
 
-    // Text labels now rendered by DOM CanvasOverlay — no Phaser text here
+    // Subtle landmark zone tint to ground each building visually.
+    for (const lm of this.landmarks) {
+      const cx = lm.x + lm.width / 2;
+      const cy = lm.y + lm.height / 2;
+      this.landmarkPositions.set(lm.name, { x: cx, y: cy });
+      if (lm.type !== "road") this.wanderPoints.push({ x: cx, y: cy });
+
+      // Soft accent halo
+      const g = this.add.graphics();
+      g.fillStyle(Phaser.Display.Color.HexStringToColor(accent).color, 0.07);
+      g.fillRoundedRect(lm.x - 4, lm.y - 4, lm.width + 8, lm.height + 8, 5);
+      g.setDepth(43);
+
+      // Rich programmatic building art
+      drawLandmarkBuilding(this, lm, accent, this.townId);
+    }
+
+    // Programmatic collision rectangles for building landmarks.
+    this.collisionGroup = this.physics.add.staticGroup();
+    for (const lm of this.landmarks) {
+      if (lm.type === "road" || lm.type === "park" || lm.type === "commercial-strip") continue;
+      const cx = lm.x + lm.width / 2;
+      const cy = lm.y + lm.height * 0.7;
+      const zone = this.add.zone(cx, cy, lm.width, lm.height * 0.6);
+      this.physics.add.existing(zone, true);
+      this.collisionGroup.add(zone);
+    }
+
+    // Add a grid of "street corner" waypoints for richer wandering
+    this.addScatteredWaypoints(W, H);
+
+    // Environment decorations (campfire, sparkles, lighting)
+    this.buildEnvironmentFX();
   }
 
   private buildEnvironmentFX() {
-    // Campfire at parks
     if (!this.anims.exists("campfire-burn")) {
       this.anims.create({
         key: "campfire-burn",
@@ -608,7 +837,6 @@ export class TownScene extends Phaser.Scene {
         repeat: -1,
       });
     }
-    // Sparkle at churches
     if (!this.anims.exists("sparkle-anim")) {
       this.anims.create({
         key: "sparkle-anim",
@@ -618,7 +846,6 @@ export class TownScene extends Phaser.Scene {
       });
     }
 
-    // Check if WebGL is available for PointLight support
     const hasWebGL = this.game.renderer.type === Phaser.WEBGL;
 
     for (const lm of this.landmarks) {
@@ -626,13 +853,12 @@ export class TownScene extends Phaser.Scene {
       const cy = lm.y + lm.height / 2;
 
       if (lm.type === "park" && this.textures.exists("campfire")) {
-        const fire = this.add.sprite(cx, cy, "campfire").setScale(1.4).setDepth(12).setAlpha(0.85);
+        const fire = this.add.sprite(cx, cy, "campfire").setScale(1.4).setDepth(48).setAlpha(0.85);
         fire.play("campfire-burn");
 
         if (hasWebGL) {
-          // PointLight: warm orange atmospheric glow with pulse
           const pl = this.add.pointlight(cx, cy, 0xff8800, 120, 0.4, 0.06);
-          pl.setDepth(11);
+          pl.setDepth(48);
           this.tweens.add({
             targets: pl,
             intensity: { from: 0.25, to: 0.55 },
@@ -642,24 +868,16 @@ export class TownScene extends Phaser.Scene {
             repeat: -1,
             ease: "Sine.easeInOut",
           });
-        } else {
-          // Fallback: Graphics-based warm light
-          const light = this.add.graphics();
-          light.fillStyle(0xff8800, 0.07);
-          light.fillCircle(cx, cy, 40);
-          light.setDepth(11);
-          this.tweens.add({ targets: light, alpha: 0.01, duration: 600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
         }
       }
 
       if (lm.type === "church" && this.textures.exists("sparkle")) {
-        const sp = this.add.sprite(cx, lm.y + 8, "sparkle").setDepth(12).setAlpha(0.55);
+        const sp = this.add.sprite(cx, lm.y + 8, "sparkle").setDepth(48).setAlpha(0.55);
         sp.play("sparkle-anim");
 
         if (hasWebGL) {
-          // PointLight: golden subtle glow at churches
           const pl = this.add.pointlight(cx, lm.y + 8, 0xffd700, 80, 0.2, 0.08);
-          pl.setDepth(11);
+          pl.setDepth(48);
           this.tweens.add({
             targets: pl,
             intensity: { from: 0.15, to: 0.3 },
@@ -672,13 +890,212 @@ export class TownScene extends Phaser.Scene {
       }
     }
 
-    // Global ambient warmth — large low-intensity centered PointLight
     if (hasWebGL) {
       const W = Number(this.game.config.width);
       const H = Number(this.game.config.height);
       const ambient = this.add.pointlight(W / 2, H / 2, 0xffe4b5, 600, 0.08, 0.01);
       ambient.setDepth(1);
     }
+  }
+
+  /* ── Sky tint refresh ───────────────────────────────────── */
+
+  private refreshSkyOverlay() {
+    if (!this.skyOverlay) return;
+    const tint = WorldClock.computeDayNightTint(this.worldClock.fractionalHour());
+    this.skyOverlay.setFillStyle(tint.color, tint.alpha);
+  }
+
+  /* ── Per-town flavor — papel-picado, ducks, dogs, leaves ── */
+
+  private addTownFlavor(town: TownId) {
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    switch (town) {
+      case "dover": return this.addDoverFlavor(W, H);
+      case "montclair": return this.addMontclairFlavor(W, H);
+      case "parsippany": return this.addParsippanyFlavor(W, H);
+      case "randolph": return this.addRandolphFlavor(W, H);
+    }
+  }
+
+  private addDoverFlavor(W: number, H: number) {
+    // Papel-picado bunting between two random landmarks.
+    const buildings = this.landmarks.filter((l) => l.type !== "road");
+    if (buildings.length >= 2) {
+      Phaser.Utils.Array.Shuffle(buildings);
+      const a = buildings[0], b = buildings[1];
+      const ax = a.x + a.width / 2, ay = a.y + 4;
+      const bx = b.x + b.width / 2, by = b.y + 4;
+      const colors = [0xff6f61, 0xffd166, 0x06d6a0, 0x118ab2, 0xef476f];
+      const flagCount = 12;
+      for (let i = 1; i < flagCount; i++) {
+        const t = i / flagCount;
+        // Catenary droop
+        const x = ax + (bx - ax) * t;
+        const y = ay + (by - ay) * t + Math.sin(t * Math.PI) * 14;
+        const flag = this.add.graphics();
+        flag.fillStyle(colors[i % colors.length], 0.85);
+        flag.fillTriangle(-4, 0, 4, 0, 0, 8);
+        flag.setPosition(x, y).setDepth(60);
+        this.tweens.add({ targets: flag, rotation: { from: -0.12, to: 0.12 }, duration: 1700 + i * 60, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+      }
+    }
+
+    // Salsa music notes ♪ near "Bodega Row"
+    const bodega = this.landmarkPositions.get("Bodega Row") ?? this.landmarkPositions.get("La Finca Restaurant");
+    if (bodega) {
+      this.time.addEvent({
+        delay: 4500, loop: true,
+        callback: () => {
+          const note = this.add.text(bodega.x + Phaser.Math.Between(-20, 20), bodega.y - 8, "♪", {
+            fontFamily: "serif", fontSize: "14px", color: "#d97706", resolution: 2,
+          });
+          note.setOrigin(0.5, 1).setDepth(120);
+          this.tweens.add({
+            targets: note, y: note.y - 40, alpha: 0,
+            duration: 2200, ease: "Sine.easeOut", onComplete: () => note.destroy(),
+          });
+        },
+      });
+    }
+
+    // Terracotta leaves stream from upper-left
+    this.time.addEvent({
+      delay: 1700, loop: true,
+      callback: () => this.spawnLeaf(W, H, [0xc0792a, 0xd9794b, 0xe0a86b]),
+    });
+  }
+
+  private addMontclairFlavor(W: number, H: number) {
+    // Falling sugar maple leaves — saturated reds & oranges
+    this.time.addEvent({
+      delay: 1100, loop: true,
+      callback: () => this.spawnLeaf(W, H, [0xb9302a, 0xe25e3b, 0xd8a14a, 0xa84c6c]),
+    });
+
+    // Pride / HHNHHF lawn signs near Town Hall
+    const hall = this.landmarkPositions.get("Town Hall");
+    if (hall) {
+      for (let i = 0; i < 2; i++) {
+        const sign = this.add.graphics();
+        const off = i === 0 ? -22 : 22;
+        sign.fillStyle(0xffffff, 0.95);
+        sign.fillRoundedRect(-8, -10, 16, 12, 2);
+        sign.fillStyle(0x4a3aaf, 1); sign.fillRect(-7, -9, 14, 3);
+        sign.fillStyle(0xc23b8b, 1); sign.fillRect(-7, -6, 14, 3);
+        sign.fillStyle(0x2da8a8, 1); sign.fillRect(-7, -3, 14, 3);
+        sign.fillStyle(0x2c2416, 1); sign.fillRect(-1, 1, 2, 6);
+        sign.setPosition(hall.x + off, hall.y + 32).setDepth(60);
+      }
+    }
+  }
+
+  private addParsippanyFlavor(W: number, H: number) {
+    // Duck flies across Lake Parsippany every 30s
+    const lake = this.landmarkPositions.get("Lake Parsippany");
+    if (lake) {
+      const fly = () => {
+        const duck = this.add.graphics();
+        duck.fillStyle(0x2f2417, 1);
+        duck.fillEllipse(0, 0, 12, 6);
+        duck.fillEllipse(6, -3, 5, 4);
+        duck.lineStyle(2, 0xb88a52, 1);
+        duck.setDepth(20).setPosition(-20, lake.y);
+        this.tweens.add({
+          targets: duck, x: W + 20,
+          duration: 8000, ease: "Sine.easeInOut",
+          onUpdate: () => duck.setY(lake.y + Math.sin(duck.x / 60) * 18),
+          onComplete: () => duck.destroy(),
+        });
+      };
+      this.time.addEvent({ delay: 30000, loop: true, callback: fly });
+      this.time.delayedCall(4000, fly);
+    }
+
+    // Lawnmower NPC pacing in front of a residential landmark
+    const res = this.landmarks.find((l) => l.type === "housing");
+    if (res) {
+      const mower = this.add.graphics();
+      mower.fillStyle(0xb14c2a, 1); mower.fillRect(-8, -4, 16, 8);
+      mower.fillStyle(0x222222, 1); mower.fillCircle(-6, 4, 3); mower.fillCircle(6, 4, 3);
+      mower.setDepth(55).setPosition(res.x + 10, res.y + res.height + 8);
+      this.tweens.add({
+        targets: mower, x: res.x + res.width - 10,
+        duration: 6000, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+        onUpdate: () => mower.setDepth(55 + mower.y),
+      });
+    }
+  }
+
+  private addRandolphFlavor(W: number, H: number) {
+    // Two golden retrievers chasing each other in Hedden Park
+    const park = this.landmarkPositions.get("Hedden Park") ?? this.landmarks.find((l) => l.type === "park");
+    if (park) {
+      const cx = (park as any).x ?? (park as { x: number }).x;
+      const cy = (park as any).y ?? (park as { y: number }).y;
+      for (let i = 0; i < 2; i++) {
+        const dog = this.add.graphics();
+        dog.fillStyle(0xe0b87c, 1);
+        dog.fillEllipse(0, 0, 12, 7);
+        dog.fillEllipse(6, -2, 5, 5);
+        dog.fillStyle(0x7a5836, 1);
+        dog.fillCircle(8, -3, 1.5);
+        dog.lineStyle(2, 0xe0b87c, 1);
+        dog.lineBetween(-6, 0, -10, -2);
+        dog.setDepth(60).setPosition(cx + i * 30, cy);
+        const orbit = () => {
+          const tx = cx + Phaser.Math.Between(-40, 40);
+          const ty = cy + Phaser.Math.Between(-30, 30);
+          this.tweens.add({
+            targets: dog, x: tx, y: ty,
+            duration: Phaser.Math.Between(1100, 2200),
+            ease: "Sine.easeInOut",
+            onUpdate: () => dog.setDepth(60 + dog.y),
+            onComplete: orbit,
+          });
+        };
+        orbit();
+      }
+    }
+
+    // Kid soccer-ball bouncing near "Sports Fields"
+    const sports = this.landmarkPositions.get("Sports Fields");
+    if (sports) {
+      const ball = this.add.graphics();
+      ball.fillStyle(0xffffff, 1); ball.fillCircle(0, 0, 4);
+      ball.lineStyle(1, 0x222222, 0.6); ball.strokeCircle(0, 0, 4);
+      ball.setPosition(sports.x, sports.y).setDepth(60);
+      this.tweens.add({
+        targets: ball, y: ball.y - 18,
+        duration: 380, yoyo: true, repeat: -1, ease: "Sine.easeOut",
+      });
+      this.tweens.add({
+        targets: ball, x: sports.x + 40,
+        duration: 1200, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+      });
+    }
+  }
+
+  private spawnLeaf(W: number, H: number, palette: number[]) {
+    const leaf = this.add.graphics();
+    const color = palette[Math.floor(Math.random() * palette.length)];
+    leaf.fillStyle(color, 0.85);
+    leaf.fillEllipse(0, 0, 6, 3);
+    leaf.lineStyle(0.6, 0x000000, 0.18);
+    leaf.strokeEllipse(0, 0, 6, 3);
+    const startX = Phaser.Math.Between(-30, W * 0.3);
+    leaf.setPosition(startX, -10).setDepth(80);
+    const endX = startX + Phaser.Math.Between(120, 240);
+    this.tweens.add({
+      targets: leaf, x: endX, y: H + 12,
+      duration: Phaser.Math.Between(8000, 13000),
+      ease: "Linear",
+      onUpdate: () => {
+        leaf.setRotation(leaf.rotation + 0.02);
+      },
+      onComplete: () => leaf.destroy(),
+    });
   }
 
   private buildTitleBanner(_W: number) {
@@ -700,3 +1117,6 @@ export class TownScene extends Phaser.Scene {
     }
   }
 }
+
+// Reference unused customization to keep tree-shaking honest.
+void AGENT_CUSTOMIZATION;

@@ -39,6 +39,24 @@ export interface AgentState {
   current_activity: string;
   initials: string;
   color: string;
+  // Frontend-only cosmetic fields (do not exist on the backend)
+  activity?:
+    | "walking"
+    | "idle"
+    | "working"
+    | "talking"
+    | "eating"
+    | "praying"
+    | "sleeping"
+    | "thinking"
+    | "celebrating"
+    | "voting";
+  sprite_key?: string;
+  outfit_key?: string;
+  accessory_key?: string;
+  gesture?: "nod" | "shake_head" | "shrug" | "laugh" | "point" | "none";
+  gesture_at?: string; // ISO timestamp — consumers can compare for decay
+  mood?: "positive" | "negative" | "neutral";
 }
 
 /* ── Conversations ─────────────────────────────────────────── */
@@ -127,6 +145,7 @@ export interface OpinionChangedEvent {
   town: TownId;
   old_opinion: Opinion;
   new_opinion: Opinion;
+  confidence_delta?: number; // optional; frontend will compute if missing
 }
 
 export interface NewsInjectedEvent {
@@ -171,12 +190,39 @@ export interface AgentSpeechEvent {
   town: TownId;
   text: string;
   location: string;
+  gesture?: "nod" | "shake_head" | "shrug" | "laugh" | "point" | "none";
 }
 
 export interface GodsViewResultEvent {
   type: "gods_view_result";
   prompt: string;
   reactions: NewsReaction[];
+}
+
+/* ── Ambient / atmospheric events ──────────────────────────── */
+
+export interface WorldClockTickEvent {
+  type: "world_clock_tick";
+  hour: number;
+  minute: number;
+  town?: TownId;
+}
+
+export type WeatherKind = "clear" | "cloudy" | "rain" | "snow" | "fog";
+
+export interface WeatherChangedEvent {
+  type: "weather_changed";
+  weather: WeatherKind;
+  town?: TownId;
+}
+
+export interface RelationshipUpdateEvent {
+  type: "relationship_update";
+  agent_id: string;
+  player_id: string;
+  trust: number;
+  delta: number;
+  classification: "agreeable" | "challenging" | "curious" | "hostile";
 }
 
 export type SimulationEvent =
@@ -191,7 +237,74 @@ export type SimulationEvent =
   | SimulationStartedEvent
   | SimulationEndedEvent
   | AgentSpeechEvent
-  | GodsViewResultEvent;
+  | GodsViewResultEvent
+  | WorldClockTickEvent
+  | WeatherChangedEvent
+  | RelationshipUpdateEvent;
+
+/* ── Relationships (player ↔ agent) ────────────────────────── */
+
+export interface Relationship {
+  trust: number; // -100..100
+  encounters: number;
+  last_chat_at: string | null;
+  topics_discussed: string[];
+  last_classification?: "agreeable" | "challenging" | "curious" | "hostile";
+  player_revealed_to_them?: {
+    name: string;
+    town: TownId;
+    leaning: string;
+    concerns: string[];
+  };
+}
+
+export const TRUST_BAND = (
+  t: number
+): "hostile" | "guarded" | "warming" | "friend" =>
+  t < -30 ? "hostile" : t < 0 ? "guarded" : t < 50 ? "warming" : "friend";
+
+/* ── Town data (fetched from /api/towns) ───────────────────── */
+
+export interface LandmarkData {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: string;
+  color?: string;
+  description?: string;
+}
+
+export interface TownData {
+  name: string;
+  tagline?: string;
+  character?: string;
+  accent_color?: string;
+  weather_schedule?: WeatherKind[];
+  ambient_sound?: string;
+  landmarks: LandmarkData[];
+  demographics?: Record<string, unknown>;
+}
+
+export interface TownDataResponse {
+  towns: Record<TownId, TownData>;
+}
+
+/* ── Journal entries (player conversation history) ─────────── */
+
+export interface JournalEntry {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  town: TownId;
+  timestamp: string;
+  transcript: ChatMessage[];
+  opinion_before?: Opinion;
+  opinion_after?: Opinion;
+  trust_before: number;
+  trust_after: number;
+}
 
 /* ── Simulation Status ─────────────────────────────────────── */
 

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 from enum import Enum
 
 
@@ -19,6 +19,18 @@ class AgentDefinition(BaseModel):
     tools: list[str]
     model: str
     system_prompt: str  # The markdown body
+
+    # ── Phase 3 extensions (all OPTIONAL, preserve backward compat) ──
+    routine: list[dict] = Field(default_factory=list)
+    # Each entry: {time: "08:00", location: "La Finca", activity: "Opens restaurant"}
+
+    relationships: list[dict] = Field(default_factory=list)
+    # Each entry: {agent: "tom-kowalski", type: "friend", strength: 0.7, context: "..."}
+
+    idle_thoughts: list[str] = Field(default_factory=list)
+
+    goals: dict[str, str] = Field(default_factory=dict)
+    # e.g. {"round_0": "Learn what each candidate stands for.", ...}
 
 
 class CivicAgentState(str, Enum):
@@ -40,17 +52,43 @@ class Opinion(BaseModel):
 
 
 class Conversation(BaseModel):
+    """
+    Wire-level conversation payload (matches the frontend Conversation interface
+    exactly — see frontend/src/types/messages.ts).
+    """
+    id: str
+    participants: list[str]            # agent ids
+    participant_names: list[str]
+    town: str
+    location: str
+    topic: str
+    summary: str = ""
+    round: int
+    timestamp: str
+
+
+# Legacy internal conversation record (used by AgentState memory storage).
+# Kept under a distinct name so the wire-level `Conversation` model can match
+# the frontend exactly without breaking persisted state.
+class ConversationRecord(BaseModel):
     agents: list[str]
     location: str
     topic: str
     dialogue: str
-    key_takeaways: dict[str, str]  # agent_name -> takeaway
+    key_takeaways: dict[str, str]
     round_number: int
 
 
 class NewsReaction(BaseModel):
+    # Optional extensions so the wire payload can carry agent_id / town / headline
+    # exactly as the frontend NewsReaction expects (frontend/src/types/messages.ts).
+    agent_id: Optional[str] = None
     agent_name: str
-    event: str
+    town: Optional[str] = None
+    headline: Optional[str] = None
+    # Kept for backwards-compat with older callers that set `event` instead of
+    # `headline`. The wire DTO prefers `headline`.
+    event: Optional[str] = None
     emotional_response: Literal["angry", "hopeful", "anxious", "indifferent", "confused"]
     impact_on_vote: Literal["strengthens_current", "weakens_current", "changes_mind", "no_effect"]
     reasoning: str
@@ -62,7 +100,7 @@ class AgentState(BaseModel):
     current_location: str
     memories: list[str] = Field(default_factory=list)
     opinions: list[Opinion] = Field(default_factory=list)
-    conversations: list[Conversation] = Field(default_factory=list)
+    conversations: list[ConversationRecord] = Field(default_factory=list)
     state: CivicAgentState = CivicAgentState.IDLE
 
     @property
@@ -76,50 +114,81 @@ class AgentState(BaseModel):
         return self.memories[-n:]
 
 
-# Simulation events - discriminated union
-class RoundAdvanceEvent(BaseModel):
-    type: Literal["round_advance"] = "round_advance"
-    round_number: int
-    town: str
+# ─── Simulation events (discriminated union, past-tense to match frontend) ───
+
+class RoundStartedEvent(BaseModel):
+    type: Literal["round_started"] = "round_started"
+    round: int
+    town: Optional[str] = None
+    total_rounds: int
 
 
-class AgentMoveEvent(BaseModel):
-    type: Literal["agent_move"] = "agent_move"
+class RoundEndedEvent(BaseModel):
+    type: Literal["round_ended"] = "round_ended"
+    round: int
+    town: Optional[str] = None
+    # Wire-format TownSummary dicts (see backend/core/wire.py::town_summary_to_wire)
+    summary: list[dict] = Field(default_factory=list)
+
+
+class AgentMovedEvent(BaseModel):
+    type: Literal["agent_moved"] = "agent_moved"
     agent_id: str
+    agent_name: str
     town: str
-    location: str
-    x: float
-    y: float
+    from_location: Optional[str] = None
+    to_location: str
+    # Coordinates (used by the Phaser scene when available)
+    x: Optional[float] = None
+    y: Optional[float] = None
+
+    # Backwards-compatible alias getters
+    @property
+    def location(self) -> str:
+        return self.to_location
 
 
-class ConversationStartEvent(BaseModel):
-    type: Literal["conversation_start"] = "conversation_start"
-    agents: list[str]
-    topic: str
-    location: str
-    town: str
+class ConversationStartedEvent(BaseModel):
+    type: Literal["conversation_started"] = "conversation_started"
+    conversation: Conversation
 
 
-class SpeechBubbleEvent(BaseModel):
-    type: Literal["speech_bubble"] = "speech_bubble"
+class ConversationEndedEvent(BaseModel):
+    type: Literal["conversation_ended"] = "conversation_ended"
+    conversation_id: str
+    summary: str = ""
+
+
+class AgentSpeechEvent(BaseModel):
+    type: Literal["agent_speech"] = "agent_speech"
     agent_id: str
+    agent_name: str
+    town: str
     text: str
-    sentiment: Literal["positive", "negative", "neutral"]
-    town: str
+    location: str = ""
+    sentiment: Literal["positive", "negative", "neutral"] = "neutral"
+    gesture: Optional[str] = None  # nod | shake_head | shrug | laugh | point | none
 
 
-class OpinionChangeEvent(BaseModel):
-    type: Literal["opinion_change"] = "opinion_change"
+class OpinionChangedEvent(BaseModel):
+    type: Literal["opinion_changed"] = "opinion_changed"
     agent_id: str
+    agent_name: str
     town: str
-    before: Optional[Opinion] = None
-    after: Opinion
+    old_opinion: Optional[Opinion] = None
+    new_opinion: Opinion
 
 
-class NewsInjectionEvent(BaseModel):
-    type: Literal["news_injection"] = "news_injection"
+class NewsInjectedEvent(BaseModel):
+    type: Literal["news_injected"] = "news_injected"
     headline: str
     description: str
+    round: int = 0
+
+
+class NewsReactionEvent(BaseModel):
+    type: Literal["news_reaction"] = "news_reaction"
+    reaction: NewsReaction
 
 
 class CrossTownGossipEvent(BaseModel):
@@ -137,16 +206,74 @@ class GodViewInjectionEvent(BaseModel):
     description: str
 
 
+class GodsViewResultEvent(BaseModel):
+    type: Literal["gods_view_result"] = "gods_view_result"
+    prompt: str
+    reactions: list[NewsReaction]
+
+
+class SimulationStartedEvent(BaseModel):
+    type: Literal["simulation_started"] = "simulation_started"
+    agents: list[dict] = Field(default_factory=list)
+    towns: list[str] = Field(default_factory=list)
+
+
+class SimulationEndedEvent(BaseModel):
+    type: Literal["simulation_ended"] = "simulation_ended"
+    # Wire-format DistrictSummary dict (see backend/core/wire.py::district_summary_to_wire)
+    summary: dict = Field(default_factory=dict)
+
+
+# Legacy alias kept so any external caller importing the old name still works.
 class SimulationCompleteEvent(BaseModel):
     type: Literal["simulation_complete"] = "simulation_complete"
     district_summary: "DistrictSummary"
 
 
-SimulationEvent = (
-    RoundAdvanceEvent | AgentMoveEvent | ConversationStartEvent |
-    SpeechBubbleEvent | OpinionChangeEvent | NewsInjectionEvent |
-    CrossTownGossipEvent | GodViewInjectionEvent | SimulationCompleteEvent
-)
+# ── New ambient / atmospheric events (§3.2, §5.2, §7) ──
+
+class WorldClockTickEvent(BaseModel):
+    type: Literal["world_clock_tick"] = "world_clock_tick"
+    hour: int
+    minute: int
+    town: Optional[str] = None
+
+
+class WeatherChangedEvent(BaseModel):
+    type: Literal["weather_changed"] = "weather_changed"
+    weather: Literal["clear", "cloudy", "rain", "snow", "fog"]
+    town: Optional[str] = None
+
+
+class RelationshipUpdateEvent(BaseModel):
+    type: Literal["relationship_update"] = "relationship_update"
+    agent_id: str
+    player_id: str
+    trust: int
+    delta: int
+    classification: str
+
+
+SimulationEvent = Union[
+    RoundStartedEvent,
+    RoundEndedEvent,
+    AgentMovedEvent,
+    ConversationStartedEvent,
+    ConversationEndedEvent,
+    AgentSpeechEvent,
+    OpinionChangedEvent,
+    NewsInjectedEvent,
+    NewsReactionEvent,
+    CrossTownGossipEvent,
+    GodViewInjectionEvent,
+    GodsViewResultEvent,
+    SimulationStartedEvent,
+    SimulationEndedEvent,
+    SimulationCompleteEvent,
+    WorldClockTickEvent,
+    WeatherChangedEvent,
+    RelationshipUpdateEvent,
+]
 
 
 class TownSummary(BaseModel):
@@ -168,5 +295,5 @@ class DistrictSummary(BaseModel):
     total_cost: float
 
 
-# Fix forward reference
+# Fix forward references
 SimulationCompleteEvent.model_rebuild()

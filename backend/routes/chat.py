@@ -1,8 +1,11 @@
 import logging
+import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from ..core.types import RelationshipUpdateEvent
 from ..tools.schemas import get_tools
 
 logger = logging.getLogger(__name__)
@@ -10,9 +13,75 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+# ─── Relationship store (in-memory, per-process) ───────────────
+# Layout: { user_id: { agent_id: { trust, encounters, topics_discussed, ... } } }
+_RELATIONSHIPS: dict[str, dict[str, dict]] = {}
+
+
+def _default_rel() -> dict:
+    return {
+        "trust": 0,
+        "encounters": 0,
+        "topics_discussed": [],
+        "last_chat_at": None,
+        "last_message_at": None,
+        "last_classification": None,
+    }
+
+
+def _get_rel(user_id: str, agent_id: str) -> dict:
+    """Get-or-create the relationship dict for a (user, agent) pair."""
+    user_map = _RELATIONSHIPS.setdefault(user_id, {})
+    rel = user_map.get(agent_id)
+    if rel is None:
+        rel = _default_rel()
+        user_map[agent_id] = rel
+    return rel
+
+
+def _trust_band(trust: int) -> str:
+    """Map a trust integer into one of four narrative bands."""
+    if trust > 50:
+        return "friend"
+    if 0 <= trust <= 50:
+        return "warming"
+    if -30 <= trust < 0:
+        return "guarded"
+    return "distrust"
+
+
+def _trust_block(trust: int) -> str:
+    """Render the system-prompt block describing how the agent feels."""
+    band = _trust_band(trust)
+    if band == "friend":
+        line = (
+            "You consider this person a friend. Be warm, share more personal details, "
+            "tell a small joke if it fits, and ask follow-up questions about their life."
+        )
+    elif band == "warming":
+        line = (
+            "You're warming up to this person. Be polite, increasingly open. Share "
+            "modest personal context if it helps explain your views."
+        )
+    elif band == "guarded":
+        line = (
+            "You're guarded with this person. Be polite but reserved. Stick to facts "
+            "and your own experience without revealing too much."
+        )
+    else:
+        line = (
+            "You distrust this person. Be terse and decline politically loaded "
+            "questions. Don't share personal details. Two short sentences max."
+        )
+    return f"\n\n--- HOW YOU FEEL ABOUT THIS PERSON ---\nTrust level: {trust}. {line}"
+
+
+# ─── Request / response models ────────────────────────────────
+
 class ChatRequest(BaseModel):
     message: str
     user_profile: dict | None = None
+    user_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -20,11 +89,14 @@ class ChatResponse(BaseModel):
     agent_id: str
     agent_name: str
     opinion: dict | None = None
+    trust: int = 0
+    trust_band: str = "warming"
 
 
 class AutoChatRequest(BaseModel):
     user_profile: dict
     conversation_history: list[dict] = []
+    user_id: str | None = None
 
 
 class AutoChatResponse(BaseModel):
@@ -33,13 +105,49 @@ class AutoChatResponse(BaseModel):
     agent_id: str
     agent_name: str
     should_end: bool
+    trust: int = 0
+    trust_band: str = "warming"
 
+
+# ─── Relationship endpoints ───────────────────────────────────
+
+@router.get("/relationships/{user_id}")
+async def get_relationships(user_id: str):
+    """Return the entire relationships dict for a single user."""
+    return {
+        "user_id": user_id,
+        "relationships": _RELATIONSHIPS.get(user_id, {}),
+    }
+
+
+class ResetRequest(BaseModel):
+    user_id: str
+    agent_id: str | None = None
+
+
+@router.post("/relationships/reset")
+async def reset_relationships(req: ResetRequest):
+    """Reset a single agent's relationship for a user, or all if agent_id omitted."""
+    if req.user_id not in _RELATIONSHIPS:
+        return {"status": "ok", "cleared": 0}
+    if req.agent_id:
+        cleared = 1 if _RELATIONSHIPS[req.user_id].pop(req.agent_id, None) else 0
+    else:
+        cleared = len(_RELATIONSHIPS[req.user_id])
+        _RELATIONSHIPS[req.user_id] = {}
+    return {"status": "ok", "cleared": cleared}
+
+
+# ─── Chat endpoints ───────────────────────────────────────────
 
 @router.post("/{agent_id}")
 async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> ChatResponse:
     """Chat with a specific agent in character. The agent responds based on their full persona and memories."""
     orchestrator = request.app.state.orchestrator
     anthropic_client = request.app.state.anthropic_client
+    event_bus = request.app.state.event_bus
+
+    user_id = req.user_id or "local"
 
     # Find the agent
     agent_state = orchestrator.get_agent_state(agent_id)
@@ -49,10 +157,14 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
             agent_id=agent_id,
             agent_name="System",
             opinion=None,
+            trust=0,
+            trust_band="warming",
         )
 
-    # Build system prompt with full context
-    system_prompt = _build_chat_system_prompt(agent_state)
+    rel = _get_rel(user_id, agent_id)
+
+    # Build system prompt with full context (including trust)
+    system_prompt = _build_chat_system_prompt(agent_state, trust=rel["trust"])
 
     # Enrich the user message with profile context if available
     if req.user_profile:
@@ -88,7 +200,21 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
     response_text = result.get("text") or "..."
 
     # Add this chat to agent's memory
-    agent_state.add_memory(f"Chat: Someone asked me '{req.message[:80]}'. I said: '{response_text[:80]}...'")
+    agent_state.add_memory(
+        f"Chat: Someone asked me '{req.message[:80]}'. I said: '{response_text[:80]}...'"
+    )
+
+    # Update relationship (best-effort classify call)
+    await _classify_and_update_trust(
+        anthropic_client=anthropic_client,
+        event_bus=event_bus,
+        agent_state=agent_state,
+        agent_id=agent_id,
+        user_id=user_id,
+        rel=rel,
+        user_message=req.message,
+        agent_response=response_text,
+    )
 
     # Include current opinion if available
     opinion_data = None
@@ -106,6 +232,8 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
         agent_id=agent_id,
         agent_name=agent_state.definition.name,
         opinion=opinion_data,
+        trust=rel["trust"],
+        trust_band=_trust_band(rel["trust"]),
     )
 
 
@@ -114,6 +242,9 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
     """Auto-agent mode: generate both user and agent messages for a natural conversation."""
     orchestrator = request.app.state.orchestrator
     anthropic_client = request.app.state.anthropic_client
+    event_bus = request.app.state.event_bus
+
+    user_id = req.user_id or "local"
 
     agent_state = orchestrator.get_agent_state(agent_id)
     if agent_state is None:
@@ -123,7 +254,11 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
             agent_id=agent_id,
             agent_name="System",
             should_end=True,
+            trust=0,
+            trust_band="warming",
         )
+
+    rel = _get_rel(user_id, agent_id)
 
     p = req.user_profile
     turn_num = len(req.conversation_history) // 2
@@ -161,7 +296,7 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
     user_message = user_result.get("text") or "What do you think about the election?"
 
     # ── Step 2: Generate agent's response ────────────────────
-    agent_system = _build_chat_system_prompt(agent_state)
+    agent_system = _build_chat_system_prompt(agent_state, trust=rel["trust"])
 
     if p:
         user_intro = (
@@ -205,6 +340,18 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         f"Chat: {p.get('name', 'Someone')} said '{user_message[:60]}'. I said: '{agent_response[:60]}...'"
     )
 
+    # Update relationship (best-effort classify call)
+    await _classify_and_update_trust(
+        anthropic_client=anthropic_client,
+        event_bus=event_bus,
+        agent_state=agent_state,
+        agent_id=agent_id,
+        user_id=user_id,
+        rel=rel,
+        user_message=user_message,
+        agent_response=agent_response,
+    )
+
     # Determine if conversation should end
     should_end = turn_num >= 3
 
@@ -214,7 +361,98 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         agent_id=agent_id,
         agent_name=agent_state.definition.name,
         should_end=should_end,
+        trust=rel["trust"],
+        trust_band=_trust_band(rel["trust"]),
     )
+
+
+# ─── Helpers ──────────────────────────────────────────────────
+
+async def _classify_and_update_trust(
+    *,
+    anthropic_client,
+    event_bus,
+    agent_state,
+    agent_id: str,
+    user_id: str,
+    rel: dict,
+    user_message: str,
+    agent_response: str,
+) -> None:
+    """
+    Make a SMALL ClassifyInteraction call, apply the trust delta, persist to the
+    in-memory store, and publish a RelationshipUpdateEvent so the frontend can
+    update live. Best-effort: any error here is logged but doesn't fail the chat.
+    """
+    try:
+        classify_system = (
+            _build_chat_system_prompt(agent_state, trust=rel["trust"])
+            + "\n\n--- TRUST CLASSIFICATION MODE ---\n"
+            "Reflect on the exchange below and call the ClassifyInteraction tool with how "
+            "this person made you feel. Keep your trust_delta small unless the tone was "
+            "strongly hostile or genuinely warm."
+        )
+        result = await anthropic_client.call_agent(
+            system_prompt=classify_system,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"They said: \"{user_message}\"\n"
+                        f"You replied: \"{agent_response}\"\n\n"
+                        f"Now call ClassifyInteraction with how that person made you feel."
+                    ),
+                }
+            ],
+            tools=get_tools(["ClassifyInteraction"]),
+            max_tokens=400,
+            model=agent_state.definition.model,
+        )
+
+        classification = "curious"
+        trust_delta = 0
+        reasoning = ""
+
+        if result.get("tool_use") and result["tool_use"].get("name") == "ClassifyInteraction":
+            tool_input = result["tool_use"].get("input", {})
+            classification = tool_input.get("tone", "curious")
+            try:
+                trust_delta = int(tool_input.get("trust_delta", 0))
+            except (TypeError, ValueError):
+                trust_delta = 0
+            reasoning = tool_input.get("reasoning", "")
+
+        # Apply trust change (clamped) and update bookkeeping
+        new_trust = max(-100, min(100, int(rel["trust"]) + trust_delta))
+        rel["trust"] = new_trust
+        rel["encounters"] = int(rel.get("encounters", 0)) + 1
+        rel["last_classification"] = classification
+        rel["last_chat_at"] = datetime.now(timezone.utc).isoformat()
+        rel["last_message_at"] = rel["last_chat_at"]
+
+        # Track topics — pull a cheap "topic" from the user's first 5 words
+        topic_hint = " ".join(user_message.split()[:5])[:60]
+        if topic_hint and topic_hint not in rel["topics_discussed"]:
+            rel["topics_discussed"].append(topic_hint)
+            # Cap topic list to most-recent 25
+            rel["topics_discussed"] = rel["topics_discussed"][-25:]
+
+        # Publish a relationship update event for live frontend feedback
+        try:
+            await event_bus.publish(
+                RelationshipUpdateEvent(
+                    agent_id=agent_id,
+                    player_id=user_id,
+                    trust=new_trust,
+                    delta=trust_delta,
+                    classification=classification,
+                )
+            )
+        except Exception as pub_err:  # pragma: no cover — defensive
+            logger.warning(f"Failed to publish RelationshipUpdateEvent: {pub_err}")
+
+    except Exception as e:
+        logger.warning(f"ClassifyInteraction failed for {agent_id} / user={user_id}: {e}")
 
 
 def _build_user_persona_prompt(profile: dict) -> str:
@@ -240,7 +478,7 @@ def _build_user_persona_prompt(profile: dict) -> str:
     )
 
 
-def _build_chat_system_prompt(agent_state) -> str:
+def _build_chat_system_prompt(agent_state, trust: int = 0) -> str:
     """Build a comprehensive system prompt for chat interactions."""
     parts = []
 
@@ -284,5 +522,8 @@ def _build_chat_system_prompt(agent_state) -> str:
         "Keep responses conversational and concise (2-4 sentences). "
         "If asked about the election, share your genuine current views."
     )
+
+    # ── Trust block (always appended last) ─────────────────────
+    parts.append(_trust_block(trust))
 
     return "\n".join(parts)

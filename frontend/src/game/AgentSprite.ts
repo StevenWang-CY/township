@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { playEmote, type EmoteKey } from "./EmoteRegistry";
 
 /**
  * Spritesheet layout: 96 × 128 px → 3 cols × 4 rows → 12 frames (32×32 each)
@@ -20,8 +21,22 @@ export const WALK_FPS = 9;
 export const IDLE_FRAMES: Record<string, number> = { down: 1, left: 4, right: 7, up: 10 };
 
 export type Direction = "down" | "left" | "right" | "up";
+export type GestureKind = "nod" | "shake_head" | "shrug" | "laugh" | "point" | "none";
+export type AgentActivity =
+  | "walking"
+  | "idle"
+  | "working"
+  | "talking"
+  | "eating"
+  | "praying"
+  | "sleeping"
+  | "thinking"
+  | "celebrating"
+  | "voting";
 
-interface AgentConfig {
+export type BubbleSentiment = "positive" | "negative" | "neutral";
+
+export interface AgentConfig {
   id: string;
   name: string;
   initials: string;
@@ -29,19 +44,37 @@ interface AgentConfig {
   town: string;
   opinionColor?: string;
   spriteKey?: string;
+  outfitKey?: string;
+  accessoryKey?: string;
+  tint?: number;
+  partner?: { spriteKey?: string; name: string; initials: string; tint?: number };
+}
+
+interface BubbleEntry {
+  group: Phaser.GameObjects.Container;
+  bg: Phaser.GameObjects.Graphics;
+  text: Phaser.GameObjects.Text;
+  timer?: Phaser.Time.TimerEvent;
+  height: number;
 }
 
 export class AgentSprite extends Phaser.GameObjects.Container {
+  // Layered sprite stack
+  protected bodySprite?: Phaser.GameObjects.Sprite;
+  protected outfitSprite?: Phaser.GameObjects.Sprite;
+  protected accessorySprite?: Phaser.GameObjects.Sprite;
+  protected coupleSprite?: Phaser.GameObjects.Sprite;
+  /** Back-compat alias used by older code paths (== bodySprite). */
   protected charSprite?: Phaser.GameObjects.Sprite;
+
   private fallbackBody?: Phaser.GameObjects.Graphics;
   private initialsText?: Phaser.GameObjects.Text;
   protected groundShadow: Phaser.GameObjects.Ellipse;
   private opinionRing: Phaser.GameObjects.Graphics;
   protected nameLabel: Phaser.GameObjects.Text;
-  private bubbleGroup: Phaser.GameObjects.Container;
-  private bubbleBg: Phaser.GameObjects.Graphics;
-  private bubbleText: Phaser.GameObjects.Text;
-  private bubbleTimer?: Phaser.Time.TimerEvent;
+
+  // Bubble stacking
+  private bubbleQueue: BubbleEntry[] = [];
   protected idleTween?: Phaser.Tweens.Tween;
   protected shadowTween?: Phaser.Tweens.Tween;
   private moveTween?: Phaser.Tweens.Tween;
@@ -49,6 +82,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   // Proximity highlight layers
   private proxGlow?: Phaser.GameObjects.Graphics;
   private proxTweens: Phaser.Tweens.Tween[] = [];
+
+  // Activity-state extras
+  private activityFx?: Phaser.GameObjects.GameObject;
+  private activityTimer?: Phaser.Time.TimerEvent;
 
   public agentId: string;
   public agentName: string;
@@ -61,6 +98,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   protected isPlayer = false;
   protected homeY = 0; // base Y for idle bob
   protected spriteBaseScale = SPRITE_SCALE;
+
+  private currentActivity: AgentActivity = "idle";
+  private currentGesture: GestureKind = "none";
+  private hasPartner = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, cfg: AgentConfig) {
     super(scene, x, y);
@@ -81,14 +122,49 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.redrawRing();
     this.add(this.opinionRing);
 
-    // ── Character sprite / fallback circle ───────────────────
+    // ── Layered character sprite stack ───────────────────────
     if (cfg.spriteKey && scene.textures.exists(cfg.spriteKey)) {
-      this.charSprite = scene.add.sprite(0, 0, cfg.spriteKey, IDLE_FRAMES.down);
-      this.charSprite.setScale(SPRITE_SCALE);
-      // origin (0.5, 1) → feet perfectly at container origin (y = 0)
-      this.charSprite.setOrigin(0.5, 1);
-      this.add(this.charSprite);
+      this.bodySprite = scene.add.sprite(0, 0, cfg.spriteKey, IDLE_FRAMES.down);
+      this.bodySprite.setScale(SPRITE_SCALE);
+      this.bodySprite.setOrigin(0.5, 1);
+      if (cfg.tint !== undefined) this.bodySprite.setTint(cfg.tint);
+      this.add(this.bodySprite);
+      this.charSprite = this.bodySprite;
       this.usingSpritesheet = true;
+
+      // Optional outfit overlay
+      if (cfg.outfitKey && scene.textures.exists(cfg.outfitKey)) {
+        this.outfitSprite = scene.add.sprite(0, 0, cfg.outfitKey, IDLE_FRAMES.down);
+        this.outfitSprite.setScale(SPRITE_SCALE);
+        this.outfitSprite.setOrigin(0.5, 1);
+        this.add(this.outfitSprite);
+      }
+      // Optional accessory overlay
+      if (cfg.accessoryKey && scene.textures.exists(cfg.accessoryKey)) {
+        this.accessorySprite = scene.add.sprite(0, 0, cfg.accessoryKey, IDLE_FRAMES.down);
+        this.accessorySprite.setScale(SPRITE_SCALE);
+        this.accessorySprite.setOrigin(0.5, 1);
+        this.add(this.accessorySprite);
+      }
+
+      // Couple / partner — render side-by-side
+      if (cfg.partner) {
+        this.hasPartner = true;
+        const partnerKey = cfg.partner.spriteKey && scene.textures.exists(cfg.partner.spriteKey)
+          ? cfg.partner.spriteKey
+          : cfg.spriteKey;
+        this.coupleSprite = scene.add.sprite(18, 0, partnerKey, IDLE_FRAMES.down);
+        this.coupleSprite.setScale(SPRITE_SCALE);
+        this.coupleSprite.setOrigin(0.5, 1);
+        if (cfg.partner.tint !== undefined) this.coupleSprite.setTint(cfg.partner.tint);
+        this.add(this.coupleSprite);
+        // Wider shadow under the pair
+        this.groundShadow.setSize(60, 14);
+      }
+
+      // Sync overlay frames whenever the body anim advances.
+      this.bodySprite.on(Phaser.Animations.Events.ANIMATION_UPDATE, () => this.syncOverlayFrame());
+      this.bodySprite.on("framechange", () => this.syncOverlayFrame());
     } else {
       this.fallbackBody = scene.add.graphics();
       this.drawFallback();
@@ -120,23 +196,6 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.nameLabel.setOrigin(0.5, 0);
     this.nameLabel.setVisible(false); // Rendered by DOM CanvasOverlay instead
     this.add(this.nameLabel);
-
-    // ── Speech bubble ─────────────────────────────────────────
-    this.bubbleGroup = scene.add.container(0, 0);
-    this.bubbleBg = scene.add.graphics();
-    this.bubbleText = scene.add.text(0, BUBBLE_TIP_Y - 10, "", {
-      fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-      fontSize: "9px",
-      color: "#1a1a1a",
-      align: "center",
-      wordWrap: { width: 135, useAdvancedWrap: true },
-      lineSpacing: 1,
-      resolution: 2,
-    });
-    this.bubbleText.setOrigin(0.5, 1);
-    this.bubbleGroup.add([this.bubbleBg, this.bubbleText]);
-    this.bubbleGroup.setVisible(false);
-    this.add(this.bubbleGroup);
 
     // ── Interaction ──────────────────────────────────────────
     this.setSize(48, FRAME_H + LABEL_Y + 12);
@@ -192,8 +251,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         : dy > 0 ? "down" : "up";
 
     this.isMoving = true;
+    this.currentActivity = "walking";
     this.idleTween?.stop();
-    this.charSprite?.setScale(this.spriteBaseScale); // reset breathing scaleY
+    this.bodySprite?.setScale(this.spriteBaseScale); // reset breathing scaleY
     this.shadowTween?.stop();
     this.groundShadow.setScale(1); // reset shadow scale
     this.moveTween?.stop();
@@ -201,12 +261,13 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     // Walk animation
     this.playWalk(this.currentDirection);
 
-    // Shadow squish while walking
+    // Shadow squish while walking — variable frame rate by distance
+    const squishDur = Phaser.Math.Clamp(180 + dist * 0.15, 220, 320);
     this.shadowTween = this.scene.tweens.add({
       targets: this.groundShadow,
       scaleX: 1.45,
       scaleY: 0.6,
-      duration: 260,
+      duration: squishDur,
       yoyo: true,
       repeat: -1,
       ease: "Sine.easeInOut",
@@ -231,55 +292,100 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         this.shadowTween?.stop();
         this.groundShadow.setScale(1);
         this.playIdle(this.currentDirection);
+        this.currentActivity = "idle";
         this.beginIdle();
         onComplete?.();
       },
     });
   }
 
-  /** Show a Smallville-style speech bubble. Auto-hides after `duration` ms. */
-  showSpeechBubble(text: string, duration = 5000) {
-    const t = text.length > 85 ? text.slice(0, 82) + "…" : text;
-    this.bubbleText.setText(t);
+  /** Turn to face a target without moving. */
+  faceToward(otherX: number, otherY: number) {
+    const dx = otherX - this.x;
+    const dy = otherY - this.y;
+    this.currentDirection =
+      Math.abs(dx) > Math.abs(dy)
+        ? dx > 0 ? "right" : "left"
+        : dy > 0 ? "down" : "up";
+    this.playIdle(this.currentDirection);
+  }
+
+  /** Show a Smallville-style speech bubble with stacking + sentiment-tinted border. */
+  showSpeechBubble(text: string, duration?: number, sentiment: BubbleSentiment = "neutral") {
+    const t = text.length > 140 ? text.slice(0, 137) + "…" : text;
+    const dur = duration ?? Math.min(8000, Math.max(2000, t.length * 50));
+
+    const group = this.scene.add.container(0, 0);
+    const bg = this.scene.add.graphics();
+    const txt = this.scene.add.text(0, 0, t, {
+      fontFamily: "Inter, 'Helvetica Neue', sans-serif",
+      fontSize: "9px",
+      color: "#1a1a1a",
+      align: "center",
+      wordWrap: { width: 135, useAdvancedWrap: true },
+      lineSpacing: 1,
+      resolution: 2,
+    });
+    txt.setOrigin(0.5, 1);
 
     const pad = 10;
-    const bw = Math.max(this.bubbleText.width + pad * 2, 55);
-    const bh = this.bubbleText.height + pad * 2;
+    const bw = Math.max(txt.width + pad * 2, 55);
+    const bh = txt.height + pad * 2;
     const bx = -bw / 2;
-    const bodyTop = BUBBLE_TIP_Y - bh - 8;
-    const tailBase = bodyTop + bh;
+    // Auto-flip if the body would clip above the canvas top.
+    const headY = this.y + BUBBLE_TIP_Y;
+    const flip = headY - bh - 14 < 8;
+    const bodyTop = flip
+      ? BUBBLE_TIP_Y + 22       // below head
+      : BUBBLE_TIP_Y - bh - 8;  // above head
+    const tailBase = flip ? bodyTop : bodyTop + bh;
+    const tailTip = flip ? BUBBLE_TIP_Y + 8 : BUBBLE_TIP_Y;
 
-    this.bubbleBg.clear();
+    // Sentiment color
+    let borderColor = 0xbbbbbb;
+    if (sentiment === "positive") borderColor = 0xb8d8a8;
+    else if (sentiment === "negative") borderColor = 0xe5b6b2;
 
+    bg.clear();
     // Drop shadow
-    this.bubbleBg.fillStyle(0x000000, 0.13);
-    this.bubbleBg.fillRoundedRect(bx + 3, bodyTop + 3, bw, bh, 9);
-
+    bg.fillStyle(0x000000, 0.13);
+    bg.fillRoundedRect(bx + 3, bodyTop + 3, bw, bh, 9);
     // White body
-    this.bubbleBg.fillStyle(0xffffff, 0.97);
-    this.bubbleBg.fillRoundedRect(bx, bodyTop, bw, bh, 9);
+    bg.fillStyle(0xffffff, 0.97);
+    bg.fillRoundedRect(bx, bodyTop, bw, bh, 9);
+    // Sentiment border
+    bg.lineStyle(1.5, borderColor, 0.9);
+    bg.strokeRoundedRect(bx, bodyTop, bw, bh, 9);
+    // Tail
+    bg.fillStyle(0xffffff, 0.97);
+    bg.fillTriangle(-7, tailBase, 7, tailBase, 0, tailTip);
+    bg.lineStyle(2, 0xffffff, 1);
+    bg.lineBetween(-6, tailBase, 6, tailBase);
+    bg.lineStyle(1.5, borderColor, 0.8);
+    bg.strokeTriangle(-7, tailBase, 7, tailBase, 0, tailTip + (flip ? -2 : 2));
 
-    // Subtle border
-    this.bubbleBg.lineStyle(1.5, 0xbbbbbb, 0.9);
-    this.bubbleBg.strokeRoundedRect(bx, bodyTop, bw, bh, 9);
+    // Position the text inside the body
+    txt.setY(bodyTop + bh - pad);
+    txt.setX(0);
 
-    // Tail (pointer pointing down to agent head)
-    this.bubbleBg.fillStyle(0xffffff, 0.97);
-    this.bubbleBg.fillTriangle(-7, tailBase, 7, tailBase, 0, BUBBLE_TIP_Y);
-    // Cover the seam between tail and body
-    this.bubbleBg.lineStyle(2, 0xffffff, 1);
-    this.bubbleBg.lineBetween(-6, tailBase, 6, tailBase);
-    // Tail side outlines
-    this.bubbleBg.lineStyle(1.5, 0xbbbbbb, 0.8);
-    this.bubbleBg.strokeTriangle(-7, tailBase, 7, tailBase, 0, BUBBLE_TIP_Y + 2);
+    group.add([bg, txt]);
+    group.setDepth(400);
+    group.setScale(0.55);
+    group.setAlpha(0);
+    this.add(group);
 
-    this.bubbleGroup.setVisible(true);
-    this.bubbleGroup.setDepth(400);
-    this.bubbleGroup.setScale(0.55);
-    this.bubbleGroup.setAlpha(0);
+    // Stack: push older bubbles up & dim them
+    const stackOffset = bh + 6;
+    for (const old of this.bubbleQueue) {
+      old.group.y -= stackOffset;
+      old.group.setAlpha(Math.max(0.4, old.group.alpha - 0.25));
+    }
+
+    const entry: BubbleEntry = { group, bg, text: txt, height: bh };
+    this.bubbleQueue.push(entry);
 
     this.scene.tweens.add({
-      targets: this.bubbleGroup,
+      targets: group,
       alpha: 1,
       scaleX: 1,
       scaleY: 1,
@@ -287,18 +393,17 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       ease: "Back.easeOut",
     });
 
-    this.bubbleTimer?.remove();
-    this.bubbleTimer = this.scene.time.delayedCall(duration, () => {
+    entry.timer = this.scene.time.delayedCall(dur, () => {
       this.scene.tweens.add({
-        targets: this.bubbleGroup,
+        targets: group,
         alpha: 0,
         scaleX: 0.75,
         scaleY: 0.75,
         duration: 180,
         ease: "Quad.easeIn",
         onComplete: () => {
-          this.bubbleGroup.setVisible(false);
-          this.bubbleGroup.setScale(1);
+          group.destroy();
+          this.bubbleQueue = this.bubbleQueue.filter((e) => e !== entry);
         },
       });
     });
@@ -324,21 +429,213 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     });
   }
 
+  /* ── Activity state machine ───────────────────────────── */
+
+  setActivity(activity: AgentActivity) {
+    if (activity === this.currentActivity) return;
+    this.clearActivityFx();
+    this.currentActivity = activity;
+
+    switch (activity) {
+      case "walking":
+        this.playWalk(this.currentDirection);
+        break;
+      case "idle":
+        this.playIdle(this.currentDirection);
+        this.beginIdle();
+        break;
+      case "working":
+        // gentle bob already in beginIdle()
+        this.playIdle(this.currentDirection);
+        break;
+      case "talking":
+        this.playIdle(this.currentDirection);
+        // Occasional nod while talking
+        this.activityTimer = this.scene.time.addEvent({
+          delay: 2400, loop: true,
+          callback: () => this.playGesture(Math.random() < 0.5 ? "nod" : "point"),
+        });
+        break;
+      case "eating":
+        this.playIdle(this.currentDirection);
+        this.activityTimer = this.scene.time.addEvent({
+          delay: 4000, loop: true,
+          callback: () => this.spawnFloatGlyph("♨", "#c87a3a"),
+        });
+        break;
+      case "praying":
+        this.playIdle("up");
+        this.activityTimer = this.scene.time.addEvent({
+          delay: 3000, loop: true,
+          callback: () => this.spawnFloatGlyph("✧", "#e8c060"),
+        });
+        break;
+      case "sleeping":
+        this.playIdle(this.currentDirection);
+        if (this.bodySprite) this.bodySprite.setRotation(0.12);
+        this.activityTimer = this.scene.time.addEvent({
+          delay: 1100, loop: true,
+          callback: () => this.spawnFloatGlyph("Z", "#6b7d8c"),
+        });
+        break;
+      case "thinking":
+        this.showEmote("reflecting");
+        break;
+      case "celebrating":
+        this.scene.tweens.add({
+          targets: this, scaleX: 1.12, scaleY: 1.12,
+          duration: 220, yoyo: true, repeat: 2, ease: "Sine.easeInOut",
+        });
+        playEmote(this.scene, "joy", this.x, this.y - FRAME_H * 0.5);
+        break;
+      case "voting": {
+        // Blue glow ring under feet
+        const ring = this.scene.add.graphics();
+        ring.lineStyle(2, 0x3b5998, 0.85);
+        ring.strokeCircle(this.x, this.y + 4, 18);
+        this.scene.tweens.add({
+          targets: ring,
+          scaleX: 1.3, scaleY: 1.3, alpha: 0,
+          duration: 1100, repeat: -1, ease: "Sine.easeOut",
+        });
+        this.activityFx = ring;
+        break;
+      }
+    }
+  }
+
+  getActivity(): AgentActivity { return this.currentActivity; }
+  getGesture(): GestureKind { return this.currentGesture; }
+
+  private clearActivityFx() {
+    this.activityTimer?.remove(false);
+    this.activityTimer = undefined;
+    if (this.activityFx) {
+      (this.activityFx as Phaser.GameObjects.GameObject).destroy();
+      this.activityFx = undefined;
+    }
+    if (this.bodySprite) this.bodySprite.setRotation(0);
+  }
+
+  private spawnFloatGlyph(glyph: string, color: string) {
+    const tx = this.scene.add.text(this.x, this.y - FRAME_H * 0.7, glyph, {
+      fontFamily: "Inter, monospace",
+      fontSize: "11px",
+      fontStyle: "bold",
+      color,
+      resolution: 2,
+    });
+    tx.setOrigin(0.5, 1);
+    tx.setDepth(500);
+    this.scene.tweens.add({
+      targets: tx, y: tx.y - 22, alpha: 0,
+      duration: 1100, ease: "Sine.easeOut",
+      onComplete: () => tx.destroy(),
+    });
+  }
+
+  /* ── Gestures ─────────────────────────────────────────── */
+
+  playGesture(kind: GestureKind) {
+    if (kind === "none" || !this.bodySprite) return;
+    this.currentGesture = kind;
+    const sprite = this.bodySprite;
+    const base = this.spriteBaseScale;
+
+    switch (kind) {
+      case "nod":
+        this.scene.tweens.add({
+          targets: sprite,
+          scaleY: { from: base, to: base * 0.92 },
+          duration: 140,
+          yoyo: true, repeat: 1, ease: "Sine.easeInOut",
+        });
+        playEmote(this.scene, "agree", this.x, this.y - FRAME_H * 0.5);
+        break;
+      case "shake_head":
+        this.scene.tweens.add({
+          targets: sprite,
+          scaleX: { from: base, to: base * 1.08 },
+          duration: 110, yoyo: true, repeat: 2, ease: "Sine.easeInOut",
+        });
+        playEmote(this.scene, "disagree", this.x, this.y - FRAME_H * 0.5);
+        break;
+      case "shrug":
+        this.scene.tweens.add({
+          targets: sprite,
+          rotation: { from: -0.08, to: 0.08 },
+          duration: 170, yoyo: true, repeat: 1, ease: "Sine.easeInOut",
+          onComplete: () => sprite.setRotation(0),
+        });
+        playEmote(this.scene, "confusion", this.x, this.y - FRAME_H * 0.5);
+        break;
+      case "laugh":
+        this.scene.tweens.add({
+          targets: sprite,
+          scaleX: base * 1.05, scaleY: base * 1.08,
+          duration: 100, yoyo: true, repeat: 2, ease: "Sine.easeInOut",
+        });
+        playEmote(this.scene, "joy", this.x, this.y - FRAME_H * 0.5);
+        break;
+      case "point": {
+        const dx = { down: 0, left: -14, right: 14, up: 0 }[this.currentDirection];
+        const dy = { down: 8, left: -FRAME_H * 0.5, right: -FRAME_H * 0.5, up: -FRAME_H * 0.7 }[this.currentDirection];
+        const arrow = this.scene.add.graphics();
+        arrow.fillStyle(0x4a7abf, 0.95);
+        arrow.fillTriangle(0, -4, 0, 4, 8, 0);
+        arrow.setPosition(this.x + dx, this.y + dy);
+        arrow.setDepth(510);
+        this.scene.tweens.add({
+          targets: arrow,
+          alpha: 0,
+          x: arrow.x + Math.sign(dx) * 8,
+          duration: 450,
+          onComplete: () => arrow.destroy(),
+        });
+        break;
+      }
+    }
+
+    this.scene.time.delayedCall(500, () => { this.currentGesture = "none"; });
+  }
+
   // ────────────────────────────────────────────────────────────
   // Private helpers
   // ────────────────────────────────────────────────────────────
 
   protected playWalk(dir: Direction) {
-    if (!this.usingSpritesheet || !this.charSprite) return;
-    const key = `${this.charSprite.texture.key}-walk-${dir}`;
-    if (this.scene.anims.exists(key)) this.charSprite.play(key, true);
+    if (!this.usingSpritesheet || !this.bodySprite) return;
+    const key = `${this.bodySprite.texture.key}-walk-${dir}`;
+    if (this.scene.anims.exists(key)) this.bodySprite.play(key, true);
+    if (this.coupleSprite) {
+      const coupleKey = `${this.coupleSprite.texture.key}-walk-${dir}`;
+      if (this.scene.anims.exists(coupleKey)) this.coupleSprite.play(coupleKey, true);
+    }
+    // Position the partner perpendicular to the direction of motion.
+    if (this.coupleSprite) {
+      const perp = (dir === "left" || dir === "right") ? { x: 0, y: -12 } : { x: 18, y: 0 };
+      this.coupleSprite.setPosition(perp.x, perp.y);
+    }
   }
 
   protected playIdle(dir: Direction) {
-    if (!this.usingSpritesheet || !this.charSprite) return;
-    // Stop any running anim and set the stand pose for this direction
-    this.charSprite.stop();
-    this.charSprite.setFrame(IDLE_FRAMES[dir]);
+    if (!this.usingSpritesheet || !this.bodySprite) return;
+    this.bodySprite.stop();
+    this.bodySprite.setFrame(IDLE_FRAMES[dir]);
+    this.outfitSprite?.setFrame(IDLE_FRAMES[dir]);
+    this.accessorySprite?.setFrame(IDLE_FRAMES[dir]);
+    if (this.coupleSprite) {
+      this.coupleSprite.stop();
+      this.coupleSprite.setFrame(IDLE_FRAMES[dir]);
+    }
+  }
+
+  /** Body's anim advanced — propagate the frame to overlays. */
+  private syncOverlayFrame() {
+    if (!this.bodySprite) return;
+    const frame = this.bodySprite.frame.name;
+    this.outfitSprite?.setFrame(frame);
+    this.accessorySprite?.setFrame(frame);
   }
 
   /** Breathing idle: subtle scaleY pulse + inverse shadow shrink. */
@@ -348,10 +645,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     const period = 1200;
     const phase = Math.random() * period;
 
-    // Breathing: subtle vertical scale on character sprite
-    if (this.charSprite) {
+    // Breathing: subtle vertical scale on body sprite
+    if (this.bodySprite) {
       this.idleTween = this.scene.tweens.add({
-        targets: this.charSprite,
+        targets: this.bodySprite,
         scaleY: this.spriteBaseScale * 1.03,
         duration: period,
         yoyo: true,
@@ -410,72 +707,18 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   // State-driven emotes
   // ────────────────────────────────────────────────────────────
 
-  /** Show an overhead emote based on agent state. */
-  showEmote(type: "reflecting" | "opinion_changed") {
-    if (type === "reflecting") {
-      const dots = this.scene.add.text(0, BUBBLE_TIP_Y - 20, "...", {
-        fontFamily: "Inter, monospace",
-        fontSize: "14px",
-        fontStyle: "bold",
-        color: "#666666",
-        resolution: 2,
-      });
-      dots.setOrigin(0.5, 0.5);
-      this.add(dots);
-      dots.setDepth(500);
-
-      // Gentle bob
-      this.scene.tweens.add({
-        targets: dots,
-        y: BUBBLE_TIP_Y - 23,
-        duration: 500,
-        yoyo: true,
-        repeat: 5,
-        ease: "Sine.easeInOut",
-      });
-
-      // Auto-destroy after 3s
-      this.scene.time.delayedCall(3000, () => {
-        this.scene.tweens.add({
-          targets: dots,
-          alpha: 0,
-          duration: 200,
-          onComplete: () => dots.destroy(),
-        });
-      });
-    } else if (type === "opinion_changed") {
-      // Create a runtime 4x4 pixel texture if it doesn't exist
-      if (!this.scene.textures.exists("emote-particle")) {
-        const canvas = this.scene.textures.createCanvas("emote-particle", 4, 4);
-        if (canvas) {
-          canvas.context.fillStyle = "#ffffff";
-          canvas.context.fillRect(0, 0, 4, 4);
-          canvas.refresh();
-        }
-      }
-
+  /** Show an overhead emote — dispatches through `EmoteRegistry`. */
+  showEmote(type: EmoteKey | "reflecting" | "opinion_changed") {
+    if (type === "opinion_changed") {
       const tint = Phaser.Display.Color.HexStringToColor(this.opinionColor).color;
-      const cx = this.x;
-      const cy = this.y - FRAME_H * 0.5;
-
-      // Emit burst particles
-      const emitter = this.scene.add.particles(cx, cy, "emote-particle", {
-        speed: { min: 40, max: 100 },
-        angle: { min: 220, max: 320 },
-        lifespan: 600,
-        quantity: 10,
-        tint: tint,
-        scale: { start: 1.5, end: 0 },
-        alpha: { start: 1, end: 0 },
-        gravityY: 80,
-        emitting: false,
-      });
-      emitter.setDepth(500);
-      emitter.explode(10);
-
-      // Auto-destroy after particles expire
-      this.scene.time.delayedCall(800, () => emitter.destroy());
+      playEmote(this.scene, "opinion_changed", this.x, this.y - FRAME_H * 0.5, { tint });
+      return;
     }
+    if (type === "reflecting") {
+      playEmote(this.scene, "reflecting", this.x, this.y - FRAME_H * 0.7);
+      return;
+    }
+    playEmote(this.scene, type, this.x, this.y - FRAME_H * 0.5);
   }
 
   /** Export position data for DOM overlay rendering. */
@@ -488,6 +731,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       visible: this.visible && this.alpha > 0,
     };
   }
+
+  /** Is this sprite a paired duo (composite couple agent)? */
+  hasCouple(): boolean { return this.hasPartner; }
 
   /** Multi-layered proximity glow — shown when the player is nearby. */
   setProximityHighlight(active: boolean) {
@@ -554,11 +800,35 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     }
   }
 
+  /**
+   * Walk one or two steps toward (px, py) and face them. Used when a player
+   * presses E and the NPC responds.
+   */
+  respondToInteractRequest(px: number, py: number) {
+    const dx = px - this.x;
+    const dy = py - this.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 28) {
+      this.faceToward(px, py);
+      return;
+    }
+    // Walk half the remaining distance, capped at ~30 px.
+    const step = Math.min(30, dist * 0.5);
+    const tx = this.x + (dx / dist) * step;
+    const ty = this.y + (dy / dist) * step;
+    this.moveToPosition(tx, ty, () => this.faceToward(px, py));
+  }
+
   override destroy(fromScene?: boolean) {
     this.idleTween?.stop();
     this.shadowTween?.stop();
     this.moveTween?.stop();
-    this.bubbleTimer?.remove();
+    for (const b of this.bubbleQueue) {
+      b.timer?.remove();
+      b.group.destroy();
+    }
+    this.bubbleQueue = [];
+    this.clearActivityFx();
     for (const t of this.proxTweens) t.stop();
     this.proxGlow?.destroy();
     super.destroy(fromScene);

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import OpinionChart from "./OpinionChart";
 import type { NewsReaction, LeanId, TownId, AgentState } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
@@ -96,6 +96,57 @@ export default function GodsView({ ws }: GodsViewProps) {
   for (const r of reactions) {
     if (byTown[r.town]) byTown[r.town].push(r);
   }
+
+  // Build "current" and "projected" opinions for the before/after donut
+  const allAgents = Object.values(ws.agents);
+  const currentOpinions = useMemo(() => {
+    const total: Record<LeanId, number> = { mejia: 0, hathaway: 0, bond: 0, undecided: 0 };
+    if (allAgents.length === 0) {
+      // demo data fallback
+      total.mejia = 10;
+      total.hathaway = 8;
+      total.undecided = 8;
+    } else {
+      for (const a of allAgents) {
+        const lean = (a.opinion?.candidate as LeanId) || "undecided";
+        total[lean] = (total[lean] || 0) + 1;
+      }
+    }
+    return total;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allAgents.length]);
+
+  const projectedOpinions = useMemo(() => {
+    if (reactions.length === 0) return null;
+    const next: Record<LeanId, number> = { ...currentOpinions };
+    for (const r of reactions) {
+      const target = allAgents.find((a) => a.id === r.agent_id);
+      const currentLean = (target?.opinion?.candidate as LeanId) || "undecided";
+      const impact = (r.impact_on_vote || "").toLowerCase();
+      if (impact.includes("changes_mind") || impact.includes("changes mind")) {
+        // Move to whichever candidate is named in the impact (best-effort)
+        let to: LeanId = currentLean;
+        if (impact.includes("mejia")) to = "mejia";
+        else if (impact.includes("hathaway")) to = "hathaway";
+        else if (impact.includes("bond")) to = "bond";
+        else if (impact.includes("undecided")) to = "undecided";
+        if (to !== currentLean) {
+          next[currentLean] = Math.max(0, (next[currentLean] || 0) - 1);
+          next[to] = (next[to] || 0) + 1;
+        }
+      }
+      // strengthens_current / weakens_current don't change counts, just confidence
+    }
+    return next;
+  }, [reactions, currentOpinions, allAgents]);
+
+  const predictionSummary = useMemo(() => {
+    if (!projectedOpinions) return null;
+    const deltas: { lean: LeanId; delta: number }[] = (
+      ["mejia", "hathaway", "bond", "undecided"] as LeanId[]
+    ).map((k) => ({ lean: k, delta: (projectedOpinions[k] || 0) - (currentOpinions[k] || 0) }));
+    return deltas.filter((d) => d.delta !== 0);
+  }, [projectedOpinions, currentOpinions]);
 
   // Filter scenarios by category
   const categories = Array.from(new Set(scenarios.map((s) => s.category)));
@@ -364,6 +415,38 @@ export default function GodsView({ ws }: GodsViewProps) {
             </div>
           ) : (
             <>
+              {/* Before/After prediction widget */}
+              {projectedOpinions && reactions.length > 0 && (
+                <div className="prediction-widget">
+                  <div className="prediction-widget-pair">
+                    <div className="prediction-widget-chart">
+                      <span className="prediction-widget-label">Current</span>
+                      <OpinionChart opinions={currentOpinions} size={100} showLegend={false} />
+                    </div>
+                    <span className="prediction-widget-arrow">→</span>
+                    <div className="prediction-widget-chart">
+                      <span className="prediction-widget-label">Projected</span>
+                      <OpinionChart opinions={projectedOpinions} size={100} showLegend={false} />
+                    </div>
+                  </div>
+                  {predictionSummary && predictionSummary.length > 0 && (
+                    <p className="prediction-widget-summary">
+                      {predictionSummary
+                        .map((d) => (
+                          <span key={d.lean} style={{ color: CANDIDATE_COLORS[d.lean], fontWeight: 600 }}>
+                            {CANDIDATE_NAMES[d.lean]} {d.delta > 0 ? "+" : ""}{d.delta}
+                          </span>
+                        ))
+                        .reduce<React.ReactNode[]>((acc, el, i) => {
+                          if (i > 0) acc.push(<span key={`sep-${i}`}>{", "}</span>);
+                          acc.push(el);
+                          return acc;
+                        }, [])}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Per-town reaction panels */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 {(["dover", "montclair", "parsippany", "randolph"] as TownId[]).map((t) => {

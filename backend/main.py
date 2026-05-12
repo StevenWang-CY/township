@@ -10,6 +10,9 @@ from .simulation.orchestrator import SimulationOrchestrator
 from .routes.simulation import router as simulation_router
 from .routes.chat import router as chat_router
 from .routes.gods_view import router as gods_view_router
+from .routes.towns import router as towns_router
+from .routes.journal import router as journal_router
+from .routes.transcribe import router as transcribe_router
 
 # Configure logging
 logging.basicConfig(
@@ -63,6 +66,9 @@ app.state.orchestrator = orchestrator
 app.include_router(simulation_router)
 app.include_router(chat_router)
 app.include_router(gods_view_router)
+app.include_router(towns_router)
+app.include_router(journal_router)
+app.include_router(transcribe_router)
 
 
 @app.get("/")
@@ -112,6 +118,10 @@ async def startup():
     logger.info(f"Township started: {agent_count} agents across {len(towns)} towns: {towns}")
     logger.info(f"Data dir: {DATA_DIR}")
     logger.info(f"Agents dir: {AGENTS_DIR}")
+    logger.info(
+        "Registered routes: /api/simulation, /api/chat, /api/gods-view, "
+        "/api/towns, /api/journal, /api/transcribe"
+    )
 
 
 @app.on_event("shutdown")

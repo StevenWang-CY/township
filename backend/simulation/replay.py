@@ -5,43 +5,70 @@ from pathlib import Path
 
 from ..core.event_bus import EventBus
 from ..core.types import (
-    AgentMoveEvent,
-    ConversationStartEvent,
+    AgentMovedEvent,
+    AgentSpeechEvent,
+    ConversationStartedEvent,
+    ConversationEndedEvent,
     CrossTownGossipEvent,
     GodViewInjectionEvent,
-    NewsInjectionEvent,
-    OpinionChangeEvent,
-    RoundAdvanceEvent,
+    GodsViewResultEvent,
+    NewsInjectedEvent,
+    NewsReactionEvent,
+    OpinionChangedEvent,
+    RelationshipUpdateEvent,
+    RoundStartedEvent,
+    RoundEndedEvent,
     SimulationCompleteEvent,
-    SpeechBubbleEvent,
+    SimulationEndedEvent,
+    SimulationStartedEvent,
+    WeatherChangedEvent,
+    WorldClockTickEvent,
 )
 
 logger = logging.getLogger(__name__)
 
-# Map event type strings to their Pydantic model classes
+# Map event type strings to their Pydantic model classes (past-tense, current).
 EVENT_TYPE_MAP = {
-    "round_advance": RoundAdvanceEvent,
-    "agent_move": AgentMoveEvent,
-    "conversation_start": ConversationStartEvent,
-    "speech_bubble": SpeechBubbleEvent,
-    "opinion_change": OpinionChangeEvent,
-    "news_injection": NewsInjectionEvent,
+    "round_started": RoundStartedEvent,
+    "round_ended": RoundEndedEvent,
+    "agent_moved": AgentMovedEvent,
+    "agent_speech": AgentSpeechEvent,
+    "conversation_started": ConversationStartedEvent,
+    "conversation_ended": ConversationEndedEvent,
+    "opinion_changed": OpinionChangedEvent,
+    "news_injected": NewsInjectedEvent,
+    "news_reaction": NewsReactionEvent,
     "cross_town_gossip": CrossTownGossipEvent,
     "god_view_injection": GodViewInjectionEvent,
+    "gods_view_result": GodsViewResultEvent,
+    "simulation_started": SimulationStartedEvent,
+    "simulation_ended": SimulationEndedEvent,
     "simulation_complete": SimulationCompleteEvent,
+    "world_clock_tick": WorldClockTickEvent,
+    "weather_changed": WeatherChangedEvent,
+    "relationship_update": RelationshipUpdateEvent,
 }
 
 # Delay between events by type (seconds at 1x speed)
 EVENT_DELAYS = {
-    "round_advance": 1.0,
-    "agent_move": 0.3,
-    "conversation_start": 0.5,
-    "speech_bubble": 1.5,
-    "opinion_change": 0.8,
-    "news_injection": 2.0,
+    "round_started": 1.0,
+    "round_ended": 0.4,
+    "agent_moved": 0.3,
+    "agent_speech": 1.5,
+    "conversation_started": 0.5,
+    "conversation_ended": 0.3,
+    "opinion_changed": 0.8,
+    "news_injected": 2.0,
+    "news_reaction": 0.4,
     "cross_town_gossip": 1.0,
     "god_view_injection": 2.0,
+    "gods_view_result": 0.5,
+    "simulation_started": 0.5,
+    "simulation_ended": 0.0,
     "simulation_complete": 0.0,
+    "world_clock_tick": 0.1,
+    "weather_changed": 0.5,
+    "relationship_update": 0.2,
 }
 
 

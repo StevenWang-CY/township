@@ -2,6 +2,9 @@
   "name": "Dover",
   "county": "Morris County",
   "tagline": "The Working-Class Heart",
+  "accent_color": "#E8763B",
+  "ambient_sound": "dover_ambient.ogg",
+  "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
   "demographics": {
     "population": 18435,
     "median_age": 41.0,
@@ -28,13 +31,15 @@
   },
   "character": "Majority-Hispanic working-class town. 51.5% foreign-born. Median income less than half of Randolph's. The community most directly affected by ICE enforcement and healthcare affordability. Profoundly underrepresented in NJ-11 political coverage.",
   "landmarks": [
-    { "name": "Blackwell Street", "type": "commercial", "description": "Historic main street", "x": 400, "y": 100 },
-    { "name": "Dover NJ Transit Station", "type": "transit", "description": "NJ Transit commuter rail station", "x": 200, "y": 200 },
-    { "name": "St. Mary's Catholic Church", "type": "religious", "description": "Catholic church serving the community", "x": 600, "y": 150 },
-    { "name": "Latino Businesses Area", "type": "commercial", "description": "Bodegas, taquerias, barber shops", "x": 400, "y": 300 },
-    { "name": "Public Housing", "type": "residential", "description": "Public housing complex", "x": 150, "y": 400 },
-    { "name": "Dover Public Library", "type": "civic", "description": "Public library", "x": 550, "y": 400 },
-    { "name": "Factory/Warehouse", "type": "industrial", "description": "Factory and warehouse district", "x": 700, "y": 500 }
+    { "name": "Blackwell Street", "x": 200, "y": 380, "width": 800, "height": 30, "color": "#D4A574", "type": "road", "description": "Historic main street" },
+    { "name": "Dover Station", "x": 100, "y": 550, "width": 140, "height": 90, "color": "#8B7355", "type": "transport", "description": "NJ Transit commuter rail station" },
+    { "name": "St. Mary's Church", "x": 750, "y": 180, "width": 110, "height": 120, "color": "#C9B896", "type": "church", "description": "Catholic church serving the community" },
+    { "name": "La Finca Restaurant", "x": 350, "y": 280, "width": 100, "height": 70, "color": "#E8763B", "type": "building", "description": "Colombian/Latino restaurant" },
+    { "name": "Public Library", "x": 550, "y": 500, "width": 120, "height": 80, "color": "#A0C4E8", "type": "building", "description": "Dover Public Library" },
+    { "name": "Factory", "x": 950, "y": 300, "width": 160, "height": 120, "color": "#7A7A7A", "type": "building", "description": "Factory and warehouse district" },
+    { "name": "Public Housing", "x": 150, "y": 150, "width": 140, "height": 90, "color": "#C4B5A0", "type": "housing", "description": "Public housing complex" },
+    { "name": "Bodega Row", "x": 500, "y": 280, "width": 120, "height": 60, "color": "#E8A060", "type": "building", "description": "Bodegas, taquerias, barber shops" },
+    { "name": "Town Park", "x": 400, "y": 600, "width": 180, "height": 140, "color": "#7CB87C", "type": "park", "description": "Public park and gathering space" }
   ],
   "color_theme": {
     "primary": "#D4A056",

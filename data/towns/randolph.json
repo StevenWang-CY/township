@@ -2,6 +2,9 @@
   "name": "Randolph",
   "county": "Morris County",
   "tagline": "The Republican Suburb",
+  "accent_color": "#4A9B5C",
+  "ambient_sound": "randolph_ambient.ogg",
+  "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
   "demographics": {
     "population": 26604,
     "median_age": 39.1,
@@ -19,14 +22,15 @@
   },
   "character": "Hathaway's literal home base. Affluent, family-oriented, predominantly white but diversifying. Highest median income of the four towns. Republican-leaning but not monolithically so.",
   "landmarks": [
-    { "name": "Randolph Town Hall", "type": "civic", "description": "Municipal government building", "x": 350, "y": 100 },
-    { "name": "Randolph High School", "type": "education", "description": "Township high school", "x": 600, "y": 120 },
-    { "name": "Commercial Strip", "type": "commercial", "description": "Local shops and businesses", "x": 400, "y": 250 },
-    { "name": "Residential Cul-de-sacs", "type": "residential", "description": "Large-lot residential cul-de-sacs", "x": 200, "y": 350 },
-    { "name": "Youth Sports Fields", "type": "recreation", "description": "Community youth sports fields", "x": 550, "y": 350 },
-    { "name": "Hedden Park", "type": "park", "description": "Hedden Park entrance and trails", "x": 700, "y": 400 },
-    { "name": "Church", "type": "religious", "description": "Local church", "x": 150, "y": 450 },
-    { "name": "Randolph Diner", "type": "commercial", "description": "Local diner gathering spot", "x": 450, "y": 500 }
+    { "name": "Main Road", "x": 100, "y": 400, "width": 1000, "height": 30, "color": "#D4A574", "type": "road", "description": "Winding main road through Randolph" },
+    { "name": "Town Hall", "x": 500, "y": 200, "width": 140, "height": 110, "color": "#C9B896", "type": "building", "description": "Brick municipal building with American flag" },
+    { "name": "High School", "x": 800, "y": 180, "width": 180, "height": 130, "color": "#A0B8C8", "type": "building", "description": "Randolph High School campus" },
+    { "name": "Commercial Strip", "x": 300, "y": 280, "width": 200, "height": 60, "color": "#D4B896", "type": "building", "description": "Local shops, finance office, diner" },
+    { "name": "Sports Fields", "x": 200, "y": 550, "width": 200, "height": 140, "color": "#90C890", "type": "park", "description": "Soccer fields and baseball diamond" },
+    { "name": "Hedden Park", "x": 750, "y": 530, "width": 180, "height": 160, "color": "#7CB87C", "type": "park", "description": "Large wooded park with creek and trails" },
+    { "name": "Church", "x": 950, "y": 300, "width": 100, "height": 90, "color": "#C9B896", "type": "church", "description": "Presbyterian community church" },
+    { "name": "Randolph Diner", "x": 150, "y": 300, "width": 100, "height": 60, "color": "#E8C080", "type": "building", "description": "Local gathering spot — coffee, pancakes, politics" },
+    { "name": "Residential Cul-de-sacs", "x": 600, "y": 550, "width": 140, "height": 100, "color": "#C4B5A0", "type": "housing", "description": "Large-lot family homes with two-car garages" }
   ],
   "color_theme": {
     "primary": "#C04040",

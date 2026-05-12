@@ -21,6 +21,12 @@ def load_agent(filepath: Path) -> AgentDefinition:
         tools=post.metadata.get("tools", ["Discuss", "FormOpinion", "ReactToNews"]),
         model=post.metadata.get("model", "claude-sonnet-4-6"),
         system_prompt=post.content,
+        # Phase 3 — optional living-world fields. Older personas without these
+        # keys gracefully fall back to empty lists / dicts.
+        routine=post.metadata.get("routine", []) or [],
+        relationships=post.metadata.get("relationships", []) or [],
+        idle_thoughts=post.metadata.get("idle_thoughts", []) or [],
+        goals=post.metadata.get("goals", {}) or {},
     )
 
 

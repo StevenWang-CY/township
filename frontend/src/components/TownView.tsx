@@ -1,13 +1,19 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import Phaser from "phaser";
 import { TownScene } from "../game/TownScene";
 import { GAME_CONFIG } from "../game/config";
 import { useUserProfile } from "../context/UserProfileContext";
+import { useTownData } from "../hooks/useTownData";
+import { useRelationships } from "../hooks/useRelationships";
 import { CanvasOverlay } from "./CanvasOverlay";
 import ChatPanel from "./ChatPanel";
 import AgentCard from "./AgentCard";
-import type { AgentState, TownId, SimulationEvent } from "../types/messages";
+import PlayerHUD from "./PlayerHUD";
+import MiniMap from "./MiniMap";
+import Tutorial from "./Tutorial";
+import DebugOverlay from "./DebugOverlay";
+import type { AgentState, TownId, SimulationEvent, Opinion, ChatMessage, Relationship } from "../types/messages";
 import { TOWN_META } from "../types/messages";
 
 interface TownViewProps {
@@ -19,6 +25,9 @@ interface TownViewProps {
     currentRound: number;
     totalRounds: number;
     simulationRunning: boolean;
+    worldClock: { hour: number; minute: number };
+    weather: import("../types/messages").WeatherKind;
+    relationships: Record<string, Relationship>;
   };
 }
 
@@ -60,6 +69,8 @@ const DEMO_AGENTS: Record<TownId, AgentState[]> = {
     { id: "tony-mancini", name: "Tony Mancini", town: "randolph", occupation: "Landscaping Owner", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issue: "workers rights" }, location: "Commercial Strip", current_activity: "At work", initials: "TM", color: "#88A050" },
   ],
 };
+
+export { DEMO_AGENTS };
 
 /* ── Keyboard Hint Overlay ────────────────────────────────── */
 
@@ -105,7 +116,11 @@ export default function TownView({ ws }: TownViewProps) {
   const { townId } = useParams<{ townId: string }>();
   const town = (townId as TownId) || "dover";
   const meta = TOWN_META[town];
-  const { profile, isOnboarded } = useUserProfile();
+  const { profile, isOnboarded, markAgentMet, markAgentPersuaded } = useUserProfile();
+  const { data: townData } = useTownData();
+  const { trustFor } = useRelationships(profile?.playerId, {
+    liveRelationships: ws.relationships,
+  });
 
   const gameContainerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
@@ -115,7 +130,18 @@ export default function TownView({ ws }: TownViewProps) {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [showKeyboardHint, setShowKeyboardHint] = useState(true);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [listenOpen, setListenOpen] = useState(false);
+  const [listenNearbyLandmark, setListenNearbyLandmark] = useState<string | null>(null);
   const lastProcessedEvent = useRef(0);
+
+  // Pre-chat snapshots for met/persuaded + journal
+  const preChatRef = useRef<{
+    agentId: string;
+    opinion?: Opinion;
+    trust: number;
+  } | null>(null);
+  const lastChatTranscriptRef = useRef<Record<string, ChatMessage[]>>({});
 
   // Get agents for this town
   const townAgents: AgentState[] = (() => {
@@ -138,6 +164,13 @@ export default function TownView({ ws }: TownViewProps) {
     initials: profile.initials,
     color: profile.color,
   } : null;
+
+  // Lookup table for proximity card
+  const agentLookup = useMemo(() => {
+    const map = new Map<string, AgentState>();
+    for (const a of townAgents) map.set(a.id, a);
+    return map;
+  }, [townAgents]);
 
   /* ── Initialize Phaser ───────────────────────────────────── */
 
@@ -198,6 +231,7 @@ export default function TownView({ ws }: TownViewProps) {
       sceneRef.current = null;
       playerSpawnedRef.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [town]);
 
   /* ── Spawn player when profile becomes available ────────── */
@@ -239,7 +273,7 @@ export default function TownView({ ws }: TownViewProps) {
     lastProcessedEvent.current = ws.events.length;
 
     for (const evt of newEvents) {
-      if ("town" in evt && (evt as any).town !== town) continue;
+      if ("town" in evt && (evt as any).town && (evt as any).town !== town) continue;
 
       switch (evt.type) {
         case "agent_moved":
@@ -247,21 +281,49 @@ export default function TownView({ ws }: TownViewProps) {
           break;
         case "agent_speech":
           scene.showAgentSpeech(evt.agent_id, evt.text);
+          if (evt.gesture && evt.gesture !== "none") {
+            scene.playGesture(evt.agent_id, evt.gesture);
+          }
           break;
-        case "opinion_changed":
+        case "opinion_changed": {
           scene.updateAgentOpinion(evt.agent_id, evt.new_opinion.candidate);
           scene.showAgentEmote(evt.agent_id, "opinion_changed");
+          const delta = evt.confidence_delta ?? Math.abs((evt.new_opinion.confidence ?? 0) - (evt.old_opinion?.confidence ?? 0));
+          if (delta >= 0) {
+            try { scene.playOpinionShiftBeat(evt.agent_id); } catch { /* ignore */ }
+          }
           break;
+        }
         case "conversation_started":
-          // Show reflecting emote + speech bubble for participants
           for (const pid of evt.conversation.participants) {
             scene.showAgentEmote(pid, "reflecting");
             scene.showAgentSpeech(pid, `Discussing: ${evt.conversation.topic}`);
           }
           break;
+        case "news_injected":
+          try { scene.playNewsBeat(); } catch { /* ignore */ }
+          break;
+        case "simulation_ended":
+          try { scene.playSimEndBeat(); } catch { /* ignore */ }
+          break;
+        case "world_clock_tick":
+          try { scene.setWorldTime(evt.hour, evt.minute); } catch { /* ignore */ }
+          break;
+        case "weather_changed":
+          try { scene.setWeather(evt.weather); } catch { /* ignore */ }
+          break;
       }
     }
   }, [ws.events.length, town]);
+
+  /* ── Sync town data to Phaser (landmark labels) ─────────── */
+
+  useEffect(() => {
+    // Town data is available in townData[town] — when Phaser ever supports it,
+    // this is the integration point. The scene currently builds its own
+    // landmarks from `data/towns/<id>.json` at preload time.
+    void townData;
+  }, [townData, town]);
 
   /* ── Overlay data callback ─────────────────────────────────── */
 
@@ -271,16 +333,174 @@ export default function TownView({ ws }: TownViewProps) {
     return scene.getOverlayData();
   }, []);
 
+  const getPlayer = useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scene || !scene.scene.isActive()) return null;
+    const ps = scene.getPlayerSprite();
+    if (!ps) return null;
+    return { x: ps.x, y: ps.y };
+  }, []);
+
+  const getAgent = useCallback((id: string) => agentLookup.get(id), [agentLookup]);
+
+  const getMiniMapData = useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scene || !scene.scene.isActive()) return null;
+    try {
+      return scene.getMiniMapData();
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const handleMiniMapPin = useCallback((agentId: string) => {
+    const scene = sceneRef.current;
+    if (!scene || !scene.scene.isActive()) return;
+    const sprite = (scene as any).agentSprites?.get?.(agentId);
+    if (sprite && typeof sprite.x === "number") {
+      try {
+        scene.cameras.main.pan(sprite.x, sprite.y, 700, "Sine.easeInOut");
+      } catch { /* ignore */ }
+    }
+  }, []);
+
+  /* ── Debug overlay toggle (~) ──────────────────────────────── */
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "`" || e.key === "~") {
+        setDebugOpen((b) => !b);
+      } else if (e.key === "t" || e.key === "T") {
+        if (listenNearbyLandmark) {
+          setListenOpen((b) => !b);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [listenNearbyLandmark]);
+
+  const getClosestAgent = useCallback(() => {
+    const player = getPlayer();
+    if (!player) return null;
+    let best: { id: string; distance: number } | null = null;
+    for (const a of townAgents) {
+      const scene = sceneRef.current;
+      if (!scene) continue;
+      const sp = (scene as any).agentSprites?.get?.(a.id);
+      if (!sp) continue;
+      const d = Math.hypot(sp.x - player.x, sp.y - player.y);
+      if (!best || d < best.distance) best = { id: a.id, distance: d };
+    }
+    return best;
+  }, [getPlayer, townAgents]);
+
+  /* ── Listen-in detection: player within 80px of park/transit/church ── */
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const player = getPlayer();
+      const data = getMiniMapData();
+      if (!player || !data) return;
+      const eligible = data.landmarks.filter(
+        (lm) => ["park", "transit", "transport", "church"].includes(lm.type)
+      );
+      const ag = data.agents || [];
+      let near: string | null = null;
+      for (const lm of eligible) {
+        const cx = lm.x + lm.w / 2;
+        const cy = lm.y + lm.h / 2;
+        if (Math.hypot(cx - player.x, cy - player.y) > 80) continue;
+        const inBoundsCount = ag.filter((a) =>
+          a.x >= lm.x && a.x <= lm.x + lm.w && a.y >= lm.y && a.y <= lm.y + lm.h
+        ).length;
+        if (inBoundsCount >= 2) {
+          near = lm.name;
+          break;
+        }
+      }
+      setListenNearbyLandmark((prev) => (prev === near ? prev : near));
+      if (!near && listenOpen) setListenOpen(false);
+    }, 400);
+    return () => clearInterval(id);
+  }, [getPlayer, getMiniMapData, listenOpen]);
+
   /* ── UI Callbacks ────────────────────────────────────────── */
 
   const openChat = useCallback((agentId: string) => {
+    const ag = townAgents.find((a) => a.id === agentId);
+    if (ag) {
+      preChatRef.current = {
+        agentId,
+        opinion: ag.opinion,
+        trust: trustFor(agentId),
+      };
+      markAgentMet(agentId);
+    }
     setSelectedAgentId(agentId);
     setChatOpen(true);
-  }, []);
+  }, [townAgents, trustFor, markAgentMet]);
 
   const handleCloseChat = useCallback(() => {
     setChatOpen(false);
+
+    // On close, check for persuasion + write journal entry
+    const pre = preChatRef.current;
+    if (!pre) return;
+    const ag = townAgents.find((a) => a.id === pre.agentId);
+    if (!ag) {
+      preChatRef.current = null;
+      return;
+    }
+    const beforeOp = pre.opinion;
+    const afterOp = ag.opinion;
+    const candidateChanged = beforeOp?.candidate !== afterOp?.candidate;
+    const confidenceJumped =
+      (afterOp?.confidence ?? 0) - (beforeOp?.confidence ?? 0) >= 10;
+    if (candidateChanged || confidenceJumped) {
+      markAgentPersuaded(pre.agentId);
+    }
+
+    // Persist journal entry to backend (silent on error)
+    const transcript = lastChatTranscriptRef.current[pre.agentId] ?? [];
+    const trustAfter = trustFor(pre.agentId);
+    const playerId = profile?.playerId;
+    if (playerId && (transcript.length > 0 || candidateChanged || confidenceJumped)) {
+      fetch("/api/journal/entry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: playerId,
+          agent_id: pre.agentId,
+          transcript: transcript
+            .filter((m) => m.role === "user" || m.role === "agent")
+            .map((m) => ({ role: m.role, content: m.content, ts: m.timestamp })),
+          opinion_before: beforeOp,
+          opinion_after: afterOp,
+          trust_before: pre.trust,
+          trust_after: trustAfter,
+        }),
+      }).catch(() => { /* ignore */ });
+    }
+    preChatRef.current = null;
+  }, [townAgents, profile?.playerId, trustFor, markAgentPersuaded]);
+
+  const handleTranscriptUpdate = useCallback((agentId: string, msgs: ChatMessage[]) => {
+    lastChatTranscriptRef.current[agentId] = msgs;
   }, []);
+
+  // Filter agent-speech events that originated at the listen-in landmark
+  const listenInSpeech = useMemo(() => {
+    if (!listenOpen || !listenNearbyLandmark) return [];
+    return ws.events
+      .filter(
+        (e) =>
+          e.type === "agent_speech" &&
+          (e as any).location === listenNearbyLandmark &&
+          (e as any).town === town,
+      )
+      .slice(-20) as Array<{ agent_id: string; agent_name: string; text: string; type: "agent_speech" }>;
+  }, [listenOpen, listenNearbyLandmark, ws.events, town]);
 
   return (
     <div className="town-view-layout">
@@ -334,10 +554,26 @@ export default function TownView({ ws }: TownViewProps) {
           <div ref={gameContainerRef} className="absolute inset-0" />
           <div className="canvas-vignette" />
 
-          {/* DOM overlay for agent/landmark labels */}
-          <CanvasOverlay gameRef={gameRef} getOverlayData={getOverlayData} />
+          {/* DOM overlay for agent/landmark labels + proximity card */}
+          <CanvasOverlay
+            gameRef={gameRef}
+            getOverlayData={getOverlayData}
+            getPlayer={getPlayer}
+            getAgent={getAgent}
+            getTrust={trustFor}
+          />
 
-          {/* DOM title banner (replaces Phaser canvas text) */}
+          {/* HUD top-left */}
+          <div className="town-hud-top-left">
+            <PlayerHUD worldClock={ws.worldClock} weather={ws.weather} />
+          </div>
+
+          {/* Mini-map top-right */}
+          <div className="town-minimap-wrapper">
+            <MiniMap getData={getMiniMapData} onPinClick={handleMiniMapPin} />
+          </div>
+
+          {/* DOM title banner */}
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
             <div
               className="px-6 py-1.5 rounded-lg"
@@ -361,9 +597,54 @@ export default function TownView({ ws }: TownViewProps) {
             </div>
           </div>
 
+          {/* Listen-in affordance + side panel */}
+          {listenNearbyLandmark && !chatOpen && (
+            <div className="listen-in-chip">
+              {listenOpen ? (
+                <span>Listening at <strong>{listenNearbyLandmark}</strong></span>
+              ) : (
+                <span>Press <kbd>T</kbd> to listen at <strong>{listenNearbyLandmark}</strong></span>
+              )}
+            </div>
+          )}
+          {listenOpen && listenNearbyLandmark && (
+            <div className="listen-in-panel">
+              <div className="listen-in-panel-header">
+                <strong>{listenNearbyLandmark}</strong>
+                <button onClick={() => setListenOpen(false)} aria-label="Close listen panel">×</button>
+              </div>
+              <div className="listen-in-panel-body">
+                {listenInSpeech.length === 0 && (
+                  <p style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                    Quiet right now. Stick around — voices will catch up here.
+                  </p>
+                )}
+                {listenInSpeech.map((e, i) => (
+                  <p key={i} className="listen-in-line">
+                    <strong style={{ color: meta.color }}>{e.agent_name}:</strong> {e.text}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Keyboard hint overlay */}
           {showKeyboardHint && isOnboarded && (
             <KeyboardHint onDismiss={() => setShowKeyboardHint(false)} />
+          )}
+
+          {/* First-visit tutorial */}
+          <Tutorial />
+
+          {/* Debug overlay (toggled with ~) */}
+          {debugOpen && (
+            <DebugOverlay
+              events={ws.events}
+              worldClock={ws.worldClock}
+              weather={ws.weather}
+              getPlayer={getPlayer}
+              getClosestAgent={getClosestAgent}
+            />
           )}
         </div>
       </div>
@@ -404,7 +685,15 @@ export default function TownView({ ws }: TownViewProps) {
           )}
           {/* NPC agents */}
           {townAgents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} compact onClick={() => openChat(agent.id)} />
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              compact
+              onClick={() => openChat(agent.id)}
+              met={profile?.metAgents?.includes(agent.id)}
+              persuaded={profile?.persuadedAgents?.includes(agent.id)}
+              trust={ws.relationships[agent.id]?.trust ?? trustFor(agent.id)}
+            />
           ))}
         </div>
 
@@ -444,7 +733,13 @@ export default function TownView({ ws }: TownViewProps) {
       </div>
 
       {/* Chat panel */}
-      {chatOpen && <ChatPanel agent={selectedAgent} onClose={handleCloseChat} />}
+      {chatOpen && (
+        <ChatPanel
+          agent={selectedAgent}
+          onClose={handleCloseChat}
+          onTranscriptChange={handleTranscriptUpdate}
+        />
+      )}
     </div>
   );
 }

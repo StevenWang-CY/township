@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { AgentSprite, FRAME_H, LABEL_Y, BUBBLE_TIP_Y, IDLE_FRAMES } from "./AgentSprite";
+import { AgentSprite, FRAME_H, LABEL_Y, BUBBLE_TIP_Y, IDLE_FRAMES, SPRITE_SCALE } from "./AgentSprite";
 import type { Direction } from "./AgentSprite";
 
 /**
@@ -12,7 +12,7 @@ import type { Direction } from "./AgentSprite";
 
 const PLAYER_SPEED = 160; // px per second
 const INTERACTION_RADIUS = 80; // px — conversational distance
-const PLAYER_SPRITE_SCALE = 4.4; // 16px frames × 4.4 ≈ 70px (matches 32px × 2.2)
+const LEGACY_PLAYER_SPRITE_SCALE = 4.4; // 16px frames × 4.4 ≈ 70px (matches 32px × 2.2)
 
 interface PlayerConfig {
   id: string;
@@ -23,10 +23,20 @@ interface PlayerConfig {
   spriteKey?: string;
 }
 
+interface JoystickState {
+  active: boolean;
+  originX: number;
+  originY: number;
+  dx: number;
+  dy: number;
+  identifier: number | null;
+}
+
 export class PlayerSprite extends AgentSprite {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key };
-  private eKey!: Phaser.Input.Keyboard.Key;
+  // eKey listener is attached via `keydown-E` event; we hold a ref for cleanup.
+  private eKey?: Phaser.Input.Keyboard.Key;
   private nearbyAgentId: string | null = null;
   private nearbySprite: AgentSprite | null = null;
   private wasMoving = false;
@@ -36,15 +46,23 @@ export class PlayerSprite extends AgentSprite {
   private promptPulseTween?: Phaser.Tweens.Tween;
   public inputEnabled = true;
 
+  // Touch joystick
+  private joystick: JoystickState = {
+    active: false, originX: 0, originY: 0, dx: 0, dy: 0, identifier: null,
+  };
+  private joystickGraphics?: Phaser.GameObjects.Graphics;
+
   constructor(scene: Phaser.Scene, x: number, y: number, cfg: PlayerConfig) {
     super(scene, x, y, cfg);
     this.isPlayer = true;
 
-    // Override sprite scale for 16px player.png frames
-    if (this.charSprite && cfg.spriteKey === "char-player") {
-      this.charSprite.setScale(PLAYER_SPRITE_SCALE);
+    // Pick the right scale for whichever player sheet was loaded.
+    if (this.bodySprite) {
+      const isLegacy16 = cfg.spriteKey === "char-player";
+      const scale = isLegacy16 ? LEGACY_PLAYER_SPRITE_SCALE : SPRITE_SCALE;
+      this.bodySprite.setScale(scale);
+      this.spriteBaseScale = scale;
     }
-    this.spriteBaseScale = PLAYER_SPRITE_SCALE;
 
     // Enable physics body for tilemap collision
     scene.physics.world.enable(this);
@@ -57,7 +75,6 @@ export class PlayerSprite extends AgentSprite {
 
     // ── Keyboard setup ──────────────────────────────────────
     // Disable global capture so keys pass through to DOM inputs (chat bar).
-    // Phaser key.isDown detection still works without capture.
     const kb = scene.input.keyboard;
     if (kb) {
       kb.disableGlobalCapture();
@@ -76,6 +93,11 @@ export class PlayerSprite extends AgentSprite {
     this.interactPrompt.setVisible(false);
     this.interactPrompt.setAlpha(0);
     this.add(this.interactPrompt);
+
+    // ── Touch joystick (mobile) ─────────────────────────────
+    if (typeof window !== "undefined" && "ontouchstart" in window) {
+      this.setupTouchJoystick(scene);
+    }
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -225,6 +247,76 @@ export class PlayerSprite extends AgentSprite {
   }
 
   // ──────────────────────────────────────────────────────────────
+  // Touch joystick
+  // ──────────────────────────────────────────────────────────────
+
+  private setupTouchJoystick(scene: Phaser.Scene) {
+    const radius = 60;
+    this.joystickGraphics = scene.add.graphics();
+    this.joystickGraphics.setScrollFactor(0);
+    this.joystickGraphics.setDepth(2000);
+    this.joystickGraphics.setVisible(false);
+
+    scene.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      if (this.joystick.active) return;
+      // Lower-left quadrant of the canvas
+      if (p.x > scene.scale.width * 0.4 || p.y < scene.scale.height * 0.5) return;
+      this.joystick.active = true;
+      this.joystick.originX = p.x;
+      this.joystick.originY = p.y;
+      this.joystick.dx = 0;
+      this.joystick.dy = 0;
+      this.joystick.identifier = p.id;
+      this.drawJoystick(radius);
+    });
+
+    scene.input.on("pointermove", (p: Phaser.Input.Pointer) => {
+      if (!this.joystick.active || p.id !== this.joystick.identifier) return;
+      const dx = p.x - this.joystick.originX;
+      const dy = p.y - this.joystick.originY;
+      const len = Math.hypot(dx, dy);
+      if (len > radius) {
+        this.joystick.dx = (dx / len) * radius;
+        this.joystick.dy = (dy / len) * radius;
+      } else {
+        this.joystick.dx = dx;
+        this.joystick.dy = dy;
+      }
+      this.drawJoystick(radius);
+    });
+
+    const release = (p: Phaser.Input.Pointer) => {
+      if (p.id !== this.joystick.identifier) return;
+      this.joystick.active = false;
+      this.joystick.dx = 0;
+      this.joystick.dy = 0;
+      this.joystick.identifier = null;
+      this.joystickGraphics?.setVisible(false);
+    };
+    scene.input.on("pointerup", release);
+    scene.input.on("pointerupoutside", release);
+  }
+
+  private drawJoystick(radius: number) {
+    const g = this.joystickGraphics;
+    if (!g) return;
+    g.clear();
+    g.setVisible(true);
+    // Outer ring
+    g.lineStyle(2, 0xffffff, 0.35);
+    g.strokeCircle(this.joystick.originX, this.joystick.originY, radius);
+    g.fillStyle(0x000000, 0.18);
+    g.fillCircle(this.joystick.originX, this.joystick.originY, radius);
+    // Knob
+    g.fillStyle(0xffffff, 0.7);
+    g.fillCircle(
+      this.joystick.originX + this.joystick.dx,
+      this.joystick.originY + this.joystick.dy,
+      radius * 0.35,
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Frame update — keyboard movement + proximity detection
   // ──────────────────────────────────────────────────────────────
 
@@ -253,20 +345,27 @@ export class PlayerSprite extends AgentSprite {
     if (this.cursors?.up.isDown || this.wasd?.W.isDown) vy -= 1;
     if (this.cursors?.down.isDown || this.wasd?.S.isDown) vy += 1;
 
+    // Joystick override
+    if (this.joystick.active) {
+      const max = 60;
+      vx = this.joystick.dx / max;
+      vy = this.joystick.dy / max;
+    }
+
     // Normalize diagonal movement
-    if (vx !== 0 && vy !== 0) {
+    if (vx !== 0 && vy !== 0 && !this.joystick.active) {
       const inv = 1 / Math.SQRT2;
       vx *= inv;
       vy *= inv;
     }
 
-    const moving = vx !== 0 || vy !== 0;
+    const moving = Math.abs(vx) > 0.08 || Math.abs(vy) > 0.08;
 
     if (moving) {
       // Stop idle tween if we were standing
       if (!this.wasMoving) {
         this.idleTween?.stop();
-        this.charSprite?.setScale(this.spriteBaseScale);
+        this.bodySprite?.setScale(this.spriteBaseScale);
         this.shadowTween?.stop();
         this.groundShadow.setScale(1);
       }
@@ -347,30 +446,10 @@ export class PlayerSprite extends AgentSprite {
   private onInteract() {
     if (!this.nearbyAgentId || !this.inputEnabled) return;
 
-    // Face the target agent
     if (this.nearbySprite) {
-      const dx = this.nearbySprite.x - this.x;
-      const dy = this.nearbySprite.y - this.y;
-      this.currentDirection = Math.abs(dx) > Math.abs(dy)
-        ? dx > 0 ? "right" : "left"
-        : dy > 0 ? "down" : "up";
-      this.playIdle(this.currentDirection);
-
-      // Make the NPC face the player too
-      const npcDir: Direction = Math.abs(dx) > Math.abs(dy)
-        ? dx > 0 ? "left" : "right"
-        : dy > 0 ? "up" : "down";
-      this.nearbySprite.currentDirection = npcDir;
-      // Force idle in the new direction — use the public moveToPosition to self
-      // to trigger the idle frame without actually moving
-      if (this.nearbySprite.usingSpritesheet) {
-        // Access the sprite's idle method via the scene event workaround:
-        // We trigger a tiny move that resolves immediately, which resets facing
-        this.nearbySprite.moveToPosition(
-          this.nearbySprite.x,
-          this.nearbySprite.y,
-        );
-      }
+      // Player faces the NPC, NPC faces back + takes a step toward us.
+      this.faceToward(this.nearbySprite.x, this.nearbySprite.y);
+      this.nearbySprite.respondToInteractRequest(this.x, this.y);
     }
 
     this.scene.events.emit("player-interact", this.nearbyAgentId);
@@ -378,6 +457,8 @@ export class PlayerSprite extends AgentSprite {
 
   override destroy(fromScene?: boolean) {
     this.promptPulseTween?.stop();
+    this.joystickGraphics?.destroy();
     super.destroy(fromScene);
   }
 }
+

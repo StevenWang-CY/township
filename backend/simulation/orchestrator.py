@@ -15,8 +15,12 @@ from ..core.types import (
     NewsReaction,
     Opinion,
     SimulationCompleteEvent,
+    SimulationStartedEvent,
+    SimulationEndedEvent,
     TownSummary,
+    WeatherChangedEvent,
 )
+from ..core.wire import agent_state_to_wire, district_summary_to_wire
 from ..providers.anthropic_client import AnthropicClient
 from ..simulation.round_manager import RoundManager
 from ..tools.schemas import get_tools
@@ -124,9 +128,9 @@ class SimulationOrchestrator:
                     return agent
         return None
 
-    async def _run_cross_town_gossip(self):
+    async def _run_cross_town_gossip(self, round_num: int = 3):
         """Run cross-town gossip conversations between agents from different towns."""
-        logger.info("Running cross-town gossip round")
+        logger.info(f"Running cross-town gossip round (round={round_num})")
         rm = RoundManager(
             anthropic_client=self.client,
             event_bus=self.event_bus,
@@ -137,7 +141,9 @@ class SimulationOrchestrator:
         cross_pairs = rm._create_cross_town_pairs(self.agent_states)
         tasks = []
         for agent_a, agent_b, connection_story in cross_pairs:
-            tasks.append(rm.run_cross_town_conversation(agent_a, agent_b, connection_story, round_num=3))
+            tasks.append(
+                rm.run_cross_town_conversation(agent_a, agent_b, connection_story, round_num=round_num)
+            )
         results = await asyncio.gather(*tasks, return_exceptions=True)
         successful = sum(1 for r in results if not isinstance(r, Exception))
         logger.info(f"Cross-town gossip complete: {successful}/{len(tasks)} conversations succeeded")
@@ -149,18 +155,77 @@ class SimulationOrchestrator:
         logger.info(f"Starting full simulation: {num_rounds} rounds across {len(self.agent_states)} towns")
 
         try:
+            # ── Announce the simulation start with the agent roster ──
+            agent_roster: list[dict] = []
+            for town_agents in self.agent_states.values():
+                for agent in town_agents:
+                    try:
+                        agent_roster.append(agent_state_to_wire(agent))
+                    except Exception:  # pragma: no cover — defensive
+                        pass
+            try:
+                await self.event_bus.publish(SimulationStartedEvent(
+                    agents=agent_roster,
+                    towns=list(self.agent_states.keys()),
+                ))
+            except Exception as e:  # pragma: no cover — defensive
+                logger.warning(f"SimulationStartedEvent publish failed: {e}")
+
+            # Pre-scripted weather across the campaign cycle (one entry per round)
+            weather_schedule: list[str] = [
+                "clear", "cloudy", "rain", "clear", "snow",
+            ]
+
+            async def _emit_weather(idx: int) -> None:
+                if idx < 0 or idx >= len(weather_schedule):
+                    return
+                try:
+                    await self.event_bus.publish(WeatherChangedEvent(
+                        weather=weather_schedule[idx],
+                        town=None,  # district-wide
+                    ))
+                except Exception as e:  # pragma: no cover
+                    logger.warning(f"WeatherChangedEvent publish failed: {e}")
+
+            # Kick off the round-0 weather before the towns start. The towns
+            # themselves don't know about weather; we drive it from here.
+            await _emit_weather(0)
+
             # Run all towns in parallel
             tasks = []
             for town in self.agent_states:
                 tasks.append(self._run_town_with_tracking(town, num_rounds))
 
+            # Background helper: emit subsequent weather changes + interleave
+            # cross-town gossip at rounds 2 and 3. We can't reach inside each
+            # parallel town run, so we schedule these on a rough timeline.
+            async def _atmosphere_and_cross_town():
+                # Stagger the weather updates a little so they ripple in during the
+                # simulation rather than all at once.
+                for idx in range(1, len(weather_schedule)):
+                    await asyncio.sleep(2.0)
+                    await _emit_weather(idx)
+                # Cross-town pairs at round 2 and again at round 3
+                try:
+                    await self._run_cross_town_gossip(round_num=2)
+                except Exception as e:
+                    logger.error(f"Cross-town gossip (round 2) failed: {e}")
+                try:
+                    await self._run_cross_town_gossip(round_num=3)
+                except Exception as e:
+                    logger.error(f"Cross-town gossip (round 3) failed: {e}")
+
+            atmosphere_task = asyncio.create_task(_atmosphere_and_cross_town())
+
             town_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Run cross-town gossip after town simulations complete
+            # Ensure atmospheric task has a chance to finish
             try:
-                await self._run_cross_town_gossip()
-            except Exception as e:
-                logger.error(f"Cross-town gossip failed: {e}")
+                await asyncio.wait_for(atmosphere_task, timeout=60.0)
+            except asyncio.TimeoutError:
+                logger.warning("Atmosphere task didn't finish within timeout")
+            except Exception as e:  # pragma: no cover
+                logger.warning(f"Atmosphere task error: {e}")
 
             # Collect results
             for town, result in zip(self.agent_states.keys(), town_results):
@@ -180,6 +245,15 @@ class SimulationOrchestrator:
 
             # Compute district summary
             self.district_summary = self._compute_district_summary(self.town_summaries)
+
+            # Emit both the new past-tense event and the legacy event so any
+            # existing listener keeps working.
+            try:
+                await self.event_bus.publish(SimulationEndedEvent(
+                    summary=district_summary_to_wire(self.district_summary),
+                ))
+            except Exception as e:  # pragma: no cover
+                logger.warning(f"SimulationEndedEvent publish failed: {e}")
 
             await self.event_bus.publish(SimulationCompleteEvent(
                 district_summary=self.district_summary,
@@ -392,7 +466,10 @@ class SimulationOrchestrator:
         agent.add_memory(f"God's View event: {description[:100]}. Reaction: {emotional}, impact: {impact}")
 
         return NewsReaction(
+            agent_id=agent.agent_id,
             agent_name=agent.definition.name,
+            town=agent.definition.town,
+            headline=description,
             event=description,
             emotional_response=emotional,
             impact_on_vote=impact,

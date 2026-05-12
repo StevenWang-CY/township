@@ -8,7 +8,7 @@ import type { TownId } from "../types/messages";
 
 /* ── Progress Dots ────────────────────────────────────────── */
 
-const STEPS = ["name", "town", "leaning", "concerns", "personality"];
+const STEPS = ["name", "avatar", "outfit", "town", "leaning", "concerns", "personality"];
 
 function ProgressDots({ currentIndex }: { currentIndex: number }) {
   return (
@@ -104,6 +104,14 @@ export default function OnboardingView() {
     setStepIndex((prev) => prev + 1);
   }, [inputValue, overlay.step]);
 
+  // The Phaser scene handles "avatar" and "outfit" steps in-canvas, so the
+  // React overlay should remain hidden for those — and we still want to advance
+  // the progress dots when those steps complete.  The scene currently emits
+  // onboarding-need-input for the text-only steps, so for avatar/outfit the
+  // overlay never appears.  If the scene starts emitting those steps to React,
+  // we hide the overlay so the canvas UI is visible.
+  const isCanvasOnlyStep = overlay.step === "avatar" || overlay.step === "outfit";
+
   return (
     <div className="onboarding-layout">
       {/* Phaser canvas */}
@@ -111,8 +119,8 @@ export default function OnboardingView() {
         <div ref={gameContainerRef} className="absolute inset-0" />
       </div>
 
-      {/* Frosted glass input overlay */}
-      {overlay.visible && (
+      {/* Frosted glass input overlay (hidden for canvas-only avatar/outfit steps) */}
+      {overlay.visible && !isCanvasOnlyStep && (
         <div className="onboarding-overlay-backdrop">
           <div className="onboarding-overlay">
             <ProgressDots currentIndex={stepIndex} />
