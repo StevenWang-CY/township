@@ -27,12 +27,18 @@ function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Wire global audio cues to user-profile preferences + WebSocket events.
+  // NOTE: `audio` is intentionally NOT in this effect's deps — its setters
+  // are stable (useCallback) but a regressed hook could churn the object
+  // identity and trigger an infinite re-render loop. Only the profile
+  // preference itself should drive enable/disable. (Bug repro 2026-05-12.)
   const audio = useAudio();
   useEffect(() => {
     audio.setEnabled(profile?.audioEnabled !== false);
-  }, [profile?.audioEnabled, audio]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.audioEnabled]);
 
   // Play a SFX when interesting simulation events arrive.
+  // Same dep-array discipline as above: only the event count drives this.
   const lastEventIdxRef = useRef(0);
   useEffect(() => {
     if (ws.events.length <= lastEventIdxRef.current) return;
@@ -51,7 +57,8 @@ function AppShell() {
           break;
       }
     }
-  }, [ws.events.length, ws.events, audio]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.events.length]);
 
   // Apply reduced-motion attribute on <html>
   useEffect(() => {

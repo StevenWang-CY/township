@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -103,12 +103,15 @@ function playInternal(key: AudioKey) {
 }
 
 function setEnabledInternal(b: boolean) {
+  if (STATE.enabled === b) return; // no-op — prevents re-render loops
   STATE.enabled = b;
   notify();
 }
 
 function setVolumeInternal(v: number) {
-  STATE.volume = Math.max(0, Math.min(1, v));
+  const clamped = Math.max(0, Math.min(1, v));
+  if (STATE.volume === clamped) return;
+  STATE.volume = clamped;
   notify();
 }
 
@@ -129,5 +132,12 @@ export function useAudio() {
   const setEnabled = useCallback((b: boolean) => setEnabledInternal(b), []);
   const setVolume = useCallback((v: number) => setVolumeInternal(v), []);
 
-  return { play, setEnabled, setVolume, enabled: STATE.enabled };
+  // Stable object — only the `enabled` field can change, and only after a
+  // notify() tick. Without useMemo this object literal would be a brand-new
+  // reference every render, which trips any consumer's useEffect dep array
+  // (App.tsx) into an infinite re-render loop. Bug reproduced 2026-05-12.
+  return useMemo(
+    () => ({ play, setEnabled, setVolume, enabled: STATE.enabled }),
+    [play, setEnabled, setVolume, STATE.enabled],
+  );
 }
