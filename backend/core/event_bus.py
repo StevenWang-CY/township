@@ -30,10 +30,16 @@ class EventBus:
         if ws in self._ws_connections:
             self._ws_connections.remove(ws)
 
+    # Cap event-log growth to avoid unbounded memory in long-running servers.
+    EVENT_LOG_LIMIT = 5000
+
     async def publish(self, event) -> None:
         """Publish an event to all subscribers and WebSocket connections."""
         event_type = getattr(event, "type", None) or type(event).__name__
         self._event_log.append(event)
+        if len(self._event_log) > self.EVENT_LOG_LIMIT:
+            # Drop oldest events while keeping the tail.
+            self._event_log = self._event_log[-self.EVENT_LOG_LIMIT:]
 
         # Notify typed subscribers
         tasks = []

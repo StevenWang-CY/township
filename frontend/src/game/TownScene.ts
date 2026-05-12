@@ -276,8 +276,18 @@ export class TownScene extends Phaser.Scene {
       outfitKey: custom.outfitKey,
       accessoryKey: custom.accessoryKey,
       tint: custom.tint,
+      // Couples render a second body sprite walking alongside. Prefer the
+      // partner sprite explicitly declared on the customization (so e.g.
+      // "Sarah & David Chen" renders Mei_Lin + Eddy_Lin instead of two
+      // Mei_Lin clones). Fallback keeps the legacy tinted-twin behavior
+      // for any couple agent missing a `partner` entry.
       partner: isCouple
-        ? { spriteKey: custom.spriteKey, name: agent.name, initials: agent.initials ?? "", tint: 0xe5dcc8 }
+        ? {
+            spriteKey: custom.partner?.spriteKey ?? custom.spriteKey,
+            name: agent.name,
+            initials: agent.initials ?? "",
+            tint: custom.partner?.tint ?? (custom.partner?.spriteKey ? undefined : 0xe5dcc8),
+          }
         : undefined,
     });
 
@@ -830,6 +840,7 @@ export class TownScene extends Phaser.Scene {
       "outfit-business": 0x2a3a5a,  // dark navy suit
       "outfit-parent":   0xa84a78,  // mauve / cardigan
       "outfit-casual":   0x6a9a4a,  // moss green
+      "outfit-formal":   0x1a2238,  // dark navy blazer (formal)
     };
     for (const [key, color] of Object.entries(outfits)) {
       if (this.textures.exists(key)) continue;
@@ -840,12 +851,22 @@ export class TownScene extends Phaser.Scene {
         for (let col = 0; col < 3; col++) {
           const cx = col * 32 + 16;
           const cy = row * 32 + 32;
-          // Torso patch over the body's chest region
-          g.fillStyle(color, 0.85);
-          g.fillRect(cx - 7, cy - 14, 14, 9);
-          // Subtle highlight
-          g.fillStyle(0xffffff, 0.12);
-          g.fillRect(cx - 7, cy - 14, 14, 2);
+          if (key === "outfit-formal") {
+            // Formal: dark navy blazer + a lighter shirt patch underneath.
+            g.fillStyle(color, 0.92);
+            g.fillRect(cx - 7, cy - 14, 14, 9);
+            g.fillStyle(0xe6e0d0, 0.85); // lighter shirt
+            g.fillRect(cx - 2, cy - 12, 4, 7);
+            g.fillStyle(0xffffff, 0.10);
+            g.fillRect(cx - 7, cy - 14, 14, 2);
+          } else {
+            // Torso patch over the body's chest region
+            g.fillStyle(color, 0.85);
+            g.fillRect(cx - 7, cy - 14, 14, 9);
+            // Subtle highlight
+            g.fillStyle(0xffffff, 0.12);
+            g.fillRect(cx - 7, cy - 14, 14, 2);
+          }
         }
       }
       g.generateTexture(key, 96, 128);

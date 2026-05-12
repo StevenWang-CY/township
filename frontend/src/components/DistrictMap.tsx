@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import { useUserProfile } from "../context/UserProfileContext";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocketContext } from "../context/WebSocketContext";
 import type { TownId, LeanId, AgentState } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS } from "../types/messages";
 
@@ -84,7 +84,7 @@ function Mountain({ x, y, s = 1, variant = 0 }: { x: number; y: number; s?: numb
   return (
     <g transform={`translate(${x},${y}) scale(${s})`}>
       {/* Base shadow */}
-      <ellipse cx="2" cy="4" rx="34" ry="8" fill="#00000" opacity="0.06" />
+      <ellipse cx="2" cy="4" rx="34" ry="8" fill="#000000" opacity="0.06" />
       {/* Mountain body */}
       <path d={variant === 0
         ? "M-30,0 L-10,-45 L0,-40 L12,-52 L32,0 Z"
@@ -375,7 +375,7 @@ function TownMarker({
 export default function DistrictMap() {
   const navigate = useNavigate();
   const { isOnboarded, profile } = useUserProfile();
-  const ws = useWebSocket();
+  const ws = useWebSocketContext();
   const [hovered, setHovered] = useState<TownId | null>(null);
   const [loaded, setLoaded] = useState(false);
 

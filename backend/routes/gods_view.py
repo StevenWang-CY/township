@@ -63,11 +63,11 @@ async def inject_god_view(req: GodViewRequest, request: Request):
         for r in reactions
     ]
 
-    # Broadcast the full reaction set so any WebSocket-connected dashboard can
-    # show "the district just reacted to <X>" in real time.
+    # Broadcast the full reaction set (wire-format dicts so HTTP body + WS
+    # event publish the exact same shape — see frontend NewsReaction).
     try:
         await event_bus.publish(
-            GodsViewResultEvent(prompt=req.description, reactions=reactions)
+            GodsViewResultEvent(prompt=req.description, reactions=wire_reactions)
         )
     except Exception as e:  # pragma: no cover — defensive
         logger.warning(f"GodsViewResultEvent publish failed: {e}")

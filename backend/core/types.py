@@ -209,7 +209,10 @@ class GodViewInjectionEvent(BaseModel):
 class GodsViewResultEvent(BaseModel):
     type: Literal["gods_view_result"] = "gods_view_result"
     prompt: str
-    reactions: list[NewsReaction]
+    # Wire-format reaction dicts (see backend/core/wire.py::news_reaction_to_wire).
+    # We intentionally keep this loose — the route serializes Pydantic models
+    # into the exact frontend `NewsReaction` shape before publishing.
+    reactions: list[dict] = Field(default_factory=list)
 
 
 class SimulationStartedEvent(BaseModel):

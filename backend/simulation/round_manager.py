@@ -18,6 +18,7 @@ from ..core.types import (
     AgentSpeechEvent,
     ConversationStartedEvent,
     ConversationEndedEvent,
+    CrossTownGossipEvent,
     NewsInjectedEvent,
     NewsReactionEvent,
     OpinionChangedEvent,
@@ -898,6 +899,30 @@ class RoundManager:
             await self.event_bus.publish(ConversationEndedEvent(
                 conversation_id=convo_id,
                 summary="; ".join(key_takeaways.values())[:200],
+            ))
+        except Exception:  # pragma: no cover
+            pass
+
+        # Publish a CrossTownGossipEvent for each direction so the frontend
+        # (which already listens for `cross_town_gossip`) can show the
+        # gossip-toast in the receiving town. The message is the speaker's
+        # takeaway truncated to ~120 chars.
+        try:
+            takeaway_a = key_takeaways.get(agent_a.definition.name, "") or topic
+            takeaway_b = key_takeaways.get(agent_b.definition.name, "") or topic
+            await self.event_bus.publish(CrossTownGossipEvent(
+                from_town=agent_a.definition.town,
+                to_town=agent_b.definition.town,
+                from_agent=agent_a.agent_id,
+                to_agent=agent_b.agent_id,
+                message=takeaway_a[:120],
+            ))
+            await self.event_bus.publish(CrossTownGossipEvent(
+                from_town=agent_b.definition.town,
+                to_town=agent_a.definition.town,
+                from_agent=agent_b.agent_id,
+                to_agent=agent_a.agent_id,
+                message=takeaway_b[:120],
             ))
         except Exception:  # pragma: no cover
             pass
