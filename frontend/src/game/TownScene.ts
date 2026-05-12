@@ -6,6 +6,7 @@ import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "..
 import type { UserProfile } from "../context/UserProfileContext";
 import { AGENT_CUSTOMIZATION, ALL_CHARACTER_KEYS, resolveAgentSprite } from "./spriteCustomization";
 import { drawLandmarkBuilding, drawStreetlamp, type StreetlampHandle } from "./LandmarkArt";
+import { composeTownAmbience, type AmbienceHandle } from "./SceneAmbience";
 import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange } from "./AmbientLines";
@@ -71,6 +72,7 @@ export class TownScene extends Phaser.Scene {
 
   // Streetlamps (drawn over landmarks, glow at night)
   private streetlamps: StreetlampHandle[] = [];
+  private ambience?: AmbienceHandle;
   private currentlyNight = false;
 
   // Encounter scheduling
@@ -105,6 +107,16 @@ export class TownScene extends Phaser.Scene {
 
     this.load.spritesheet("campfire", "/assets/spritesheets/campfire.png", { frameWidth: 32, frameHeight: 32 });
     this.load.spritesheet("sparkle", "/assets/spritesheets/gentlesparkle32.png", { frameWidth: 32, frameHeight: 32 });
+    // Animated water-foam frames (bottom half of gentlewaterfall32.png is foam) — used as
+    // lake surface shimmer. We treat the whole sheet as 32×32 cells; foam frames live in
+    // the bottom rows.
+    this.load.spritesheet("water-foam", "/assets/spritesheets/gentlewaterfall32.png", {
+      frameWidth: 32, frameHeight: 32,
+    });
+    // Animated windmill (8 frames in a 3×3 grid, each 208×208).
+    this.load.spritesheet("windmill", "/assets/spritesheets/windmill.png", {
+      frameWidth: 208, frameHeight: 208,
+    });
 
     // Character spritesheets — 32×32 frames
     for (const fullKey of ALL_CHARACTER_KEYS) {
@@ -177,6 +189,20 @@ export class TownScene extends Phaser.Scene {
     // Per-town flavor effects (papel-picado, ducks, dogs, etc.)
     this.addTownFlavor(this.townId);
 
+    // ── Delicate Smallville-style scene composition (trees, flowers,
+    // lampposts with glow, smoke, water shimmer, windmill, particle drift).
+    // setHour() is called from the world-clock listener below.
+    if (!this.anims.exists("windmill-spin") && this.textures.exists("windmill")) {
+      this.anims.create({
+        key: "windmill-spin",
+        frames: this.anims.generateFrameNumbers("windmill", { start: 0, end: 7 }),
+        frameRate: 7,
+        repeat: -1,
+      });
+    }
+    this.ambience = composeTownAmbience(this, this.townId, this.landmarks, W, H);
+    this.ambience.setHour(this.worldClock.hour);
+
     // Register + launch the Weather scene in parallel
     if (!this.scene.get("WeatherScene")) {
       this.scene.add("WeatherScene", WeatherScene, false);
@@ -232,8 +258,11 @@ export class TownScene extends Phaser.Scene {
     if (this.worldClock.minute !== prevMin || this.worldClock.hour !== prevHour) {
       this.refreshSkyOverlay();
       this.tickRoutines();
-      // Update streetlamp night-mode at top of each hour
-      if (this.worldClock.hour !== prevHour) this.applyStreetlampNight();
+      // Update streetlamp night-mode + ambience glow at top of each hour
+      if (this.worldClock.hour !== prevHour) {
+        this.applyStreetlampNight();
+        this.ambience?.setHour(this.worldClock.hour);
+      }
     }
 
     // Streetlamp flicker (low-probability per frame)
@@ -429,11 +458,31 @@ export class TownScene extends Phaser.Scene {
       data.push({ ...info, type: "agent" });
     });
 
-    // Landmark labels (static positions)
+    // Landmark labels — anchored to the TOP of the landmark (not the centre)
+    // so they don't stack on top of agents who happen to be standing inside.
+    // Additionally we hide the landmark label whenever the player or an agent
+    // is currently inside the landmark's bounds — that fixes the
+    // "Cnajorate Park" + "STEVEN" overlap in the bug report.
     for (const lm of this.landmarks) {
       const cx = lm.x + lm.width / 2;
-      const cy = lm.y + lm.height / 2;
-      data.push({ id: `lm-${lm.name}`, name: lm.name, x: cx, y: cy, visible: true, type: "landmark" });
+      const cyTop = lm.y - 8; // above the building roof
+      let occupied = false;
+      this.agentSprites.forEach((sprite) => {
+        if (
+          sprite.x >= lm.x && sprite.x <= lm.x + lm.width &&
+          sprite.y >= lm.y && sprite.y <= lm.y + lm.height
+        ) {
+          occupied = true;
+        }
+      });
+      data.push({
+        id: `lm-${lm.name}`,
+        name: lm.name,
+        x: cx,
+        y: cyTop,
+        visible: !occupied,
+        type: "landmark",
+      });
     }
 
     return data;
@@ -915,25 +964,96 @@ export class TownScene extends Phaser.Scene {
   /* ── Tilemap / Landmark layout ─────────────────────────── */
 
   private buildTilemap(W: number, H: number) {
+    // The Smallville `the_ville` tilemap was previously rendered at alpha 0.92,
+    // which leaked Smallville's houses + roads through the scene as grey/navy
+    // rectangles that had nothing to do with our four NJ towns. We now paint a
+    // delicate town-specific ground programmatically and leave the tilemap as
+    // a faint texture pass only (or skip it entirely).
+    this.paintGround(W, H);
+
     const mapKey = TOWN_MAP_KEY[this.townId];
-    if (!this.cache.tilemap.has(mapKey)) return;
-    const map = this.make.tilemap({ key: mapKey });
-    const tileset = map.addTilesetImage("rpg-tileset", "rpg-tileset");
-    if (tileset) {
-      const scaleX = W / map.widthInPixels;
-      const scaleY = H / map.heightInPixels;
-      const scale = Math.max(scaleX, scaleY);
-
-      const terrain = map.createLayer("terrain", tileset);
-      const bridge = map.createLayer("bridge", tileset);
-      const deco = map.createLayer("deco", tileset);
-
-      terrain?.setScale(scale).setAlpha(0.92);
-      bridge?.setScale(scale);
-      deco?.setScale(scale);
-      // NOTE: we no longer call setCollisionByExclusion — collisions come from
-      // the landmark static group instead.
+    if (this.cache.tilemap.has(mapKey)) {
+      const map = this.make.tilemap({ key: mapKey });
+      const tileset = map.addTilesetImage("rpg-tileset", "rpg-tileset");
+      if (tileset) {
+        const scaleX = W / map.widthInPixels;
+        const scaleY = H / map.heightInPixels;
+        const scale = Math.max(scaleX, scaleY);
+        const terrain = map.createLayer("terrain", tileset);
+        // The Smallville the_ville tilemap has GIDs that don't fully map to
+        // our local rpg-tileset.png (the original used Cute RPG World which
+        // we don't ship), so even at low opacity it surfaces as misaligned
+        // chunks. Disable rendering entirely — our painted ground covers it.
+        terrain?.setScale(scale).setAlpha(0).setDepth(0).setVisible(false);
+      }
     }
+  }
+
+  /** Paint a delicate, town-flavored base ground via Phaser Graphics. */
+  private paintGround(W: number, H: number) {
+    const accent = Phaser.Display.Color.HexStringToColor(TOWN_ACCENT[this.townId] || "#888").color;
+    const baseColors: Record<TownId, { soil: number; grass: number; path: number }> = {
+      dover:      { soil: 0xefe2cd, grass: 0xb6c97e, path: 0xd9c298 },
+      montclair:  { soil: 0xe9e7df, grass: 0xa6c4a0, path: 0xd0d4c5 },
+      parsippany: { soil: 0xe7e8d9, grass: 0xb0c9a0, path: 0xd4d6c2 },
+      randolph:   { soil: 0xe8e2cd, grass: 0xa9bf8c, path: 0xcfc8b0 },
+    };
+    const pal = baseColors[this.townId];
+
+    // Base canvas wash — warm cream/sand
+    const ground = this.add.graphics().setDepth(0);
+    ground.fillStyle(pal.soil, 1);
+    ground.fillRect(0, 0, W, H);
+
+    // Random grass patches (soft organic shapes) — adds visual rhythm so
+    // empty cream areas stop reading as "pure grey."
+    const rng = mulberry32Local(0xa11ce + this.townId.length * 17);
+    for (let i = 0; i < 38; i++) {
+      const x = rng() * W;
+      const y = rng() * H;
+      const rx = 28 + rng() * 60;
+      const ry = 18 + rng() * 38;
+      ground.fillStyle(pal.grass, 0.18 + rng() * 0.18);
+      ground.fillEllipse(x, y, rx, ry);
+    }
+
+    // Subtle dirt/path circles
+    for (let i = 0; i < 22; i++) {
+      const x = rng() * W;
+      const y = rng() * H;
+      ground.fillStyle(pal.path, 0.16);
+      ground.fillCircle(x, y, 12 + rng() * 26);
+    }
+
+    // Scattered grass-tuft sprites (tiny dark green ticks) — micro-detail
+    const tufts = this.add.graphics().setDepth(1);
+    tufts.fillStyle(0x5e8a4a, 0.45);
+    for (let i = 0; i < 140; i++) {
+      const x = rng() * W;
+      const y = rng() * H;
+      // 3-blade tuft
+      tufts.fillTriangle(x, y, x + 1, y - 3, x + 2, y);
+      tufts.fillTriangle(x + 3, y, x + 4, y - 2, x + 5, y);
+    }
+
+    // Tiny flower flecks in the town accent — only a few, just for warmth
+    const flowers = this.add.graphics().setDepth(2);
+    for (let i = 0; i < 18; i++) {
+      const x = rng() * W;
+      const y = rng() * H;
+      flowers.fillStyle(accent, 0.45);
+      flowers.fillCircle(x, y, 1.6);
+      flowers.fillStyle(0xfff7e0, 0.6);
+      flowers.fillCircle(x, y, 0.6);
+    }
+
+    // Soft vignette at the canvas edges to focus the eye on the town center
+    const vignette = this.add.graphics().setDepth(3);
+    vignette.fillStyle(0x000000, 0.04);
+    vignette.fillRect(0, 0, W, 30);
+    vignette.fillRect(0, H - 30, W, 30);
+    vignette.fillRect(0, 0, 30, H);
+    vignette.fillRect(W - 30, 0, 30, H);
   }
 
   /** Wipes old landmark graphics + collision and re-creates from this.landmarks. */
@@ -1339,6 +1459,16 @@ export class TownScene extends Phaser.Scene {
       default:         return "#FFFFFF";
     }
   }
+}
+
+/** Deterministic PRNG so the ground texture is stable across reloads. */
+function mulberry32Local(a: number): () => number {
+  return function () {
+    let t = (a += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 // Reference unused customization to keep tree-shaking honest.

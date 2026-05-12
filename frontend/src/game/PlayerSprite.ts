@@ -11,7 +11,15 @@ import type { Direction } from "./AgentSprite";
  */
 
 const PLAYER_SPEED = 160; // px per second
-const INTERACTION_RADIUS = 80; // px — conversational distance
+// Conversational radius: how close the player needs to stand to an NPC for
+// the proximity prompt to appear AND for the dwell-auto-talk timer to start.
+// Bumped from 80 to 110 — the previous radius required pixel-perfect approach
+// and made "walking up to someone" feel finicky.
+const INTERACTION_RADIUS = 110;
+// Auto-open chat after this many ms of standing within INTERACTION_RADIUS
+// AND not actively moving. Mimics natural NPC interactions in adventure games.
+// Set to 0 to disable.
+const DWELL_AUTO_TALK_MS = 1200;
 const LEGACY_PLAYER_SPRITE_SCALE = 4.4; // 16px frames × 4.4 ≈ 70px (matches 32px × 2.2)
 
 interface PlayerConfig {
@@ -45,6 +53,13 @@ export class PlayerSprite extends AgentSprite {
   private promptVisible = false;
   private promptPulseTween?: Phaser.Tweens.Tween;
   public inputEnabled = true;
+
+  // Dwell-to-auto-talk state: when the player stands within INTERACTION_RADIUS
+  // of an NPC AND is not actively moving, after DWELL_AUTO_TALK_MS we
+  // automatically open the chat. Cleared on any movement or when the agent
+  // leaves the radius.
+  private dwellStartMs = 0;
+  private dwellAutoFired = false;
 
   // Touch joystick
   private joystick: JoystickState = {
@@ -150,51 +165,79 @@ export class PlayerSprite extends AgentSprite {
   // ──────────────────────────────────────────────────────────────
 
   private createInteractPrompt(scene: Phaser.Scene): Phaser.GameObjects.Container {
-    const prompt = scene.add.container(0, BUBBLE_TIP_Y - 18);
+    // Significantly larger + more aesthetic than v1 — the previous prompt was
+    // 52×20 with a 9px font that disappeared next to the NPC. This version is
+    // 86×26 with bigger key caps and a soft warm halo behind it.
+    const prompt = scene.add.container(0, BUBBLE_TIP_Y - 22);
 
-    // Background capsule
+    // Soft warm halo (a layered glow that anchors the prompt visually so it
+    // never gets lost against the building behind the NPC).
+    const halo = scene.add.graphics();
+    halo.fillStyle(0xffe4b5, 0.16);
+    halo.fillCircle(0, 0, 32);
+    halo.fillStyle(0xffe4b5, 0.10);
+    halo.fillCircle(0, 0, 44);
+    prompt.add(halo);
+
+    // Capsule background — slightly larger, warmer black with a gold border.
     const bg = scene.add.graphics();
-    const w = 52, h = 20, r = 10;
-    bg.fillStyle(0x1a1a1a, 0.78);
+    const w = 86, h = 26, r = 13;
+    bg.fillStyle(0x0e0e0e, 0.88);
     bg.fillRoundedRect(-w / 2, -h / 2, w, h, r);
-    // Subtle border
-    bg.lineStyle(0.5, 0xffffff, 0.12);
+    // Inset highlight
+    bg.fillStyle(0xffffff, 0.05);
+    bg.fillRoundedRect(-w / 2 + 2, -h / 2 + 2, w - 4, 8, { tl: r - 2, tr: r - 2, bl: 0, br: 0 });
+    // Gold border
+    bg.lineStyle(1.2, 0xc4a35a, 0.85);
     bg.strokeRoundedRect(-w / 2, -h / 2, w, h, r);
+    prompt.add(bg);
 
-    // "E" key cap
+    // "E" key cap — chunkier, with a soft drop shadow.
     const keyCap = scene.add.graphics();
-    const kx = -12, ky = -6, kw = 14, kh = 13;
-    // Key shadow (inset feel)
-    keyCap.fillStyle(0x333333, 0.6);
-    keyCap.fillRoundedRect(kx, ky + 1, kw, kh, 3);
-    // Key face
-    keyCap.fillStyle(0xffffff, 0.92);
-    keyCap.fillRoundedRect(kx, ky, kw, kh, 3);
-    // Subtle top highlight
-    keyCap.fillStyle(0xffffff, 0.15);
-    keyCap.fillRoundedRect(kx + 1, ky, kw - 2, 4, { tl: 2, tr: 2, bl: 0, br: 0 });
+    const kx = -34, ky = -9, kw = 18, kh = 18;
+    keyCap.fillStyle(0x000000, 0.45);
+    keyCap.fillRoundedRect(kx, ky + 2, kw, kh, 4);
+    keyCap.fillStyle(0xffffff, 0.96);
+    keyCap.fillRoundedRect(kx, ky, kw, kh, 4);
+    keyCap.fillStyle(0xffffff, 0.25);
+    keyCap.fillRoundedRect(kx + 1, ky, kw - 2, 5, { tl: 3, tr: 3, bl: 0, br: 0 });
+    keyCap.lineStyle(0.8, 0xb8a983, 0.7);
+    keyCap.strokeRoundedRect(kx, ky, kw, kh, 4);
+    prompt.add(keyCap);
 
-    const eText = scene.add.text(-5, 0, "E", {
+    const eText = scene.add.text(kx + kw / 2, 0, "E", {
       fontFamily: "Inter, monospace",
-      fontSize: "9px",
+      fontSize: "12px",
       fontStyle: "bold",
       color: "#1a1a1a",
       resolution: 2,
     });
     eText.setOrigin(0.5, 0.5);
+    prompt.add(eText);
 
-    const talkText = scene.add.text(12, 0, "Talk", {
+    const talkText = scene.add.text(kx + kw + 6, 0, "Talk", {
       fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-      fontSize: "9px",
-      color: "#ffffff",
+      fontSize: "11px",
+      fontStyle: "bold",
+      color: "#fff7e0",
       resolution: 2,
     });
     talkText.setOrigin(0, 0.5);
-    talkText.setAlpha(0.65);
+    prompt.add(talkText);
 
-    prompt.add([bg, keyCap, eText, talkText]);
+    // Auto-talk dwell hint (tiny progress dots that fill as the player stands still).
+    // We draw three dots; PlayerSprite.update will tween their alpha based on dwell time.
+    const dotsContainer = scene.add.container(28, 0);
+    for (let i = 0; i < 3; i++) {
+      const d = scene.add.graphics();
+      d.fillStyle(0xc4a35a, 0.45);
+      d.fillCircle(i * 6, 0, 1.6);
+      dotsContainer.add(d);
+    }
+    dotsContainer.setName("dwellDots");
+    prompt.add(dotsContainer);
+
     prompt.setDepth(500);
-
     return prompt;
   }
 
@@ -425,6 +468,9 @@ export class PlayerSprite extends AgentSprite {
         this.nearbySprite = null;
       }
       this.nearbyAgentId = newId;
+      // Reset the dwell timer whenever the nearby agent changes.
+      this.dwellStartMs = 0;
+      this.dwellAutoFired = false;
 
       if (result) {
         this.nearbySprite = result.sprite;
@@ -436,6 +482,28 @@ export class PlayerSprite extends AgentSprite {
 
       // Emit to React
       this.scene.events.emit("proximity-agent", newId);
+    }
+
+    // Dwell-to-auto-talk: while standing still inside the radius, count up.
+    // Movement (this.wasMoving) resets the timer.
+    if (
+      this.nearbyAgentId &&
+      this.inputEnabled &&
+      !this.wasMoving &&
+      !this.dwellAutoFired &&
+      DWELL_AUTO_TALK_MS > 0
+    ) {
+      const now = this.scene.time.now;
+      if (this.dwellStartMs === 0) {
+        this.dwellStartMs = now;
+      } else if (now - this.dwellStartMs >= DWELL_AUTO_TALK_MS) {
+        // Auto-open chat as if the player pressed E.
+        this.dwellAutoFired = true;
+        this.onInteract();
+      }
+    } else if (this.wasMoving) {
+      // Reset while moving so the user can pass by without triggering.
+      this.dwellStartMs = 0;
     }
   }
 
