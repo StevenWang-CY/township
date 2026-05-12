@@ -50,8 +50,14 @@ def _color_for_town(town: str) -> str:
     return _TOWN_COLORS.get((town or "").lower(), "#888888")
 
 
-def opinion_to_wire(o: Opinion) -> dict:
-    """Map a backend Opinion to the frontend Opinion shape (plural top_issues)."""
+def opinion_to_wire(o: Optional[Opinion]) -> Optional[dict]:
+    """Map a backend Opinion to the frontend Opinion shape (plural top_issues).
+
+    Returns None when given None so that callers can pass through "no opinion
+    yet" agents without an explicit None-check at every site.
+    """
+    if o is None:
+        return None
     return {
         "candidate": o.candidate,
         "confidence": o.confidence,

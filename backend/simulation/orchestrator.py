@@ -14,7 +14,6 @@ from ..core.types import (
     GodViewInjectionEvent,
     NewsReaction,
     Opinion,
-    SimulationCompleteEvent,
     SimulationStartedEvent,
     SimulationEndedEvent,
     TownSummary,
@@ -246,18 +245,15 @@ class SimulationOrchestrator:
             # Compute district summary
             self.district_summary = self._compute_district_summary(self.town_summaries)
 
-            # Emit both the new past-tense event and the legacy event so any
-            # existing listener keeps working.
+            # Emit the past-tense simulation_ended event with wire-format
+            # district summary. The legacy `SimulationCompleteEvent` publish
+            # was redundant — the frontend already ignored it — so it's gone.
             try:
                 await self.event_bus.publish(SimulationEndedEvent(
                     summary=district_summary_to_wire(self.district_summary),
                 ))
             except Exception as e:  # pragma: no cover
                 logger.warning(f"SimulationEndedEvent publish failed: {e}")
-
-            await self.event_bus.publish(SimulationCompleteEvent(
-                district_summary=self.district_summary,
-            ))
 
             # Save cache
             await self.save_cache()

@@ -5,7 +5,8 @@ import { AGENT_VOICES, AGENT_VOICE_MAP } from "../game/config";
 import { resolveAgentSprite } from "../game/spriteCustomization";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useRelationships } from "../hooks/useRelationships";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocketContext } from "../context/WebSocketContext";
+import { useAudio } from "../hooks/useAudio";
 import SpritePortrait from "./SpritePortrait";
 import MoodIndicator from "./MoodIndicator";
 import TrustBadge from "./TrustBadge";
@@ -250,7 +251,8 @@ interface ChatPanelProps {
 export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPanelProps) {
   const { profile, chatMode, setChatMode } = useUserProfile();
   // We also use WS so we can read live relationships into the chat header.
-  const ws = useWebSocket();
+  const ws = useWebSocketContext();
+  const audio = useAudio();
   const { trustFor } = useRelationships(profile?.playerId, {
     liveRelationships: ws.relationships,
   });
@@ -314,6 +316,8 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
     lastAgentMsgIdRef.current = null;
     setMemories(null);
     setMemoryOpen(false);
+    // Audio cue: opening the chat with a new agent.
+    audio.play("chat_open");
     // Fire-and-forget memory peek fetch (gracefully degrades)
     fetch(`/api/simulation/agent/${encodeURIComponent(agent.id)}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -383,6 +387,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setSending(true);
+    audio.play("chat_send");
 
     // Typing indicator
     const typingId = `typing-${Date.now()}`;
@@ -403,7 +408,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         if (profile.playerId) body.user_id = profile.playerId;
       }
 
-      const res = await fetch(`/api/chat/${agent.id}`, {
+      const res = await fetch(`/api/chat/${encodeURIComponent(agent.id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -436,7 +441,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
     } finally {
       setSending(false);
     }
-  }, [input, agent, sending, profile]);
+  }, [input, agent, sending, profile, audio]);
 
   /* ── Topic chip click ─────────────────────────────────────── */
 
@@ -545,7 +550,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
           ]);
         }
 
-        const res = await fetch(`/api/chat/auto/${agent.id}`, {
+        const res = await fetch(`/api/chat/auto/${encodeURIComponent(agent.id)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

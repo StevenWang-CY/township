@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
-import { useWebSocket } from "./hooks/useWebSocket";
 import { UserProfileProvider, useUserProfile } from "./context/UserProfileContext";
+import { WebSocketProvider, useWebSocketContext } from "./context/WebSocketContext";
+import { useAudio } from "./hooks/useAudio";
 import DistrictMap from "./components/DistrictMap";
 import TownView from "./components/TownView";
 import OnboardingView from "./components/OnboardingView";
@@ -10,13 +11,47 @@ import GodsView from "./components/GodsView";
 import Journal from "./components/Journal";
 
 function AppShell() {
-  const ws = useWebSocket();
+  const ws = useWebSocketContext();
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, isOnboarded, clearProfile, setAudioPreferences, setReducedMotion } = useUserProfile();
+  const {
+    profile,
+    isOnboarded,
+    clearProfile,
+    setAudioPreferences,
+    setReducedMotion,
+    setHighContrast,
+  } = useUserProfile();
   const [menuOpen, setMenuOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Wire global audio cues to user-profile preferences + WebSocket events.
+  const audio = useAudio();
+  useEffect(() => {
+    audio.setEnabled(profile?.audioEnabled !== false);
+  }, [profile?.audioEnabled, audio]);
+
+  // Play a SFX when interesting simulation events arrive.
+  const lastEventIdxRef = useRef(0);
+  useEffect(() => {
+    if (ws.events.length <= lastEventIdxRef.current) return;
+    const fresh = ws.events.slice(lastEventIdxRef.current);
+    lastEventIdxRef.current = ws.events.length;
+    for (const evt of fresh) {
+      switch (evt.type) {
+        case "opinion_changed":
+          audio.play("opinion_change");
+          break;
+        case "news_injected":
+          audio.play("news_breaking");
+          break;
+        case "agent_speech":
+          audio.play("speech_pop");
+          break;
+      }
+    }
+  }, [ws.events.length, ws.events, audio]);
 
   // Apply reduced-motion attribute on <html>
   useEffect(() => {
@@ -27,6 +62,11 @@ function AppShell() {
       root.removeAttribute("data-reduced-motion");
     }
   }, [profile?.reducedMotion]);
+
+  // Apply high-contrast class on <html>
+  useEffect(() => {
+    document.documentElement.classList.toggle("high-contrast", !!profile?.highContrast);
+  }, [profile?.highContrast]);
 
   const onResetProfile = () => {
     if (!confirm("Reset your profile? This clears your name, town, and progress.")) return;
@@ -175,6 +215,14 @@ function AppShell() {
                     onChange={(e) => setReducedMotion(e.target.checked)}
                   />
                 </label>
+                <label className="header-settings-row">
+                  <span>High contrast</span>
+                  <input
+                    type="checkbox"
+                    checked={!!profile.highContrast}
+                    onChange={(e) => setHighContrast(e.target.checked)}
+                  />
+                </label>
                 <button className="header-settings-reset" onClick={onResetProfile}>
                   Reset profile
                 </button>
@@ -219,7 +267,9 @@ function AppShell() {
 export default function App() {
   return (
     <UserProfileProvider>
-      <AppShell />
+      <WebSocketProvider>
+        <AppShell />
+      </WebSocketProvider>
     </UserProfileProvider>
   );
 }

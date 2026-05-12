@@ -20,6 +20,7 @@ export interface UserProfile {
   audioEnabled?: boolean;
   audioAutoplay?: boolean;
   reducedMotion?: boolean;
+  highContrast?: boolean;
   metAgents?: string[];
   persuadedAgents?: string[];
   playerId?: string;
@@ -36,6 +37,7 @@ interface UserProfileContextValue {
   markAgentPersuaded: (agentId: string) => void;
   setAudioPreferences: (opts: { enabled?: boolean; autoplay?: boolean }) => void;
   setReducedMotion: (b: boolean) => void;
+  setHighContrast: (b: boolean) => void;
 }
 
 const STORAGE_KEY = "township-user-profile";
@@ -78,6 +80,7 @@ function migrateProfile(raw: unknown): UserProfile | null {
     audioEnabled: p.audioEnabled ?? true,
     audioAutoplay: p.audioAutoplay ?? false,
     reducedMotion: p.reducedMotion ?? false,
+    highContrast: p.highContrast ?? false,
     metAgents: Array.isArray(p.metAgents) ? p.metAgents : [],
     persuadedAgents: Array.isArray(p.persuadedAgents) ? p.persuadedAgents : [],
     playerId: p.playerId ?? `player-${safeUUID()}`,
@@ -121,6 +124,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
       audioEnabled: p.audioEnabled ?? profile?.audioEnabled ?? true,
       audioAutoplay: p.audioAutoplay ?? profile?.audioAutoplay ?? false,
       reducedMotion: p.reducedMotion ?? profile?.reducedMotion ?? false,
+      highContrast: p.highContrast ?? profile?.highContrast ?? false,
     };
     setProfileState(withId);
     persist(withId);
@@ -170,6 +174,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
   };
 
   const setReducedMotion = (b: boolean) => updateProfile({ reducedMotion: b });
+  const setHighContrast = (b: boolean) => updateProfile({ highContrast: b });
 
   // Sync with storage changes from other tabs
   useEffect(() => {
@@ -200,6 +205,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
         markAgentPersuaded,
         setAudioPreferences,
         setReducedMotion,
+        setHighContrast,
       }}
     >
       {children}

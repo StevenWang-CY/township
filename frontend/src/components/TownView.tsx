@@ -136,6 +136,11 @@ export default function TownView({ ws }: TownViewProps) {
   const [gossipToast, setGossipToast] = useState<string | null>(null);
   const gossipTimerRef = useRef<number | undefined>(undefined);
   const lastProcessedEvent = useRef(0);
+  // Stable ref to openChat so Phaser event handlers (registered once in
+  // the init effect) always call the latest implementation — and therefore
+  // capture preChatRef, snapshot opinion, and markAgentMet for in-canvas
+  // clicks just like sidebar clicks.
+  const openChatRef = useRef<(agentId: string) => void>(() => {});
 
   // Pre-chat snapshots for met/persuaded + journal
   const preChatRef = useRef<{
@@ -200,13 +205,11 @@ export default function TownView({ ws }: TownViewProps) {
         clearInterval(checkScene);
 
         activeScene.events.on("agent-clicked", (agentId: string) => {
-          setSelectedAgentId(agentId);
-          setChatOpen(true);
+          openChatRef.current(agentId);
         });
 
         activeScene.events.on("player-interact", (agentId: string) => {
-          setSelectedAgentId(agentId);
-          setChatOpen(true);
+          openChatRef.current(agentId);
         });
 
         activeScene.events.on("proximity-agent", (_agentId: string | null) => {
@@ -467,6 +470,13 @@ export default function TownView({ ws }: TownViewProps) {
     setChatOpen(true);
   }, [townAgents, trustFor, markAgentMet]);
 
+  // Keep the Phaser event handler ref in sync with the latest openChat so
+  // canvas clicks (agent-clicked / player-interact) take the SAME path as
+  // sidebar clicks — capturing pre-chat opinion + marking agent met.
+  useEffect(() => {
+    openChatRef.current = openChat;
+  }, [openChat]);
+
   const handleCloseChat = useCallback(() => {
     setChatOpen(false);
 
@@ -506,7 +516,9 @@ export default function TownView({ ws }: TownViewProps) {
           trust_before: pre.trust,
           trust_after: trustAfter,
         }),
-      }).catch(() => { /* ignore */ });
+      }).catch((err) => {
+        console.warn("[Township] journal POST failed:", err);
+      });
     }
     preChatRef.current = null;
   }, [townAgents, profile?.playerId, trustFor, markAgentPersuaded]);

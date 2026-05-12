@@ -18,6 +18,17 @@ export interface SpriteCustomization {
   outfitKey?: string;
   /** Accessory overlay texture key (e.g., "accessory-hijab"). */
   accessoryKey?: string;
+  /**
+   * For couple agents (the five "A & B" personas), render a second sprite
+   * walking beside the main one. When omitted, TownScene falls back to
+   * cloning the main sprite — visually undesirable for twins.
+   */
+  partner?: {
+    spriteKey: string;
+    tint?: number;
+    outfitKey?: string;
+    accessoryKey?: string;
+  };
 }
 
 /* ── Master 26-agent table (matches Phase 2.1 spec) ─────────── */
@@ -28,32 +39,49 @@ export const AGENT_CUSTOMIZATION: Record<string, SpriteCustomization> = {
   "miguel-hernandez":          { spriteKey: "char-Francisco_Lopez", outfitKey: "outfit-labor" },
   "maria-santos":              { spriteKey: "char-Carmen_Ortiz",    outfitKey: "outfit-scrubs" },
   "esperanza-guzman":          { spriteKey: "char-Isabella_Rodriguez", tint: 0xc4b8a6 },
-  "sofia-ramirez":             { spriteKey: "char-Jane_Moreno" },
+  "sofia-ramirez":             { spriteKey: "char-Jane_Moreno",      outfitKey: "outfit-casual" },
   "tom-kowalski":              { spriteKey: "char-Wolfgang_Schulz", tint: 0xd6cdb8 },
 
   // ── Montclair (7) ──────────────────────────────────────────
-  "sarah-&-david-chen":        { spriteKey: "char-Mei_Lin" },
+  "sarah-&-david-chen":        {
+    spriteKey: "char-Mei_Lin",
+    partner: { spriteKey: "char-Eddy_Lin" }, // David
+  },
   "rosa-chen":                 { spriteKey: "char-Yuriko_Yamamoto", tint: 0xd1c8b0 },
-  "jordan-williams":           { spriteKey: "char-Latoya_Williams" },
-  "carmen-&-alejandro-vargas": { spriteKey: "char-Maria_Lopez" },
+  "jordan-williams":           { spriteKey: "char-Latoya_Williams", outfitKey: "outfit-casual" },
+  "carmen-&-alejandro-vargas": {
+    spriteKey: "char-Maria_Lopez",
+    outfitKey: "outfit-parent",
+    partner: { spriteKey: "char-Tom_Moreno" }, // Alejandro
+  },
   "rabbi-daniel-goldstein":    { spriteKey: "char-Adam_Smith",      accessoryKey: "accessory-kippah" },
   "priya-patel":               { spriteKey: "char-Ayesha_Khan" },
   "margaret-\"peggy\"-o'brien":{ spriteKey: "char-Hailey_Johnson",  tint: 0xb8a896 },
 
   // ── Parsippany (7) ─────────────────────────────────────────
-  "raj-&-sunita-krishnamurthy":{ spriteKey: "char-Rajiv_Patel" },
+  "raj-&-sunita-krishnamurthy":{
+    spriteKey: "char-Rajiv_Patel",
+    partner: { spriteKey: "char-Ayesha_Khan", tint: 0xd4b89c }, // Sunita
+  },
   "kantibhai-\"kanti\"-desai": { spriteKey: "char-Eddy_Lin",        tint: 0xc8b89c },
-  "brian-mccarthy":            { spriteKey: "char-Sam_Moore" },
-  "aisha-&-omar-khan":         { spriteKey: "char-Abigail_Chen",    accessoryKey: "accessory-hijab" },
+  "brian-mccarthy":            { spriteKey: "char-Sam_Moore",       outfitKey: "outfit-business" },
+  "aisha-&-omar-khan":         {
+    spriteKey: "char-Abigail_Chen",
+    accessoryKey: "accessory-hijab",
+    partner: { spriteKey: "char-Klaus_Mueller" }, // Omar
+  },
   "pawan-sharma":              { spriteKey: "char-Giorgio_Rossi" },
-  "linda-morrison":            { spriteKey: "char-Jennifer_Moore",  tint: 0xa898a0 },
+  "linda-morrison":            { spriteKey: "char-Jennifer_Moore",  tint: 0xa898a0, outfitKey: "outfit-business" },
   "grace-reyes":               { spriteKey: "char-Tamara_Taylor",   outfitKey: "outfit-scrubs" },
 
   // ── Randolph (6) ───────────────────────────────────────────
-  "michael-\"mike\"-brennan":  { spriteKey: "char-Arthur_Burton" },
-  "jennifer-\"jen\"-russo":    { spriteKey: "char-Hailey_Johnson" },
+  "michael-\"mike\"-brennan":  { spriteKey: "char-Arthur_Burton",   outfitKey: "outfit-business" },
+  "jennifer-\"jen\"-russo":    { spriteKey: "char-Hailey_Johnson",  outfitKey: "outfit-parent" },
   "frank-deluca":              { spriteKey: "char-Arthur_Burton",   tint: 0xa8a098, accessoryKey: "accessory-cap" },
-  "tyler-&-megan-hart":        { spriteKey: "char-Ryan_Park" },
+  "tyler-&-megan-hart":        {
+    spriteKey: "char-Ryan_Park",
+    partner: { spriteKey: "char-Jane_Moreno", tint: 0xe0c8a8 }, // Megan
+  },
   "vikram-iyer":               { spriteKey: "char-Rajiv_Patel",     tint: 0x8aa0c8 },
   "tony-mancini":              { spriteKey: "char-John_Lin",        outfitKey: "outfit-labor" },
 };
@@ -71,10 +99,13 @@ export const FALLBACK_SPRITES = [
   "char-Tamara_Taylor",
 ];
 
-/** Distinct list of body texture keys to preload. */
+/** Distinct list of body texture keys to preload (including partner sprites). */
 export const ALL_CHARACTER_KEYS: string[] = Array.from(
   new Set([
     ...Object.values(AGENT_CUSTOMIZATION).map((c) => c.spriteKey),
+    ...Object.values(AGENT_CUSTOMIZATION)
+      .map((c) => c.partner?.spriteKey)
+      .filter((k): k is string => !!k),
     ...FALLBACK_SPRITES,
   ]),
 );
