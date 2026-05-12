@@ -1,5 +1,7 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import type Phaser from "phaser";
+import ProximityCard from "./ProximityCard";
+import type { AgentState } from "../types/messages";
 
 interface OverlayItem {
   id: string;
@@ -13,17 +15,40 @@ interface OverlayItem {
 interface CanvasOverlayProps {
   gameRef: React.RefObject<Phaser.Game | null>;
   getOverlayData: () => OverlayItem[];
+  /** Look up player world position (for proximity card). */
+  getPlayer?: () => { x: number; y: number } | null;
+  /** Resolve an agent's full state (for the proximity card). */
+  getAgent?: (id: string) => AgentState | undefined;
+  /** Look up trust for an agent (for the proximity card). */
+  getTrust?: (id: string) => number;
+  /** Proximity threshold in world coordinates. */
+  proximityRadius?: number;
 }
 
 /**
  * Renders absolute-positioned DOM labels over the Phaser canvas.
  * Uses direct DOM manipulation via RAF for 60fps position sync
  * (bypasses React reconciler for transforms).
+ *
+ * Also renders a ProximityCard for the closest agent within proximityRadius.
  */
-export function CanvasOverlay({ gameRef, getOverlayData }: CanvasOverlayProps) {
+export function CanvasOverlay({
+  gameRef,
+  getOverlayData,
+  getPlayer,
+  getAgent,
+  getTrust,
+  proximityRadius = 120,
+}: CanvasOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const elementsMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const rafRef = useRef<number>(0);
+  const [proximity, setProximity] = useState<{
+    agentId: string;
+    screenX: number;
+    screenY: number;
+  } | null>(null);
+  const lastProxIdRef = useRef<string | null>(null);
 
   const syncPositions = useCallback(() => {
     const game = gameRef.current;
@@ -61,12 +86,16 @@ export function CanvasOverlay({ gameRef, getOverlayData }: CanvasOverlayProps) {
     const items = getOverlayData();
     const activeIds = new Set<string>();
 
+    const worldToScreen = (wx: number, wy: number) => {
+      const sx = (wx - cam.scrollX) * cam.zoom * (displayW / gameW) + offsetX;
+      const sy = (wy - cam.scrollY) * cam.zoom * (displayH / gameH) + offsetY;
+      return { sx, sy };
+    };
+
     for (const item of items) {
       activeIds.add(item.id);
 
-      // World → screen coordinate transform
-      const screenX = (item.x - cam.scrollX) * cam.zoom * (displayW / gameW) + offsetX;
-      const screenY = (item.y - cam.scrollY) * cam.zoom * (displayH / gameH) + offsetY;
+      const { sx: screenX, sy: screenY } = worldToScreen(item.x, item.y);
 
       let el = elementsMapRef.current.get(item.id);
 
@@ -104,8 +133,53 @@ export function CanvasOverlay({ gameRef, getOverlayData }: CanvasOverlayProps) {
       }
     }
 
+    // ── Proximity card ────────────────────────────────────────
+    if (getPlayer) {
+      const player = getPlayer();
+      if (player) {
+        let bestId: string | null = null;
+        let bestDist = proximityRadius;
+        let bestX = 0;
+        let bestY = 0;
+        for (const item of items) {
+          if (item.type !== "agent") continue;
+          // exclude the player from being its own proximity target
+          if (item.id.startsWith("player-")) continue;
+          const dx = item.x - player.x;
+          const dy = item.y - player.y;
+          const d = Math.hypot(dx, dy);
+          if (d < bestDist) {
+            bestDist = d;
+            bestId = item.id;
+            bestX = item.x;
+            bestY = item.y;
+          }
+        }
+        if (bestId) {
+          const { sx, sy } = worldToScreen(bestX, bestY - 50);
+          if (bestId !== lastProxIdRef.current) {
+            lastProxIdRef.current = bestId;
+            setProximity({ agentId: bestId, screenX: sx, screenY: sy });
+          } else {
+            // smooth-update without recreating
+            setProximity((prev) => {
+              if (!prev) return { agentId: bestId!, screenX: sx, screenY: sy };
+              // Only update if moved meaningfully
+              if (Math.abs(prev.screenX - sx) > 1 || Math.abs(prev.screenY - sy) > 1) {
+                return { agentId: bestId!, screenX: sx, screenY: sy };
+              }
+              return prev;
+            });
+          }
+        } else if (lastProxIdRef.current) {
+          lastProxIdRef.current = null;
+          setProximity(null);
+        }
+      }
+    }
+
     rafRef.current = requestAnimationFrame(syncPositions);
-  }, [gameRef, getOverlayData]);
+  }, [gameRef, getOverlayData, getPlayer, proximityRadius]);
 
   useEffect(() => {
     rafRef.current = requestAnimationFrame(syncPositions);
@@ -117,11 +191,23 @@ export function CanvasOverlay({ gameRef, getOverlayData }: CanvasOverlayProps) {
     };
   }, [syncPositions]);
 
+  const proxAgent = proximity && getAgent ? getAgent(proximity.agentId) : undefined;
+
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 pointer-events-none overflow-hidden"
-      style={{ zIndex: 10, willChange: "transform" }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        className="absolute inset-0 pointer-events-none overflow-hidden"
+        style={{ zIndex: 10, willChange: "transform" }}
+      />
+      {proximity && proxAgent && (
+        <ProximityCard
+          agent={proxAgent}
+          trust={getTrust ? getTrust(proxAgent.id) : 0}
+          x={proximity.screenX}
+          y={proximity.screenY}
+        />
+      )}
+    </>
   );
 }

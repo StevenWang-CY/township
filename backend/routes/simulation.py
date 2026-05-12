@@ -3,7 +3,10 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Request
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
+
+from ..core.wire import district_summary_to_wire, opinion_to_wire
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +14,11 @@ router = APIRouter(prefix="/api/simulation", tags=["simulation"])
 
 
 class StartRequest(BaseModel):
+    """Accepts either `num_rounds` or its alias `rounds` from the wire."""
+    model_config = ConfigDict(populate_by_name=True)
+
     town: Optional[str] = None  # If None, run all towns
-    num_rounds: int = 5
+    num_rounds: int = Field(default=5, alias="rounds")
 
 
 class ReplayRequest(BaseModel):
@@ -86,16 +92,40 @@ async def simulation_status(request: Request):
 
 @router.get("/results")
 async def simulation_results(request: Request):
-    """Return cached DistrictSummary."""
+    """Return the cached DistrictSummary in frontend wire format.
+
+    The response body IS the DistrictSummary (no envelope). When no
+    simulation has completed yet, returns a 404 with a small error body
+    so callers can distinguish 'no data' from 'real data'.
+    """
     orchestrator = request.app.state.orchestrator
 
     if orchestrator.district_summary is None:
-        return {"status": "no_results", "message": "No simulation has completed yet."}
+        return JSONResponse(
+            {"error": "no_results", "message": "No simulation has completed yet."},
+            status_code=404,
+        )
+
+    return JSONResponse(district_summary_to_wire(orchestrator.district_summary))
+
+
+@router.get("/agent/{agent_id}")
+async def get_agent(agent_id: str, request: Request):
+    """Return rich detail for a single agent (memories, opinion history)."""
+    orchestrator = request.app.state.orchestrator
+    state = orchestrator.get_agent_state(agent_id)
+    if state is None:
+        return JSONResponse({"error": "not_found", "agent_id": agent_id}, status_code=404)
 
     return {
-        "status": "complete",
-        "district_summary": orchestrator.district_summary.model_dump(),
-        "usage": request.app.state.anthropic_client.get_usage_report(),
+        "id": agent_id,
+        "name": state.definition.name,
+        "town": state.definition.town,
+        "occupation": state.definition.occupation,
+        "memories": state.get_recent_memories(20),
+        "opinions": [opinion_to_wire(o) for o in state.opinions],
+        "location": state.current_location,
+        "state": state.state.value if hasattr(state.state, "value") else str(state.state),
     }
 
 

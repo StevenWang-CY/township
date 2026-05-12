@@ -2,6 +2,9 @@
   "name": "Montclair",
   "county": "Essex County",
   "tagline": "The Progressive Hub",
+  "accent_color": "#6B5CE7",
+  "ambient_sound": "montclair_ambient.ogg",
+  "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
   "demographics": {
     "population": 40341,
     "median_age": 39.9,
@@ -18,14 +21,15 @@
   },
   "character": "Progressive, racially diverse, affluent, arts/culture hub. Alan Bond lives here; Mejia in neighboring Glen Ridge. Strong progressive lean.",
   "landmarks": [
-    { "name": "Bloomfield Ave", "type": "commercial", "description": "Commercial strip, main thoroughfare", "x": 400, "y": 80 },
-    { "name": "Bay Street Station", "type": "transit", "description": "NJ Transit commuter rail station", "x": 200, "y": 180 },
-    { "name": "Montclair Art Museum", "type": "cultural", "description": "Art museum and cultural center", "x": 600, "y": 150 },
-    { "name": "Town Hall", "type": "civic", "description": "Montclair municipal government", "x": 350, "y": 250 },
-    { "name": "Public Library", "type": "civic", "description": "Montclair Public Library", "x": 500, "y": 300 },
-    { "name": "Anderson Park", "type": "park", "description": "Public park and green space", "x": 650, "y": 350 },
-    { "name": "Upper Montclair Residential", "type": "residential", "description": "Upper Montclair affluent residential area", "x": 300, "y": 450 },
-    { "name": "St. Paul Baptist Church", "type": "religious", "description": "Historic Black church", "x": 550, "y": 500 }
+    { "name": "Bloomfield Ave", "x": 100, "y": 380, "width": 1000, "height": 30, "color": "#D4A574", "type": "road", "description": "Commercial strip, main thoroughfare" },
+    { "name": "Bay Street Station", "x": 900, "y": 550, "width": 140, "height": 90, "color": "#8B7355", "type": "transport", "description": "NJ Transit commuter rail station" },
+    { "name": "Art Museum", "x": 200, "y": 180, "width": 150, "height": 120, "color": "#6B5CE7", "type": "building", "description": "Montclair Art Museum, cultural center" },
+    { "name": "Town Hall", "x": 550, "y": 200, "width": 130, "height": 100, "color": "#C9B896", "type": "building", "description": "Montclair municipal government" },
+    { "name": "Public Library", "x": 350, "y": 500, "width": 120, "height": 80, "color": "#A0C4E8", "type": "building", "description": "Montclair Public Library" },
+    { "name": "Anderson Park", "x": 750, "y": 150, "width": 200, "height": 160, "color": "#7CB87C", "type": "park", "description": "Public park with sculptures and bandshell" },
+    { "name": "St. Paul Baptist", "x": 150, "y": 550, "width": 110, "height": 90, "color": "#C9B896", "type": "church", "description": "Historic Black church" },
+    { "name": "Watchung Plaza", "x": 500, "y": 500, "width": 140, "height": 70, "color": "#D4A574", "type": "building", "description": "Walkable commercial plaza" },
+    { "name": "Boutique Row", "x": 300, "y": 280, "width": 160, "height": 60, "color": "#B8A0D4", "type": "building", "description": "Independent boutiques and coffee shops" }
   ],
   "color_theme": {
     "primary": "#4A90D9",

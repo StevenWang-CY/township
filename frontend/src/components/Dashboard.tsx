@@ -2,8 +2,11 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import OpinionChart from "./OpinionChart";
 import AgentCard from "./AgentCard";
-import type { AgentState, TownId, LeanId, DistrictSummary } from "../types/messages";
-import { TOWN_META, CANDIDATE_COLORS } from "../types/messages";
+import PlayerHUD from "./PlayerHUD";
+import { useUserProfile } from "../context/UserProfileContext";
+import { useRelationships } from "../hooks/useRelationships";
+import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, OpinionChangedEvent, Relationship } from "../types/messages";
+import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
 
 /* ── Demo data when backend is offline ─────────────────────── */
 
@@ -28,6 +31,8 @@ interface DashboardProps {
     connected: boolean;
     currentRound: number;
     simulationRunning: boolean;
+    events?: SimulationEvent[];
+    relationships?: Record<string, Relationship>;
   };
 }
 
@@ -35,6 +40,10 @@ export default function Dashboard({ ws }: DashboardProps) {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<"all" | TownId | LeanId>("all");
   const [results, setResults] = useState<DistrictSummary | null>(null);
+  const { profile } = useUserProfile();
+  const { trustFor } = useRelationships(profile?.playerId, {
+    liveRelationships: ws.relationships,
+  });
 
   // Fetch results
   useEffect(() => {
@@ -123,6 +132,27 @@ export default function Dashboard({ ws }: DashboardProps) {
           Cross-town comparison of NJ-11 agent deliberation
           {ws.simulationRunning && ` | Round ${ws.currentRound}`}
         </p>
+      </div>
+
+      {/* Scoreboard banner */}
+      <div className="dashboard-scoreboard">
+        <PlayerHUD compact />
+        <div className="dashboard-scoreboard-towns">
+          {(["dover", "montclair", "parsippany", "randolph"] as TownId[]).map((t) => {
+            const meta = TOWN_META[t];
+            const townAgentIds = Object.values(ws.agents).filter((a) => a.town === t).map((a) => a.id);
+            const metInTown = townAgentIds.filter((id) => profile?.metAgents?.includes(id)).length;
+            const persuadedInTown = townAgentIds.filter((id) => profile?.persuadedAgents?.includes(id)).length;
+            const total = townAgentIds.length || 0;
+            return (
+              <div key={t} className="dashboard-scoreboard-town" style={{ borderLeft: `3px solid ${meta.color}` }}>
+                <strong>{meta.name}</strong>
+                <span>Met {metInTown}{total > 0 ? ` / ${total}` : ""}</span>
+                <span style={{ color: "#C4A35A" }}>★ {persuadedInTown}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Overall donut */}
@@ -265,6 +295,43 @@ export default function Dashboard({ ws }: DashboardProps) {
         </div>
       </div>
 
+      {/* Opinion-change timeline */}
+      {ws.events && ws.events.length > 0 && (() => {
+        const shifts = ws.events
+          .filter((e): e is OpinionChangedEvent => e.type === "opinion_changed")
+          .slice(-20)
+          .reverse();
+        if (shifts.length === 0) return null;
+        return (
+          <div className="dashboard-timeline">
+            <h3 className="dashboard-timeline-title">Opinion Timeline</h3>
+            <ol className="dashboard-timeline-list">
+              {shifts.map((evt, i) => {
+                const oldC = (evt.old_opinion?.candidate as LeanId) ?? "undecided";
+                const newC = (evt.new_opinion?.candidate as LeanId) ?? "undecided";
+                return (
+                  <li key={i} className="dashboard-timeline-row">
+                    <span
+                      className="dashboard-timeline-dot"
+                      style={{ background: CANDIDATE_COLORS[newC] }}
+                    />
+                    <div className="dashboard-timeline-content">
+                      <strong>{evt.agent_name}</strong>
+                      <span>
+                        <span style={{ color: CANDIDATE_COLORS[oldC] }}>{CANDIDATE_NAMES[oldC]}</span>
+                        {" → "}
+                        <span style={{ color: CANDIDATE_COLORS[newC], fontWeight: 600 }}>{CANDIDATE_NAMES[newC]}</span>
+                      </span>
+                      <span className="dashboard-timeline-meta">{TOWN_META[evt.town].name}</span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        );
+      })()}
+
       {/* Agent Grid */}
       <div className="mb-4 flex items-center gap-2 flex-wrap">
         <h3 className="font-semibold text-sm mr-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "1px" }}>
@@ -300,7 +367,13 @@ export default function Dashboard({ ws }: DashboardProps) {
       {filteredAgents.length > 0 ? (
         <div className="dashboard-agent-grid">
           {filteredAgents.map((a) => (
-            <AgentCard key={a.id} agent={a} />
+            <AgentCard
+              key={a.id}
+              agent={a}
+              met={profile?.metAgents?.includes(a.id)}
+              persuaded={profile?.persuadedAgents?.includes(a.id)}
+              trust={trustFor(a.id) || undefined}
+            />
           ))}
         </div>
       ) : (

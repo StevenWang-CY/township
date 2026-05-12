@@ -5,6 +5,8 @@ import type {
   Conversation,
   TownSummary,
   TownId,
+  WeatherKind,
+  Relationship,
 } from "../types/messages";
 
 /* ── State ──────────────────────────────────────────────────── */
@@ -18,6 +20,9 @@ interface WsState {
   currentRound: number;
   totalRounds: number;
   simulationRunning: boolean;
+  worldClock: { hour: number; minute: number };
+  weather: WeatherKind;
+  relationships: Record<string, Relationship>;
 }
 
 const initialState: WsState = {
@@ -29,6 +34,9 @@ const initialState: WsState = {
   currentRound: 0,
   totalRounds: 0,
   simulationRunning: false,
+  worldClock: { hour: 8, minute: 0 },
+  weather: "clear",
+  relationships: {},
 };
 
 /* ── Reducer ────────────────────────────────────────────────── */
@@ -49,7 +57,7 @@ function reducer(state: WsState, action: WsAction): WsState {
       const newEvents = [...state.events, evt].slice(-500); // keep last 500
 
       switch (evt.type) {
-        case "simulation_started":
+        case "simulation_started": {
           const agentsMap: Record<string, AgentState> = {};
           for (const a of evt.agents) agentsMap[a.id] = a;
           return {
@@ -58,6 +66,7 @@ function reducer(state: WsState, action: WsAction): WsState {
             agents: agentsMap,
             simulationRunning: true,
           };
+        }
 
         case "simulation_ended":
           return { ...state, events: newEvents, simulationRunning: false };
@@ -86,6 +95,7 @@ function reducer(state: WsState, action: WsAction): WsState {
                 [evt.agent_id]: {
                   ...state.agents[evt.agent_id],
                   location: evt.to_location,
+                  activity: "walking",
                 },
               },
             };
@@ -108,18 +118,80 @@ function reducer(state: WsState, action: WsAction): WsState {
           }
           return { ...state, events: newEvents };
 
-        case "conversation_started":
+        case "agent_speech": {
+          if (!state.agents[evt.agent_id]) return { ...state, events: newEvents };
+          const prev = state.agents[evt.agent_id];
+          const next: AgentState = {
+            ...prev,
+            gesture: evt.gesture ?? prev.gesture,
+            gesture_at: evt.gesture ? new Date().toISOString() : prev.gesture_at,
+          };
           return {
             ...state,
             events: newEvents,
-            conversations: [...state.conversations, evt.conversation],
+            agents: { ...state.agents, [evt.agent_id]: next },
           };
+        }
+
+        case "conversation_started": {
+          const conv = evt.conversation;
+          const agents = { ...state.agents };
+          for (const pid of conv.participants) {
+            if (agents[pid]) {
+              agents[pid] = { ...agents[pid], activity: "talking" };
+            }
+          }
+          return {
+            ...state,
+            events: newEvents,
+            conversations: [...state.conversations, conv],
+            agents,
+          };
+        }
 
         case "conversation_ended": {
+          const conv = state.conversations.find((c) => c.id === evt.conversation_id);
           const convs = state.conversations.map((c) =>
             c.id === evt.conversation_id ? { ...c, summary: evt.summary } : c
           );
-          return { ...state, events: newEvents, conversations: convs };
+          const agents = { ...state.agents };
+          if (conv) {
+            for (const pid of conv.participants) {
+              if (agents[pid] && agents[pid].activity === "talking") {
+                agents[pid] = { ...agents[pid], activity: "idle" };
+              }
+            }
+          }
+          return { ...state, events: newEvents, conversations: convs, agents };
+        }
+
+        case "world_clock_tick":
+          return {
+            ...state,
+            events: newEvents,
+            worldClock: { hour: evt.hour, minute: evt.minute },
+          };
+
+        case "weather_changed":
+          return { ...state, events: newEvents, weather: evt.weather };
+
+        case "relationship_update": {
+          const prev = state.relationships[evt.agent_id];
+          const encounters = (prev?.encounters ?? 0) + 1;
+          const topics = prev?.topics_discussed ?? [];
+          const next: Relationship = {
+            trust: evt.trust,
+            encounters,
+            last_chat_at: new Date().toISOString(),
+            topics_discussed: topics,
+            last_classification: evt.classification,
+            player_revealed_to_them: prev?.player_revealed_to_them,
+          };
+          return {
+            ...state,
+            events: newEvents,
+            relationships: { ...state.relationships, [evt.agent_id]: next },
+          };
         }
 
         default:

@@ -1,8 +1,18 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { AgentState, ChatMessage, LeanId } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
 import { AGENT_VOICES, AGENT_VOICE_MAP } from "../game/config";
+import { resolveAgentSprite } from "../game/spriteCustomization";
 import { useUserProfile } from "../context/UserProfileContext";
+import { useRelationships } from "../hooks/useRelationships";
+import { useWebSocket } from "../hooks/useWebSocket";
+import SpritePortrait from "./SpritePortrait";
+import MoodIndicator from "./MoodIndicator";
+import TrustBadge from "./TrustBadge";
+
+/* ── Persistent transcripts (one record per agent across panel reopens) ── */
+
+const TRANSCRIPT_CACHE: Record<string, ChatMessage[]> = {};
 
 /* ── ElevenLabs TTS Helper ───────────────────────────────────── */
 
@@ -39,10 +49,7 @@ async function speakWithElevenLabs(
         body: JSON.stringify({
           text: text.slice(0, 1000),
           model_id: "eleven_monolingual_v1",
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-          },
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
         }),
       },
     );
@@ -82,6 +89,16 @@ function SpeakerIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+function MicIcon({ size = 16, recording = false }: { size?: number; recording?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="2" width="4" height="8" rx="2" fill={recording ? "currentColor" : "none"} />
+      <path d="M4 9a4 4 0 008 0" />
+      <path d="M8 13v2" />
+    </svg>
+  );
+}
+
 function LoadingDots() {
   return (
     <span className="inline-flex gap-0.5">
@@ -100,7 +117,6 @@ function ListenButton({ text, agentId }: { text: string; agentId: string }) {
 
   const handleClick = () => {
     if (state === "loading" || state === "playing") return;
-
     const voiceId = getVoiceId(agentId);
     speakWithElevenLabs(
       text,
@@ -183,46 +199,160 @@ function ChatModeToggle({
   );
 }
 
+/* ── Mood classifier ─────────────────────────────────────────── */
+
+function classifyMood(text: string): "positive" | "negative" | "neutral" {
+  const t = text.toLowerCase();
+  const positive = ["great", "hopeful", "good", "thank", "love", "glad", "amazing", "wonderful", "yes"];
+  const negative = ["concerned", "worried", "scared", "angry", "no ", "won't", "terrible", "hate", "frustrat"];
+  if (positive.some((w) => t.includes(w))) return "positive";
+  if (negative.some((w) => t.includes(w))) return "negative";
+  return "neutral";
+}
+
+/* ── Topic suggestions ───────────────────────────────────────── */
+
+const TOPIC_FALLBACKS: Record<string, string[]> = {
+  default: ["healthcare", "immigration", "taxes", "schools", "housing"],
+};
+
+function topicsForAgent(agent: AgentState): string[] {
+  const out: string[] = [];
+  const top = agent.opinion?.top_issue;
+  if (top) out.push(top);
+
+  // Town-specific defaults
+  const townTopics: Record<string, string[]> = {
+    dover: ["immigration", "healthcare", "small business"],
+    montclair: ["education", "social justice", "housing"],
+    parsippany: ["taxes", "schools", "community"],
+    randolph: ["taxes", "schools", "national security"],
+  };
+  for (const t of townTopics[agent.town] || []) {
+    if (!out.includes(t)) out.push(t);
+  }
+  for (const t of TOPIC_FALLBACKS.default) {
+    if (out.length >= 5) break;
+    if (!out.includes(t)) out.push(t);
+  }
+  return out.slice(0, 5);
+}
+
 /* ── ChatPanel ───────────────────────────────────────────────── */
 
 interface ChatPanelProps {
   agent: AgentState | null;
   onClose: () => void;
+  /** Called when transcript updates (used to persist as a journal entry). */
+  onTranscriptChange?: (agentId: string, messages: ChatMessage[]) => void;
 }
 
-export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
+export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPanelProps) {
   const { profile, chatMode, setChatMode } = useUserProfile();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // We also use WS so we can read live relationships into the chat header.
+  const ws = useWebSocket();
+  const { trustFor } = useRelationships(profile?.playerId, {
+    liveRelationships: ws.relationships,
+  });
+
+  const initialMessages = (): ChatMessage[] => {
+    if (agent && TRANSCRIPT_CACHE[agent.id]) return TRANSCRIPT_CACHE[agent.id];
+    if (!agent) return [];
+    const playerName = profile?.name || "You";
+    return [
+      {
+        id: "system-intro",
+        role: "system",
+        content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${TOWN_META[agent.town].name}.`,
+        timestamp: new Date().toISOString(),
+      },
+    ];
+  };
+
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
+  const [mood, setMood] = useState<"positive" | "negative" | "neutral">("neutral");
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [memories, setMemories] = useState<string[] | null>(null);
+  const [recording, setRecording] = useState(false);
   const autoAbortRef = useRef(false);
   const autoStartedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const lastAgentMsgIdRef = useRef<string | null>(null);
 
-  // Reset messages when agent changes
+  // Update transcript cache + parent
   useEffect(() => {
-    if (agent) {
+    if (!agent) return;
+    TRANSCRIPT_CACHE[agent.id] = messages;
+    onTranscriptChange?.(agent.id, messages);
+  }, [agent, messages, onTranscriptChange]);
+
+  // Reset / hydrate when agent changes (don't wipe transcripts)
+  useEffect(() => {
+    if (!agent) return;
+    if (TRANSCRIPT_CACHE[agent.id]) {
+      setMessages(TRANSCRIPT_CACHE[agent.id]);
+    } else {
       const playerName = profile?.name || "You";
-      setMessages([
-        {
-          id: "system-intro",
-          role: "system",
-          content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${TOWN_META[agent.town].name}.`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-      setMobileExpanded(true);
-      setAutoRunning(false);
-      autoAbortRef.current = false;
+      const intro: ChatMessage = {
+        id: "system-intro",
+        role: "system",
+        content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${TOWN_META[agent.town].name}.`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages([intro]);
+      TRANSCRIPT_CACHE[agent.id] = [intro];
     }
+    setMobileExpanded(true);
+    setAutoRunning(false);
+    autoAbortRef.current = false;
+    lastAgentMsgIdRef.current = null;
+    setMemories(null);
+    setMemoryOpen(false);
+    // Fire-and-forget memory peek fetch (gracefully degrades)
+    fetch(`/api/simulation/agent/${encodeURIComponent(agent.id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        const memList =
+          (Array.isArray(data.memories) && data.memories.slice(-5)) ||
+          (Array.isArray(data.memory) && data.memory.slice(-5)) ||
+          null;
+        if (memList) setMemories(memList);
+      })
+      .catch(() => { /* graceful degrade */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent?.id]);
 
   // Auto-scroll
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  // Update mood based on latest agent message
+  useEffect(() => {
+    const latestAgent = [...messages].reverse().find((m) => m.role === "agent");
+    if (latestAgent && latestAgent.id !== lastAgentMsgIdRef.current) {
+      lastAgentMsgIdRef.current = latestAgent.id;
+      setMood(classifyMood(latestAgent.content));
+      // Voice auto-play
+      if (agent && profile?.audioAutoplay) {
+        const voiceId = getVoiceId(agent.id);
+        speakWithElevenLabs(
+          latestAgent.content,
+          voiceId,
+          () => {},
+          () => {},
+          () => {},
+        );
+      }
+    }
+  }, [messages, agent, profile?.audioAutoplay]);
 
   // Start auto-conversation when switching to auto mode
   useEffect(() => {
@@ -235,17 +365,19 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
       autoStartedRef.current = false;
       setAutoRunning(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMode, agent?.id]);
 
   /* ── Manual mode: send message ─────────────────────────── */
 
-  const sendMessage = useCallback(async () => {
-    if (!input.trim() || !agent || sending) return;
+  const sendMessage = useCallback(async (override?: string) => {
+    const text = (override ?? input).trim();
+    if (!text || !agent || sending) return;
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: input.trim(),
+      content: text,
       timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -268,6 +400,7 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
           political_leaning: profile.politicalLeaning,
           top_concerns: profile.topConcerns,
         };
+        if (profile.playerId) body.user_id = profile.playerId;
       }
 
       const res = await fetch(`/api/chat/${agent.id}`, {
@@ -305,6 +438,88 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
     }
   }, [input, agent, sending, profile]);
 
+  /* ── Topic chip click ─────────────────────────────────────── */
+
+  const onTopicChipClick = useCallback((topic: string) => {
+    const message = `Tell me about ${topic}`;
+    setInput(message);
+  }, []);
+
+  /* ── Push-to-talk mic ─────────────────────────────────────── */
+
+  const startRecording = useCallback(async () => {
+    if (recording) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `notice-${Date.now()}`,
+          role: "system",
+          content: "Mic transcription not available in this browser.",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recordedChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        // Tear down audio stream
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
+        if (blob.size === 0) return;
+        // Try /api/transcribe — gracefully degrade if missing
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, "voice.webm");
+          const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          const transcript = data.text || data.transcript || "";
+          if (transcript) {
+            setInput(transcript);
+          }
+        } catch {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `notice-${Date.now()}`,
+              role: "system",
+              content: "Mic transcription not available.",
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+        }
+      };
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `notice-${Date.now()}`,
+          role: "system",
+          content: "Microphone access denied.",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+    }
+  }, [recording]);
+
+  const stopRecording = useCallback(() => {
+    if (!recording) return;
+    try {
+      mediaRecorderRef.current?.stop();
+    } catch { /* ignore */ }
+    setRecording(false);
+  }, [recording]);
+
   /* ── Auto mode: AI-driven conversation ─────────────────── */
 
   const runAutoConversation = useCallback(async () => {
@@ -319,11 +534,9 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
       if (autoAbortRef.current) break;
 
       try {
-        // Small delay between turns
         await new Promise((r) => setTimeout(r, turn === 0 ? 500 : 2000));
         if (autoAbortRef.current) break;
 
-        // Show typing indicator for user persona
         const userTypingId = `user-typing-${turnCounter}`;
         if (turn > 0) {
           setMessages((prev) => [
@@ -343,11 +556,11 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
               top_concerns: profile.topConcerns,
               personality: profile.personality,
             },
+            user_id: profile.playerId,
             conversation_history: history,
           }),
         });
 
-        // Remove user typing indicator
         if (turn > 0) {
           setMessages((prev) => prev.filter((m) => m.id !== userTypingId));
         }
@@ -360,7 +573,6 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
         const userText = data.user_message || `What do you think about the election?`;
         const agentText = data.agent_response || "...";
 
-        // Show user message
         const userMsg: ChatMessage = {
           id: `auto-user-${turnCounter}-${Date.now()}`,
           role: "user",
@@ -370,7 +582,6 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
         setMessages((prev) => [...prev, userMsg]);
         history.push({ role: "user", content: userText });
 
-        // Typing delay for agent response
         const agentTypingId = `agent-typing-${turnCounter}`;
         setMessages((prev) => [
           ...prev,
@@ -380,7 +591,6 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
         setMessages((prev) => prev.filter((m) => m.id !== agentTypingId));
         if (autoAbortRef.current) break;
 
-        // Show agent response
         const agentMsg: ChatMessage = {
           id: `auto-agent-${turnCounter}-${Date.now()}`,
           role: "agent",
@@ -423,11 +633,14 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
     setAutoRunning(false);
   }, [agent, profile, autoRunning]);
 
+  const topics = useMemo(() => (agent ? topicsForAgent(agent) : []), [agent]);
+  const sprite = useMemo(() => (agent ? resolveAgentSprite(agent.id) : null), [agent]);
+
   if (!agent) return null;
 
   const meta = TOWN_META[agent.town];
-  const opinionColor = CANDIDATE_COLORS[(agent.opinion?.candidate as LeanId) || "undecided"];
-  const opinionLabel = CANDIDATE_NAMES[(agent.opinion?.candidate as LeanId) || "undecided"];
+  const candidate = (agent.opinion?.candidate as LeanId) || "undecided";
+  const opinionLabel = CANDIDATE_NAMES[candidate];
   const initials =
     agent.initials ||
     agent.name
@@ -438,6 +651,7 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
       .slice(0, 2);
 
   const isAuto = chatMode === "auto";
+  const trust = trustFor(agent.id);
 
   return (
     <>
@@ -461,31 +675,32 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
           style={{ background: "var(--bg-warm)" }}
         >
           <div className="flex items-start gap-3">
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center text-white shrink-0"
-              style={{
-                background: agent.color || meta.color,
-                border: `3px solid ${meta.color}`,
-                fontFamily: "var(--font-display)",
-                fontSize: "20px",
-                fontWeight: 700,
-              }}
-            >
-              {initials}
+            <div style={{ border: `3px solid ${meta.color}`, borderRadius: "50%", padding: 1 }}>
+              <SpritePortrait
+                agentId={agent.id}
+                spriteKey={sprite?.spriteKey}
+                fallbackInitials={initials}
+                color={agent.color || meta.color}
+                size={56}
+              />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 style={{ fontFamily: "var(--font-display)", fontSize: "18px", color: "var(--text-primary)", fontWeight: 600 }}>
-                {agent.name}
-              </h3>
-              <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-secondary)" }}>
+              <div className="flex items-center gap-2 mb-0.5">
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: "17px", color: "var(--text-primary)", fontWeight: 600 }}>
+                  {agent.name}
+                </h3>
+                <MoodIndicator mood={mood} size={14} />
+              </div>
+              <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)" }}>
                 {agent.occupation}
               </p>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={`town-badge town-badge--${agent.town}`}>{meta.name}</span>
                 <span className={`opinion-badge opinion-badge--${agent.opinion?.candidate || "undecided"}`}>
                   {opinionLabel}
                   {agent.opinion?.confidence ? ` ${agent.opinion.confidence}%` : ""}
                 </span>
+                <TrustBadge trust={trust} size="small" />
               </div>
             </div>
             <div className="flex flex-col items-end gap-2">
@@ -541,7 +756,6 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
               <div className={`chat-bubble chat-bubble--${msg.role}`}>
                 {msg.content}
               </div>
-              {/* Listen button for agent messages */}
               {msg.role === "agent" && msg.agent_id && (
                 <div className="self-start mt-0.5 ml-1">
                   <ListenButton text={msg.content} agentId={msg.agent_id} />
@@ -559,6 +773,49 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
           )}
         </div>
 
+        {/* Memory peek */}
+        <details
+          className="memory-peek"
+          open={memoryOpen}
+          onToggle={(e) => setMemoryOpen((e.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary className="memory-peek-toggle">
+            What {agent.name.split(" ")[0]} remembers
+          </summary>
+          <div className="memory-peek-body">
+            {!memories && (
+              <p className="memory-peek-empty">Memories not available for this agent.</p>
+            )}
+            {memories && memories.length === 0 && (
+              <p className="memory-peek-empty">No memories yet.</p>
+            )}
+            {memories && memories.length > 0 && (
+              <ul className="memory-peek-list">
+                {memories.map((m, i) => (
+                  <li key={i}>{m}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </details>
+
+        {/* Topic chips */}
+        {!isAuto && (
+          <div className="topic-chips-row">
+            {topics.map((t) => (
+              <button
+                key={t}
+                className="topic-chip"
+                onClick={() => onTopicChipClick(t)}
+                disabled={sending}
+                style={{ borderColor: `${meta.color}55`, color: meta.color }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Input */}
         <div className="px-4 py-3" style={{ borderTop: "1px solid var(--warm-glass-border)", background: "var(--bg-paper)" }}>
           <div className="relative">
@@ -571,7 +828,7 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
                   ? "AI persona is speaking for you..."
                   : `Talk to ${agent.name.split(" ")[0]}...`
               }
-              className="w-full pl-5 pr-14 py-3 rounded-full text-sm outline-none"
+              className="w-full pl-5 pr-24 py-3 rounded-full text-sm outline-none"
               style={{
                 background: "var(--bg-card)",
                 border: "1px solid rgba(180,160,120,0.2)",
@@ -604,19 +861,39 @@ export default function ChatPanel({ agent, onClose }: ChatPanelProps) {
                 {autoRunning ? "Stop" : "Stopped"}
               </button>
             ) : (
-              <button
-                onClick={sendMessage}
-                disabled={sending || !input.trim()}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center text-white transition-all disabled:opacity-30"
-                style={{
-                  background: meta?.color || "var(--civic-blue)",
-                  transition: "all 200ms ease",
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M1 7h10M8 4l3 3-3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <button
+                  onMouseDown={startRecording}
+                  onMouseUp={stopRecording}
+                  onMouseLeave={() => recording && stopRecording()}
+                  onTouchStart={startRecording}
+                  onTouchEnd={stopRecording}
+                  disabled={sending}
+                  title="Hold to record"
+                  className="mic-btn w-9 h-9 rounded-full flex items-center justify-center"
+                  style={{
+                    background: recording ? "#EF4444" : "transparent",
+                    color: recording ? "#fff" : "var(--text-muted)",
+                    border: "1px solid var(--card-border)",
+                    transition: "all 200ms ease",
+                  }}
+                >
+                  <MicIcon size={14} recording={recording} />
+                </button>
+                <button
+                  onClick={() => sendMessage()}
+                  disabled={sending || !input.trim()}
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-white transition-all disabled:opacity-30"
+                  style={{
+                    background: meta?.color || "var(--civic-blue)",
+                    transition: "all 200ms ease",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M1 7h10M8 4l3 3-3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
             )}
           </div>
         </div>

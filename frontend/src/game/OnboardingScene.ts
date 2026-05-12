@@ -7,13 +7,12 @@ import { TOWN_ACCENT } from "./config";
 /**
  * OnboardingScene — NPC-guided onboarding using real tilemap + character sprites.
  *
- * The user "arrives" in a cozy corner of the town. NPC greeter Rosa walks up
- * and guides them through a conversational onboarding. At each step, either
- * Phaser UI elements (for multiple-choice) or React overlays (for text input)
- * collect the user's responses.
+ * Flow: intro → name → avatar → outfit → town → leaning → concerns → personality → complete.
  */
 
-type OnboardingStep = "intro" | "name" | "town" | "leaning" | "concerns" | "personality" | "complete";
+type OnboardingStep =
+  | "intro" | "name" | "avatar" | "outfit"
+  | "town" | "leaning" | "concerns" | "personality" | "complete";
 
 const GREETER_SPRITE = "Tamara_Taylor";
 const PLAYER_TEMP_SPRITE = "Adam_Smith";
@@ -35,6 +34,13 @@ const LEANINGS: Array<{ key: PoliticalRegistration; label: string; color: number
   { key: "unaffiliated", label: "Independent", color: 0x9ca3af, colorHex: "#9CA3AF" },
 ];
 
+const OUTFITS = [
+  { key: "casual",   label: "Casual",   color: 0x6b9bdc },
+  { key: "business", label: "Business", color: 0x3b3a55 },
+  { key: "labor",    label: "Labor",    color: 0xb05c1e },
+  { key: "parent",   label: "Parent",   color: 0x65a96c },
+];
+
 export class OnboardingScene extends Phaser.Scene {
   private currentStep: OnboardingStep = "intro";
   private greeter?: AgentSprite;
@@ -47,6 +53,8 @@ export class OnboardingScene extends Phaser.Scene {
   private userLeaning: PoliticalRegistration = "unaffiliated";
   private userConcerns: string[] = [];
   private userPersonality = "";
+  private userAvatar = "char-player";
+  private userOutfit = "casual";
 
   // Pre-selected town from URL query param
   private preselectedTown: TownId | null = null;
@@ -74,6 +82,14 @@ export class OnboardingScene extends Phaser.Scene {
         frameWidth: 32, frameHeight: 32,
       });
     }
+
+    // Player variants for avatar picker. Each gracefully falls back if missing.
+    for (let i = 1; i <= 6; i++) {
+      const key = `char-player-${i}`;
+      this.load.spritesheet(key, `/assets/characters/player-${i}.png`, { frameWidth: 32, frameHeight: 32 });
+      this.load.once(`fileerror-spritesheet-${key}`, () => {/* silently skip */});
+    }
+    this.load.spritesheet("char-player", "/assets/characters/player.png", { frameWidth: 16, frameHeight: 16 });
   }
 
   /* ── Create ──────────────────────────────────────────────── */
@@ -97,6 +113,8 @@ export class OnboardingScene extends Phaser.Scene {
     // ── Character animations ────────────────────────────────
     this.createAnimations(GREETER_SPRITE);
     this.createAnimations(PLAYER_TEMP_SPRITE);
+    for (let i = 1; i <= 6; i++) this.createPlayerAnimations(`char-player-${i}`);
+    this.createPlayerAnimations("char-player");
 
     // ── Player character (standing near campfire) ────────────
     const playerX = W * 0.42;
@@ -177,20 +195,236 @@ export class OnboardingScene extends Phaser.Scene {
     if (step === "name") {
       this.userName = value.trim();
       this.greeter?.showSpeechBubble(`Nice to meet you, ${this.userName}!`, 2500);
-
-      this.time.delayedCall(3000, () => {
-        if (this.preselectedTown) {
-          // Skip town selection if pre-selected
-          this.greeter?.showSpeechBubble(`${TOWN_META[this.preselectedTown].name} — great place!`, 2500);
-          this.time.delayedCall(3000, () => this.showLeaningSelection());
-        } else {
-          this.showTownSelection();
-        }
-      });
+      this.time.delayedCall(2400, () => this.showAvatarPicker());
     } else if (step === "personality") {
       this.userPersonality = value.trim();
       this.completeOnboarding();
     }
+  }
+
+  /* ── Avatar Picker ─────────────────────────────────────── */
+
+  private showAvatarPicker() {
+    this.currentStep = "avatar";
+    this.greeter?.showSpeechBubble(`Pick a look, ${this.userName}.`, 3500);
+
+    this.time.delayedCall(800, () => {
+      const W = Number(this.game.config.width);
+      const H = Number(this.game.config.height);
+      const container = this.add.container(0, 0).setDepth(350);
+
+      const previews: string[] = [];
+      for (let i = 1; i <= 6; i++) {
+        const key = `char-player-${i}`;
+        previews.push(this.textures.exists(key) ? key : "char-player");
+      }
+
+      const slotW = 70, gap = 16;
+      const total = previews.length * slotW + (previews.length - 1) * gap;
+      const startX = (W - total) / 2 + slotW / 2;
+      const y = H * 0.78;
+
+      const buttons: Phaser.GameObjects.Container[] = [];
+      let selectedIdx = 0;
+
+      previews.forEach((tex, i) => {
+        const cx = startX + i * (slotW + gap);
+        const btn = this.add.container(cx, y);
+        // Card bg
+        const bg = this.add.graphics();
+        bg.fillStyle(0xffffff, 0.78);
+        bg.fillRoundedRect(-slotW / 2, -40, slotW, 80, 10);
+        bg.lineStyle(1.5, 0xd4cfc6, 0.55);
+        bg.strokeRoundedRect(-slotW / 2, -40, slotW, 80, 10);
+        btn.add(bg);
+        // Sprite preview
+        const isLegacy = tex === "char-player";
+        const sprite = this.add.sprite(0, 16, tex, 1);
+        sprite.setScale(isLegacy ? 3.0 : 1.8);
+        sprite.setOrigin(0.5, 1);
+        btn.add(sprite);
+        if (this.anims.exists(`${tex}-walk-down`)) sprite.play(`${tex}-walk-down`);
+
+        btn.setSize(slotW, 80);
+        btn.setInteractive({ cursor: "pointer" });
+
+        const drawBg = (selected: boolean) => {
+          bg.clear();
+          bg.fillStyle(selected ? 0xfff7df : 0xffffff, 0.88);
+          bg.fillRoundedRect(-slotW / 2, -40, slotW, 80, 10);
+          bg.lineStyle(selected ? 2 : 1.5, selected ? 0xe9b748 : 0xd4cfc6, selected ? 0.95 : 0.55);
+          bg.strokeRoundedRect(-slotW / 2, -40, slotW, 80, 10);
+        };
+        drawBg(i === 0);
+
+        btn.on("pointerover", () => this.tweens.add({ targets: btn, y: y - 3, duration: 110, ease: "Back.easeOut" }));
+        btn.on("pointerout",  () => this.tweens.add({ targets: btn, y: y,     duration: 110, ease: "Back.easeOut" }));
+        btn.on("pointerdown", () => {
+          selectedIdx = i;
+          buttons.forEach((b, j) => {
+            const innerBg = b.getAt(0) as Phaser.GameObjects.Graphics;
+            innerBg.clear();
+            const sel = i === j;
+            innerBg.fillStyle(sel ? 0xfff7df : 0xffffff, 0.88);
+            innerBg.fillRoundedRect(-slotW / 2, -40, slotW, 80, 10);
+            innerBg.lineStyle(sel ? 2 : 1.5, sel ? 0xe9b748 : 0xd4cfc6, sel ? 0.95 : 0.55);
+            innerBg.strokeRoundedRect(-slotW / 2, -40, slotW, 80, 10);
+          });
+          this.tweens.add({ targets: btn, scaleX: 1.08, scaleY: 1.08, duration: 110, yoyo: true });
+          this.userAvatar = tex;
+        });
+
+        container.add(btn);
+        buttons.push(btn);
+        // Staggered entrance
+        btn.setAlpha(0);
+        btn.setScale(0.8);
+        this.tweens.add({ targets: btn, alpha: 1, scaleX: 1, scaleY: 1, duration: 220, delay: i * 60, ease: "Back.easeOut" });
+      });
+
+      // Continue button
+      const confirm = this.makeConfirmButton(0, y + 80, "Confirm", () => {
+        this.userAvatar = previews[selectedIdx];
+        this.tweens.add({
+          targets: container, alpha: 0, y: container.y + 14,
+          duration: 280, ease: "Quad.easeIn",
+          onComplete: () => container.destroy(),
+        });
+        this.time.delayedCall(420, () => this.showOutfitPicker());
+      });
+      // Center the button
+      confirm.x = W / 2;
+      container.add(confirm);
+
+      this.uiGroup?.add(container);
+    });
+  }
+
+  /* ── Outfit Picker ─────────────────────────────────────── */
+
+  private showOutfitPicker() {
+    this.currentStep = "outfit";
+    this.greeter?.showSpeechBubble("Now pick an outfit.", 3000);
+
+    this.time.delayedCall(700, () => {
+      const W = Number(this.game.config.width);
+      const H = Number(this.game.config.height);
+      const container = this.add.container(0, 0).setDepth(350);
+      const slotW = 110, gap = 14;
+      const total = OUTFITS.length * slotW + (OUTFITS.length - 1) * gap;
+      const startX = (W - total) / 2 + slotW / 2;
+      const y = H * 0.78;
+
+      let selectedIdx = 0;
+      const buttons: Phaser.GameObjects.Container[] = [];
+
+      OUTFITS.forEach((o, i) => {
+        const cx = startX + i * (slotW + gap);
+        const btn = this.add.container(cx, y);
+        const bg = this.add.graphics();
+        btn.add(bg);
+        const isLegacy = this.userAvatar === "char-player";
+        const sprite = this.add.sprite(0, 10, this.userAvatar, 1);
+        sprite.setScale(isLegacy ? 2.6 : 1.7);
+        sprite.setOrigin(0.5, 1);
+        btn.add(sprite);
+        const cape = this.add.graphics();
+        cape.fillStyle(o.color, 0.85);
+        cape.fillRoundedRect(-12, -16, 24, 16, 4);
+        btn.add(cape);
+
+        const label = this.add.text(0, 32, o.label, {
+          fontFamily: "Inter, sans-serif", fontSize: "10px", fontStyle: "bold", color: "#332617", resolution: 2,
+        });
+        label.setOrigin(0.5, 0.5);
+        btn.add(label);
+
+        const drawBg = (sel: boolean) => {
+          bg.clear();
+          bg.fillStyle(sel ? 0xfff7df : 0xffffff, 0.88);
+          bg.fillRoundedRect(-slotW / 2, -40, slotW, 90, 10);
+          bg.lineStyle(sel ? 2 : 1.5, sel ? 0xe9b748 : 0xd4cfc6, sel ? 0.95 : 0.55);
+          bg.strokeRoundedRect(-slotW / 2, -40, slotW, 90, 10);
+        };
+        drawBg(i === 0);
+
+        btn.setSize(slotW, 90);
+        btn.setInteractive({ cursor: "pointer" });
+        btn.on("pointerover", () => this.tweens.add({ targets: btn, y: y - 3, duration: 110, ease: "Back.easeOut" }));
+        btn.on("pointerout",  () => this.tweens.add({ targets: btn, y, duration: 110, ease: "Back.easeOut" }));
+        btn.on("pointerdown", () => {
+          selectedIdx = i;
+          buttons.forEach((b, j) => {
+            const g = b.getAt(0) as Phaser.GameObjects.Graphics;
+            g.clear();
+            const sel = i === j;
+            g.fillStyle(sel ? 0xfff7df : 0xffffff, 0.88);
+            g.fillRoundedRect(-slotW / 2, -40, slotW, 90, 10);
+            g.lineStyle(sel ? 2 : 1.5, sel ? 0xe9b748 : 0xd4cfc6, sel ? 0.95 : 0.55);
+            g.strokeRoundedRect(-slotW / 2, -40, slotW, 90, 10);
+          });
+          this.tweens.add({ targets: btn, scaleX: 1.06, scaleY: 1.06, duration: 110, yoyo: true });
+          this.userOutfit = o.key;
+        });
+
+        btn.setAlpha(0); btn.setScale(0.8);
+        this.tweens.add({ targets: btn, alpha: 1, scaleX: 1, scaleY: 1, duration: 220, delay: i * 80, ease: "Back.easeOut" });
+
+        container.add(btn);
+        buttons.push(btn);
+      });
+
+      const confirm = this.makeConfirmButton(0, y + 90, "Confirm", () => {
+        this.userOutfit = OUTFITS[selectedIdx].key;
+        this.tweens.add({
+          targets: container, alpha: 0, y: container.y + 14,
+          duration: 280, ease: "Quad.easeIn",
+          onComplete: () => container.destroy(),
+        });
+        this.time.delayedCall(360, () => {
+          if (this.preselectedTown) {
+            this.greeter?.showSpeechBubble(
+              `${TOWN_META[this.preselectedTown].name} — ${TOWN_META[this.preselectedTown].tagline.toLowerCase()}!`,
+              3000,
+            );
+            this.time.delayedCall(3200, () => this.showLeaningSelection());
+          } else {
+            this.showTownSelection();
+          }
+        });
+      });
+      confirm.x = W / 2;
+      container.add(confirm);
+
+      this.uiGroup?.add(container);
+    });
+  }
+
+  private makeConfirmButton(x: number, y: number, label: string, onClick: () => void): Phaser.GameObjects.Container {
+    const btn = this.add.container(x, y);
+    const w = 110, h = 30, r = 8;
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.1);
+    bg.fillRoundedRect(-w / 2 + 1, 2, w, h, r);
+    bg.fillStyle(0x3b5998, 1);
+    bg.fillRoundedRect(-w / 2, 0, w, h, r);
+    bg.fillStyle(0xffffff, 0.18);
+    bg.fillRoundedRect(-w / 2 + 2, 1, w - 4, h * 0.45, { tl: r - 1, tr: r - 1, bl: 0, br: 0 });
+    btn.add(bg);
+    const text = this.add.text(0, h / 2, label, {
+      fontFamily: "Inter, sans-serif", fontSize: "11px", fontStyle: "bold", color: "#ffffff", resolution: 2,
+    });
+    text.setOrigin(0.5, 0.5);
+    btn.add(text);
+    btn.setSize(w, h);
+    btn.setInteractive({ cursor: "pointer" });
+    btn.on("pointerover", () => this.tweens.add({ targets: btn, scaleX: 1.05, scaleY: 1.05, duration: 100 }));
+    btn.on("pointerout",  () => this.tweens.add({ targets: btn, scaleX: 1, scaleY: 1, duration: 100 }));
+    btn.on("pointerdown", () => {
+      this.tweens.add({ targets: btn, scaleX: 0.94, scaleY: 0.94, duration: 80, yoyo: true });
+      onClick();
+    });
+    return btn;
   }
 
   /* ── Town Selection (Phaser UI) ─────────────────────────── */
@@ -214,8 +448,6 @@ export class OnboardingScene extends Phaser.Scene {
       towns.forEach((townId, i) => {
         const cx = startX + i * (cardWidth + gap);
         const card = this.createTownCard(townId, cx, y);
-
-        // Staggered entrance
         card.setScale(0.8);
         card.setAlpha(0);
         this.tweens.add({
@@ -225,7 +457,6 @@ export class OnboardingScene extends Phaser.Scene {
           delay: i * 90,
           ease: "Back.easeOut",
         });
-
         container.add(card);
       });
 
@@ -242,13 +473,11 @@ export class OnboardingScene extends Phaser.Scene {
 
     const w = 120, h = 56, r = 10;
 
-    // Shadow
     const shadow = this.add.graphics();
     shadow.fillStyle(0x000000, 0.08);
     shadow.fillRoundedRect(-w / 2 + 2, 3, w, h, r);
     card.add(shadow);
 
-    // Background
     const bg = this.add.graphics();
     bg.fillStyle(accentNum, 0.1);
     bg.fillRoundedRect(-w / 2, 0, w, h, r);
@@ -258,13 +487,11 @@ export class OnboardingScene extends Phaser.Scene {
     bg.strokeRoundedRect(-w / 2, 0, w, h, r);
     card.add(bg);
 
-    // Color dot
     const dot = this.add.graphics();
     dot.fillStyle(accentNum, 1);
     dot.fillCircle(-w / 2 + 16, 16, 5);
     card.add(dot);
 
-    // Town name
     const name = this.add.text(-w / 2 + 26, 10, meta.name, {
       fontFamily: "Inter, sans-serif",
       fontSize: "11px",
@@ -274,7 +501,6 @@ export class OnboardingScene extends Phaser.Scene {
     });
     card.add(name);
 
-    // Tagline
     const tagline = this.add.text(-w / 2 + 12, 30, meta.tagline, {
       fontFamily: "Inter, sans-serif",
       fontSize: "8px",
@@ -283,7 +509,6 @@ export class OnboardingScene extends Phaser.Scene {
     });
     card.add(tagline);
 
-    // Population
     const pop = this.add.text(-w / 2 + 12, 42, `Pop. ${meta.population}`, {
       fontFamily: "Inter, sans-serif",
       fontSize: "7px",
@@ -293,7 +518,6 @@ export class OnboardingScene extends Phaser.Scene {
     });
     card.add(pop);
 
-    // Interaction
     card.setSize(w, h);
     card.setInteractive({ cursor: "pointer" });
 
@@ -321,17 +545,12 @@ export class OnboardingScene extends Phaser.Scene {
 
     card.on("pointerdown", () => {
       this.userTown = townId;
-
-      // Select animation
       this.tweens.add({
         targets: card, scaleX: 0.93, scaleY: 0.93,
         duration: 80, yoyo: true, ease: "Quad.easeOut",
       });
-
-      // Ripple burst
       this.spawnRipple(x, y + h / 2, accentNum);
 
-      // Fade out all cards
       const cont = (this as any)._townContainer as Phaser.GameObjects.Container;
       this.time.delayedCall(300, () => {
         this.tweens.add({
@@ -339,8 +558,11 @@ export class OnboardingScene extends Phaser.Scene {
           duration: 250, ease: "Quad.easeIn",
           onComplete: () => cont.destroy(),
         });
-
-        this.greeter?.showSpeechBubble(`${meta.name} — great place!`, 2500);
+        // Dynamic greeting referencing the chosen town's tagline.
+        this.greeter?.showSpeechBubble(
+          `${meta.name} — ${meta.tagline.toLowerCase()}!`,
+          3000,
+        );
         this.time.delayedCall(3000, () => this.showLeaningSelection());
       });
     });
@@ -387,27 +609,23 @@ export class OnboardingScene extends Phaser.Scene {
   private createLeaningPill(
     lean: typeof LEANINGS[number],
     x: number, y: number,
-    parent: Phaser.GameObjects.Container,
+    _parent: Phaser.GameObjects.Container,
   ): Phaser.GameObjects.Container {
     const pill = this.add.container(x, y);
     const w = 100, h = 34, r = 17;
 
-    // Shadow
     const shadow = this.add.graphics();
     shadow.fillStyle(0x000000, 0.1);
     shadow.fillRoundedRect(-w / 2 + 2, 2, w, h, r);
     pill.add(shadow);
 
-    // Background gradient-like (darker bottom)
     const bg = this.add.graphics();
     bg.fillStyle(lean.color, 0.85);
     bg.fillRoundedRect(-w / 2, 0, w, h, r);
-    // Lighter top
     bg.fillStyle(0xffffff, 0.18);
     bg.fillRoundedRect(-w / 2 + 2, 1, w - 4, h * 0.45, { tl: r - 2, tr: r - 2, bl: 0, br: 0 });
     pill.add(bg);
 
-    // Label
     const text = this.add.text(0, h / 2, lean.label, {
       fontFamily: "Inter, sans-serif",
       fontSize: "11px",
@@ -430,16 +648,12 @@ export class OnboardingScene extends Phaser.Scene {
 
     pill.on("pointerdown", () => {
       this.userLeaning = lean.key;
-
-      // Select pulse
       this.tweens.add({
         targets: pill, scaleX: 1.1, scaleY: 1.1,
         duration: 150, yoyo: true, ease: "Back.easeOut",
       });
-
       this.spawnRipple(x, y + h / 2, lean.color);
 
-      // Fade out
       const cont = (this as any)._leanContainer as Phaser.GameObjects.Container;
       this.time.delayedCall(350, () => {
         this.tweens.add({
@@ -447,7 +661,6 @@ export class OnboardingScene extends Phaser.Scene {
           duration: 250, ease: "Quad.easeIn",
           onComplete: () => cont.destroy(),
         });
-
         this.greeter?.showSpeechBubble("Understood. We've got all kinds here.", 2500);
         this.time.delayedCall(3000, () => this.showConcernsSelection());
       });
@@ -490,7 +703,6 @@ export class OnboardingScene extends Phaser.Scene {
         this.drawChipBg(bg, chipW, chipH, r, false, concern.dot);
         chip.add(bg);
 
-        // Colored dot
         const dot = this.add.graphics();
         dot.fillStyle(Phaser.Display.Color.HexStringToColor(concern.dot).color, 1);
         dot.fillCircle(-chipW / 2 + 12, chipH / 2, 3.5);
@@ -508,7 +720,6 @@ export class OnboardingScene extends Phaser.Scene {
         chip.setSize(chipW, chipH);
         chip.setInteractive({ cursor: "pointer" });
 
-        // Stagger in
         chip.setScale(0.85);
         chip.setAlpha(0);
         this.tweens.add({
@@ -548,7 +759,6 @@ export class OnboardingScene extends Phaser.Scene {
             text.setColor("#2C2416");
             text.setFontStyle("bold");
 
-            // Checkmark
             const check = this.add.text(chipW / 2 - 6, chipH / 2, "✓", {
               fontFamily: "Inter, sans-serif",
               fontSize: "10px",
@@ -562,13 +772,11 @@ export class OnboardingScene extends Phaser.Scene {
             chip.add(check);
             chipData.check = check;
 
-            // Squish feedback
             this.tweens.add({ targets: chip, scaleX: 0.94, scaleY: 0.94, duration: 60, yoyo: true, ease: "Quad.easeOut" });
           }
 
           this.userConcerns = [...selected];
 
-          // Show/hide continue button
           if (selected.size >= 2 && !(this as any)._continueBtn) {
             this.showContinueButton(container, W, startY + rows * (chipH + gap) + 16);
           } else if (selected.size < 2 && (this as any)._continueBtn) {
@@ -609,13 +817,10 @@ export class OnboardingScene extends Phaser.Scene {
     const w = 100, h = 32, r = 8;
 
     const bg = this.add.graphics();
-    // Shadow
     bg.fillStyle(0x000000, 0.1);
     bg.fillRoundedRect(-w / 2 + 1, 2, w, h, r);
-    // Fill
     bg.fillStyle(0x3b5998, 1);
     bg.fillRoundedRect(-w / 2, 0, w, h, r);
-    // Highlight
     bg.fillStyle(0xffffff, 0.15);
     bg.fillRoundedRect(-w / 2 + 2, 1, w - 4, h * 0.45, { tl: r - 1, tr: r - 1, bl: 0, br: 0 });
     btn.add(bg);
@@ -633,12 +838,10 @@ export class OnboardingScene extends Phaser.Scene {
     btn.setSize(w, h);
     btn.setInteractive({ cursor: "pointer" });
 
-    // Entrance
     btn.setAlpha(0);
     btn.setScale(0.9);
     this.tweens.add({ targets: btn, alpha: 1, scaleX: 1, scaleY: 1, duration: 200, ease: "Back.easeOut" });
 
-    // Gentle pulse
     this.tweens.add({
       targets: btn, scaleX: 1.03, scaleY: 1.03,
       duration: 800, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
@@ -652,7 +855,6 @@ export class OnboardingScene extends Phaser.Scene {
     });
 
     btn.on("pointerdown", () => {
-      // Dismiss concerns container
       const cont = (this as any)._concernsContainer as Phaser.GameObjects.Container;
       this.tweens.add({
         targets: cont, alpha: 0, y: cont.y + 20,
@@ -662,7 +864,11 @@ export class OnboardingScene extends Phaser.Scene {
       (this as any)._continueBtn = undefined;
       (this as any)._concernsContainer = undefined;
 
-      this.greeter?.showSpeechBubble("Tell me a bit about yourself.", 4000);
+      const tc = this.userConcerns[0] ?? "your block";
+      this.greeter?.showSpeechBubble(
+        `Most people here care about ${tc}. You'll find good company.`,
+        4500,
+      );
       this.time.delayedCall(1500, () => {
         this.currentStep = "personality";
         this.events.emit("onboarding-need-input", {
@@ -680,11 +886,9 @@ export class OnboardingScene extends Phaser.Scene {
 
   private completeOnboarding() {
     this.currentStep = "complete";
-    const townName = TOWN_META[this.userTown].name;
     this.greeter?.showSpeechBubble(`Welcome home, ${this.userName}!`, 3000);
 
     this.time.delayedCall(2000, () => {
-      // Walk together toward the right
       const W = Number(this.game.config.width);
       const exitX = W + 50;
       const y = this.greeter?.y ?? 400;
@@ -692,12 +896,10 @@ export class OnboardingScene extends Phaser.Scene {
       this.greeter?.moveToPosition(exitX, y);
       this.playerChar?.moveToPosition(exitX - 40, y);
 
-      // Fade to white
       this.time.delayedCall(1200, () => {
         this.cameras.main.fadeOut(600, 255, 255, 255);
 
         this.cameras.main.once("camerafadeoutcomplete", () => {
-          // Derive user profile data
           const initials = this.userName
             .split(" ")
             .map((w) => w[0])
@@ -716,6 +918,8 @@ export class OnboardingScene extends Phaser.Scene {
             initials,
             color: TOWN_ACCENT[this.userTown] || TOWN_META[this.userTown].color,
             agentId: agentId || "player",
+            spriteKey: this.userAvatar,
+            outfitKey: this.userOutfit,
           });
         });
       });
@@ -739,7 +943,6 @@ export class OnboardingScene extends Phaser.Scene {
   }
 
   private buildAmbientFX(W: number, H: number) {
-    // Campfire
     if (!this.anims.exists("campfire-burn")) {
       this.anims.create({
         key: "campfire-burn",
@@ -758,7 +961,6 @@ export class OnboardingScene extends Phaser.Scene {
       this.tweens.add({ targets: light, alpha: 0.02, duration: 600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     }
 
-    // Sparkles
     if (!this.anims.exists("sparkle-anim")) {
       this.anims.create({
         key: "sparkle-anim",
@@ -802,6 +1004,26 @@ export class OnboardingScene extends Phaser.Scene {
           key: idleKey,
           frames: [{ key, frame: d.idle }, { key, frame: d.start }, { key, frame: d.idle }, { key, frame: d.end }],
           frameRate: 1.6, repeat: -1, repeatDelay: 1200,
+        });
+      }
+    }
+  }
+
+  private createPlayerAnimations(key: string) {
+    if (!this.textures.exists(key)) return;
+    const dirs = [
+      { name: "down", start: 0, end: 2, idle: 1 },
+      { name: "left", start: 3, end: 5, idle: 4 },
+      { name: "right", start: 6, end: 8, idle: 7 },
+      { name: "up", start: 9, end: 11, idle: 10 },
+    ];
+    for (const d of dirs) {
+      const walkKey = `${key}-walk-${d.name}`;
+      if (!this.anims.exists(walkKey)) {
+        this.anims.create({
+          key: walkKey,
+          frames: this.anims.generateFrameNumbers(key, { start: d.start, end: d.end }),
+          frameRate: 9, repeat: -1,
         });
       }
     }

@@ -5,6 +5,9 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from ..core.types import GodsViewResultEvent
+from ..core.wire import news_reaction_to_wire
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/gods-view", tags=["gods-view"])
@@ -42,11 +45,32 @@ async def inject_god_view(req: GodViewRequest, request: Request):
     - "Mejia reverses position on Medicare for All, now supports public option"
     """
     orchestrator = request.app.state.orchestrator
+    event_bus = request.app.state.event_bus
 
     if not req.description.strip():
         return {"status": "error", "message": "Description cannot be empty"}
 
     reactions = await orchestrator.inject_god_view(req.description)
+
+    # Convert to wire-format dicts (frontend NewsReaction shape).
+    wire_reactions = [
+        news_reaction_to_wire(
+            r,
+            agent_id=r.agent_id,
+            town=r.town,
+            headline=req.description,
+        )
+        for r in reactions
+    ]
+
+    # Broadcast the full reaction set so any WebSocket-connected dashboard can
+    # show "the district just reacted to <X>" in real time.
+    try:
+        await event_bus.publish(
+            GodsViewResultEvent(prompt=req.description, reactions=reactions)
+        )
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(f"GodsViewResultEvent publish failed: {e}")
 
     # Summarize impact
     impact_summary = {
@@ -87,7 +111,7 @@ async def inject_god_view(req: GodViewRequest, request: Request):
         "status": "complete",
         "description": req.description,
         "total_agents_reacted": len(reactions),
-        "reactions": [r.model_dump() for r in reactions],
+        "reactions": wire_reactions,
         "impact_summary": impact_summary,
         "emotional_summary": emotional_summary,
         "opinion_shifts": opinion_shifts,

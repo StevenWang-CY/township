@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import type { TownId } from "../types/messages";
 
 export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -20,6 +21,9 @@ export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
 
 /* ── Landmark Definitions ──────────────────────────────────── */
 
+// Landmark data has moved to `useTownData()` (which fetches from /api/towns,
+// with a hard-coded fallback identical to the prior `TOWN_LANDMARKS` table).
+// This interface remains here for any legacy import sites.
 export interface Landmark {
   name: string;
   x: number;
@@ -30,51 +34,13 @@ export interface Landmark {
   type: string;
 }
 
-export const TOWN_LANDMARKS: Record<string, Landmark[]> = {
-  dover: [
-    { name: "Blackwell Street", x: 200, y: 380, width: 800, height: 30, color: "#D4A574", type: "road" },
-    { name: "Dover Station", x: 100, y: 550, width: 140, height: 90, color: "#8B7355", type: "transport" },
-    { name: "St. Mary's Church", x: 750, y: 180, width: 110, height: 120, color: "#C9B896", type: "church" },
-    { name: "La Finca Restaurant", x: 350, y: 280, width: 100, height: 70, color: "#E8763B", type: "building" },
-    { name: "Public Library", x: 550, y: 500, width: 120, height: 80, color: "#A0C4E8", type: "building" },
-    { name: "Factory", x: 950, y: 300, width: 160, height: 120, color: "#7A7A7A", type: "building" },
-    { name: "Public Housing", x: 150, y: 150, width: 140, height: 90, color: "#C4B5A0", type: "housing" },
-    { name: "Bodega Row", x: 500, y: 280, width: 120, height: 60, color: "#E8A060", type: "building" },
-    { name: "Town Park", x: 400, y: 600, width: 180, height: 140, color: "#7CB87C", type: "park" },
-  ],
-  montclair: [
-    { name: "Bloomfield Ave", x: 100, y: 380, width: 1000, height: 30, color: "#D4A574", type: "road" },
-    { name: "Bay Street Station", x: 900, y: 550, width: 140, height: 90, color: "#8B7355", type: "transport" },
-    { name: "Art Museum", x: 200, y: 180, width: 150, height: 120, color: "#6B5CE7", type: "building" },
-    { name: "Town Hall", x: 550, y: 200, width: 130, height: 100, color: "#C9B896", type: "building" },
-    { name: "Public Library", x: 350, y: 500, width: 120, height: 80, color: "#A0C4E8", type: "building" },
-    { name: "Anderson Park", x: 750, y: 150, width: 200, height: 160, color: "#7CB87C", type: "park" },
-    { name: "St. Paul Baptist", x: 150, y: 550, width: 110, height: 90, color: "#C9B896", type: "church" },
-    { name: "Watchung Plaza", x: 500, y: 500, width: 140, height: 70, color: "#D4A574", type: "building" },
-    { name: "Boutique Row", x: 300, y: 280, width: 160, height: 60, color: "#B8A0D4", type: "building" },
-  ],
-  parsippany: [
-    { name: "Route 46", x: 100, y: 350, width: 1000, height: 35, color: "#B0A090", type: "road" },
-    { name: "Corporate Park", x: 800, y: 150, width: 200, height: 150, color: "#607090", type: "building" },
-    { name: "Lake Parsippany", x: 200, y: 150, width: 180, height: 140, color: "#70B8D0", type: "park" },
-    { name: "Hindu Temple", x: 600, y: 200, width: 100, height: 100, color: "#D4A060", type: "church" },
-    { name: "Indian Grocery", x: 450, y: 250, width: 120, height: 60, color: "#2DA8A8", type: "building" },
-    { name: "Public Library", x: 350, y: 500, width: 120, height: 80, color: "#A0C4E8", type: "building" },
-    { name: "Residential Area", x: 150, y: 500, width: 160, height: 120, color: "#C4B5A0", type: "housing" },
-    { name: "NJ Transit Stop", x: 700, y: 500, width: 100, height: 60, color: "#8B7355", type: "transport" },
-    { name: "Community Center", x: 900, y: 450, width: 130, height: 90, color: "#A0C4B0", type: "building" },
-  ],
-  randolph: [
-    { name: "Main Road", x: 100, y: 400, width: 1000, height: 30, color: "#D4A574", type: "road" },
-    { name: "Town Hall", x: 500, y: 200, width: 140, height: 110, color: "#C9B896", type: "building" },
-    { name: "High School", x: 800, y: 180, width: 180, height: 130, color: "#A0B8C8", type: "building" },
-    { name: "Commercial Strip", x: 300, y: 280, width: 200, height: 60, color: "#D4B896", type: "building" },
-    { name: "Sports Fields", x: 200, y: 550, width: 200, height: 140, color: "#90C890", type: "park" },
-    { name: "Hedden Park", x: 750, y: 530, width: 180, height: 160, color: "#7CB87C", type: "park" },
-    { name: "Church", x: 950, y: 300, width: 100, height: 90, color: "#C9B896", type: "church" },
-    { name: "Randolph Diner", x: 150, y: 300, width: 100, height: 60, color: "#E8C080", type: "building" },
-    { name: "Residential Cul-de-sacs", x: 600, y: 550, width: 140, height: 100, color: "#C4B5A0", type: "housing" },
-  ],
+/* ── Per-town tilemap keys ─────────────────────────────────── */
+
+export const TOWN_MAP_KEY: Record<TownId, string> = {
+  dover: "dover-map",
+  montclair: "montclair-map",
+  parsippany: "parsippany-map",
+  randolph: "randolph-map",
 };
 
 /* ── ElevenLabs Voice Mapping ─────────────────────────────── */
@@ -85,32 +51,49 @@ export const AGENT_VOICES: Record<string, { voiceId: string; label: string }> = 
   "latino-male": { voiceId: "29vD33N1CtxCmqQRPOHJ", label: "Warm Male" },
   "latina-female": { voiceId: "EXAVITQu4vr4xnSDxMaL", label: "Energetic Female" },
   "elderly-female": { voiceId: "MF3mGyEYCl7XYWbV9V6O", label: "Gentle Female" },
+  "elderly-male": { voiceId: "VR6AewLTigWG4xSOukaG", label: "Authoritative Male" },
   "indian-male": { voiceId: "TxGEqnHWrfWFTfGW9XjX", label: "Professional Male" },
+  "indian-female": { voiceId: "pNInz6obpgDQGcFmaJgB", label: "Soft Female" },
   "american-male": { voiceId: "VR6AewLTigWG4xSOukaG", label: "Authoritative Male" },
   "asian-female": { voiceId: "pNInz6obpgDQGcFmaJgB", label: "Soft Female" },
   "young-female": { voiceId: "jBpfuIE2acCO8z3wKNLl", label: "Young Female" },
   "young-male": { voiceId: "yoZ06aMxZJJ28mfd3POQ", label: "Young Male" },
+  "middle-aged-male": { voiceId: "VR6AewLTigWG4xSOukaG", label: "Mature Male" },
+  "middle-aged-female": { voiceId: "EXAVITQu4vr4xnSDxMaL", label: "Mature Female" },
 };
 
-// Map each agent to a voice type
+// Map each of the 26 agents to a voice type.
 export const AGENT_VOICE_MAP: Record<string, string> = {
+  // ── Dover ─────────────────────────────────────────────────
   "carlos-restrepo": "latino-male",
   "miguel-hernandez": "latino-male",
   "maria-santos": "latina-female",
   "esperanza-guzman": "elderly-female",
   "sofia-ramirez": "young-female",
-  "tom-kowalski": "american-male",
-  "rosa-chen": "asian-female",
+  "tom-kowalski": "elderly-male",
+  // ── Montclair ─────────────────────────────────────────────
+  "sarah-&-david-chen": "asian-female",
+  "rosa-chen": "elderly-female",
   "jordan-williams": "young-male",
-  "rabbi-daniel-goldstein": "american-male",
+  "carmen-&-alejandro-vargas": "latina-female",
+  "rabbi-daniel-goldstein": "middle-aged-male",
+  "priya-patel": "indian-female",
+  "margaret-\"peggy\"-o'brien": "elderly-female",
+  // ── Parsippany ────────────────────────────────────────────
   "raj-&-sunita-krishnamurthy": "indian-male",
+  "kantibhai-\"kanti\"-desai": "indian-male",
+  "brian-mccarthy": "middle-aged-male",
+  "aisha-&-omar-khan": "indian-female",
   "pawan-sharma": "indian-male",
-  "brian-mccarthy": "american-male",
-  "grace-reyes": "latina-female",
-  "michael-\"mike\"-brennan": "american-male",
-  "frank-deluca": "american-male",
+  "linda-morrison": "elderly-female",
+  "grace-reyes": "middle-aged-female",
+  // ── Randolph ──────────────────────────────────────────────
+  "michael-\"mike\"-brennan": "middle-aged-male",
+  "jennifer-\"jen\"-russo": "middle-aged-female",
+  "frank-deluca": "elderly-male",
+  "tyler-&-megan-hart": "young-male",
   "vikram-iyer": "indian-male",
-  "tony-mancini": "american-male",
+  "tony-mancini": "middle-aged-male",
 };
 
 /* ── Town Background Colors ────────────────────────────────── */

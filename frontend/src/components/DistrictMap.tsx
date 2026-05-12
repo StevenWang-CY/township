@@ -1,8 +1,39 @@
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useUserProfile } from "../context/UserProfileContext";
-import type { TownId } from "../types/messages";
-import { TOWN_META } from "../types/messages";
+import { useWebSocket } from "../hooks/useWebSocket";
+import type { TownId, LeanId, AgentState } from "../types/messages";
+import { TOWN_META, CANDIDATE_COLORS } from "../types/messages";
+
+/** Compute leading candidate per town from a list of agent states. */
+function leadingCandidatePerTown(agents: AgentState[]): Record<TownId, LeanId | null> {
+  const counts: Record<TownId, Record<LeanId, number>> = {
+    dover: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
+    montclair: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
+    parsippany: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
+    randolph: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
+  };
+  for (const a of agents) {
+    const lean = (a.opinion?.candidate as LeanId) || "undecided";
+    if (counts[a.town]) counts[a.town][lean] = (counts[a.town][lean] || 0) + 1;
+  }
+  const out: Record<TownId, LeanId | null> = {
+    dover: null, montclair: null, parsippany: null, randolph: null,
+  };
+  for (const t of Object.keys(counts) as TownId[]) {
+    let best: LeanId | null = null;
+    let bestN = 0;
+    for (const k of Object.keys(counts[t]) as LeanId[]) {
+      if (k === "undecided") continue;
+      if (counts[t][k] > bestN) {
+        best = k;
+        bestN = counts[t][k];
+      }
+    }
+    out[t] = best;
+  }
+  return out;
+}
 
 /* ───────────────────────────────────────────────────────────────
    NJ-11 Illustrated District Map — Genshin / Anime style
@@ -165,12 +196,18 @@ function TownMarker({
   onHover,
   onLeave,
   onClick,
+  leader,
+  metCount,
+  totalCount,
 }: {
   pin: typeof PINS[0];
   isHovered: boolean;
   onHover: () => void;
   onLeave: () => void;
   onClick: () => void;
+  leader: LeanId | null;
+  metCount: number;
+  totalCount: number;
 }) {
   const meta = TOWN_META[pin.id];
   const glowId = `town-glow-${pin.id}`;
@@ -274,6 +311,38 @@ function TownMarker({
           {meta.name}
         </text>
 
+        {/* Leader dot + met chip */}
+        {leader && (
+          <>
+            <circle
+              cx={pin.cx + 46} cy={pin.cy + 40}
+              r={4}
+              fill={CANDIDATE_COLORS[leader]}
+              stroke="#fff"
+              strokeWidth="1"
+            >
+              <title>Leading: {leader}</title>
+            </circle>
+          </>
+        )}
+        {totalCount > 0 && (
+          <g>
+            <rect
+              x={pin.cx - 50} y={pin.cy + 36}
+              width="22" height="8" rx="3"
+              fill="#fff" stroke={meta.color} strokeWidth="0.6" opacity="0.9"
+            />
+            <text
+              x={pin.cx - 39} y={pin.cy + 42}
+              textAnchor="middle" fontSize="6" fontWeight="700"
+              fill={meta.color}
+              fontFamily="Inter, sans-serif"
+            >
+              {metCount}/{totalCount}
+            </text>
+          </g>
+        )}
+
         {/* Tagline (on hover) */}
         {isHovered && (
           <>
@@ -305,11 +374,34 @@ function TownMarker({
 
 export default function DistrictMap() {
   const navigate = useNavigate();
-  const { isOnboarded } = useUserProfile();
+  const { isOnboarded, profile } = useUserProfile();
+  const ws = useWebSocket();
   const [hovered, setHovered] = useState<TownId | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => { setLoaded(true); }, []);
+
+  const agents = useMemo(() => Object.values(ws.agents), [ws.agents]);
+  const leaders = useMemo(() => leadingCandidatePerTown(agents), [agents]);
+  const townTotals: Record<TownId, number> = useMemo(() => {
+    const out: Record<TownId, number> = { dover: 0, montclair: 0, parsippany: 0, randolph: 0 };
+    for (const a of agents) out[a.town] = (out[a.town] || 0) + 1;
+    // Fallback to canonical counts when no agents have streamed in yet.
+    if (agents.length === 0) {
+      out.dover = 6; out.montclair = 7; out.parsippany = 7; out.randolph = 6;
+    }
+    return out;
+  }, [agents]);
+  const metPerTown: Record<TownId, number> = useMemo(() => {
+    const out: Record<TownId, number> = { dover: 0, montclair: 0, parsippany: 0, randolph: 0 };
+    if (!profile?.metAgents) return out;
+    // We can't know the town of every met agent without the agent list; intersect
+    // with whatever we have. When ws.agents is empty, fall back to 0.
+    for (const a of agents) {
+      if (profile.metAgents.includes(a.id)) out[a.town]++;
+    }
+    return out;
+  }, [profile?.metAgents, agents]);
 
   const goToTown = (id: TownId) => {
     if (isOnboarded) {
@@ -634,6 +726,9 @@ export default function DistrictMap() {
               onHover={() => setHovered(pin.id)}
               onLeave={() => setHovered(null)}
               onClick={() => goToTown(pin.id)}
+              leader={leaders[pin.id]}
+              metCount={metPerTown[pin.id]}
+              totalCount={townTotals[pin.id]}
             />
           ))}
 

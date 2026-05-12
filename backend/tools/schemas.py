@@ -38,6 +38,14 @@ discuss_tool = {
                     "This becomes a memory you carry forward."
                 ),
             },
+            "gesture": {
+                "type": "string",
+                "enum": ["nod", "shake_head", "shrug", "laugh", "point", "none"],
+                "description": (
+                    "Body-language gesture that accompanies this line. Optional — "
+                    "pick the gesture that best fits the tone of your response."
+                ),
+            },
         },
         "required": ["response", "topic", "sentiment", "key_takeaway"],
     },
@@ -131,8 +139,57 @@ react_to_news_tool = {
                     "Name a specific person or group."
                 ),
             },
+            "magnitude": {
+                "type": "string",
+                "enum": ["none", "minor", "moderate", "major"],
+                "description": (
+                    "How big a deal this news feels to you personally. Optional — "
+                    "default to 'minor' for routine items, 'major' if it directly threatens "
+                    "you or your family."
+                ),
+            },
         },
         "required": ["emotional_response", "impact_on_vote", "reasoning", "would_share_with"],
+    },
+}
+
+
+classify_interaction_tool = {
+    "name": "ClassifyInteraction",
+    "description": (
+        "Classify how a person interacted with you in a conversation so you can adjust "
+        "your level of trust toward them. Call this AFTER an exchange, reflecting on the "
+        "tone of the exchange overall."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "tone": {
+                "type": "string",
+                "enum": ["agreeable", "challenging", "curious", "hostile"],
+                "description": (
+                    "The dominant tone of the person's behavior toward you. "
+                    "'agreeable' = warmly supportive; 'challenging' = pushes back but "
+                    "respectfully; 'curious' = sincerely asking and listening; "
+                    "'hostile' = rude, dismissive, or attacking."
+                ),
+            },
+            "trust_delta": {
+                "type": "integer",
+                "minimum": -15,
+                "maximum": 15,
+                "description": (
+                    "Change in trust toward this person. Positive numbers increase trust "
+                    "(0..+15); negative numbers decrease it (-15..0). Typical values: "
+                    "+5 curious, +3 agreeable, -2 challenging, -10 hostile."
+                ),
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "One sentence explaining why this trust change feels right.",
+            },
+        },
+        "required": ["tone", "trust_delta", "reasoning"],
     },
 }
 
@@ -141,6 +198,7 @@ TOOL_REGISTRY: dict[str, dict] = {
     "Discuss": discuss_tool,
     "FormOpinion": form_opinion_tool,
     "ReactToNews": react_to_news_tool,
+    "ClassifyInteraction": classify_interaction_tool,
 }
 
 

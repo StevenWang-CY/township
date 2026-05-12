@@ -1,14 +1,21 @@
 import { useNavigate } from "react-router-dom";
 import type { AgentState, LeanId } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
+import TrustBadge from "./TrustBadge";
 
 interface AgentCardProps {
   agent: AgentState;
   compact?: boolean;
   onClick?: () => void;
+  /** Show the "✓ met" check icon. */
+  met?: boolean;
+  /** Show the gold star for persuaded agents. */
+  persuaded?: boolean;
+  /** When defined, render a small TrustBadge. */
+  trust?: number;
 }
 
-export default function AgentCard({ agent, compact = false, onClick }: AgentCardProps) {
+export default function AgentCard({ agent, compact = false, onClick, met, persuaded, trust }: AgentCardProps) {
   const navigate = useNavigate();
   const meta = TOWN_META[agent.town];
   const candidateId = (agent.opinion?.candidate as LeanId) || "undecided";
@@ -69,13 +76,15 @@ export default function AgentCard({ agent, compact = false, onClick }: AgentCard
           {initials}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate" style={{
+          <p className="truncate flex items-center gap-1" style={{
             fontFamily: "var(--font-body)",
             fontWeight: 600,
             color: "var(--text-primary)",
             fontSize: "13px",
           }}>
             {agent.name}
+            {met && <span title="You've met" style={{ color: "#4A9B5C", fontSize: 11 }}>✓</span>}
+            {persuaded && <span title="Persuaded" style={{ color: "#C4A35A", fontSize: 11 }}>★</span>}
           </p>
           <p className="truncate" style={{
             fontFamily: "var(--font-body)",
@@ -85,6 +94,9 @@ export default function AgentCard({ agent, compact = false, onClick }: AgentCard
             {agent.occupation}
           </p>
         </div>
+        {trust !== undefined && (
+          <TrustBadge trust={trust} size="small" />
+        )}
         <span
           className="px-1.5 py-0.5 rounded-full shrink-0"
           style={{
@@ -131,11 +143,16 @@ export default function AgentCard({ agent, compact = false, onClick }: AgentCard
               {agent.name}
             </span>
             <span className={`town-badge town-badge--${agent.town}`} style={{ fontFamily: "var(--font-display)" }}>{meta.name}</span>
+            {met && <span title="You've met" style={{ color: "#4A9B5C", fontSize: 12 }}>✓</span>}
+            {persuaded && <span title="Persuaded" style={{ color: "#C4A35A", fontSize: 12 }}>★</span>}
           </div>
           <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-muted)" }}>
             {agent.occupation}
           </p>
         </div>
+        {trust !== undefined && (
+          <TrustBadge trust={trust} size="small" />
+        )}
       </div>
 
       {/* Opinion + Confidence */}
