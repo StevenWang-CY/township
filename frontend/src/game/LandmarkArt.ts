@@ -309,12 +309,47 @@ function drawRoad(scene: Phaser.Scene, lm: LandmarkData, _accent: number): Phase
   const x = lm.x, y = lm.y, w = lm.width, h = lm.height;
   const horizontal = w >= h;
 
+  // ── Sidewalk band (light beige) sitting just outside the asphalt edges.
+  // This is the single biggest reason the previous render felt "grey" —
+  // there was no transition between road and ground.
+  const SIDEWALK = 6;
+  const sw = scene.add.graphics();
+  sw.fillStyle(0xe9dfc6, 1);
+  if (horizontal) {
+    sw.fillRect(x - SIDEWALK, y - SIDEWALK, w + SIDEWALK * 2, h + SIDEWALK * 2);
+  } else {
+    sw.fillRect(x - SIDEWALK, y - SIDEWALK, w + SIDEWALK * 2, h + SIDEWALK * 2);
+  }
+  // Sidewalk seam ticks every ~24px for texture
+  sw.lineStyle(0.8, 0xb8a983, 0.55);
+  if (horizontal) {
+    for (let dx = 18; dx < w; dx += 24) {
+      sw.lineBetween(x + dx, y - SIDEWALK, x + dx, y);
+      sw.lineBetween(x + dx, y + h, x + dx, y + h + SIDEWALK);
+    }
+  } else {
+    for (let dy = 18; dy < h; dy += 24) {
+      sw.lineBetween(x - SIDEWALK, y + dy, x, y + dy);
+      sw.lineBetween(x + w, y + dy, x + w + SIDEWALK, y + dy);
+    }
+  }
+  sw.setDepth(40);
+  objs.push(sw);
+
   const g = scene.add.graphics();
-  // Asphalt
-  g.fillStyle(0xb7a98a, 1);
+  // Asphalt — a slightly cooler, more refined grey than the previous tan
+  g.fillStyle(0x8a8579, 1);
   g.fillRect(x, y, w, h);
-  // Edge stripes
-  g.lineStyle(1, 0x6f5e44, 0.4);
+  // Subtle asphalt grain — fine speckles
+  g.fillStyle(0x6f6a5f, 0.18);
+  const speckleStep = 5;
+  for (let dx = 0; dx < w; dx += speckleStep) {
+    for (let dy = 0; dy < h; dy += speckleStep) {
+      if (((dx * 37 + dy * 17) % 13) === 0) g.fillRect(x + dx, y + dy, 2, 2);
+    }
+  }
+  // Curb shadow (thin darker line at the very edge of asphalt against sidewalk)
+  g.lineStyle(1, 0x4b463c, 0.6);
   if (horizontal) {
     g.lineBetween(x, y, x + w, y);
     g.lineBetween(x, y + h, x + w, y + h);
@@ -323,16 +358,20 @@ function drawRoad(scene: Phaser.Scene, lm: LandmarkData, _accent: number): Phase
     g.lineBetween(x + w, y, x + w, y + h);
   }
   // Dashed center line
-  g.lineStyle(2, 0xffffff, 0.75);
+  g.lineStyle(2.2, 0xfff4cf, 0.92);
   if (horizontal) {
     const cy = y + h / 2;
     for (let dx = 6; dx < w - 6; dx += 22) {
       g.lineBetween(x + dx, cy, x + dx + 12, cy);
     }
-    // Crosswalks near both ends
+    // Solid edge lines just inside the curb
+    g.lineStyle(1.2, 0xfff4cf, 0.45);
+    g.lineBetween(x + 2, y + 3, x + w - 2, y + 3);
+    g.lineBetween(x + 2, y + h - 3, x + w - 2, y + h - 3);
+    // Crosswalks (zebra) near both ends, sitting on the asphalt
     for (const cx of [x + 14, x + w - 26]) {
       for (let i = 0; i < 5; i++) {
-        g.fillStyle(0xffffff, 0.85);
+        g.fillStyle(0xfffaee, 0.92);
         g.fillRect(cx + i * 3, y + 2, 2, h - 4);
       }
     }
@@ -341,9 +380,12 @@ function drawRoad(scene: Phaser.Scene, lm: LandmarkData, _accent: number): Phase
     for (let dy = 6; dy < h - 6; dy += 22) {
       g.lineBetween(cx, y + dy, cx, y + dy + 12);
     }
+    g.lineStyle(1.2, 0xfff4cf, 0.45);
+    g.lineBetween(x + 3, y + 2, x + 3, y + h - 2);
+    g.lineBetween(x + w - 3, y + 2, x + w - 3, y + h - 2);
     for (const cy of [y + 14, y + h - 26]) {
       for (let i = 0; i < 5; i++) {
-        g.fillStyle(0xffffff, 0.85);
+        g.fillStyle(0xfffaee, 0.92);
         g.fillRect(x + 2, cy + i * 3, w - 4, 2);
       }
     }
