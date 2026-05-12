@@ -17,6 +17,24 @@ function hexToInt(hex: string | undefined, fallback = 0x888888): number {
   return parseInt(cleaned, 16);
 }
 
+/** Blend an RGB int toward a warm cream (#f6efdb) by `amount` (0..1). */
+function lightenTowardCream(color: number, amount: number): number {
+  const cream = { r: 0xf6, g: 0xef, b: 0xdb };
+  const r = (color >> 16) & 0xff, g = (color >> 8) & 0xff, b = color & 0xff;
+  const t = Math.max(0, Math.min(1, amount));
+  const nr = Math.round(r + (cream.r - r) * t);
+  const ng = Math.round(g + (cream.g - g) * t);
+  const nb = Math.round(b + (cream.b - b) * t);
+  return (nr << 16) | (ng << 8) | nb;
+}
+
+/** Multiplicatively darken an RGB int by `amount` (0..1). */
+function darken(color: number, amount: number): number {
+  const r = (color >> 16) & 0xff, g = (color >> 8) & 0xff, b = color & 0xff;
+  const t = Math.max(0, Math.min(1, 1 - amount));
+  return (Math.round(r * t) << 16) | (Math.round(g * t) << 8) | Math.round(b * t);
+}
+
 /* ── Tiny shape helpers ────────────────────────────────────── */
 
 function tree(scene: Phaser.Scene, x: number, y: number, size = 14): Phaser.GameObjects.GameObject[] {
@@ -124,43 +142,73 @@ function drawChurch(scene: Phaser.Scene, lm: LandmarkData, accent: number): Phas
 function drawCommercialBuilding(scene: Phaser.Scene, lm: LandmarkData, accent: number): Phaser.GameObjects.GameObject[] {
   const objs: Phaser.GameObjects.GameObject[] = [];
   const x = lm.x, y = lm.y, w = lm.width, h = lm.height;
-  const bodyColor = hexToInt(lm.color, 0xc9a785);
+
+  // Lighten the JSON body color so dark hexes like #607090 don't render as a
+  // flat dark navy slab. We blend toward warm cream by 35%, then add a
+  // brighter top-half wash for depth.
+  const rawBody = hexToInt(lm.color, 0xc9a785);
+  const bodyColor = lightenTowardCream(rawBody, 0.35);
+  const upperWash = lightenTowardCream(rawBody, 0.55);
+  // Roof: a saturated darker variant of body for clear roof-vs-wall contrast.
+  const roofColor = darken(rawBody, 0.25);
 
   const g = scene.add.graphics();
-  g.fillStyle(0x000000, 0.12);
+  // Ground shadow
+  g.fillStyle(0x000000, 0.15);
   g.fillEllipse(x + w / 2, y + h - 2, w * 1.05, 12);
 
-  // Body
+  // ── Body in two-tone (upper wash, lower body) so the building stops
+  //    reading as a single dark monolith.
   g.fillStyle(bodyColor, 1);
-  g.fillRect(x + 4, y + 12, w - 8, h - 16);
-  // Flat roof
-  g.fillStyle(0x000000, 0.18);
-  g.fillRect(x + 2, y + 8, w - 4, 6);
+  g.fillRect(x + 4, y + 16, w - 8, h - 20);
+  g.fillStyle(upperWash, 1);
+  g.fillRect(x + 4, y + 16, w - 8, Math.floor((h - 20) * 0.42));
+  // Wall seam (faint horizontal line between floors)
+  g.lineStyle(1, 0x000000, 0.10);
+  g.lineBetween(x + 4, y + 16 + Math.floor((h - 20) * 0.42), x + w - 4, y + 16 + Math.floor((h - 20) * 0.42));
 
-  // Awning (in town accent)
-  g.fillStyle(accent, 0.9);
-  const awningH = 8;
-  g.fillRect(x + 6, y + 14, w - 12, awningH);
-  // Striped accent on awning
-  g.lineStyle(1, 0xffffff, 0.45);
+  // ── Pitched roof: a slim trapezoid sitting on top so the building isn't
+  //    flat-topped. Two-tone for shading.
+  g.fillStyle(roofColor, 1);
+  g.fillRect(x + 2, y + 6, w - 4, 12);
+  g.fillStyle(darken(roofColor, 0.20), 1);
+  g.fillRect(x + 2, y + 14, w - 4, 4);
+  // Roof front-edge highlight
+  g.lineStyle(1, 0xffffff, 0.18);
+  g.lineBetween(x + 2, y + 6, x + w - 2, y + 6);
+
+  // ── Awning in the town accent, more saturated, with scalloped underside.
+  g.fillStyle(accent, 0.95);
+  const awningH = 9;
+  g.fillRect(x + 6, y + 18, w - 12, awningH);
+  g.lineStyle(1, 0xffffff, 0.5);
   for (let i = 1; i < (w - 12) / 8; i++) {
-    g.lineBetween(x + 6 + i * 8, y + 14, x + 6 + i * 8, y + 14 + awningH);
+    g.lineBetween(x + 6 + i * 8, y + 18, x + 6 + i * 8, y + 18 + awningH);
+  }
+  // Scallop on bottom of awning
+  for (let i = 0; i < (w - 12) / 6; i++) {
+    g.fillStyle(accent, 0.95);
+    g.fillTriangle(
+      x + 6 + i * 6, y + 18 + awningH,
+      x + 6 + i * 6 + 6, y + 18 + awningH,
+      x + 6 + i * 6 + 3, y + 18 + awningH + 3,
+    );
   }
 
-  // Sign rail
-  g.fillStyle(0xffffff, 0.92);
-  const sw = Math.min(w - 16, 84);
-  g.fillRoundedRect(x + w / 2 - sw / 2, y + 24, sw, 12, 2);
+  // Sign rail — kept, but smaller + tighter
+  g.fillStyle(0xfff8e8, 0.96);
+  const sw = Math.min(w - 18, 96);
+  g.fillRoundedRect(x + w / 2 - sw / 2, y + 30, sw, 13, 2);
   g.lineStyle(1, 0x000000, 0.18);
-  g.strokeRoundedRect(x + w / 2 - sw / 2, y + 24, sw, 12, 2);
+  g.strokeRoundedRect(x + w / 2 - sw / 2, y + 30, sw, 13, 2);
 
   g.setDepth(46);
   objs.push(g);
 
   // Sign text
-  const sign = scene.add.text(x + w / 2, y + 30, lm.name.slice(0, 14), {
+  const sign = scene.add.text(x + w / 2, y + 36, lm.name.slice(0, 16), {
     fontFamily: "Inter, sans-serif",
-    fontSize: "8px",
+    fontSize: "9px",
     fontStyle: "bold",
     color: "#332617",
     resolution: 2,
@@ -169,17 +217,29 @@ function drawCommercialBuilding(scene: Phaser.Scene, lm: LandmarkData, accent: n
   sign.setDepth(47);
   objs.push(sign);
 
-  // Three windows
-  for (let i = 0; i < 3; i++) {
-    const wx = x + 10 + i * ((w - 20) / 2);
-    const wy = y + h * 0.55;
-    objs.push(windowGlow(scene, wx, wy, 9, 11));
+  // ── Windows in two rows for wider buildings — gives a recognisable
+  //    storefront silhouette instead of one dark plain wall.
+  const winCount = Math.max(3, Math.min(7, Math.floor(w / 32)));
+  const winGap = (w - 20) / winCount;
+  const winRows = h > 100 ? 2 : 1;
+  for (let r = 0; r < winRows; r++) {
+    const wy = y + h * 0.50 + r * 24;
+    for (let i = 0; i < winCount; i++) {
+      const wx = x + 10 + i * winGap + (winGap - 9) / 2;
+      objs.push(windowGlow(scene, wx, wy, 9, 11));
+    }
   }
 
-  // Door
+  // Door + lit door-frame
   const door = scene.add.graphics();
   door.fillStyle(0x4a2f1a, 1);
-  door.fillRoundedRect(x + w / 2 - 6, y + h - 16, 12, 16, { tl: 1, tr: 1, bl: 0, br: 0 });
+  door.fillRoundedRect(x + w / 2 - 7, y + h - 18, 14, 18, { tl: 1, tr: 1, bl: 0, br: 0 });
+  // Doorknob
+  door.fillStyle(0xe6c46a, 1);
+  door.fillCircle(x + w / 2 + 4, y + h - 9, 1.2);
+  // Lit step
+  door.fillStyle(0xfff0c0, 0.5);
+  door.fillRect(x + w / 2 - 9, y + h - 2, 18, 2);
   door.setDepth(47);
   objs.push(door);
 

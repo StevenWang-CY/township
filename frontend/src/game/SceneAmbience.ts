@@ -19,30 +19,34 @@ import type { LandmarkData, TownId } from "../types/messages";
 
 // ── Style palette (Smallville-chibi-matched) ───────────────────────────
 
+// Brighter, more saturated canopy palette — the previous palette read as
+// dark navy/teal blobs against the cream ground (especially Parsippany). All
+// canopy colours pushed lighter and warmer so they unmistakably read as
+// foliage even at small sizes.
 const PALETTES: Record<TownId, {
   treeCanopyA: number; treeCanopyB: number; treeShadow: number;
   trunk: number; flowerA: number; flowerB: number; lampGlow: number;
   petalDrift: number;
 }> = {
   dover: {
-    treeCanopyA: 0x8fb35c, treeCanopyB: 0x6f9447, treeShadow: 0x4b6c32,
-    trunk: 0x5a4633, flowerA: 0xe06b3a, flowerB: 0xffb86b, lampGlow: 0xffd58a,
+    treeCanopyA: 0xb6d878, treeCanopyB: 0x8db84e, treeShadow: 0x6a8e3a,
+    trunk: 0x6e5436, flowerA: 0xe06b3a, flowerB: 0xffc77a, lampGlow: 0xffd58a,
     petalDrift: 0xd47c4a,
   },
   montclair: {
-    treeCanopyA: 0x88a8b8, treeCanopyB: 0x6b8a9a, treeShadow: 0x445a68,
-    trunk: 0x614a3c, flowerA: 0xb88ac8, flowerB: 0xeacbdc, lampGlow: 0xfff0c0,
+    treeCanopyA: 0xb8d088, treeCanopyB: 0x8db065, treeShadow: 0x668248,
+    trunk: 0x66523e, flowerA: 0xc89bd4, flowerB: 0xf3d8e6, lampGlow: 0xfff0c0,
     petalDrift: 0xe6a875,
   },
   parsippany: {
-    treeCanopyA: 0x95b8a0, treeCanopyB: 0x6c9078, treeShadow: 0x466253,
-    trunk: 0x584536, flowerA: 0xe6b85a, flowerB: 0xffe3a0, lampGlow: 0xffd58a,
-    petalDrift: 0xb8d4c0,
+    treeCanopyA: 0xbed98e, treeCanopyB: 0x90b56d, treeShadow: 0x6b884e,
+    trunk: 0x6b513a, flowerA: 0xe6b85a, flowerB: 0xffe3a0, lampGlow: 0xffd58a,
+    petalDrift: 0xc4dba8,
   },
   randolph: {
-    treeCanopyA: 0x9cb487, treeCanopyB: 0x728c5c, treeShadow: 0x4d6240,
-    trunk: 0x5e4a36, flowerA: 0xd49b59, flowerB: 0xfdd9a0, lampGlow: 0xffd9a8,
-    petalDrift: 0xc8b094,
+    treeCanopyA: 0xbcd293, treeCanopyB: 0x8eaa6a, treeShadow: 0x687f48,
+    trunk: 0x6e5440, flowerA: 0xe2a464, flowerB: 0xffdca8, lampGlow: 0xffd9a8,
+    petalDrift: 0xd8c098,
   },
 };
 
@@ -68,29 +72,39 @@ export function composeTownAmbience(
   const tweens: Phaser.Tweens.Tween[] = [];
   const lampGlows: Phaser.GameObjects.Graphics[] = [];
 
-  // 1. Scattered trees with shadow + subtle sway (50-80 trees per town).
+  // 1. Scattered trees with shadow + subtle sway. Previous pass used 56
+  //    trees + no inter-tree spacing rule, which clumped 5-6 canopies on top
+  //    of each other into dark navy blobs that read like rectangles. Now:
+  //    - reduced to 22 trees, larger canopy reads as one tree per spot.
+  //    - inter-tree spacing of 56px enforced.
+  //    - explicit road-avoidance buffer (roads were not in the avoid list).
   const treeAvoid = collectAvoidRects(landmarks);
-  const treeCount = 56;
-  for (let i = 0; i < treeCount; i++) {
-    let x = 0, y = 0;
-    for (let attempt = 0; attempt < 12; attempt++) {
-      x = rng() * (W - 40) + 20;
-      y = rng() * (H - 60) + 30;
-      if (!intersectsAny(x, y, 20, 26, treeAvoid)) break;
+  const placedTrees: Array<{ x: number; y: number }> = [];
+  const treeTarget = 22;
+  let treeAttempts = 0;
+  while (placedTrees.length < treeTarget && treeAttempts < treeTarget * 24) {
+    treeAttempts++;
+    const x = rng() * (W - 80) + 40;
+    const y = rng() * (H - 100) + 50;
+    if (intersectsAny(x, y, 24, 30, treeAvoid)) continue;
+    let tooClose = false;
+    for (const p of placedTrees) {
+      if (Math.hypot(p.x - x, p.y - y) < 56) { tooClose = true; break; }
     }
-    const small = rng() < 0.45;
+    if (tooClose) continue;
+    placedTrees.push({ x, y });
+
+    const small = rng() < 0.4;
     const tree = drawTree(scene, x, y, pal, small);
     objects.push(...tree.objs);
-    // Subtle sway: rotate canopy ±0.04 rad over ~2.6s, staggered.
-    const canopy = tree.canopy;
     const sway = scene.tweens.add({
-      targets: canopy,
-      rotation: { from: -0.035, to: 0.035 },
-      duration: 2200 + rng() * 800,
+      targets: tree.canopy,
+      rotation: { from: -0.03, to: 0.03 },
+      duration: 2400 + rng() * 800,
       yoyo: true,
       repeat: -1,
       ease: "Sine.easeInOut",
-      delay: rng() * 1200,
+      delay: rng() * 1400,
     });
     tweens.push(sway);
   }
@@ -115,20 +129,26 @@ export function composeTownAmbience(
   }
 
   // 3. Lampposts at road edges + commercial perimeters — always-on warm glow,
-  //    brighter at night via setHour().
+  //    brighter at night via setHour(). Wider spacing (220 px not 120) so the
+  //    road doesn't look like a runway; staggered between sides so the eye
+  //    sees one lamp at a time, not paired walls of light.
   const lampSpots: { x: number; y: number }[] = [];
   for (const lm of landmarks) {
     if (lm.type === "road") {
       const horiz = lm.width >= lm.height;
-      const step = horiz ? Math.max(120, lm.width / 5) : Math.max(120, lm.height / 5);
+      const step = 220;
       if (horiz) {
         for (let dx = step / 2; dx < lm.width; dx += step) {
           lampSpots.push({ x: lm.x + dx, y: lm.y - 14 });
+        }
+        for (let dx = step; dx < lm.width; dx += step) {
           lampSpots.push({ x: lm.x + dx, y: lm.y + lm.height + 14 });
         }
       } else {
         for (let dy = step / 2; dy < lm.height; dy += step) {
           lampSpots.push({ x: lm.x - 14, y: lm.y + dy });
+        }
+        for (let dy = step; dy < lm.height; dy += step) {
           lampSpots.push({ x: lm.x + lm.width + 14, y: lm.y + dy });
         }
       }
@@ -138,15 +158,17 @@ export function composeTownAmbience(
     const lamp = drawLamppost(scene, sp.x, sp.y, pal);
     objects.push(...lamp.objs);
     lampGlows.push(lamp.glow);
-    // Always-on tiny flicker — random alpha jitter at low magnitude.
+    // Always-on micro-flicker via scale (NOT alpha) so the setHour() alpha
+    // tween isn't constantly fighting an alpha-jitter tween.
     const flicker = scene.tweens.add({
       targets: lamp.glow,
-      alpha: { from: 0.20, to: 0.30 },
-      duration: 1200 + rng() * 800,
+      scaleX: { from: 0.96, to: 1.04 },
+      scaleY: { from: 0.96, to: 1.04 },
+      duration: 1300 + rng() * 800,
       yoyo: true,
       repeat: -1,
       ease: "Sine.easeInOut",
-      delay: rng() * 800,
+      delay: rng() * 900,
     });
     tweens.push(flicker);
   }
@@ -264,9 +286,11 @@ export function composeTownAmbience(
     setHour(hour: number) {
       if (hour === lastHour) return;
       lastHour = hour;
+      // Lower daytime alpha — additive blend mode + yellow glow over cream
+      // made the bulbs read as "weird bright circles" by day in the bug report.
       const night = hour < 6 || hour >= 19;
       const dusk = (hour >= 17 && hour < 19) || (hour >= 5 && hour < 7);
-      const targetAlpha = night ? 0.85 : dusk ? 0.55 : 0.22;
+      const targetAlpha = night ? 0.78 : dusk ? 0.42 : 0.10;
       for (const g of lampGlows) {
         scene.tweens.add({
           targets: g, alpha: targetAlpha, duration: 600, ease: "Sine.easeInOut",
@@ -387,7 +411,9 @@ function drawLamppost(
   glow.fillCircle(x, y - 28, 18);
   glow.fillStyle(pal.lampGlow, 1);
   glow.fillCircle(x, y - 28, 26);
-  glow.setAlpha(0.22);
+  // Start dim — the setHour() driver above immediately bumps this to the
+  // hour-correct value, but we don't want a daytime flash on first frame.
+  glow.setAlpha(0.10);
   glow.setBlendMode(Phaser.BlendModes.ADD);
   glow.setDepth(19);
   objs.push(glow);
@@ -432,9 +458,12 @@ interface Rect { x: number; y: number; w: number; h: number }
 function collectAvoidRects(landmarks: LandmarkData[]): Rect[] {
   const out: Rect[] = [];
   for (const lm of landmarks) {
-    // Avoid placing trees on buildings/roads (parks are fine — they look nice with trees).
+    // Parks: skip — trees look nice INSIDE parks.
     if (lm.type === "park") continue;
-    out.push({ x: lm.x - 4, y: lm.y - 4, w: lm.width + 8, h: lm.height + 8 });
+    // Roads need a larger buffer so trees don't sit on the asphalt or
+    // straddle the sidewalk. 18 px padding clears the road + sidewalk.
+    const pad = lm.type === "road" ? 18 : 6;
+    out.push({ x: lm.x - pad, y: lm.y - pad, w: lm.width + pad * 2, h: lm.height + pad * 2 });
   }
   return out;
 }
