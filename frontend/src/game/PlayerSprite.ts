@@ -529,9 +529,30 @@ export class PlayerSprite extends AgentSprite {
         this.dwellAutoFired = true;
         this.onInteract();
       }
-    } else if (this.wasMoving) {
-      // Reset while moving so the user can pass by without triggering.
-      this.dwellStartMs = 0;
+      // Visual progress: the three dots in the prompt fill left-to-right so
+      // the player can see the auto-talk timer counting down.
+      this.renderDwellProgress((now - this.dwellStartMs) / DWELL_AUTO_TALK_MS);
+    } else {
+      if (this.wasMoving) {
+        // Reset while moving so the user can pass by without triggering.
+        this.dwellStartMs = 0;
+      }
+      this.renderDwellProgress(0);
+    }
+  }
+
+  /** Fill the three dwell-progress dots left-to-right based on `progress` (0..1). */
+  private renderDwellProgress(progress: number) {
+    const dots = this.interactPrompt.getByName("dwellDots") as Phaser.GameObjects.Container | null;
+    if (!dots) return;
+    const p = Phaser.Math.Clamp(progress, 0, 1);
+    const children = dots.list as Phaser.GameObjects.GameObject[];
+    for (let i = 0; i < children.length; i++) {
+      // Each dot owns 1/N of the progress bar; alpha rises from 0.25 → 1.0
+      // as the bar fills past it.
+      const local = Phaser.Math.Clamp(p * children.length - i, 0, 1);
+      const alpha = 0.25 + 0.75 * local;
+      (children[i] as Phaser.GameObjects.Graphics).setAlpha(alpha);
     }
   }
 

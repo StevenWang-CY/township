@@ -292,7 +292,6 @@ export class TownScene extends Phaser.Scene {
     const sy = Phaser.Math.Clamp(base.y + Phaser.Math.Between(-35, 35), 40, 760);
 
     const custom = resolveAgentSprite(agent.id);
-    const isCouple = /&/.test(agent.name);
 
     const sprite = new AgentSprite(this, sx, sy, {
       id: agent.id,
@@ -302,22 +301,13 @@ export class TownScene extends Phaser.Scene {
       town: agent.town,
       opinionColor: this.opinionColor(agent.opinion?.candidate),
       spriteKey: custom.spriteKey,
-      outfitKey: custom.outfitKey,
       accessoryKey: custom.accessoryKey,
       tint: custom.tint,
-      // Couples render a second body sprite walking alongside. Prefer the
-      // partner sprite explicitly declared on the customization (so e.g.
-      // "Sarah & David Chen" renders Mei_Lin + Eddy_Lin instead of two
-      // Mei_Lin clones). Fallback keeps the legacy tinted-twin behavior
-      // for any couple agent missing a `partner` entry.
-      partner: isCouple
-        ? {
-            spriteKey: custom.partner?.spriteKey ?? custom.spriteKey,
-            name: agent.name,
-            initials: agent.initials ?? "",
-            tint: custom.partner?.tint ?? (custom.partner?.spriteKey ? undefined : 0xe5dcc8),
-          }
-        : undefined,
+      // Couples render as a single body with a small companion-ring indicator
+      // inside the opinion ring (see AgentSprite.redrawRing). The previous
+      // side-by-side second body read as a "second figure" parked next to
+      // the agent.
+      partner: custom.partner,
     });
 
     this.agentSprites.set(agent.id, sprite);
@@ -878,50 +868,13 @@ export class TownScene extends Phaser.Scene {
   /* ── Generate outfit + accessory overlay textures ──────────── */
 
   /**
-   * Build 96×128 (3×4 grid of 32×32 cells) textures for outfits + accessories
-   * since authored PNGs don't exist yet. Even a flat color block per cell is
-   * a clear "this NPC wears scrubs" affordance vs. no overlay at all.
+   * Build 96×128 (3×4 grid of 32×32 cells) textures for head-only accessory
+   * overlays (kippah / hijab / cap). These hug the silhouette so they read
+   * as part of the figure. Outfit overlays (chest patches) were removed —
+   * the previous flat-rect approach drew a ~31×20 px solid block on top of
+   * each body and read as a floating shape besides the figure.
    */
   private generateOverlayTextures() {
-    const outfits: Record<string, number> = {
-      "outfit-scrubs":   0x3aa1c4,  // teal medical scrubs
-      "outfit-labor":    0xc46a2a,  // safety orange
-      "outfit-business": 0x2a3a5a,  // dark navy suit
-      "outfit-parent":   0xa84a78,  // mauve / cardigan
-      "outfit-casual":   0x6a9a4a,  // moss green
-      "outfit-formal":   0x1a2238,  // dark navy blazer (formal)
-    };
-    for (const [key, color] of Object.entries(outfits)) {
-      if (this.textures.exists(key)) continue;
-      const g = this.add.graphics();
-      g.setVisible(false);
-      // 3 cols × 4 rows of 32×32 → 96×128
-      for (let row = 0; row < 4; row++) {
-        for (let col = 0; col < 3; col++) {
-          const cx = col * 32 + 16;
-          const cy = row * 32 + 32;
-          if (key === "outfit-formal") {
-            // Formal: dark navy blazer + a lighter shirt patch underneath.
-            g.fillStyle(color, 0.92);
-            g.fillRect(cx - 7, cy - 14, 14, 9);
-            g.fillStyle(0xe6e0d0, 0.85); // lighter shirt
-            g.fillRect(cx - 2, cy - 12, 4, 7);
-            g.fillStyle(0xffffff, 0.10);
-            g.fillRect(cx - 7, cy - 14, 14, 2);
-          } else {
-            // Torso patch over the body's chest region
-            g.fillStyle(color, 0.85);
-            g.fillRect(cx - 7, cy - 14, 14, 9);
-            // Subtle highlight
-            g.fillStyle(0xffffff, 0.12);
-            g.fillRect(cx - 7, cy - 14, 14, 2);
-          }
-        }
-      }
-      g.generateTexture(key, 96, 128);
-      g.destroy();
-    }
-
     const accessories: Record<string, (g: Phaser.GameObjects.Graphics, cx: number, cy: number) => void> = {
       "accessory-kippah": (g, cx, cy) => {
         // Small dark cap on crown of head

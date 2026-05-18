@@ -306,6 +306,31 @@ h1, h2, h3 {
   align-self: center;
 }
 
+/* Inline stage directions — agent *gestures / body language* parsed from
+ * `*…*` segments. Rendered as a quiet aside so spoken dialogue keeps the
+ * eye's focus. The thin-space padding and bracket-like punctuation give
+ * the reader a clear visual break without taking a new line. */
+.chat-gesture {
+  display: inline;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 0.88em;
+  color: var(--text-muted, rgba(74, 60, 40, 0.62));
+  opacity: 0.78;
+  letter-spacing: 0.01em;
+  padding: 0 0.15em;
+}
+.chat-gesture::before {
+  content: "\2009\27E8";  /* thin-space + ⟨ */
+  margin-right: 0.1em;
+  opacity: 0.55;
+}
+.chat-gesture::after {
+  content: "\27E9\2009";  /* ⟩ + thin-space */
+  margin-left: 0.1em;
+  opacity: 0.55;
+}
+
 /* ── Town Accent Utilities ─────────────────────────────────── */
 
 .town-dover { --town-accent: var(--dover); }
