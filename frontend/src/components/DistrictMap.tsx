@@ -286,12 +286,43 @@ function TownMarker({
       {/* Inner dot */}
       <circle cx={pin.cx} cy={pin.cy} r="1.5" fill="white" opacity="0.7" />
 
-      {/* ── Label: positioned well below pin to avoid overlap ── */}
+      {/* ── Status pill: leader dot + met count, floating between pin and label ── */}
+      {(totalCount > 0 || leader) && (
+        <g style={{ pointerEvents: "none" }}>
+          <rect
+            x={pin.cx - 22} y={pin.cy + 14}
+            width="44" height="14" rx="7" ry="7"
+            fill="rgba(255,255,255,0.96)"
+            stroke={leader ? CANDIDATE_COLORS[leader] : "rgba(196,180,154,0.55)"}
+            strokeWidth="0.8"
+            filter="url(#labelShadow)"
+          />
+          {leader && (
+            <circle
+              cx={pin.cx - 13} cy={pin.cy + 21}
+              r="2.8"
+              fill={CANDIDATE_COLORS[leader]}
+            >
+              <title>Leading: {leader}</title>
+            </circle>
+          )}
+          <text
+            x={leader ? pin.cx + 5 : pin.cx}
+            y={pin.cy + 24}
+            textAnchor="middle" fontSize="8" fontWeight="700"
+            fill="#2C2416"
+            fontFamily="Inter, sans-serif"
+          >
+            {metCount}/{totalCount}
+          </text>
+        </g>
+      )}
+
+      {/* ── Town label: full-width name plate; expands on hover with tagline + pop ── */}
       <g>
-        {/* Background plate — auto-width based on name */}
         <rect
-          x={pin.cx - 55} y={pin.cy + 28}
-          width="110" height={isHovered ? 52 : 26}
+          x={pin.cx - 55} y={pin.cy + 34}
+          width="110" height={isHovered ? 50 : 24}
           rx="6" ry="6"
           fill="rgba(255,255,255,0.93)"
           stroke={isHovered ? meta.color : "rgba(196,180,154,0.4)"}
@@ -300,9 +331,9 @@ function TownMarker({
           style={{ transition: "all 0.3s ease" }}
         />
 
-        {/* Town name */}
+        {/* Town name — full label width, no inline chips to collide with */}
         <text
-          x={pin.cx} y={pin.cy + 44}
+          x={pin.cx} y={pin.cy + 49}
           textAnchor="middle" fontSize="12" fontWeight="600"
           fill="#2C2416"
           fontFamily="var(--font-display)"
@@ -311,43 +342,11 @@ function TownMarker({
           {meta.name}
         </text>
 
-        {/* Leader dot + met chip */}
-        {leader && (
-          <>
-            <circle
-              cx={pin.cx + 46} cy={pin.cy + 40}
-              r={4}
-              fill={CANDIDATE_COLORS[leader]}
-              stroke="#fff"
-              strokeWidth="1"
-            >
-              <title>Leading: {leader}</title>
-            </circle>
-          </>
-        )}
-        {totalCount > 0 && (
-          <g>
-            <rect
-              x={pin.cx - 50} y={pin.cy + 36}
-              width="22" height="8" rx="3"
-              fill="#fff" stroke={meta.color} strokeWidth="0.6" opacity="0.9"
-            />
-            <text
-              x={pin.cx - 39} y={pin.cy + 42}
-              textAnchor="middle" fontSize="6" fontWeight="700"
-              fill={meta.color}
-              fontFamily="Inter, sans-serif"
-            >
-              {metCount}/{totalCount}
-            </text>
-          </g>
-        )}
-
-        {/* Tagline (on hover) */}
+        {/* Tagline + population (on hover) */}
         {isHovered && (
           <>
             <text
-              x={pin.cx} y={pin.cy + 58}
+              x={pin.cx} y={pin.cy + 64}
               textAnchor="middle" fontSize="8" fontWeight="500"
               fill={meta.color}
               fontFamily="Inter, sans-serif"
@@ -356,7 +355,7 @@ function TownMarker({
               {meta.tagline}
             </text>
             <text
-              x={pin.cx} y={pin.cy + 70}
+              x={pin.cx} y={pin.cy + 76}
               textAnchor="middle" fontSize="7" fontWeight="600"
               fill="#8A7E6E"
               fontFamily="Inter, sans-serif"

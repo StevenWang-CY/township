@@ -44,10 +44,16 @@ export interface AgentConfig {
   town: string;
   opinionColor?: string;
   spriteKey?: string;
+  /**
+   * @deprecated Outfit overlays were removed (flat-rect chest patches read as
+   * floating shapes besides the figure). Use `tint` to differentiate agents.
+   * Kept on the type for back-compat with existing callers; ignored at runtime.
+   */
   outfitKey?: string;
   accessoryKey?: string;
   tint?: number;
-  partner?: { spriteKey?: string; name: string; initials: string; tint?: number };
+  /** Couple-indicator ring metadata. No second body sprite is rendered. */
+  partner?: { name: string; tint?: number };
   /** Ambient background NPC — no opinion ring, no interaction, no nameplate. */
   ambient?: boolean;
 }
@@ -63,9 +69,7 @@ interface BubbleEntry {
 export class AgentSprite extends Phaser.GameObjects.Container {
   // Layered sprite stack
   protected bodySprite?: Phaser.GameObjects.Sprite;
-  protected outfitSprite?: Phaser.GameObjects.Sprite;
   protected accessorySprite?: Phaser.GameObjects.Sprite;
-  protected coupleSprite?: Phaser.GameObjects.Sprite;
   /** Back-compat alias used by older code paths (== bodySprite). */
   protected charSprite?: Phaser.GameObjects.Sprite;
 
@@ -103,7 +107,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   private currentActivity: AgentActivity = "idle";
   private currentGesture: GestureKind = "none";
-  private hasPartner = false;
+  private partnerInfo?: { name: string; tint: number };
   protected ambient = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, cfg: AgentConfig) {
@@ -136,37 +140,33 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       this.charSprite = this.bodySprite;
       this.usingSpritesheet = true;
 
-      // Optional outfit overlay
-      if (cfg.outfitKey && scene.textures.exists(cfg.outfitKey)) {
-        this.outfitSprite = scene.add.sprite(0, 0, cfg.outfitKey, IDLE_FRAMES.down);
-        this.outfitSprite.setScale(SPRITE_SCALE);
-        this.outfitSprite.setOrigin(0.5, 1);
-        this.add(this.outfitSprite);
-      }
-      // Optional accessory overlay
-      if (cfg.accessoryKey && scene.textures.exists(cfg.accessoryKey)) {
-        this.accessorySprite = scene.add.sprite(0, 0, cfg.accessoryKey, IDLE_FRAMES.down);
-        this.accessorySprite.setScale(SPRITE_SCALE);
-        this.accessorySprite.setOrigin(0.5, 1);
-        this.add(this.accessorySprite);
+      // Accessory overlay — head-only shapes (kippah/hijab/cap) that hug the
+      // silhouette. We skip silently if the texture wasn't generated rather
+      // than creating an empty sprite that would draw as a stray rectangle.
+      if (cfg.accessoryKey) {
+        if (scene.textures.exists(cfg.accessoryKey)) {
+          this.accessorySprite = scene.add.sprite(0, 0, cfg.accessoryKey, IDLE_FRAMES.down);
+          this.accessorySprite.setScale(SPRITE_SCALE);
+          this.accessorySprite.setOrigin(0.5, 1);
+          this.add(this.accessorySprite);
+        } else if (typeof console !== "undefined") {
+          console.warn(`[AgentSprite] accessory texture "${cfg.accessoryKey}" not found for ${cfg.id}`);
+        }
       }
 
-      // Couple / partner — render side-by-side
+      // Couple indicator — a small companion ring inside the opinion ring
+      // (drawn by redrawRing). No second body sprite is mounted; the previous
+      // side-by-side render produced a "second figure" effect that read as a
+      // shape besides the agent.
       if (cfg.partner) {
-        this.hasPartner = true;
-        const partnerKey = cfg.partner.spriteKey && scene.textures.exists(cfg.partner.spriteKey)
-          ? cfg.partner.spriteKey
-          : cfg.spriteKey;
-        this.coupleSprite = scene.add.sprite(18, 0, partnerKey, IDLE_FRAMES.down);
-        this.coupleSprite.setScale(SPRITE_SCALE);
-        this.coupleSprite.setOrigin(0.5, 1);
-        if (cfg.partner.tint !== undefined) this.coupleSprite.setTint(cfg.partner.tint);
-        this.add(this.coupleSprite);
-        // Wider shadow under the pair
-        this.groundShadow.setSize(60, 14);
+        this.partnerInfo = {
+          name: cfg.partner.name,
+          tint: cfg.partner.tint ?? 0xc8b89c,
+        };
+        if (!this.ambient) this.redrawRing();
       }
 
-      // Sync overlay frames whenever the body anim advances.
+      // Sync accessory frame whenever the body anim advances.
       this.bodySprite.on(Phaser.Animations.Events.ANIMATION_UPDATE, () => this.syncOverlayFrame());
       this.bodySprite.on("framechange", () => this.syncOverlayFrame());
     } else {
@@ -210,20 +210,23 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     } else {
       this.setInteractive({ cursor: "pointer" });
 
+      // Hover: gentle lift, not a Back.easeOut overshoot. The earlier 1.1×
+      // bounce felt twitchy during normal cursor passes.
       this.on("pointerover", () => {
         if (this.isMoving) return;
-        scene.tweens.add({ targets: this, scaleX: 1.1, scaleY: 1.1, duration: 110, ease: "Back.easeOut" });
+        scene.tweens.add({ targets: this, scaleX: 1.05, scaleY: 1.05, duration: 130, ease: "Sine.easeOut" });
         this.nameLabel.setColor("#FFD700");
       });
       this.on("pointerout", () => {
-        scene.tweens.add({ targets: this, scaleX: 1, scaleY: 1, duration: 110, ease: "Back.easeOut" });
+        scene.tweens.add({ targets: this, scaleX: 1, scaleY: 1, duration: 130, ease: "Sine.easeOut" });
         this.nameLabel.setColor("#ffffff");
       });
       this.on("pointerdown", () => {
         if (!this.isPlayer) {
           scene.events.emit("agent-clicked", this.agentId);
         }
-        scene.tweens.add({ targets: this, scaleX: 0.9, scaleY: 0.9, duration: 65, yoyo: true, ease: "Quad.easeOut" });
+        // Slightly less aggressive press: 0.94 instead of 0.9.
+        scene.tweens.add({ targets: this, scaleX: 0.94, scaleY: 0.94, duration: 80, yoyo: true, ease: "Quad.easeOut" });
       });
     }
 
@@ -273,24 +276,25 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.playWalk(this.currentDirection);
     const frameRate = Phaser.Math.Clamp(6 + dist / 220, 5, 14);
     if (this.bodySprite?.anims) this.bodySprite.anims.timeScale = frameRate / WALK_FPS;
-    if (this.outfitSprite?.anims) this.outfitSprite.anims.timeScale = frameRate / WALK_FPS;
     if (this.accessorySprite?.anims) this.accessorySprite.anims.timeScale = frameRate / WALK_FPS;
-    if (this.coupleSprite?.anims) this.coupleSprite.anims.timeScale = frameRate / WALK_FPS;
 
-    // Shadow squish while walking — variable frame rate by distance
-    const squishDur = Phaser.Math.Clamp(180 + dist * 0.15, 220, 320);
+    // Shadow stride — hint of weight shift, not a trampoline hop.
+    // Duration roughly matches the 9 fps × 3-frame walk cycle (~333 ms).
+    const squishDur = Phaser.Math.Clamp(320 + dist * 0.15, 360, 460);
     this.shadowTween = this.scene.tweens.add({
       targets: this.groundShadow,
-      scaleX: 1.45,
-      scaleY: 0.6,
+      scaleX: 1.18,
+      scaleY: 0.88,
       duration: squishDur,
       yoyo: true,
       repeat: -1,
       ease: "Sine.easeInOut",
+      delay: 30,
     });
 
-    // Duration: ~3 px / ms → faster for short hops, capped
-    const duration = Phaser.Math.Clamp(dist * 3.8, 600, 2800);
+    // Duration: short hops feel responsive (280 ms min), long walks remain
+    // leisurely. The previous 600 ms floor made 8 px steps look like sliding.
+    const duration = Phaser.Math.Clamp(dist * 3.8, 280, 2800);
 
     this.moveTween = this.scene.tweens.add({
       targets: this,
@@ -309,9 +313,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         this.groundShadow.setScale(1);
         // Reset animation timeScale to default after a walk.
         if (this.bodySprite?.anims) this.bodySprite.anims.timeScale = 1;
-        if (this.outfitSprite?.anims) this.outfitSprite.anims.timeScale = 1;
         if (this.accessorySprite?.anims) this.accessorySprite.anims.timeScale = 1;
-        if (this.coupleSprite?.anims) this.coupleSprite.anims.timeScale = 1;
         this.playIdle(this.currentDirection);
         this.currentActivity = "idle";
         this.beginIdle();
@@ -627,54 +629,60 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   protected playWalk(dir: Direction) {
     if (!this.usingSpritesheet || !this.bodySprite) return;
     const key = `${this.bodySprite.texture.key}-walk-${dir}`;
-    if (this.scene.anims.exists(key)) this.bodySprite.play(key, true);
-    if (this.coupleSprite) {
-      const coupleKey = `${this.coupleSprite.texture.key}-walk-${dir}`;
-      if (this.scene.anims.exists(coupleKey)) this.coupleSprite.play(coupleKey, true);
-    }
-    // Position the partner perpendicular to the direction of motion.
-    if (this.coupleSprite) {
-      const perp = (dir === "left" || dir === "right") ? { x: 0, y: -12 } : { x: 18, y: 0 };
-      this.coupleSprite.setPosition(perp.x, perp.y);
+    if (this.scene.anims.exists(key)) {
+      this.bodySprite.play(key, true);
+    } else {
+      // Surface the missing-anim regression once per key/session rather than
+      // silently freezing the agent at frame 0. The data manager survives
+      // across scene reloads but not page reloads.
+      const warned: Set<string> = (this.scene.data.get("_warnedMissingAnims") as Set<string>) ?? new Set();
+      if (!warned.has(key)) {
+        warned.add(key);
+        this.scene.data.set("_warnedMissingAnims", warned);
+        if (typeof console !== "undefined") {
+          console.warn(`[AgentSprite] walk animation "${key}" not registered — falling back to idle frame.`);
+        }
+      }
+      this.bodySprite.setFrame(IDLE_FRAMES[dir]);
     }
   }
 
   protected playIdle(dir: Direction) {
     if (!this.usingSpritesheet || !this.bodySprite) return;
-    this.bodySprite.stop();
-    this.bodySprite.setFrame(IDLE_FRAMES[dir]);
-    this.outfitSprite?.setFrame(IDLE_FRAMES[dir]);
-    this.accessorySprite?.setFrame(IDLE_FRAMES[dir]);
-    if (this.coupleSprite) {
-      this.coupleSprite.stop();
-      this.coupleSprite.setFrame(IDLE_FRAMES[dir]);
+    // Prefer the per-direction idle anim (registered in TownScene) for a
+    // gentle weight-shift; fall back to a static frame if the anim was never
+    // registered (covers fallback / legacy sprite sheets).
+    const idleKey = `${this.bodySprite.texture.key}-idle-${dir}`;
+    if (this.scene.anims.exists(idleKey)) {
+      this.bodySprite.play(idleKey, true);
+    } else {
+      this.bodySprite.stop();
+      this.bodySprite.setFrame(IDLE_FRAMES[dir]);
     }
+    this.accessorySprite?.setFrame(IDLE_FRAMES[dir]);
   }
 
-  /** Body's anim advanced — propagate the frame to overlays + partner. */
+  /** Body's anim advanced — propagate the frame to the accessory overlay. */
   private syncOverlayFrame() {
     if (!this.bodySprite) return;
     const frame = this.bodySprite.frame.name;
-    this.outfitSprite?.setFrame(frame);
     this.accessorySprite?.setFrame(frame);
-    // Partner shares the same stride — if it's not running its own anim, mirror frame.
-    if (this.coupleSprite && !this.coupleSprite.anims?.isPlaying) {
-      this.coupleSprite.setFrame(frame);
-    }
   }
 
-  /** Breathing idle: subtle scaleY pulse + inverse shadow shrink. */
+  /** Breathing idle: legible scaleY pulse + shadow that breathes with the body. */
   protected beginIdle() {
     this.playIdle(this.currentDirection);
 
-    const period = 1200;
-    const phase = Math.random() * period;
+    // Calmer, more visible breath. Period is held long enough to read at
+    // gameplay distance; phase is capped so the village's agents share a
+    // loose collective rhythm rather than each breathing on their own clock.
+    const period = 1900;
+    const phase = Math.random() * 600;
 
-    // Breathing: subtle vertical scale on body sprite
     if (this.bodySprite) {
       this.idleTween = this.scene.tweens.add({
         targets: this.bodySprite,
-        scaleY: this.spriteBaseScale * 1.03,
+        scaleY: this.spriteBaseScale * 1.06,
         duration: period,
         yoyo: true,
         repeat: -1,
@@ -683,11 +691,12 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       });
     }
 
-    // Shadow inverse: shrink when character "inhales"
+    // Shadow EXPANDS with the body's inhale — heavier on the ground reads as
+    // breathing in. The previous "shrink on inhale" felt like sinking.
     this.shadowTween = this.scene.tweens.add({
       targets: this.groundShadow,
-      scaleX: 0.92,
-      scaleY: 0.85,
+      scaleX: 1.06,
+      scaleY: 1.04,
       duration: period,
       yoyo: true,
       repeat: -1,
@@ -698,9 +707,21 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   private redrawRing() {
     this.opinionRing.clear();
-    if (this.opinionColor === "#FFFFFF") return; // undecided → no ring
-    const c = Phaser.Display.Color.HexStringToColor(this.opinionColor).color;
     const cy = -FRAME_H * 0.55; // vertically centered on sprite body
+
+    // Couple indicator: a small companion ring nested at the upper-right of
+    // the main ring. Drawn whether or not the agent has formed an opinion,
+    // so couples are always visually distinguished.
+    if (this.partnerInfo) {
+      const pc = this.partnerInfo.tint;
+      this.opinionRing.lineStyle(1.4, pc, 0.85);
+      this.opinionRing.strokeCircle(14, cy - 14, 6);
+      this.opinionRing.fillStyle(pc, 0.22);
+      this.opinionRing.fillCircle(14, cy - 14, 5.5);
+    }
+
+    if (this.opinionColor === "#FFFFFF") return; // undecided → no opinion ring
+    const c = Phaser.Display.Color.HexStringToColor(this.opinionColor).color;
     // Soft halo
     this.opinionRing.lineStyle(6, c, 0.15);
     this.opinionRing.strokeCircle(0, cy, 30);
@@ -758,7 +779,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   }
 
   /** Is this sprite a paired duo (composite couple agent)? */
-  hasCouple(): boolean { return this.hasPartner; }
+  hasCouple(): boolean { return !!this.partnerInfo; }
 
   /** Multi-layered proximity glow — shown when the player is nearby. */
   setProximityHighlight(active: boolean) {

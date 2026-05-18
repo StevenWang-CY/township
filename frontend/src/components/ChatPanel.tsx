@@ -15,6 +15,40 @@ import TrustBadge from "./TrustBadge";
 
 const TRANSCRIPT_CACHE: Record<string, ChatMessage[]> = {};
 
+/* ── Stage-direction rendering ──────────────────────────────────
+ * Agents emit gesture / body language wrapped in *single asterisks*
+ * (chat-RP convention). Rendered inline as italic, muted, slightly
+ * smaller text — and stripped before being sent to TTS so ElevenLabs
+ * doesn't pronounce the asterisks. */
+
+const GESTURE_RE = /\*([^*\n]+?)\*/g;
+
+function renderMessageContent(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  GESTURE_RE.lastIndex = 0;
+  while ((m = GESTURE_RE.exec(text)) !== null) {
+    if (m.index > lastIdx) {
+      parts.push(text.slice(lastIdx, m.index));
+    }
+    parts.push(
+      <span key={`g-${m.index}`} className="chat-gesture">
+        {m[1].trim()}
+      </span>,
+    );
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) {
+    parts.push(text.slice(lastIdx));
+  }
+  return parts.length === 0 ? text : parts;
+}
+
+function stripGesturesForSpeech(text: string): string {
+  return text.replace(GESTURE_RE, "").replace(/[ \t]{2,}/g, " ").trim();
+}
+
 /* ── ElevenLabs TTS Helper ───────────────────────────────────── */
 
 function getVoiceId(agentId: string): string {
@@ -318,19 +352,28 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
     setMemoryOpen(false);
     // Audio cue: opening the chat with a new agent.
     audio.play("chat_open");
-    // Fire-and-forget memory peek fetch (gracefully degrades)
+    refetchMemories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent?.id]);
+
+  // Re-pull the agent's memory list. Used at open time, after every new
+  // agent message (so the conversation we just had appears in the panel),
+  // and when the user expands the memory peek manually.
+  const refetchMemories = useCallback(() => {
+    if (!agent?.id) return;
     fetch(`/api/simulation/agent/${encodeURIComponent(agent.id)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data) return;
-        const memList =
-          (Array.isArray(data.memories) && data.memories.slice(-5)) ||
-          (Array.isArray(data.memory) && data.memory.slice(-5)) ||
-          null;
-        if (memList) setMemories(memList);
+        const raw = Array.isArray(data.memories)
+          ? data.memories
+          : Array.isArray(data.memory)
+          ? data.memory
+          : null;
+        if (raw === null) return; // endpoint shape we don't recognise
+        setMemories(raw.slice(-5));
       })
       .catch(() => { /* graceful degrade */ });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent?.id]);
 
   // Auto-scroll
@@ -344,11 +387,16 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
     if (latestAgent && latestAgent.id !== lastAgentMsgIdRef.current) {
       lastAgentMsgIdRef.current = latestAgent.id;
       setMood(classifyMood(latestAgent.content));
-      // Voice auto-play
+      // The backend just appended a "Chat:" memory for this turn; pull the
+      // updated list so the memory peek reflects the conversation we are
+      // actually having (was previously stale after the open-time fetch).
+      refetchMemories();
+      // Voice auto-play — strip *gestures* so TTS doesn't pronounce the asterisks
+      // or read stage directions aloud.
       if (agent && profile?.audioAutoplay) {
         const voiceId = getVoiceId(agent.id);
         speakWithElevenLabs(
-          latestAgent.content,
+          stripGesturesForSpeech(latestAgent.content),
           voiceId,
           () => {},
           () => {},
@@ -534,22 +582,48 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
 
     const history: Array<{ role: string; content: string }> = [];
     let turnCounter = 0;
+    const firstName = agent.name.split(" ")[0];
 
     for (let turn = 0; turn < 5; turn++) {
       if (autoAbortRef.current) break;
 
+      // Show a typing indicator immediately so the user has visible feedback
+      // for the entire (slow, multi-call LLM) round-trip. The backend's
+      // /api/chat/auto/{id} runs two sequential LLM passes and routinely
+      // takes 10-20s; without this the panel looked frozen for the first
+      // turn after the static intro.
+      const turnTypingId = `auto-typing-${turnCounter}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: turnTypingId,
+          role: "system",
+          content: turn === 0
+            ? `${profile.name} is thinking of what to ask…`
+            : `${profile.name} considers a follow-up…`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      // Small breath between turns so the eye can track the new bubble.
+      // Skipped on turn 0 (the static intro already provides the pause).
+      if (turn > 0) {
+        await new Promise((r) => setTimeout(r, 600));
+        if (autoAbortRef.current) { setMessages((prev) => prev.filter((m) => m.id !== turnTypingId)); break; }
+      }
+
+      // 60s soft timeout so a hung backend surfaces as an error instead of
+      // an infinite spinner. AbortController fires on either the timeout or
+      // a Stop click.
+      const controller = new AbortController();
+      const timeoutHandle = setTimeout(() => controller.abort(), 60_000);
+      const onAbort = () => controller.abort();
+      // Mirror autoAbortRef onto the controller so the existing Stop button
+      // tears down the in-flight request cleanly.
+      const abortPollId = setInterval(() => { if (autoAbortRef.current) onAbort(); }, 200);
+
+      let data: any;
       try {
-        await new Promise((r) => setTimeout(r, turn === 0 ? 500 : 2000));
-        if (autoAbortRef.current) break;
-
-        const userTypingId = `user-typing-${turnCounter}`;
-        if (turn > 0) {
-          setMessages((prev) => [
-            ...prev,
-            { id: userTypingId, role: "system", content: "You're thinking...", timestamp: new Date().toISOString() },
-          ]);
-        }
-
         const res = await fetch(`/api/chat/auto/${encodeURIComponent(agent.id)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -564,62 +638,67 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
             user_id: profile.playerId,
             conversation_history: history,
           }),
+          signal: controller.signal,
         });
-
-        if (turn > 0) {
-          setMessages((prev) => prev.filter((m) => m.id !== userTypingId));
-        }
-
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-
-        if (autoAbortRef.current) break;
-
-        const userText = data.user_message || `What do you think about the election?`;
-        const agentText = data.agent_response || "...";
-
-        const userMsg: ChatMessage = {
-          id: `auto-user-${turnCounter}-${Date.now()}`,
-          role: "user",
-          content: userText,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, userMsg]);
-        history.push({ role: "user", content: userText });
-
-        const agentTypingId = `agent-typing-${turnCounter}`;
-        setMessages((prev) => [
-          ...prev,
-          { id: agentTypingId, role: "system", content: `${agent.name.split(" ")[0]} is thinking...`, timestamp: new Date().toISOString() },
-        ]);
-        await new Promise((r) => setTimeout(r, 1500));
-        setMessages((prev) => prev.filter((m) => m.id !== agentTypingId));
-        if (autoAbortRef.current) break;
-
-        const agentMsg: ChatMessage = {
-          id: `auto-agent-${turnCounter}-${Date.now()}`,
-          role: "agent",
-          content: agentText,
-          timestamp: new Date().toISOString(),
-          agent_id: agent.id,
-        };
-        setMessages((prev) => [...prev, agentMsg]);
-        history.push({ role: "agent", content: agentText });
-
-        turnCounter++;
-        if (data.should_end) break;
+        data = await res.json();
       } catch (err: any) {
+        clearTimeout(timeoutHandle);
+        clearInterval(abortPollId);
+        setMessages((prev) => prev.filter((m) => m.id !== turnTypingId));
+        if (autoAbortRef.current) break;
+        const msg = err?.name === "AbortError"
+          ? "No reply from the model in 60s — try again or switch to Manual."
+          : `Auto-conversation paused. (${err?.message ?? "unknown error"})`;
         setMessages((prev) => [
           ...prev,
-          {
-            id: `error-${Date.now()}`,
-            role: "system",
-            content: `Auto-conversation paused. (${err.message})`,
-            timestamp: new Date().toISOString(),
-          },
+          { id: `error-${Date.now()}`, role: "system", content: msg, timestamp: new Date().toISOString() },
         ]);
         break;
       }
+      clearTimeout(timeoutHandle);
+      clearInterval(abortPollId);
+
+      if (autoAbortRef.current) { setMessages((prev) => prev.filter((m) => m.id !== turnTypingId)); break; }
+
+      const userText = data.user_message || `What do you think about the election?`;
+      const agentText = data.agent_response || "…";
+
+      // Replace the typing indicator with the actual user message.
+      const userMsg: ChatMessage = {
+        id: `auto-user-${turnCounter}-${Date.now()}`,
+        role: "user",
+        content: userText,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => prev.filter((m) => m.id !== turnTypingId).concat(userMsg));
+      history.push({ role: "user", content: userText });
+
+      // Brief read-pause + agent-side typing indicator so the user message
+      // is legible before the agent reply pops in. Previously waited 1500ms
+      // for "show-don't-tell" — felt artificial on top of the already-slow
+      // LLM round trip. 350ms is enough breathing room.
+      const agentTypingId = `agent-typing-${turnCounter}`;
+      setMessages((prev) => [
+        ...prev,
+        { id: agentTypingId, role: "system", content: `${firstName} is replying…`, timestamp: new Date().toISOString() },
+      ]);
+      await new Promise((r) => setTimeout(r, 350));
+      setMessages((prev) => prev.filter((m) => m.id !== agentTypingId));
+      if (autoAbortRef.current) break;
+
+      const agentMsg: ChatMessage = {
+        id: `auto-agent-${turnCounter}-${Date.now()}`,
+        role: "agent",
+        content: agentText,
+        timestamp: new Date().toISOString(),
+        agent_id: agent.id,
+      };
+      setMessages((prev) => [...prev, agentMsg]);
+      history.push({ role: "agent", content: agentText });
+
+      turnCounter++;
+      if (data.should_end) break;
     }
 
     if (!autoAbortRef.current) {
@@ -759,11 +838,11 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
                 </span>
               )}
               <div className={`chat-bubble chat-bubble--${msg.role}`}>
-                {msg.content}
+                {msg.role === "agent" ? renderMessageContent(msg.content) : msg.content}
               </div>
               {msg.role === "agent" && msg.agent_id && (
                 <div className="self-start mt-0.5 ml-1">
-                  <ListenButton text={msg.content} agentId={msg.agent_id} />
+                  <ListenButton text={stripGesturesForSpeech(msg.content)} agentId={msg.agent_id} />
                 </div>
               )}
             </div>
@@ -782,7 +861,14 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         <details
           className="memory-peek"
           open={memoryOpen}
-          onToggle={(e) => setMemoryOpen((e.currentTarget as HTMLDetailsElement).open)}
+          onToggle={(e) => {
+            const isOpen = (e.currentTarget as HTMLDetailsElement).open;
+            setMemoryOpen(isOpen);
+            // Pull a fresh list each time the user expands — covers the case
+            // where the user chats first and only checks "what X remembers"
+            // afterwards.
+            if (isOpen) refetchMemories();
+          }}
         >
           <summary className="memory-peek-toggle">
             What {agent.name.split(" ")[0]} remembers
