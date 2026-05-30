@@ -95,7 +95,7 @@ class AnthropicClient:
         # the fallback. The `api_key` arg here is preserved only so the legacy
         # caller signature in `backend/main.py` still type-checks; it is
         # ignored unless an explicit Anthropic API key is also intended.
-        self._client = AsyncAnthropicBedrock(aws_region=region)
+        self._client = AsyncAnthropicBedrock(aws_region=region, timeout=60.0, max_retries=2)
         self._default_model = os.environ.get("BEDROCK_MODEL_ID", DEFAULT_BEDROCK_MODEL)
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._total_input_tokens = 0
@@ -223,6 +223,7 @@ class AnthropicClient:
                     "output_tokens": 0,
                     "cost": 0.0,
                     "stop_reason": "error",
+                    "error": str(e),
                 }
 
     def get_usage_report(self) -> dict:

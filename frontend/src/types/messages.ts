@@ -66,6 +66,8 @@ export interface AgentState {
   /** Optional relationship & goal metadata from agent .md. */
   relationships?: Record<string, string>;
   goals?: string[];
+  /** Per-agent top concerns (sourced from agent .md frontmatter). */
+  top_concerns?: string[];
 }
 
 /* ── Conversations ─────────────────────────────────────────── */
@@ -132,8 +134,11 @@ export interface AgentMovedEvent {
   agent_id: string;
   agent_name: string;
   town: TownId;
-  from_location: string;
+  from_location?: string | null;
   to_location: string;
+  /** Optional precise destination pixel coords; preferred over landmark lookup. */
+  x?: number | null;
+  y?: number | null;
 }
 
 export interface ConversationStartedEvent {
@@ -152,7 +157,7 @@ export interface OpinionChangedEvent {
   agent_id: string;
   agent_name: string;
   town: TownId;
-  old_opinion: Opinion;
+  old_opinion?: Opinion | null;
   new_opinion: Opinion;
   confidence_delta?: number; // optional; frontend will compute if missing
 }
@@ -320,16 +325,16 @@ export interface TownDataResponse {
 /* ── Journal entries (player conversation history) ─────────── */
 
 export interface JournalEntry {
-  id: string;
+  /** Backend wire shape — most fields are optional / best-effort. */
   agent_id: string;
-  agent_name: string;
-  town: TownId;
-  timestamp: string;
-  transcript: ChatMessage[];
-  opinion_before?: Opinion;
-  opinion_after?: Opinion;
-  trust_before: number;
-  trust_after: number;
+  agent_name?: string;
+  town?: TownId;
+  created_at: string;
+  transcript: { role: string; content: string; ts?: string }[];
+  opinion_before?: { candidate?: string; confidence?: number } | null;
+  opinion_after?: { candidate?: string; confidence?: number } | null;
+  trust_before?: number;
+  trust_after?: number;
 }
 
 /* ── Simulation Status ─────────────────────────────────────── */
@@ -340,6 +345,47 @@ export interface SimulationStatus {
   total_rounds: number;
   agents_loaded: number;
   error?: string;
+  /** Additive backend telemetry — present once a run has started. */
+  towns?: TownId[];
+  started_at?: string | null;
+  completed_at?: string | null;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_tokens?: number;
+    cache_write_tokens?: number;
+    cost_usd?: number;
+    cache_hit_rate?: number;
+  };
+}
+
+/* ── Chat response (POST /api/chat/{id}) ───────────────────── */
+
+export type TrustBand = "hostile" | "guarded" | "warming" | "friend";
+
+export interface ChatResponse {
+  response: string;
+  agent_id: string;
+  agent_name: string;
+  opinion: Opinion | null;
+  trust: number;
+  trust_band: TrustBand;
+  opinion_changed: boolean;
+}
+
+/* ── God's View response (POST /api/gods-view) ─────────────── */
+
+export interface OpinionShift {
+  agent: string;
+  town: TownId;
+  before: LeanId;
+  after: LeanId;
+  confidence_change: number;
+}
+
+export interface GodsViewResponse {
+  reactions: NewsReaction[];
+  opinion_shifts: OpinionShift[];
 }
 
 /* ── Town metadata ─────────────────────────────────────────── */

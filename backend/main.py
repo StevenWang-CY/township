@@ -13,6 +13,7 @@ from .routes.gods_view import router as gods_view_router
 from .routes.towns import router as towns_router
 from .routes.journal import router as journal_router
 from .routes.transcribe import router as transcribe_router
+from .routes.tts import router as tts_router
 
 # Configure logging
 logging.basicConfig(
@@ -28,11 +29,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS — allow all origins for hackathon
+# CORS — origins come from ALLOWED_ORIGINS (comma-separated). Credentials are
+# disabled so an explicit origin list is honored by browsers.
+_DEFAULT_ORIGINS = "http://localhost:5173,http://localhost:4173,http://localhost:3000"
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -70,6 +78,7 @@ app.include_router(gods_view_router)
 app.include_router(towns_router)
 app.include_router(journal_router)
 app.include_router(transcribe_router)
+app.include_router(tts_router)
 
 
 @app.get("/")
@@ -121,8 +130,9 @@ async def startup():
     logger.info(f"Agents dir: {AGENTS_DIR}")
     logger.info(
         "Registered routes: /api/simulation, /api/chat, /api/gods-view, "
-        "/api/towns, /api/journal, /api/transcribe"
+        "/api/towns, /api/journal, /api/transcribe, /api/tts"
     )
+    logger.info(f"CORS allowed origins: {ALLOWED_ORIGINS}")
 
 
 @app.on_event("shutdown")

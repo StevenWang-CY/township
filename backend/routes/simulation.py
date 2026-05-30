@@ -32,14 +32,20 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
     orchestrator = request.app.state.orchestrator
 
     if orchestrator.is_running:
-        return {"status": "error", "message": "Simulation already running"}
+        return JSONResponse(
+            {"status": "error", "message": "Simulation already running"},
+            status_code=409,
+        )
 
     if req.town:
         if req.town not in orchestrator.agent_states:
-            return {
-                "status": "error",
-                "message": f"Unknown town: {req.town}. Available: {list(orchestrator.agent_states.keys())}",
-            }
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": f"Unknown town: {req.town}. Available: {list(orchestrator.agent_states.keys())}",
+                },
+                status_code=404,
+            )
         background_tasks.add_task(orchestrator.run_single_town, req.town, req.num_rounds)
         return {
             "status": "started",
@@ -81,12 +87,28 @@ async def simulation_status(request: Request):
             })
         agent_summaries[town] = town_agents
 
+    agents_loaded = sum(len(v) for v in orchestrator.agent_states.values())
+    has_results = orchestrator.district_summary is not None
+
+    # SimulationStatus-compatible status string for the frontend.
+    if orchestrator.is_running:
+        status = "running"
+    elif has_results:
+        status = "completed"
+    else:
+        status = "idle"
+
     return {
         "is_running": orchestrator.is_running,
         "towns": list(orchestrator.agent_states.keys()),
         "agents": agent_summaries,
-        "has_results": orchestrator.district_summary is not None,
+        "has_results": has_results,
         "usage": anthropic_client.get_usage_report(),
+        # SimulationStatus-compatible additive fields (frontend type match).
+        "status": status,
+        "current_round": orchestrator.current_round,
+        "total_rounds": getattr(orchestrator, "total_rounds", 5),
+        "agents_loaded": agents_loaded,
     }
 
 
@@ -144,7 +166,10 @@ async def replay_simulation(req: ReplayRequest, request: Request, background_tas
     # Check if cache exists
     summary = await load_cache_summary(cache_path)
     if "error" in summary:
-        return {"status": "error", "message": summary["error"]}
+        return JSONResponse(
+            {"status": "error", "message": summary["error"]},
+            status_code=404,
+        )
 
     background_tasks.add_task(replay, event_bus, cache_path, req.speed)
 

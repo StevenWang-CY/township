@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import os
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Optional
@@ -14,6 +16,7 @@ from ..core.types import (
     GodViewInjectionEvent,
     NewsReaction,
     Opinion,
+    OpinionChangedEvent,
     SimulationStartedEvent,
     SimulationEndedEvent,
     TownSummary,
@@ -25,6 +28,11 @@ from ..simulation.round_manager import RoundManager
 from ..tools.schemas import get_tools
 
 logger = logging.getLogger(__name__)
+
+# township/ — anchor for the default simulation-cache path so it doesn't depend
+# on the process's current working directory.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CACHE_PATH = PROJECT_ROOT / "data" / "simulation_cache.json"
 
 
 class SimulationOrchestrator:
@@ -57,6 +65,7 @@ class SimulationOrchestrator:
         self.district_summary: Optional[DistrictSummary] = None
         self.is_running = False
         self.current_round = 0
+        self.total_rounds = 5
 
         # Initialize agent states
         self._init_agent_states()
@@ -151,6 +160,7 @@ class SimulationOrchestrator:
         """Run all towns in parallel, compute district summary."""
         self.is_running = True
         self.current_round = 0
+        self.total_rounds = num_rounds
         logger.info(f"Starting full simulation: {num_rounds} rounds across {len(self.agent_states)} towns")
 
         try:
@@ -160,8 +170,18 @@ class SimulationOrchestrator:
                 for agent in town_agents:
                     try:
                         agent_roster.append(agent_state_to_wire(agent))
-                    except Exception:  # pragma: no cover — defensive
-                        pass
+                    except Exception as e:
+                        logger.warning("roster wire failed for %s: %s", agent.agent_id, e)
+                        # Still append a minimal fallback so the agent renders.
+                        agent_roster.append({
+                            "id": agent.agent_id,
+                            "name": agent.definition.name,
+                            "town": agent.definition.town,
+                            "occupation": agent.definition.occupation,
+                            "opinion": None,
+                            "location": agent.current_location,
+                            "current_activity": "idle",
+                        })
             try:
                 await self.event_bus.publish(SimulationStartedEvent(
                     agents=agent_roster,
@@ -284,6 +304,7 @@ class SimulationOrchestrator:
             raise ValueError(f"Unknown town: {town}. Available: {list(self.agent_states.keys())}")
 
         self.is_running = True
+        self.total_rounds = num_rounds
         try:
             result = await self._run_town_with_tracking(town, num_rounds)
             self.town_summaries[town] = result
@@ -303,12 +324,14 @@ class SimulationOrchestrator:
         all_issues_by_town: dict[str, dict[str, float]] = {}
         total_agents = 0
         total_conversations = 0
+        total_failed_agents = 0
 
         for town, summary in town_summaries.items():
             for candidate, count in summary.opinion_distribution.items():
                 total_opinions[candidate] += count
                 total_agents += count
             total_conversations += summary.total_conversations
+            total_failed_agents += summary.failed_agents
 
             # Track issues per town for fault line analysis
             town_issues = {}
@@ -370,10 +393,16 @@ class SimulationOrchestrator:
             total_agents=total_agents,
             total_conversations=total_conversations,
             total_cost=usage["total_cost"],
+            failed_agents=total_failed_agents,
         )
 
-    async def save_cache(self, filepath: str = "data/simulation_cache.json"):
-        """Save event log for replay."""
+    async def save_cache(self, filepath: Optional[str] = None):
+        """Save event log for replay.
+
+        Defaults to <project_root>/data/simulation_cache.json so the cache lands
+        in the same place regardless of the process working directory. Writes
+        atomically: serialize to a temp file in the same dir, then os.replace.
+        """
         event_log = self.event_bus.get_event_log()
         serialized = []
         for event in event_log:
@@ -388,12 +417,26 @@ class SimulationOrchestrator:
             "usage": self.client.get_usage_report(),
         }
 
-        cache_path = Path(filepath)
+        cache_path = Path(filepath) if filepath else DEFAULT_CACHE_PATH
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_path, "w") as f:
-            json.dump(cache_data, f, indent=2, default=str)
 
-        logger.info(f"Saved simulation cache to {filepath} ({len(serialized)} events)")
+        # Atomic write: temp file in the same directory, then os.replace.
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(cache_path.parent), prefix=".sim_cache_", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(cache_data, f, indent=2, default=str)
+            os.replace(tmp_name, cache_path)
+        except Exception:
+            # Clean up the temp file on failure so we don't leave debris.
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+
+        logger.info(f"Saved simulation cache to {cache_path} ({len(serialized)} events)")
 
     async def inject_god_view(self, description: str) -> list[NewsReaction]:
         """Inject a variable into all agents and collect reactions."""
@@ -449,6 +492,23 @@ class SimulationOrchestrator:
             model=agent.definition.model,
         )
 
+        if result.get("stop_reason") == "error":
+            logger.error(
+                "God's view ReactToNews errored for %s: %s",
+                agent.agent_id, result.get("error"),
+            )
+            agent.state = CivicAgentState.ERROR
+            return NewsReaction(
+                agent_id=agent.agent_id,
+                agent_name=agent.definition.name,
+                town=agent.definition.town,
+                headline=description,
+                event=description,
+                emotional_response="indifferent",
+                impact_on_vote="no_effect",
+                reasoning="(no reaction — agent unavailable)",
+            )
+
         emotional = "indifferent"
         impact = "no_effect"
         reasoning = "No strong reaction."
@@ -461,6 +521,11 @@ class SimulationOrchestrator:
 
         agent.add_memory(f"God's View event: {description[:100]}. Reaction: {emotional}, impact: {impact}")
 
+        # If the development actually moved the agent, re-evaluate their opinion
+        # so opinion_shifts populates and live ripples fire on the frontend.
+        if impact != "no_effect":
+            await self._god_view_form_opinion(agent, description, impact, reasoning)
+
         return NewsReaction(
             agent_id=agent.agent_id,
             agent_name=agent.definition.name,
@@ -471,6 +536,77 @@ class SimulationOrchestrator:
             impact_on_vote=impact,
             reasoning=reasoning,
         )
+
+    async def _god_view_form_opinion(
+        self, agent: AgentState, description: str, impact: str, reaction_reasoning: str
+    ) -> None:
+        """Re-run FormOpinion after a God's View development that moved an agent.
+
+        Appends a new Opinion and publishes an OpinionChangedEvent so both the
+        before/after opinion_shifts (gods_view route) and the live frontend
+        ripple are driven by a real model decision.
+        """
+        prev = agent.current_opinion
+        system_prompt = self._build_god_view_prompt(agent)
+        messages = [
+            {
+                "role": "user",
+                "content": (
+                    f"BREAKING DEVELOPMENT in the NJ-11 election:\n\n{description}\n\n"
+                    f"Your gut reaction: {reaction_reasoning}\n\n"
+                    f"Now reconsider your vote in light of this. Who are you leaning "
+                    f"toward, and how confident are you? Use the FormOpinion tool."
+                ),
+            }
+        ]
+
+        result = await self.client.call_agent(
+            system_prompt=system_prompt,
+            messages=messages,
+            tools=get_tools(["FormOpinion"]),
+            max_tokens=700,
+            model=agent.definition.model,
+        )
+
+        if result.get("stop_reason") == "error":
+            logger.error(
+                "God's view FormOpinion errored for %s: %s",
+                agent.agent_id, result.get("error"),
+            )
+            agent.state = CivicAgentState.ERROR
+            return
+
+        if not (result["tool_use"] and result["tool_use"]["name"] == "FormOpinion"):
+            return
+
+        tool_input = result["tool_use"]["input"]
+        new_opinion = Opinion(
+            candidate=tool_input.get("candidate", prev.candidate if prev else "undecided"),
+            confidence=tool_input.get("confidence", prev.confidence if prev else 50),
+            reasoning=tool_input.get("reasoning", "Reconsidered after the development."),
+            top_issues=tool_input.get(
+                "top_issues",
+                list(prev.top_issues) if prev else agent.definition.top_concerns[:3],
+            ),
+            dealbreaker=tool_input.get("dealbreaker"),
+            round_number=((prev.round_number if prev else 0) or 0) + 1,
+        )
+        agent.opinions.append(new_opinion)
+        agent.add_memory(
+            f"God's View shifted my view: now leaning {new_opinion.candidate} "
+            f"(confidence: {new_opinion.confidence}%)."
+        )
+
+        try:
+            await self.event_bus.publish(OpinionChangedEvent(
+                agent_id=agent.agent_id,
+                agent_name=agent.definition.name,
+                town=agent.definition.town,
+                old_opinion=prev,
+                new_opinion=new_opinion,
+            ))
+        except Exception as e:  # pragma: no cover — defensive
+            logger.warning(f"God's view OpinionChangedEvent publish failed: {e}")
 
     def _build_god_view_prompt(self, agent: AgentState) -> str:
         """Build system prompt for God's View reactions."""

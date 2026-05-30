@@ -276,6 +276,16 @@ export default function TownView({ ws }: TownViewProps) {
     }
   }, [townAgents.length]);
 
+  /* ── Reset event cursor on town change ───────────────────── */
+  // A newly-mounted town scene needs to re-apply buffered events so agents land
+  // in their last-known positions. The per-event town filter (below) discards
+  // events for OTHER towns, so replaying the whole buffer is safe. This effect
+  // is declared BEFORE the process effect so the cursor is reset before that
+  // effect runs on the same `town` change.
+  useEffect(() => {
+    lastProcessedEvent.current = 0;
+  }, [town]);
+
   /* ── Process new events ──────────────────────────────────── */
 
   useEffect(() => {
@@ -290,7 +300,7 @@ export default function TownView({ ws }: TownViewProps) {
 
       switch (evt.type) {
         case "agent_moved":
-          scene.moveAgent(evt.agent_id, evt.to_location);
+          scene.moveAgent(evt.agent_id, evt.to_location, evt.x ?? undefined, evt.y ?? undefined);
           break;
         case "agent_speech":
           scene.showAgentSpeech(evt.agent_id, evt.text);
@@ -508,6 +518,8 @@ export default function TownView({ ws }: TownViewProps) {
         body: JSON.stringify({
           user_id: playerId,
           agent_id: pre.agentId,
+          agent_name: ag.name,
+          town: ag.town,
           transcript: transcript
             .filter((m) => m.role === "user" || m.role === "agent")
             .map((m) => ({ role: m.role, content: m.content, ts: m.timestamp })),

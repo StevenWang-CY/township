@@ -5,7 +5,7 @@ import { TOWN_ACCENT, TOWN_MAP_KEY } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
 import type { UserProfile } from "../context/UserProfileContext";
 import { AGENT_CUSTOMIZATION, ALL_CHARACTER_KEYS, resolveAgentSprite } from "./spriteCustomization";
-import { drawLandmarkBuilding, drawStreetlamp, type StreetlampHandle } from "./LandmarkArt";
+import { drawLandmarkBuilding } from "./LandmarkArt";
 import { composeTownAmbience, type AmbienceHandle } from "./SceneAmbience";
 import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
@@ -70,10 +70,8 @@ export class TownScene extends Phaser.Scene {
   private worldClock = new WorldClock({ startHour: 8, minutesPerSecond: 1 });
   private skyOverlay?: Phaser.GameObjects.Rectangle;
 
-  // Streetlamps (drawn over landmarks, glow at night)
-  private streetlamps: StreetlampHandle[] = [];
+  // Night-time lamp glow + sky tint are owned by SceneAmbience + the sky overlay.
   private ambience?: AmbienceHandle;
-  private currentlyNight = false;
 
   // Encounter scheduling
   private encounterTimer?: Phaser.Time.TimerEvent;
@@ -258,16 +256,10 @@ export class TownScene extends Phaser.Scene {
     if (this.worldClock.minute !== prevMin || this.worldClock.hour !== prevHour) {
       this.refreshSkyOverlay();
       this.tickRoutines();
-      // Update streetlamp night-mode + ambience glow at top of each hour
+      // SceneAmbience owns lamp glow + night tint; refresh at top of each hour.
       if (this.worldClock.hour !== prevHour) {
-        this.applyStreetlampNight();
         this.ambience?.setHour(this.worldClock.hour);
       }
-    }
-
-    // Streetlamp flicker (low-probability per frame)
-    if (this.currentlyNight) {
-      for (const l of this.streetlamps) l.flicker();
     }
 
     // Y-based depth sort – characters "behind" others appear further back
@@ -315,8 +307,8 @@ export class TownScene extends Phaser.Scene {
     const record: AgentRecord = {
       sprite,
       routine: agent.routine ? new Routine(agent.routine) : undefined,
-      topConcerns: [],
-      idleThoughts: (agent as any).idle_thoughts ?? undefined,
+      topConcerns: agent.top_concerns ?? [],
+      idleThoughts: agent.idle_thoughts ?? undefined,
     };
     this.agentRecords.set(agent.id, record);
 
@@ -328,9 +320,16 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  moveAgent(agentId: string, toLocation: string) {
+  moveAgent(agentId: string, toLocation: string, x?: number, y?: number) {
     const sprite = this.agentSprites.get(agentId);
     if (!sprite) return;
+    // Prefer precise pixel coords when both are finite; else resolve by landmark.
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      const tx = Phaser.Math.Clamp(x as number, 40, 1160);
+      const ty = Phaser.Math.Clamp(y as number, 40, 760);
+      sprite.moveToPosition(tx, ty);
+      return;
+    }
     const base = this.landmarkPositions.get(toLocation) ?? this.wanderPoints[0] ?? { x: 400, y: 400 };
     const tx = Phaser.Math.Clamp(base.x + Phaser.Math.Between(-50, 50), 40, 1160);
     const ty = Phaser.Math.Clamp(base.y + Phaser.Math.Between(-35, 35), 40, 760);
@@ -393,7 +392,7 @@ export class TownScene extends Phaser.Scene {
     this.worldClock.setTime(h, m);
     this.refreshSkyOverlay();
     this.tickRoutines();
-    this.applyStreetlampNight();
+    this.ambience?.setHour(this.worldClock.hour);
   }
 
   /** Forward weather to the WeatherScene. */
@@ -545,9 +544,10 @@ export class TownScene extends Phaser.Scene {
     // Register in agentSprites so depth sorting includes the player
     this.agentSprites.set(profile.agentId, this.playerSprite);
 
-    // Camera follow with smooth lerp
+    // Camera follow with smooth lerp + closer zoom while a player is present.
     this.cameras.main.startFollow(this.playerSprite, true, 0.08, 0.08);
     this.cameras.main.setBounds(0, 0, Number(this.game.config.width), Number(this.game.config.height));
+    this.cameras.main.zoomTo(1.5, 600, "Sine.easeInOut");
 
     this.events.emit("player-spawned");
   }
@@ -1063,67 +1063,6 @@ export class TownScene extends Phaser.Scene {
     // is now the single source. Old in-scene streetlamps removed.
   }
 
-  /** Place 6-10 streetlamps along roads and near commercial buildings. */
-  private addStreetlamps() {
-    // Clear stale lamps if any
-    for (const l of this.streetlamps) l.group.destroy();
-    this.streetlamps = [];
-
-    const placed: Array<{ x: number; y: number }> = [];
-    const tryAdd = (x: number, y: number) => {
-      // Spacing constraint — keep at least 90 px between lamps
-      for (const p of placed) {
-        if (Math.hypot(p.x - x, p.y - y) < 90) return;
-      }
-      const lamp = drawStreetlamp(this, x, y);
-      this.streetlamps.push(lamp);
-      placed.push({ x, y });
-    };
-
-    // Along roads — at the two ends
-    for (const lm of this.landmarks) {
-      if (lm.type !== "road") continue;
-      const cx = lm.x + lm.width / 2;
-      const cy = lm.y + lm.height / 2;
-      const horizontal = lm.width >= lm.height;
-      if (horizontal) {
-        tryAdd(lm.x + 18, cy - lm.height / 2 - 4);
-        tryAdd(lm.x + lm.width - 18, cy - lm.height / 2 - 4);
-      } else {
-        tryAdd(cx - lm.width / 2 - 4, lm.y + 18);
-        tryAdd(cx - lm.width / 2 - 4, lm.y + lm.height - 18);
-      }
-    }
-
-    // Near commercial buildings
-    for (const lm of this.landmarks) {
-      if (lm.type !== "commercial" && lm.type !== "building" && lm.type !== "commercial-strip") continue;
-      tryAdd(lm.x - 8, lm.y + lm.height + 4);
-      if (placed.length >= 10) break;
-    }
-
-    // Ensure at least 6 — back-fill near other landmarks
-    if (placed.length < 6) {
-      for (const lm of this.landmarks) {
-        if (lm.type === "road") continue;
-        tryAdd(lm.x + lm.width / 2, lm.y + lm.height + 6);
-        if (placed.length >= 6) break;
-      }
-    }
-
-    // Apply current time-of-day immediately
-    this.applyStreetlampNight();
-  }
-
-  private applyStreetlampNight() {
-    const h = this.worldClock.hour;
-    const night = h >= 19 || h < 6;
-    if (night === this.currentlyNight && this.streetlamps.length > 0) {
-      // Initial pass still needs alpha set
-    }
-    this.currentlyNight = night;
-    for (const l of this.streetlamps) l.setNight(night);
-  }
 
   private buildEnvironmentFX() {
     if (!this.anims.exists("campfire-burn")) {

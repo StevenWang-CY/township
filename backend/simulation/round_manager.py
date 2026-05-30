@@ -27,6 +27,7 @@ from ..core.types import (
     WorldClockTickEvent,
 )
 from ..core.event_bus import EventBus
+from ..core.wire import town_summary_to_wire
 from ..providers.anthropic_client import AnthropicClient
 from ..tools.schemas import get_tools
 
@@ -132,15 +133,20 @@ class RoundManager:
                 total_conversations += convos
                 await self._run_opinion_round(agent_states, round_num)
 
-                # Mark all agents as decided
+                # Mark all (non-errored) agents as decided
                 for agent in agent_states:
-                    agent.state = CivicAgentState.DECIDED
+                    if agent.state != CivicAgentState.ERROR:
+                        agent.state = CivicAgentState.DECIDED
 
-            # Emit a per-town RoundEndedEvent so the frontend can update HUD/timeline
+            # Emit a per-town RoundEndedEvent so the frontend can update HUD/timeline.
+            # _build_town_summary is safe to call mid-run — it aggregates whatever
+            # opinions the agents currently hold.
             await self.event_bus.publish(RoundEndedEvent(
                 round=round_num,
                 town=town,
-                summary=[],
+                summary=[town_summary_to_wire(
+                    self._build_town_summary(town, agent_states, total_conversations, round_num + 1)
+                )],
             ))
 
         # Build town summary
@@ -203,6 +209,15 @@ class RoundManager:
                 max_tokens=1600,
                 model=agent.definition.model,
             )
+
+            # Genuine LLM/transport failure — mark ERROR, do NOT mint a
+            # confident fallback opinion.
+            if result.get("stop_reason") == "error":
+                logger.error(
+                    "Seed call errored for %s: %s", agent.agent_id, result.get("error")
+                )
+                agent.state = CivicAgentState.ERROR
+                return
 
             # Process FormOpinion tool use
             if result["tool_use"] and result["tool_use"]["name"] == "FormOpinion":
@@ -357,7 +372,15 @@ class RoundManager:
                     model=speaker.definition.model,
                 )
 
-                if result["tool_use"] and result["tool_use"]["name"] == "Discuss":
+                if result.get("stop_reason") == "error":
+                    logger.error(
+                        "Conversation exchange %d errored for %s: %s",
+                        i, speaker.agent_id, result.get("error"),
+                    )
+                    speaker.state = CivicAgentState.ERROR
+                    dialogue_parts.append(f"{speaker.definition.name}: [unavailable]")
+                    conversation_so_far = "\n".join(dialogue_parts)
+                elif result["tool_use"] and result["tool_use"]["name"] == "Discuss":
                     tool_input = result["tool_use"]["input"]
                     response_text = tool_input.get("response", result.get("text", "..."))
                     sentiment = tool_input.get("sentiment", "neutral")
@@ -383,7 +406,7 @@ class RoundManager:
                         gesture=gesture,
                     ))
                 else:
-                    # Use text response as fallback
+                    # Use text response as fallback (model didn't call the tool)
                     text = result.get("text", "...")[:200]
                     dialogue_parts.append(f"{speaker.definition.name}: {text}")
                     conversation_so_far = "\n".join(dialogue_parts)
@@ -404,8 +427,11 @@ class RoundManager:
         )
         agent_a.conversations.append(convo)
         agent_b.conversations.append(convo)
-        agent_a.state = CivicAgentState.IDLE
-        agent_b.state = CivicAgentState.IDLE
+        # Preserve ERROR state set by a failed exchange; otherwise return to idle.
+        if agent_a.state != CivicAgentState.ERROR:
+            agent_a.state = CivicAgentState.IDLE
+        if agent_b.state != CivicAgentState.ERROR:
+            agent_b.state = CivicAgentState.IDLE
 
         # Emit a ConversationEnded so the frontend can finalize bubbles / log entry
         try:
@@ -458,6 +484,13 @@ class RoundManager:
                 max_tokens=1200,
                 model=agent.definition.model,
             )
+
+            if result.get("stop_reason") == "error":
+                logger.error(
+                    "News reaction errored for %s: %s", agent.agent_id, result.get("error")
+                )
+                agent.state = CivicAgentState.ERROR
+                return
 
             if result["tool_use"] and result["tool_use"]["name"] == "ReactToNews":
                 tool_input = result["tool_use"]["input"]
@@ -547,6 +580,13 @@ class RoundManager:
                 max_tokens=1400,
                 model=agent.definition.model,
             )
+
+            if result.get("stop_reason") == "error":
+                logger.error(
+                    "Opinion call errored for %s: %s", agent.agent_id, result.get("error")
+                )
+                agent.state = CivicAgentState.ERROR
+                return
 
             before = agent.current_opinion
 
@@ -845,7 +885,15 @@ class RoundManager:
                     model=speaker.definition.model,
                 )
 
-                if result["tool_use"] and result["tool_use"]["name"] == "Discuss":
+                if result.get("stop_reason") == "error":
+                    logger.error(
+                        "Cross-town exchange %d errored for %s: %s",
+                        i, speaker.agent_id, result.get("error"),
+                    )
+                    speaker.state = CivicAgentState.ERROR
+                    dialogue_parts.append(f"{speaker.definition.name} ({speaker.definition.town}): [unavailable]")
+                    conversation_so_far = "\n".join(dialogue_parts)
+                elif result["tool_use"] and result["tool_use"]["name"] == "Discuss":
                     tool_input = result["tool_use"]["input"]
                     response_text = tool_input.get("response", result.get("text", "..."))
                     sentiment = tool_input.get("sentiment", "neutral")
@@ -892,8 +940,11 @@ class RoundManager:
         )
         agent_a.conversations.append(convo)
         agent_b.conversations.append(convo)
-        agent_a.state = CivicAgentState.IDLE
-        agent_b.state = CivicAgentState.IDLE
+        # Preserve ERROR state set by a failed exchange; otherwise return to idle.
+        if agent_a.state != CivicAgentState.ERROR:
+            agent_a.state = CivicAgentState.IDLE
+        if agent_b.state != CivicAgentState.ERROR:
+            agent_b.state = CivicAgentState.IDLE
 
         try:
             await self.event_bus.publish(ConversationEndedEvent(
@@ -973,11 +1024,16 @@ class RoundManager:
         opinion_dist: dict[str, int] = {"mejia": 0, "hathaway": 0, "bond": 0, "undecided": 0}
         all_issues: dict[str, int] = {}
         agent_summaries = []
+        failed_agents = 0
 
         for agent in agents:
+            if agent.state == CivicAgentState.ERROR:
+                failed_agents += 1
+
             final_opinion = agent.current_opinion
             if final_opinion:
-                opinion_dist[final_opinion.candidate] += 1
+                # Defensive: tolerate an unexpected candidate value mid-run.
+                opinion_dist[final_opinion.candidate] = opinion_dist.get(final_opinion.candidate, 0) + 1
                 for issue in final_opinion.top_issues:
                     all_issues[issue] = all_issues.get(issue, 0) + 1
             else:
@@ -1013,4 +1069,5 @@ class RoundManager:
             agent_summaries=agent_summaries,
             total_conversations=total_conversations,
             rounds_completed=rounds_completed,
+            failed_agents=failed_agents,
         )

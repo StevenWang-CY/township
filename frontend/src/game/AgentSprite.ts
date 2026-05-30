@@ -19,6 +19,8 @@ export const LABEL_Y = 12;                // name tag below feet
 export const BUBBLE_TIP_Y = -(FRAME_H + 8); // speech-bubble pointer just above head
 export const WALK_FPS = 9;
 export const IDLE_FRAMES: Record<string, number> = { down: 1, left: 4, right: 7, up: 10 };
+/** Default side-by-side offset for a couple's companion body (perpendicular to facing). */
+export const COMPANION_OFFSET = 18;
 
 export type Direction = "down" | "left" | "right" | "up";
 export type GestureKind = "nod" | "shake_head" | "shrug" | "laugh" | "point" | "none";
@@ -108,6 +110,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   private currentActivity: AgentActivity = "idle";
   private currentGesture: GestureKind = "none";
   private partnerInfo?: { name: string; tint: number };
+  /** Companion body sprite for couple agents — walks alongside the lead. */
+  private companionSprite?: Phaser.GameObjects.Sprite;
+  /** Companion ground shadow. */
+  private companionShadow?: Phaser.GameObjects.Ellipse;
   protected ambient = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, cfg: AgentConfig) {
@@ -154,15 +160,32 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         }
       }
 
-      // Couple indicator — a small companion ring inside the opinion ring
-      // (drawn by redrawRing). No second body sprite is mounted; the previous
-      // side-by-side render produced a "second figure" effect that read as a
-      // shape besides the agent.
+      // Couple agents — render a SECOND companion body sprite walking alongside
+      // the lead, offset perpendicular to the facing direction. We still keep
+      // the small companion-ring (redrawRing) as a secondary cue. Robust: if the
+      // body texture is missing we silently skip the companion (handled above by
+      // the spriteKey-exists guard wrapping this block).
       if (cfg.partner) {
         this.partnerInfo = {
           name: cfg.partner.name,
           tint: cfg.partner.tint ?? 0xc8b89c,
         };
+
+        // Companion ground shadow (slightly smaller than the lead's).
+        this.companionShadow = scene.add.ellipse(COMPANION_OFFSET, SHADOW_Y, 30, 10, 0x000000, 0.18);
+        this.addAt(this.companionShadow, 0); // behind everything
+
+        // Companion body — same spritesheet, partner tint, mounted just before
+        // the lead body so the lead renders on top when they overlap.
+        this.companionSprite = scene.add.sprite(COMPANION_OFFSET, 0, cfg.spriteKey, IDLE_FRAMES.down);
+        this.companionSprite.setScale(SPRITE_SCALE * 0.96);
+        this.companionSprite.setOrigin(0.5, 1);
+        this.companionSprite.setTint(this.partnerInfo.tint);
+        // Insert directly beneath the lead body sprite.
+        const leadIdx = this.getIndex(this.bodySprite);
+        if (leadIdx >= 0) this.addAt(this.companionSprite, leadIdx);
+        else this.add(this.companionSprite);
+
         if (!this.ambient) this.redrawRing();
       }
 
@@ -626,7 +649,35 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   // Private helpers
   // ────────────────────────────────────────────────────────────
 
+  /** Place the companion perpendicular to the facing direction + sync its anim. */
+  private updateCompanion(dir: Direction, mode: "walk" | "idle") {
+    const sprite = this.companionSprite;
+    if (!sprite) return;
+    // Perpendicular placement: when facing up/down the partner stands to the
+    // side (x offset); when facing left/right they stand fore/aft (small x
+    // offset toward the back) so the pair always reads as two figures.
+    let ox = COMPANION_OFFSET;
+    let oy = 0;
+    switch (dir) {
+      case "down":  ox = COMPANION_OFFSET;  oy = 0; break;
+      case "up":    ox = -COMPANION_OFFSET; oy = 0; break;
+      case "left":  ox = COMPANION_OFFSET;  oy = -2; break;
+      case "right": ox = -COMPANION_OFFSET; oy = -2; break;
+    }
+    sprite.setPosition(ox, oy);
+    if (this.companionShadow) this.companionShadow.setPosition(ox, SHADOW_Y + oy);
+
+    const base = `${sprite.texture.key}-${mode}-${dir}`;
+    if (this.scene.anims.exists(base)) {
+      sprite.play(base, true);
+    } else {
+      sprite.stop();
+      sprite.setFrame(IDLE_FRAMES[dir]);
+    }
+  }
+
   protected playWalk(dir: Direction) {
+    this.updateCompanion(dir, "walk");
     if (!this.usingSpritesheet || !this.bodySprite) return;
     const key = `${this.bodySprite.texture.key}-walk-${dir}`;
     if (this.scene.anims.exists(key)) {
@@ -648,6 +699,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   }
 
   protected playIdle(dir: Direction) {
+    this.updateCompanion(dir, "idle");
     if (!this.usingSpritesheet || !this.bodySprite) return;
     // Prefer the per-direction idle anim (registered in TownScene) for a
     // gentle weight-shift; fall back to a static frame if the anim was never
@@ -877,6 +929,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.clearActivityFx();
     for (const t of this.proxTweens) t.stop();
     this.proxGlow?.destroy();
+    this.companionSprite?.destroy();
+    this.companionShadow?.destroy();
     super.destroy(fromScene);
   }
 }

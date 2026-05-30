@@ -3,9 +3,11 @@ import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..core.types import RelationshipUpdateEvent
+from ..core.types import Opinion, OpinionChangedEvent, RelationshipUpdateEvent
+from ..core.wire import opinion_to_wire
 from ..tools.schemas import get_tools
 
 logger = logging.getLogger(__name__)
@@ -89,6 +91,7 @@ class ChatResponse(BaseModel):
     agent_id: str
     agent_name: str
     opinion: dict | None = None
+    opinion_changed: bool = False
     trust: int = 0
     trust_band: str = "warming"
 
@@ -105,6 +108,8 @@ class AutoChatResponse(BaseModel):
     agent_id: str
     agent_name: str
     should_end: bool
+    opinion: dict | None = None
+    opinion_changed: bool = False
     trust: int = 0
     trust_band: str = "warming"
 
@@ -152,16 +157,17 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
     # Find the agent
     agent_state = orchestrator.get_agent_state(agent_id)
     if agent_state is None:
-        return ChatResponse(
-            response=f"Agent '{agent_id}' not found. Check /api/simulation/agents for available agents.",
-            agent_id=agent_id,
-            agent_name="System",
-            opinion=None,
-            trust=0,
-            trust_band="warming",
+        return JSONResponse(
+            status_code=404,
+            content={"error": "agent_not_found", "agent_id": agent_id},
         )
 
     rel = _get_rel(user_id, agent_id)
+
+    # Persist what the player has revealed about themselves so future turns and
+    # other systems can reference it (§5.2).
+    if req.user_profile:
+        _record_player_reveal(rel, req.user_profile)
 
     # Build system prompt with full context (including trust)
     system_prompt = _build_chat_system_prompt(agent_state, trust=rel["trust"])
@@ -197,6 +203,16 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
         model=agent_state.definition.model,
     )
 
+    if result.get("stop_reason") == "error":
+        logger.error(f"Chat call errored for {agent_id}: {result.get('error')}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "llm_unavailable",
+                "message": f"Could not reach {agent_state.definition.name} right now.",
+            },
+        )
+
     response_text = result.get("text") or "..."
 
     # Add this chat to agent's memory
@@ -216,22 +232,21 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
         agent_response=response_text,
     )
 
-    # Include current opinion if available
-    opinion_data = None
-    opinion = agent_state.current_opinion
-    if opinion:
-        opinion_data = {
-            "candidate": opinion.candidate,
-            "confidence": opinion.confidence,
-            "reasoning": opinion.reasoning,
-            "top_issues": opinion.top_issues,
-        }
+    # Re-evaluate the agent's opinion in light of this exchange.
+    opinion_changed = await _reevaluate_opinion(
+        anthropic_client=anthropic_client,
+        event_bus=event_bus,
+        agent_state=agent_state,
+        user_message=req.message,
+        agent_response=response_text,
+    )
 
     return ChatResponse(
         response=response_text,
         agent_id=agent_id,
         agent_name=agent_state.definition.name,
-        opinion=opinion_data,
+        opinion=opinion_to_wire(agent_state.current_opinion),
+        opinion_changed=opinion_changed,
         trust=rel["trust"],
         trust_band=_trust_band(rel["trust"]),
     )
@@ -248,19 +263,16 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
 
     agent_state = orchestrator.get_agent_state(agent_id)
     if agent_state is None:
-        return AutoChatResponse(
-            user_message="...",
-            agent_response=f"Agent '{agent_id}' not found.",
-            agent_id=agent_id,
-            agent_name="System",
-            should_end=True,
-            trust=0,
-            trust_band="warming",
+        return JSONResponse(
+            status_code=404,
+            content={"error": "agent_not_found", "agent_id": agent_id},
         )
 
     rel = _get_rel(user_id, agent_id)
 
     p = req.user_profile
+    if p:
+        _record_player_reveal(rel, p)
     turn_num = len(req.conversation_history) // 2
 
     # ── Step 1: Generate user's message ──────────────────────
@@ -333,6 +345,16 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         model=agent_state.definition.model,
     )
 
+    if agent_result.get("stop_reason") == "error":
+        logger.error(f"Auto-chat call errored for {agent_id}: {agent_result.get('error')}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "llm_unavailable",
+                "message": f"Could not reach {agent_state.definition.name} right now.",
+            },
+        )
+
     agent_response = agent_result.get("text") or "..."
 
     # Record in memory
@@ -352,6 +374,15 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         agent_response=agent_response,
     )
 
+    # Re-evaluate the agent's opinion in light of this exchange.
+    opinion_changed = await _reevaluate_opinion(
+        anthropic_client=anthropic_client,
+        event_bus=event_bus,
+        agent_state=agent_state,
+        user_message=user_message,
+        agent_response=agent_response,
+    )
+
     # Determine if conversation should end
     should_end = turn_num >= 3
 
@@ -361,12 +392,131 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         agent_id=agent_id,
         agent_name=agent_state.definition.name,
         should_end=should_end,
+        opinion=opinion_to_wire(agent_state.current_opinion),
+        opinion_changed=opinion_changed,
         trust=rel["trust"],
         trust_band=_trust_band(rel["trust"]),
     )
 
 
 # ─── Helpers ──────────────────────────────────────────────────
+
+def _record_player_reveal(rel: dict, profile: dict) -> None:
+    """Persist what the player has told this agent about themselves (§5.2).
+
+    Stored on the relationship dict under `player_revealed_to_them` so the agent
+    'remembers' who they're talking to across turns.
+    """
+    revealed = rel.setdefault("player_revealed_to_them", {})
+    if profile.get("name"):
+        revealed["name"] = profile.get("name")
+    if profile.get("town"):
+        revealed["town"] = profile.get("town")
+    leaning = profile.get("political_leaning") or profile.get("leaning")
+    if leaning:
+        revealed["leaning"] = leaning
+    if profile.get("top_concerns"):
+        revealed["concerns"] = list(profile.get("top_concerns"))
+
+
+async def _reevaluate_opinion(
+    *,
+    anthropic_client,
+    event_bus,
+    agent_state,
+    user_message: str,
+    agent_response: str,
+) -> bool:
+    """Re-run FormOpinion after a chat exchange.
+
+    Appends a new Opinion and publishes an OpinionChangedEvent only when the
+    agent's candidate changed OR confidence moved by >= 10 vs the current
+    opinion. Best-effort — any error here is logged and treated as no change.
+    Returns True when the opinion actually changed.
+    """
+    prev = agent_state.current_opinion
+    try:
+        system_prompt = (
+            _build_chat_system_prompt(agent_state)
+            + "\n\n--- OPINION CHECK ---\n"
+            "Reflect on the exchange below. If it changed how you feel about your vote, "
+            "update your stance honestly; if it didn't, restate your current stance. "
+            "Call the FormOpinion tool."
+        )
+        result = await anthropic_client.call_agent(
+            system_prompt=system_prompt,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"They said: \"{user_message}\"\n"
+                        f"You replied: \"{agent_response}\"\n\n"
+                        f"Now call FormOpinion with your current stance on the NJ-11 election."
+                    ),
+                }
+            ],
+            tools=get_tools(["FormOpinion"]),
+            max_tokens=600,
+            model=agent_state.definition.model,
+        )
+
+        if result.get("stop_reason") == "error":
+            logger.warning(
+                f"Opinion re-eval errored for {agent_state.agent_id}: {result.get('error')}"
+            )
+            return False
+
+        tool_use = result.get("tool_use")
+        if not (tool_use and tool_use.get("name") == "FormOpinion"):
+            return False
+
+        tool_input = tool_use.get("input", {})
+        new_candidate = tool_input.get("candidate", prev.candidate if prev else "undecided")
+        try:
+            new_confidence = int(tool_input.get("confidence", prev.confidence if prev else 50))
+        except (TypeError, ValueError):
+            new_confidence = prev.confidence if prev else 50
+
+        candidate_changed = prev is None or new_candidate != prev.candidate
+        confidence_jump = prev is not None and abs(new_confidence - prev.confidence) >= 10
+
+        if not (candidate_changed or confidence_jump):
+            return False
+
+        new_opinion = Opinion(
+            candidate=new_candidate,
+            confidence=max(0, min(100, new_confidence)),
+            reasoning=tool_input.get("reasoning", "Reconsidered after this conversation."),
+            top_issues=tool_input.get(
+                "top_issues",
+                list(prev.top_issues) if prev else list(agent_state.definition.top_concerns[:3]),
+            ),
+            dealbreaker=tool_input.get("dealbreaker"),
+            round_number=(((prev.round_number or 0) + 1) if prev else 99),
+        )
+        agent_state.opinions.append(new_opinion)
+        agent_state.add_memory(
+            f"Chat shifted my view: now leaning {new_opinion.candidate} "
+            f"(confidence: {new_opinion.confidence}%)."
+        )
+
+        try:
+            await event_bus.publish(OpinionChangedEvent(
+                agent_id=agent_state.agent_id,
+                agent_name=agent_state.definition.name,
+                town=agent_state.definition.town,
+                old_opinion=prev,
+                new_opinion=new_opinion,
+            ))
+        except Exception as pub_err:  # pragma: no cover — defensive
+            logger.warning(f"Failed to publish OpinionChangedEvent: {pub_err}")
+
+        return True
+
+    except Exception as e:
+        logger.warning(f"Opinion re-eval failed for {agent_state.agent_id}: {e}")
+        return False
+
 
 async def _classify_and_update_trust(
     *,

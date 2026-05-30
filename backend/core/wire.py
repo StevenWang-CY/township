@@ -84,6 +84,12 @@ def agent_state_to_wire(s: AgentState) -> dict:
             "round_number": 0,
         }
 
+    # Relationships → {agent_id: type} map (skip malformed entries)
+    relationships: dict[str, str] = {}
+    for r in s.definition.relationships:
+        if isinstance(r, dict) and r.get("agent"):
+            relationships[r["agent"]] = r.get("type", "")
+
     return {
         "id": s.agent_id,
         "name": s.definition.name,
@@ -94,6 +100,10 @@ def agent_state_to_wire(s: AgentState) -> dict:
         "current_activity": "idle",
         "initials": _initials(s.definition.name),
         "color": _color_for_town(town),
+        "idle_thoughts": list(s.definition.idle_thoughts),
+        "routine": list(s.definition.routine),
+        "top_concerns": list(s.definition.top_concerns),
+        "relationships": relationships,
     }
 
 
@@ -137,6 +147,7 @@ def town_summary_to_wire(s: TownSummary) -> dict:
         "consensus_points": [],
         "fault_lines": [],
         "notable_conversations": [],
+        "failed_agents": s.failed_agents,
     }
 
 
@@ -173,4 +184,5 @@ def district_summary_to_wire(d: DistrictSummary) -> dict:
         "total_agents": d.total_agents,
         "total_conversations": d.total_conversations,
         "total_cost": d.total_cost,
+        "failed_agents": d.failed_agents,
     }

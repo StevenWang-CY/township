@@ -82,7 +82,7 @@ export default function PlayerHUD({
       {!compact && worldClock && (
         <div className="player-hud-chip" title="In-game time">
           <span style={{ display: "inline-flex" }}>
-            {worldClock.hour >= 18 || worldClock.hour < 6 ? <MoonIcon /> : <SunIcon />}
+            {worldClock.hour >= 19 || worldClock.hour < 6 ? <MoonIcon /> : <SunIcon />}
           </span>
           <span>{formatTime(worldClock.hour, worldClock.minute)}</span>
         </div>

@@ -17,7 +17,7 @@ export function useSimulation() {
         body: JSON.stringify({ rounds }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data: SimulationStatus = await res.json();
       setStatus(data);
     } catch (e: any) {
       setError(e.message);

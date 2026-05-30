@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import OpinionChart from "./OpinionChart";
-import type { NewsReaction, LeanId, TownId, AgentState } from "../types/messages";
+import type { NewsReaction, LeanId, TownId, AgentState, OpinionShift } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
 
 /* ── Types ────────────────────────────────────────────────────── */
@@ -12,6 +12,45 @@ interface Scenario {
   category: string;
   expected_impact: string;
   affected_towns: string[];
+}
+
+/* ── Human-readable label tables for raw enum values ──────────── */
+
+const IMPACT_LABELS: Record<string, string> = {
+  changes_mind: "Changed their mind",
+  strengthens_current: "Reinforced their choice",
+  weakens_current: "Wavering",
+  no_effect: "Unmoved",
+};
+
+const EMOTION_LABELS: Record<string, string> = {
+  angry: "Angry",
+  anxious: "Anxious",
+  worried: "Worried",
+  fearful: "Fearful",
+  hopeful: "Hopeful",
+  relieved: "Relieved",
+  energized: "Energized",
+  saddened: "Saddened",
+  frustrated: "Frustrated",
+  conflicted: "Conflicted",
+  indifferent: "Indifferent",
+  encouraged: "Encouraged",
+};
+
+/** Map a raw enum value through a label table, gracefully de-slugging unknowns. */
+function humanize(raw: string | undefined, table: Record<string, string>): string {
+  if (!raw) return "—";
+  const key = raw.trim().toLowerCase();
+  if (table[key]) return table[key];
+  // Unknown / free-text — de-slug (snake_case → Title-ish) but keep prose intact.
+  if (/^[a-z0-9_]+$/.test(key)) {
+    return key
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+  return raw;
 }
 
 const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
@@ -38,6 +77,7 @@ export default function GodsView({ ws }: GodsViewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reactions, setReactions] = useState<NewsReaction[]>([]);
+  const [opinionShifts, setOpinionShifts] = useState<OpinionShift[]>([]);
   const [submitted, setSubmitted] = useState(false);
 
   // Scenario library state
@@ -70,6 +110,7 @@ export default function GodsView({ ws }: GodsViewProps) {
     setLoading(true);
     setError(null);
     setReactions([]);
+    setOpinionShifts([]);
     setSubmitted(true);
 
     try {
@@ -82,10 +123,12 @@ export default function GodsView({ ws }: GodsViewProps) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setReactions(data.reactions || []);
+      setOpinionShifts(data.opinion_shifts || []);
     } catch (e: any) {
-      setError(e.message);
-      // Show demo reactions on error
-      setReactions(getDemoReactions(prompt));
+      // Surface a visible error and leave results empty — no invented demo data.
+      setError(e.message || "Could not reach the simulation.");
+      setReactions([]);
+      setOpinionShifts([]);
     } finally {
       setLoading(false);
     }
@@ -97,48 +140,39 @@ export default function GodsView({ ws }: GodsViewProps) {
     if (byTown[r.town]) byTown[r.town].push(r);
   }
 
-  // Build "current" and "projected" opinions for the before/after donut
+  // Build "current" and "projected" opinions for the before/after donut.
   const allAgents = Object.values(ws.agents);
+  const hasLiveAgents = allAgents.length > 0;
+
+  // Signature of the agents' candidate leanings so the memo recomputes when an
+  // opinion changes — not merely when the agent COUNT changes.
+  const opinionSignature = useMemo(
+    () => allAgents.map((a) => `${a.id}:${a.opinion?.candidate ?? "undecided"}`).join("|"),
+    [allAgents],
+  );
+
   const currentOpinions = useMemo(() => {
     const total: Record<LeanId, number> = { mejia: 0, hathaway: 0, bond: 0, undecided: 0 };
-    if (allAgents.length === 0) {
-      // demo data fallback
-      total.mejia = 10;
-      total.hathaway = 8;
-      total.undecided = 8;
-    } else {
-      for (const a of allAgents) {
-        const lean = (a.opinion?.candidate as LeanId) || "undecided";
-        total[lean] = (total[lean] || 0) + 1;
-      }
+    for (const a of allAgents) {
+      const lean = (a.opinion?.candidate as LeanId) || "undecided";
+      total[lean] = (total[lean] || 0) + 1;
     }
     return total;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allAgents.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on opinionSignature
+  }, [opinionSignature]);
 
   const projectedOpinions = useMemo(() => {
-    if (reactions.length === 0) return null;
+    if (opinionShifts.length === 0) return null;
     const next: Record<LeanId, number> = { ...currentOpinions };
-    for (const r of reactions) {
-      const target = allAgents.find((a) => a.id === r.agent_id);
-      const currentLean = (target?.opinion?.candidate as LeanId) || "undecided";
-      const impact = (r.impact_on_vote || "").toLowerCase();
-      if (impact.includes("changes_mind") || impact.includes("changes mind")) {
-        // Move to whichever candidate is named in the impact (best-effort)
-        let to: LeanId = currentLean;
-        if (impact.includes("mejia")) to = "mejia";
-        else if (impact.includes("hathaway")) to = "hathaway";
-        else if (impact.includes("bond")) to = "bond";
-        else if (impact.includes("undecided")) to = "undecided";
-        if (to !== currentLean) {
-          next[currentLean] = Math.max(0, (next[currentLean] || 0) - 1);
-          next[to] = (next[to] || 0) + 1;
-        }
-      }
-      // strengthens_current / weakens_current don't change counts, just confidence
+    for (const s of opinionShifts) {
+      const before = s.before as LeanId;
+      const after = s.after as LeanId;
+      if (before === after) continue;
+      next[before] = Math.max(0, (next[before] || 0) - 1);
+      next[after] = (next[after] || 0) + 1;
     }
     return next;
-  }, [reactions, currentOpinions, allAgents]);
+  }, [opinionShifts, currentOpinions]);
 
   const predictionSummary = useMemo(() => {
     if (!projectedOpinions) return null;
@@ -394,7 +428,7 @@ export default function GodsView({ ws }: GodsViewProps) {
           )}
           {error && (
             <span className="text-xs" style={{ color: "#EF4444" }}>
-              Backend unreachable. Showing demo reactions.
+              Could not reach the simulation. ({error})
             </span>
           )}
         </div>
@@ -415,8 +449,19 @@ export default function GodsView({ ws }: GodsViewProps) {
             </div>
           ) : (
             <>
-              {/* Before/After prediction widget */}
-              {projectedOpinions && reactions.length > 0 && (
+              {/* Before/After prediction widget — only when a sim has produced
+                  live opinions AND the backend returned opinion shifts. */}
+              {!hasLiveAgents && reactions.length > 0 && (
+                <div
+                  className="rounded-xl p-4 mb-6 text-center"
+                  style={{ background: "var(--card-bg)", border: "1px dashed var(--card-border)" }}
+                >
+                  <p className="text-sm" style={{ color: "var(--township-ink-muted)" }}>
+                    Run a simulation to see live opinions shift here.
+                  </p>
+                </div>
+              )}
+              {hasLiveAgents && projectedOpinions && (
                 <div className="prediction-widget">
                   <div className="prediction-widget-pair">
                     <div className="prediction-widget-chart">
@@ -485,10 +530,10 @@ export default function GodsView({ ws }: GodsViewProps) {
                               </span>
                             </div>
                             <p className="text-xs mb-1" style={{ color: "var(--township-ink)" }}>
-                              <span className="font-medium">Emotional:</span> {r.emotional_response}
+                              <span className="font-medium">Emotional:</span> {humanize(r.emotional_response, EMOTION_LABELS)}
                             </p>
                             <p className="text-xs mb-1" style={{ color: "var(--township-ink)" }}>
-                              <span className="font-medium">Vote impact:</span> {r.impact_on_vote}
+                              <span className="font-medium">Vote impact:</span> {humanize(r.impact_on_vote, IMPACT_LABELS)}
                             </p>
                             <p className="text-xs" style={{ color: "var(--township-ink-muted)", fontStyle: "italic" }}>
                               {r.reasoning}
@@ -501,7 +546,7 @@ export default function GodsView({ ws }: GodsViewProps) {
                 })}
               </div>
 
-              {reactions.length === 0 && !loading && (
+              {reactions.length === 0 && !loading && !error && (
                 <div
                   className="rounded-xl p-8 text-center"
                   style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
@@ -517,77 +562,4 @@ export default function GodsView({ ws }: GodsViewProps) {
       )}
     </div>
   );
-}
-
-/* ── Demo reactions when backend isn't available ───────────── */
-
-function getDemoReactions(prompt: string): NewsReaction[] {
-  const isICE = prompt.toLowerCase().includes("ice");
-  const isHealthcare = prompt.toLowerCase().includes("healthcare") || prompt.toLowerCase().includes("premium");
-  const isLayoff = prompt.toLowerCase().includes("layoff");
-
-  return [
-    {
-      agent_id: "dover-1",
-      agent_name: "Carlos Restrepo",
-      town: "dover" as TownId,
-      headline: prompt,
-      emotional_response: isICE
-        ? "Terrified. My employees, my neighbors — everyone is scared."
-        : "Concerned about how this affects my family and business.",
-      impact_on_vote: isICE
-        ? "Strongly pushes me toward Mejia. She understands our community."
-        : "Makes me think more carefully about who will protect working families.",
-      reasoning: "As a business owner in Dover's immigrant community, any policy that threatens our stability threatens everything I've built.",
-    },
-    {
-      agent_id: "montclair-3",
-      agent_name: "Dorothy Johnson",
-      town: "montclair" as TownId,
-      headline: prompt,
-      emotional_response: "This is deeply troubling but unfortunately not surprising.",
-      impact_on_vote: "Reinforces my support for Mejia's progressive platform.",
-      reasoning: "After 40 years of teaching, I've seen how policy failures cascade through communities. We need systemic change.",
-    },
-    {
-      agent_id: "parsippany-1",
-      agent_name: "Rajesh Sharma",
-      town: "parsippany" as TownId,
-      headline: prompt,
-      emotional_response: isLayoff
-        ? "Very worried. Tech layoffs could hit our community hard."
-        : "Need to analyze the policy implications carefully.",
-      impact_on_vote: "Still weighing both candidates. This adds another factor to consider.",
-      reasoning: "As an IT manager, I try to evaluate things systematically. Both candidates have relevant proposals.",
-    },
-    {
-      agent_id: "randolph-1",
-      agent_name: "James Thornton",
-      town: "randolph" as TownId,
-      headline: prompt,
-      emotional_response: "Frustrated but pragmatic. We need practical solutions, not ideology.",
-      impact_on_vote: "Hathaway's moderate approach seems more realistic for addressing this.",
-      reasoning: "In finance, you learn that extreme positions rarely produce good outcomes. Hathaway understands that.",
-    },
-    {
-      agent_id: "dover-5",
-      agent_name: "Sofia Hernandez",
-      town: "dover" as TownId,
-      headline: prompt,
-      emotional_response: isICE
-        ? "I'm a DACA recipient. This is my worst nightmare."
-        : "This affects young people like me the most.",
-      impact_on_vote: "Mejia is the only candidate who truly represents people like me.",
-      reasoning: "I came here as a child. This is the only country I know. I need a representative who sees me as fully American.",
-    },
-    {
-      agent_id: "randolph-3",
-      agent_name: "Col. Bob Mitchell",
-      town: "randolph" as TownId,
-      headline: prompt,
-      emotional_response: "We need strong leadership, not hand-wringing.",
-      impact_on_vote: "Hathaway has the temperament and background for tough situations.",
-      reasoning: "In the military, I learned that decisive leadership matters more than perfect solutions.",
-    },
-  ];
 }
