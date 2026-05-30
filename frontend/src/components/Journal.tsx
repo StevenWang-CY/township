@@ -3,20 +3,8 @@ import { useUserProfile } from "../context/UserProfileContext";
 import SpritePortrait from "./SpritePortrait";
 import TrustBadge from "./TrustBadge";
 import { resolveAgentSprite } from "../game/spriteCustomization";
-import type { LeanId } from "../types/messages";
-import { CANDIDATE_NAMES, CANDIDATE_COLORS } from "../types/messages";
-
-interface JournalRawEntry {
-  agent_id: string;
-  transcript: { role: string; content: string; ts?: string }[];
-  opinion_before?: { candidate?: string; confidence?: number };
-  opinion_after?: { candidate?: string; confidence?: number };
-  trust_before?: number;
-  trust_after?: number;
-  created_at: string;
-  agent_name?: string;
-  town?: string;
-}
+import type { LeanId, TownId, JournalEntry } from "../types/messages";
+import { CANDIDATE_NAMES, CANDIDATE_COLORS, TOWN_META } from "../types/messages";
 
 interface JournalProps {
   open: boolean;
@@ -26,7 +14,7 @@ interface JournalProps {
 export default function Journal({ open, onClose }: JournalProps) {
   const { profile } = useUserProfile();
   const playerId = profile?.playerId;
-  const [entries, setEntries] = useState<JournalRawEntry[]>([]);
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
@@ -39,7 +27,7 @@ export default function Journal({ open, onClose }: JournalProps) {
       const res = await fetch(`/api/journal/${encodeURIComponent(playerId)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const items = Array.isArray(data?.entries) ? (data.entries as JournalRawEntry[]) : [];
+      const items = Array.isArray(data?.entries) ? (data.entries as JournalEntry[]) : [];
       // newest first
       setEntries(items.slice().reverse());
     } catch (e: any) {
@@ -115,7 +103,17 @@ export default function Journal({ open, onClose }: JournalProps) {
                     <strong className="journal-entry-name">
                       {entry.agent_name || entry.agent_id.replace(/-/g, " ")}
                     </strong>
-                    <span className="journal-entry-ts">{dateStr}</span>
+                    <span className="journal-entry-ts">
+                      {entry.town && TOWN_META[entry.town] && (
+                        <span
+                          className={`town-badge town-badge--${entry.town}`}
+                          style={{ marginRight: 6 }}
+                        >
+                          {TOWN_META[entry.town].name}
+                        </span>
+                      )}
+                      {dateStr}
+                    </span>
                   </div>
                   <TrustBadge trust={trustAfter} size="small" />
                   <span className="journal-entry-caret" aria-hidden>

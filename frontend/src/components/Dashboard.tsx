@@ -6,24 +6,8 @@ import PlayerHUD from "./PlayerHUD";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useRelationships } from "../hooks/useRelationships";
 import { useSimulation } from "../hooks/useSimulation";
-import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, OpinionChangedEvent, Relationship } from "../types/messages";
+import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, OpinionChangedEvent, Relationship, NewsReaction } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
-
-/* ── Demo data when backend is offline ─────────────────────── */
-
-const DEMO_OPINIONS: Record<TownId, Record<LeanId, number>> = {
-  dover: { mejia: 3, hathaway: 1, bond: 0, undecided: 2 },
-  montclair: { mejia: 5, hathaway: 1, bond: 0, undecided: 1 },
-  parsippany: { mejia: 2, hathaway: 2, bond: 0, undecided: 3 },
-  randolph: { mejia: 0, hathaway: 4, bond: 0, undecided: 2 },
-};
-
-const DEMO_ISSUES: Record<TownId, string[]> = {
-  dover: ["Healthcare costs", "Immigration enforcement", "Property taxes"],
-  montclair: ["Education funding", "Social justice", "Housing affordability"],
-  parsippany: ["Property taxes", "Healthcare", "Community integration"],
-  randolph: ["Tax burden", "School quality", "National security"],
-};
 
 interface DashboardProps {
   ws: {
@@ -35,6 +19,7 @@ interface DashboardProps {
     simulationRunning: boolean;
     events?: SimulationEvent[];
     relationships?: Record<string, Relationship>;
+    newsReactions?: NewsReaction[];
   };
 }
 
@@ -90,9 +75,10 @@ export default function Dashboard({ ws }: DashboardProps) {
   }, []);
 
   const allAgents = Object.values(ws.agents);
+  const hasLiveAgents = allAgents.length > 0;
   const towns: TownId[] = ["montclair", "parsippany", "dover", "randolph"];
 
-  // Compute opinions per town
+  // Compute opinions per town — all-zero until a simulation supplies agents.
   const townOpinions = useMemo(() => {
     const result: Record<TownId, Record<LeanId, number>> = {
       dover: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
@@ -100,7 +86,6 @@ export default function Dashboard({ ws }: DashboardProps) {
       parsippany: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
       randolph: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
     };
-    if (allAgents.length === 0) return DEMO_OPINIONS;
     for (const a of allAgents) {
       const lean = (a.opinion?.candidate as LeanId) || "undecided";
       if (result[a.town]) result[a.town][lean]++;
@@ -207,20 +192,26 @@ export default function Dashboard({ ws }: DashboardProps) {
         </div>
         <div className="flex-1">
           <h3 className="font-semibold text-sm mb-2" style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", letterSpacing: "0.5px" }}>
-            District-Wide Sentiment (26 agents)
+            District-Wide Sentiment {hasLiveAgents ? `(${allAgents.length} agents)` : ""}
           </h3>
-          <div className="flex gap-6 mb-3">
-            {(["mejia", "hathaway", "bond", "undecided"] as LeanId[]).map((k) => (
-              <div key={k} className="text-center">
-                <div className="text-2xl font-bold" style={{ color: CANDIDATE_COLORS[k] }}>
-                  {overallOpinions[k]}
+          {hasLiveAgents ? (
+            <div className="flex gap-6 mb-3">
+              {(["mejia", "hathaway", "bond", "undecided"] as LeanId[]).map((k) => (
+                <div key={k} className="text-center">
+                  <div className="text-2xl font-bold" style={{ color: CANDIDATE_COLORS[k] }}>
+                    {overallOpinions[k]}
+                  </div>
+                  <div className="text-xs capitalize" style={{ color: "var(--township-ink-muted)" }}>
+                    {k}
+                  </div>
                 </div>
-                <div className="text-xs capitalize" style={{ color: "var(--township-ink-muted)" }}>
-                  {k}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm mb-3 italic" style={{ color: "var(--township-ink-muted)" }}>
+              Run a simulation to see live district sentiment.
+            </p>
+          )}
 
           {/* Simulation controls */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -273,10 +264,10 @@ export default function Dashboard({ ws }: DashboardProps) {
       <div className="dashboard-town-grid mb-8">
         {towns.map((t) => {
           const meta = TOWN_META[t];
-          const issues =
+          const issues: string[] =
             ws.townSummaries[t]?.top_issues ||
             results?.town_summaries?.find((s: any) => s.town === t)?.top_issues ||
-            DEMO_ISSUES[t];
+            [];
 
           return (
             <div
@@ -313,16 +304,22 @@ export default function Dashboard({ ws }: DashboardProps) {
                 <h4 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "1.5px", fontSize: "10px" }}>
                   Top Issues
                 </h4>
-                {issues.slice(0, 3).map((issue: string, i: number) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-1.5 text-xs py-0.5"
-                    style={{ color: "var(--township-ink)" }}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color, opacity: 0.5 }} />
-                    {issue}
-                  </div>
-                ))}
+                {issues.length > 0 ? (
+                  issues.slice(0, 3).map((issue: string, i: number) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-1.5 text-xs py-0.5"
+                      style={{ color: "var(--township-ink)" }}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color, opacity: 0.5 }} />
+                      {issue}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs italic py-0.5" style={{ color: "var(--township-ink-muted)" }}>
+                    Run a simulation to surface issues.
+                  </p>
+                )}
               </div>
             </div>
           );
@@ -403,7 +400,7 @@ export default function Dashboard({ ws }: DashboardProps) {
                         {" → "}
                         <span style={{ color: CANDIDATE_COLORS[newC], fontWeight: 600 }}>{CANDIDATE_NAMES[newC]}</span>
                       </span>
-                      <span className="dashboard-timeline-meta">{TOWN_META[evt.town].name}</span>
+                      <span className="dashboard-timeline-meta">{TOWN_META[evt.town]?.name ?? evt.town}</span>
                     </div>
                   </li>
                 );
@@ -412,6 +409,43 @@ export default function Dashboard({ ws }: DashboardProps) {
           </div>
         );
       })()}
+
+      {/* Latest news reactions (live WS) */}
+      {ws.newsReactions && ws.newsReactions.length > 0 && (
+        <div
+          className="rounded-xl p-5 mb-8"
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--card-border)",
+            boxShadow: "var(--shadow-soft)",
+          }}
+        >
+          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "0.5px" }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: "#EF4444", animation: "pulse-glow 2s ease-in-out infinite" }} />
+            Latest Reactions
+          </h3>
+          <div className="flex flex-col gap-2">
+            {ws.newsReactions.slice(-8).reverse().map((r, i) => {
+              const meta = TOWN_META[r.town];
+              return (
+                <div
+                  key={`${r.agent_id}-${i}`}
+                  className="flex items-start gap-2 rounded-lg px-3 py-2"
+                  style={{ background: "var(--township-paper)", borderLeft: `3px solid ${meta?.color ?? "var(--card-border)"}` }}
+                >
+                  <span className="font-medium text-xs shrink-0" style={{ color: meta?.color ?? "var(--township-ink)" }}>
+                    {r.agent_name}
+                  </span>
+                  <span className="text-xs" style={{ color: "var(--township-ink-muted)" }}>
+                    {r.emotional_response}
+                    {r.impact_on_vote ? ` — ${r.impact_on_vote}` : ""}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Agent Grid */}
       <div className="mb-4 flex items-center gap-2 flex-wrap">

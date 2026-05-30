@@ -383,8 +383,9 @@ export class OnboardingScene extends Phaser.Scene {
         });
         this.time.delayedCall(360, () => {
           if (this.preselectedTown) {
+            const pm = TOWN_META[this.preselectedTown];
             this.greeter?.showSpeechBubble(
-              `${TOWN_META[this.preselectedTown].name} — ${TOWN_META[this.preselectedTown].tagline.toLowerCase()}!`,
+              `${this.userName}, ${pm.name} suits you — ${pm.tagline.toLowerCase()}!`,
               3000,
             );
             this.time.delayedCall(3200, () => this.showLeaningSelection());
@@ -558,9 +559,9 @@ export class OnboardingScene extends Phaser.Scene {
           duration: 250, ease: "Quad.easeIn",
           onComplete: () => cont.destroy(),
         });
-        // Dynamic greeting referencing the chosen town's tagline.
+        // Dynamic greeting referencing the chosen name + town's tagline.
         this.greeter?.showSpeechBubble(
-          `${meta.name} — ${meta.tagline.toLowerCase()}!`,
+          `${this.userName}, welcome to ${meta.name} — ${meta.tagline.toLowerCase()}!`,
           3000,
         );
         this.time.delayedCall(3000, () => this.showLeaningSelection());
@@ -886,7 +887,8 @@ export class OnboardingScene extends Phaser.Scene {
 
   private completeOnboarding() {
     this.currentStep = "complete";
-    this.greeter?.showSpeechBubble(`Welcome home, ${this.userName}!`, 3000);
+    const townName = TOWN_META[this.userTown]?.name ?? "Township";
+    this.greeter?.showSpeechBubble(`Welcome home to ${townName}, ${this.userName}!`, 3000);
 
     this.time.delayedCall(2000, () => {
       const W = Number(this.game.config.width);

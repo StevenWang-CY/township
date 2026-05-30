@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import type { AgentState, ChatMessage, LeanId } from "../types/messages";
+import type { AgentState, ChatMessage, LeanId, Opinion } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
 import { AGENT_VOICES, AGENT_VOICE_MAP } from "../game/config";
 import { resolveAgentSprite } from "../game/spriteCustomization";
@@ -49,7 +49,7 @@ function stripGesturesForSpeech(text: string): string {
   return text.replace(GESTURE_RE, "").replace(/[ \t]{2,}/g, " ").trim();
 }
 
-/* ── ElevenLabs TTS Helper ───────────────────────────────────── */
+/* ── Server-proxied TTS Helper (POST /api/tts) ───────────────── */
 
 function getVoiceId(agentId: string): string {
   const voiceType = AGENT_VOICE_MAP[agentId] || "default";
@@ -57,40 +57,28 @@ function getVoiceId(agentId: string): string {
   return voice.voiceId;
 }
 
-async function speakWithElevenLabs(
+async function speakWithTTS(
   text: string,
   voiceId: string,
   onStart: () => void,
   onEnd: () => void,
   onError: (err: string) => void,
 ): Promise<void> {
-  const apiKey = (import.meta as any).env?.VITE_ELEVENLABS_API_KEY;
-  if (!apiKey) {
-    onError("ElevenLabs API key not configured (set VITE_ELEVENLABS_API_KEY)");
-    return;
-  }
-
   onStart();
 
   try {
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "xi-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          text: text.slice(0, 1000),
-          model_id: "eleven_monolingual_v1",
-          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-        }),
-      },
-    );
+    const response = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.slice(0, 1000), voice_id: voiceId }),
+    });
 
+    if (response.status === 503) {
+      onError("Voice unavailable");
+      return;
+    }
     if (!response.ok) {
-      throw new Error(`ElevenLabs API error: ${response.status}`);
+      throw new Error(`TTS error: ${response.status}`);
     }
 
     const audioBlob = await response.blob();
@@ -108,7 +96,7 @@ async function speakWithElevenLabs(
 
     await audio.play();
   } catch (err: any) {
-    onError(err.message || "TTS failed");
+    onError(err.message || "Voice unavailable");
   }
 }
 
@@ -153,7 +141,7 @@ function ListenButton({ text, agentId }: { text: string; agentId: string }) {
   const handleClick = () => {
     if (state === "loading" || state === "playing") return;
     const voiceId = getVoiceId(agentId);
-    speakWithElevenLabs(
+    speakWithTTS(
       text,
       voiceId,
       () => setState("playing"),
@@ -193,7 +181,7 @@ function ListenButton({ text, agentId }: { text: string; agentId: string }) {
           <span>Playing...</span>
         </>
       ) : state === "error" ? (
-        <span>No API key</span>
+        <span>Voice off</span>
       ) : (
         <SpeakerIcon size={12} />
       )}
@@ -314,6 +302,9 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [memories, setMemories] = useState<string[] | null>(null);
   const [recording, setRecording] = useState(false);
+  // Live header overrides from the chat response (don't wait for WS).
+  const [liveOpinion, setLiveOpinion] = useState<Opinion | null>(null);
+  const [liveTrust, setLiveTrust] = useState<number | null>(null);
   const autoAbortRef = useRef(false);
   const autoStartedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -350,6 +341,8 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
     lastAgentMsgIdRef.current = null;
     setMemories(null);
     setMemoryOpen(false);
+    setLiveOpinion(null);
+    setLiveTrust(null);
     // Audio cue: opening the chat with a new agent.
     audio.play("chat_open");
     refetchMemories();
@@ -395,7 +388,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
       // or read stage directions aloud.
       if (agent && profile?.audioAutoplay) {
         const voiceId = getVoiceId(agent.id);
-        speakWithElevenLabs(
+        speakWithTTS(
           stripGesturesForSpeech(latestAgent.content),
           voiceId,
           () => {},
@@ -464,7 +457,27 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
 
       setMessages((prev) => prev.filter((m) => m.id !== typingId));
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // On 404 (agent unknown) / 503 (LLM unavailable) → visible system notice,
+      // never an agent bubble.
+      if (!res.ok) {
+        const reason =
+          res.status === 503
+            ? "the agent service is unavailable right now"
+            : res.status === 404
+              ? "that resident could not be found"
+              : `request failed (HTTP ${res.status})`;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `error-${Date.now()}`,
+            role: "system",
+            content: `${agent.name} could not be reached — ${reason}.`,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
+
       const data = await res.json();
 
       const agentMsg: ChatMessage = {
@@ -475,6 +488,15 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         agent_id: agent.id,
       };
       setMessages((prev) => [...prev, agentMsg]);
+
+      // Update the header opinion badge + trust immediately from the response,
+      // without waiting for the WS opinion_changed / relationship_update events.
+      if (data.opinion && typeof data.opinion === "object") {
+        setLiveOpinion(data.opinion as Opinion);
+      }
+      if (typeof data.trust === "number") {
+        setLiveTrust(data.trust);
+      }
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== typingId));
       setMessages((prev) => [
@@ -526,28 +548,38 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         // Tear down audio stream
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
-        if (blob.size === 0) return;
-        // Try /api/transcribe — gracefully degrade if missing
-        try {
-          const fd = new FormData();
-          fd.append("audio", blob, "voice.webm");
-          const res = await fetch("/api/transcribe", { method: "POST", body: fd });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json();
-          const transcript = data.text || data.transcript || "";
-          if (transcript) {
-            setInput(transcript);
-          }
-        } catch {
+        const notifyUnavailable = () =>
           setMessages((prev) => [
             ...prev,
             {
               id: `notice-${Date.now()}`,
               role: "system",
-              content: "Mic transcription not available.",
+              content: "Voice input unavailable",
               timestamp: new Date().toISOString(),
             },
           ]);
+        if (blob.size === 0) {
+          notifyUnavailable();
+          return;
+        }
+        // POST /api/transcribe → {transcript} (200) or 503 {error}.
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, "voice.webm");
+          const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+          if (!res.ok) {
+            notifyUnavailable();
+            return;
+          }
+          const data = await res.json();
+          const transcript = (data.transcript || "").trim();
+          if (data.error || !transcript) {
+            notifyUnavailable();
+            return;
+          }
+          setInput(transcript);
+        } catch {
+          notifyUnavailable();
         }
       };
       recorder.start();
@@ -723,7 +755,9 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
   if (!agent) return null;
 
   const meta = TOWN_META[agent.town];
-  const candidate = (agent.opinion?.candidate as LeanId) || "undecided";
+  // Prefer the live opinion from the most recent chat response over the WS state.
+  const headerOpinion = liveOpinion ?? agent.opinion;
+  const candidate = (headerOpinion?.candidate as LeanId) || "undecided";
   const opinionLabel = CANDIDATE_NAMES[candidate];
   const initials =
     agent.initials ||
@@ -735,7 +769,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
       .slice(0, 2);
 
   const isAuto = chatMode === "auto";
-  const trust = trustFor(agent.id);
+  const trust = liveTrust ?? trustFor(agent.id);
 
   return (
     <>
@@ -780,9 +814,9 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
               </p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={`town-badge town-badge--${agent.town}`}>{meta.name}</span>
-                <span className={`opinion-badge opinion-badge--${agent.opinion?.candidate || "undecided"}`}>
+                <span className={`opinion-badge opinion-badge--${headerOpinion?.candidate || "undecided"}`}>
                   {opinionLabel}
-                  {agent.opinion?.confidence ? ` ${agent.opinion.confidence}%` : ""}
+                  {headerOpinion?.confidence ? ` ${headerOpinion.confidence}%` : ""}
                 </span>
                 <TrustBadge trust={trust} size="small" />
               </div>

@@ -7,6 +7,7 @@ import type {
   TownId,
   WeatherKind,
   Relationship,
+  NewsReaction,
 } from "../types/messages";
 
 /* ── State ──────────────────────────────────────────────────── */
@@ -23,6 +24,7 @@ interface WsState {
   worldClock: { hour: number; minute: number };
   weather: WeatherKind;
   relationships: Record<string, Relationship>;
+  newsReactions: NewsReaction[];
 }
 
 const initialState: WsState = {
@@ -37,6 +39,7 @@ const initialState: WsState = {
   worldClock: { hour: 8, minute: 0 },
   weather: "clear",
   relationships: {},
+  newsReactions: [],
 };
 
 /* ── Reducer ────────────────────────────────────────────────── */
@@ -199,6 +202,13 @@ function reducer(state: WsState, action: WsAction): WsState {
           };
         }
 
+        case "news_reaction":
+          return {
+            ...state,
+            events: newEvents,
+            newsReactions: [...state.newsReactions, evt.reaction].slice(-50),
+          };
+
         case "cross_town_gossip":
           // Just record into the events stream — consumers handle UI side-effects.
           return { ...state, events: newEvents };
@@ -231,7 +241,7 @@ export function useWebSocket() {
 
     ws.onopen = () => {
       dispatch({ type: "CONNECTED" });
-      console.log("[Township] WebSocket connected");
+      if (import.meta.env.DEV) console.log("[Township] WebSocket connected");
     };
 
     ws.onmessage = (e) => {
@@ -245,7 +255,7 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       dispatch({ type: "DISCONNECTED" });
-      console.log("[Township] WebSocket disconnected, reconnecting in 3s...");
+      if (import.meta.env.DEV) console.log("[Township] WebSocket disconnected, reconnecting in 3s...");
       reconnectTimer.current = setTimeout(connect, 3000);
     };
 

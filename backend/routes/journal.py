@@ -6,7 +6,7 @@ panel on the frontend (§5.7 of the implementation plan).
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,8 @@ class JournalMessage(BaseModel):
 class JournalEntryRequest(BaseModel):
     user_id: str
     agent_id: str
+    agent_name: str | None = None
+    town: str | None = None
     transcript: list[JournalMessage] = Field(default_factory=list)
     opinion_before: dict | None = None
     opinion_after: dict | None = None
@@ -35,10 +37,26 @@ class JournalEntryRequest(BaseModel):
 
 
 @router.post("/entry")
-async def add_journal_entry(req: JournalEntryRequest):
+async def add_journal_entry(req: JournalEntryRequest, request: Request):
     """Append a new journal entry for this user."""
+    # Resolve agent_name / town: prefer values from the request body, fall back
+    # to the orchestrator's agent state when available.
+    agent_name = req.agent_name
+    town = req.town
+    if agent_name is None or town is None:
+        orchestrator = getattr(request.app.state, "orchestrator", None)
+        if orchestrator is not None:
+            state = orchestrator.get_agent_state(req.agent_id)
+            if state is not None:
+                if agent_name is None:
+                    agent_name = state.definition.name
+                if town is None:
+                    town = state.definition.town
+
     entry = {
         "agent_id": req.agent_id,
+        "agent_name": agent_name,
+        "town": town,
         "transcript": [m.model_dump() for m in req.transcript],
         "opinion_before": req.opinion_before,
         "opinion_after": req.opinion_after,

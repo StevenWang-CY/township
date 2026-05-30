@@ -214,11 +214,33 @@ Inject variables (news events, policy announcements, hypothetical scenarios) and
 cd township
 pip install -r backend/requirements.txt
 
+# Copy the env template and fill in your credentials (see .env.example for the
+# full list and inline docs).
+cp .env.example .env
+# ... edit .env ...
+
+# Either source the .env or pass the vars inline:
 AWS_BEARER_TOKEN_BEDROCK=<your-bedrock-api-key> \
 AWS_REGION=us-east-2 \
 BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0 \
 python -m uvicorn backend.main:app --reload --port 8001
 ```
+
+**Environment variables** (all server-side — see `.env.example`):
+
+| Var | Purpose |
+|---|---|
+| `AWS_BEARER_TOKEN_BEDROCK` | Bedrock API key (LLM auth); SigV4 credential chain is the fallback |
+| `AWS_REGION` | Bedrock region (default `us-east-2`) |
+| `BEDROCK_MODEL_ID` | Model override (default Claude Sonnet 4.5) |
+| `BEDROCK_CACHE_SYSTEM` | Prompt caching on the persona block (default on; `0` to disable) |
+| `ELEVENLABS_API_KEY` | **Server-side** TTS key — `POST /api/tts` proxies ElevenLabs so the browser never holds a key |
+| `OPENAI_API_KEY` | Whisper speech-to-text for `POST /api/transcribe` (`whisper-1`) |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins (default `localhost:5173,4173,3000`) |
+
+Voice features degrade gracefully: when `ELEVENLABS_API_KEY` / `OPENAI_API_KEY`
+are absent, `/api/tts` and `/api/transcribe` return a `503` JSON body the
+frontend handles cleanly.
 
 **Frontend**
 

@@ -83,13 +83,13 @@ export const AGENT_CUSTOMIZATION: Record<string, SpriteCustomization> = {
 
   // ── Randolph (6) ───────────────────────────────────────────
   "michael-\"mike\"-brennan":  { spriteKey: "char-Arthur_Burton",   tint: 0xb8c0d8 },
-  "jennifer-\"jen\"-russo":    { spriteKey: "char-Hailey_Johnson",  tint: 0xd9c2cc },
-  "frank-deluca":              { spriteKey: "char-Arthur_Burton",   tint: 0xa8a098, accessoryKey: "accessory-cap" },
+  "jennifer-\"jen\"-russo":    { spriteKey: "char-Folk_Resident",  tint: 0xd9c2cc },
+  "frank-deluca":              { spriteKey: "char-Tom_Moreno",     tint: 0xa8a098, accessoryKey: "accessory-cap" },
   "tyler-&-megan-hart":        {
     spriteKey: "char-Ryan_Park",
     partner: { name: "Megan Hart", tint: 0xe0c8a8 },
   },
-  "vikram-iyer":               { spriteKey: "char-Rajiv_Patel",     tint: 0x8aa0c8 },
+  "vikram-iyer":               { spriteKey: "char-Klaus_Mueller",  tint: 0x8aa0c8 },
   "tony-mancini":              { spriteKey: "char-John_Lin",        tint: 0xd6ac82 },
 };
 

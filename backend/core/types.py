@@ -227,12 +227,6 @@ class SimulationEndedEvent(BaseModel):
     summary: dict = Field(default_factory=dict)
 
 
-# Legacy alias kept so any external caller importing the old name still works.
-class SimulationCompleteEvent(BaseModel):
-    type: Literal["simulation_complete"] = "simulation_complete"
-    district_summary: "DistrictSummary"
-
-
 # ── New ambient / atmospheric events (§3.2, §5.2, §7) ──
 
 class WorldClockTickEvent(BaseModel):
@@ -272,7 +266,6 @@ SimulationEvent = Union[
     GodsViewResultEvent,
     SimulationStartedEvent,
     SimulationEndedEvent,
-    SimulationCompleteEvent,
     WorldClockTickEvent,
     WeatherChangedEvent,
     RelationshipUpdateEvent,
@@ -282,10 +275,11 @@ SimulationEvent = Union[
 class TownSummary(BaseModel):
     town: str
     opinion_distribution: dict[str, int]  # candidate -> count
-    top_issues: list[dict[str, float]]  # [{issue, importance}]
+    top_issues: list[dict] = Field(default_factory=list)  # [{"issue": str, "importance": float}]
     agent_summaries: list[dict]  # per-agent summary cards
     total_conversations: int
     rounds_completed: int
+    failed_agents: int = 0  # agents whose LLM calls errored out
 
 
 class DistrictSummary(BaseModel):
@@ -296,7 +290,4 @@ class DistrictSummary(BaseModel):
     total_agents: int
     total_conversations: int
     total_cost: float
-
-
-# Fix forward references
-SimulationCompleteEvent.model_rebuild()
+    failed_agents: int = 0  # sum of failed agents across all towns
