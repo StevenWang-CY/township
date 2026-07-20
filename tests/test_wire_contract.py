@@ -11,6 +11,7 @@ import os
 import typing
 
 from conftest import REPO_ROOT
+
 from backend.core.types import SimulationEvent
 
 MESSAGES_TS = os.path.join(REPO_ROOT, "frontend", "src", "types", "messages.ts")

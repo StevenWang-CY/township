@@ -11,18 +11,15 @@ Every test here asserts a fix that was NOT true before this audit pass:
   - simulation start (already running) -> 409, replay (no cache) -> 404
 """
 import asyncio
-import os
 
-import pytest
+from conftest import AGENTS_DIR, DATA_DIR, FakeClient
 from fastapi.testclient import TestClient
 
-from conftest import FakeClient, DATA_DIR, AGENTS_DIR
-
-from backend.main import app
-from backend.core.wire import agent_state_to_wire, town_summary_to_wire, district_summary_to_wire
-from backend.core.types import TownSummary, DistrictSummary
-from backend.simulation.orchestrator import SimulationOrchestrator
 from backend.core.event_bus import EventBus
+from backend.core.types import DistrictSummary, TownSummary
+from backend.core.wire import agent_state_to_wire, district_summary_to_wire, town_summary_to_wire
+from backend.main import app
+from backend.simulation.orchestrator import SimulationOrchestrator
 
 
 def _first_agent_id() -> str:

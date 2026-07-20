@@ -7,17 +7,17 @@ from ..core.event_bus import EventBus
 from ..core.types import (
     AgentMovedEvent,
     AgentSpeechEvent,
-    ConversationStartedEvent,
     ConversationEndedEvent,
+    ConversationStartedEvent,
     CrossTownGossipEvent,
-    GodViewInjectionEvent,
     GodsViewResultEvent,
+    GodViewInjectionEvent,
     NewsInjectedEvent,
     NewsReactionEvent,
     OpinionChangedEvent,
     RelationshipUpdateEvent,
-    RoundStartedEvent,
     RoundEndedEvent,
+    RoundStartedEvent,
     SimulationEndedEvent,
     SimulationStartedEvent,
     WeatherChangedEvent,
@@ -106,7 +106,7 @@ async def replay(event_bus: EventBus, cache_path: str, speed: float = 1.0):
 
     speed = max(0.1, speed)  # Minimum 0.1x to prevent division issues
 
-    for i, event_data in enumerate(events):
+    for event_data in events:
         event = _deserialize_event(event_data)
         if event is None:
             continue

@@ -1,6 +1,7 @@
+from enum import StrEnum
+from typing import Literal
+
 from pydantic import BaseModel, Field
-from typing import Literal, Optional, Union
-from enum import Enum
 
 
 class AgentDefinition(BaseModel):
@@ -33,7 +34,7 @@ class AgentDefinition(BaseModel):
     # e.g. {"round_0": "Learn what each candidate stands for.", ...}
 
 
-class CivicAgentState(str, Enum):
+class CivicAgentState(StrEnum):
     IDLE = "idle"
     OBSERVING = "observing"
     DISCUSSING = "discussing"
@@ -47,7 +48,7 @@ class Opinion(BaseModel):
     confidence: int = Field(ge=0, le=100)
     reasoning: str
     top_issues: list[str]
-    dealbreaker: Optional[str] = None
+    dealbreaker: str | None = None
     round_number: int
 
 
@@ -82,13 +83,13 @@ class ConversationRecord(BaseModel):
 class NewsReaction(BaseModel):
     # Optional extensions so the wire payload can carry agent_id / town / headline
     # exactly as the frontend NewsReaction expects (frontend/src/types/messages.ts).
-    agent_id: Optional[str] = None
+    agent_id: str | None = None
     agent_name: str
-    town: Optional[str] = None
-    headline: Optional[str] = None
+    town: str | None = None
+    headline: str | None = None
     # Kept for backwards-compat with older callers that set `event` instead of
     # `headline`. The wire DTO prefers `headline`.
-    event: Optional[str] = None
+    event: str | None = None
     emotional_response: Literal["angry", "hopeful", "anxious", "indifferent", "confused"]
     impact_on_vote: Literal["strengthens_current", "weakens_current", "changes_mind", "no_effect"]
     reasoning: str
@@ -104,7 +105,7 @@ class AgentState(BaseModel):
     state: CivicAgentState = CivicAgentState.IDLE
 
     @property
-    def current_opinion(self) -> Optional[Opinion]:
+    def current_opinion(self) -> Opinion | None:
         return self.opinions[-1] if self.opinions else None
 
     def add_memory(self, memory: str):
@@ -119,14 +120,14 @@ class AgentState(BaseModel):
 class RoundStartedEvent(BaseModel):
     type: Literal["round_started"] = "round_started"
     round: int
-    town: Optional[str] = None
+    town: str | None = None
     total_rounds: int
 
 
 class RoundEndedEvent(BaseModel):
     type: Literal["round_ended"] = "round_ended"
     round: int
-    town: Optional[str] = None
+    town: str | None = None
     # Wire-format TownSummary dicts (see backend/core/wire.py::town_summary_to_wire)
     summary: list[dict] = Field(default_factory=list)
 
@@ -136,11 +137,11 @@ class AgentMovedEvent(BaseModel):
     agent_id: str
     agent_name: str
     town: str
-    from_location: Optional[str] = None
+    from_location: str | None = None
     to_location: str
     # Coordinates (used by the Phaser scene when available)
-    x: Optional[float] = None
-    y: Optional[float] = None
+    x: float | None = None
+    y: float | None = None
 
     # Backwards-compatible alias getters
     @property
@@ -167,7 +168,7 @@ class AgentSpeechEvent(BaseModel):
     text: str
     location: str = ""
     sentiment: Literal["positive", "negative", "neutral"] = "neutral"
-    gesture: Optional[str] = None  # nod | shake_head | shrug | laugh | point | none
+    gesture: str | None = None  # nod | shake_head | shrug | laugh | point | none
 
 
 class OpinionChangedEvent(BaseModel):
@@ -175,7 +176,7 @@ class OpinionChangedEvent(BaseModel):
     agent_id: str
     agent_name: str
     town: str
-    old_opinion: Optional[Opinion] = None
+    old_opinion: Opinion | None = None
     new_opinion: Opinion
 
 
@@ -233,13 +234,13 @@ class WorldClockTickEvent(BaseModel):
     type: Literal["world_clock_tick"] = "world_clock_tick"
     hour: int
     minute: int
-    town: Optional[str] = None
+    town: str | None = None
 
 
 class WeatherChangedEvent(BaseModel):
     type: Literal["weather_changed"] = "weather_changed"
     weather: Literal["clear", "cloudy", "rain", "snow", "fog"]
-    town: Optional[str] = None
+    town: str | None = None
 
 
 class RelationshipUpdateEvent(BaseModel):
@@ -251,25 +252,25 @@ class RelationshipUpdateEvent(BaseModel):
     classification: str
 
 
-SimulationEvent = Union[
-    RoundStartedEvent,
-    RoundEndedEvent,
-    AgentMovedEvent,
-    ConversationStartedEvent,
-    ConversationEndedEvent,
-    AgentSpeechEvent,
-    OpinionChangedEvent,
-    NewsInjectedEvent,
-    NewsReactionEvent,
-    CrossTownGossipEvent,
-    GodViewInjectionEvent,
-    GodsViewResultEvent,
-    SimulationStartedEvent,
-    SimulationEndedEvent,
-    WorldClockTickEvent,
-    WeatherChangedEvent,
-    RelationshipUpdateEvent,
-]
+SimulationEvent = (
+    RoundStartedEvent
+    | RoundEndedEvent
+    | AgentMovedEvent
+    | ConversationStartedEvent
+    | ConversationEndedEvent
+    | AgentSpeechEvent
+    | OpinionChangedEvent
+    | NewsInjectedEvent
+    | NewsReactionEvent
+    | CrossTownGossipEvent
+    | GodViewInjectionEvent
+    | GodsViewResultEvent
+    | SimulationStartedEvent
+    | SimulationEndedEvent
+    | WorldClockTickEvent
+    | WeatherChangedEvent
+    | RelationshipUpdateEvent
+)
 
 
 class TownSummary(BaseModel):

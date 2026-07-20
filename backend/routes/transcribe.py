@@ -11,7 +11,6 @@ path receives parseable JSON.
 
 import logging
 import os
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, UploadFile
@@ -25,7 +24,7 @@ OPENAI_TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions"
 
 
 @router.post("/transcribe")
-async def transcribe(audio: Optional[UploadFile] = None):
+async def transcribe(audio: UploadFile | None = None):
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         return JSONResponse(

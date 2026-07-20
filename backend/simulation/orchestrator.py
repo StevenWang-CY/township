@@ -5,7 +5,6 @@ import os
 import tempfile
 from collections import Counter
 from pathlib import Path
-from typing import Optional
 
 from ..core.agent_loader import load_all_agents
 from ..core.event_bus import EventBus
@@ -17,8 +16,8 @@ from ..core.types import (
     NewsReaction,
     Opinion,
     OpinionChangedEvent,
-    SimulationStartedEvent,
     SimulationEndedEvent,
+    SimulationStartedEvent,
     TownSummary,
     WeatherChangedEvent,
 )
@@ -62,7 +61,7 @@ class SimulationOrchestrator:
         # Runtime state
         self.agent_states: dict[str, list[AgentState]] = {}
         self.town_summaries: dict[str, TownSummary] = {}
-        self.district_summary: Optional[DistrictSummary] = None
+        self.district_summary: DistrictSummary | None = None
         self.is_running = False
         self.current_round = 0
         self.total_rounds = 5
@@ -128,7 +127,7 @@ class SimulationOrchestrator:
         """Return all agent states grouped by town."""
         return self.agent_states
 
-    def get_agent_state(self, agent_id: str) -> Optional[AgentState]:
+    def get_agent_state(self, agent_id: str) -> AgentState | None:
         """Find an agent state by ID across all towns."""
         for town_agents in self.agent_states.values():
             for agent in town_agents:
@@ -241,13 +240,13 @@ class SimulationOrchestrator:
             # Ensure atmospheric task has a chance to finish
             try:
                 await asyncio.wait_for(atmosphere_task, timeout=60.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Atmosphere task didn't finish within timeout")
             except Exception as e:  # pragma: no cover
                 logger.warning(f"Atmosphere task error: {e}")
 
             # Collect results
-            for town, result in zip(self.agent_states.keys(), town_results):
+            for town, result in zip(self.agent_states.keys(), town_results, strict=True):
                 if isinstance(result, Exception):
                     logger.error(f"Town {town} simulation failed: {result}")
                     # Create empty summary for failed town
@@ -352,8 +351,7 @@ class SimulationOrchestrator:
 
         # Consensus zones: issues mentioned by 70%+ of agents across all towns
         all_issue_counts: Counter = Counter()
-        for town, summary in town_summaries.items():
-            town_agent_count = sum(summary.opinion_distribution.values())
+        for summary in town_summaries.values():
             for issue_entry in summary.top_issues:
                 issue_name = issue_entry.get("issue", "")
                 importance = issue_entry.get("importance", 0.0)
@@ -396,7 +394,7 @@ class SimulationOrchestrator:
             failed_agents=total_failed_agents,
         )
 
-    async def save_cache(self, filepath: Optional[str] = None):
+    async def save_cache(self, filepath: str | None = None):
         """Save event log for replay.
 
         Defaults to <project_root>/data/simulation_cache.json so the cache lands

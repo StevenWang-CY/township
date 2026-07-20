@@ -4,7 +4,7 @@ agent. Stored in-memory for the demo (no DB). Wire-format matches the Journal
 panel on the frontend (§5.7 of the implementation plan).
 """
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -62,7 +62,7 @@ async def add_journal_entry(req: JournalEntryRequest, request: Request):
         "opinion_after": req.opinion_after,
         "trust_before": req.trust_before,
         "trust_after": req.trust_after,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
     entries = _JOURNAL.setdefault(req.user_id, [])
     entries.append(entry)

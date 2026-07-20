@@ -1,7 +1,8 @@
 import asyncio
 import json
-from typing import Any, Callable, Awaitable
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 
 class EventBus:

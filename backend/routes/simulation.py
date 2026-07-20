@@ -1,6 +1,4 @@
-import asyncio
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
@@ -17,7 +15,7 @@ class StartRequest(BaseModel):
     """Accepts either `num_rounds` or its alias `rounds` from the wire."""
     model_config = ConfigDict(populate_by_name=True)
 
-    town: Optional[str] = None  # If None, run all towns
+    town: str | None = None  # If None, run all towns
     num_rounds: int = Field(default=5, alias="rounds")
 
 
@@ -154,8 +152,9 @@ async def get_agent(agent_id: str, request: Request):
 @router.post("/replay")
 async def replay_simulation(req: ReplayRequest, request: Request, background_tasks: BackgroundTasks):
     """Replay cached simulation through WebSocket."""
-    from ..simulation.replay import replay, load_cache_summary
     import os
+
+    from ..simulation.replay import load_cache_summary, replay
 
     event_bus = request.app.state.event_bus
 
@@ -181,7 +180,7 @@ async def replay_simulation(req: ReplayRequest, request: Request, background_tas
 
 
 @router.get("/agents")
-async def list_agents(request: Request, town: Optional[str] = None):
+async def list_agents(request: Request, town: str | None = None):
     """List all agents or agents for a specific town."""
     orchestrator = request.app.state.orchestrator
 
