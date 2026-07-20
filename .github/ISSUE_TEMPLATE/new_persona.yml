@@ -1,0 +1,103 @@
+name: New persona
+description: Propose a new resident. The best first contribution to Township — every town has room for one more voice.
+title: "[persona] "
+labels: ["persona", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Welcome! Adding a resident is how most people start contributing to
+        Township, and we'd love yours. You don't need to write the full
+        Markdown persona file yet — pitch the person here first, we'll help
+        you shape them, and then the file itself is a small, well-documented
+        step. One thing is non-negotiable: residents are fictional
+        composites, never real private individuals.
+  - type: dropdown
+    id: scenario
+    attributes:
+      label: Scenario
+      description: Which world does this resident live in?
+      options:
+        - nj11-2026 (NJ-11 special election retrospective)
+        - millbrook-budget (The Millbrook Surplus)
+        - Other / a scenario I'm also proposing
+    validations:
+      required: true
+  - type: input
+    id: town
+    attributes:
+      label: Town
+      placeholder: dover / montclair / parsippany / randolph / millbrook-village / harlow-crossing
+    validations:
+      required: true
+  - type: input
+    id: persona-name
+    attributes:
+      label: Persona name
+      description: A fictional name. If it matches a real person in that town, pick another.
+      placeholder: Rosa Delgado
+    validations:
+      required: true
+  - type: textarea
+    id: pitch
+    attributes:
+      label: The pitch
+      description: >-
+        One paragraph: who are they, and what tension do they carry? The best
+        residents are pulled in two directions at once — that's what makes
+        their deliberation worth watching.
+      placeholder: >-
+        A second-generation union electrician who inherited her father's
+        politics but not his certainty: her pension depends on the projects
+        one candidate promises, while her church community leans hard the
+        other way...
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: What gap do they fill?
+      description: >-
+        Which perspective, demographic, or experience is missing or thin in
+        this town's current cast? Skim the existing residents in
+        agents/<town>/ or scenarios/<scenario>/agents/ first.
+      placeholder: Dover has no retirees on fixed incomes; property-tax debates are missing that voice entirely.
+    validations:
+      required: true
+  - type: textarea
+    id: voice
+    attributes:
+      label: Voice sample
+      description: >-
+        3-4 sentences in their first-person voice — how they'd actually talk
+        at the diner counter or over the fence. This is the single best
+        predictor of a great persona.
+      placeholder: >-
+        Look, I've voted in every election since Carter, and I'll tell you
+        what nobody at that debate said out loud...
+    validations:
+      required: true
+  - type: textarea
+    id: relationships
+    attributes:
+      label: Relationship hooks
+      description: >-
+        Which existing residents would they know, and how? Residents live in
+        a web — a persona with no neighbors has no one to deliberate with.
+      placeholder: >-
+        Regular at Carlos Restrepo's La Finca (Tuesday lunch); knows Sofia
+        Ramirez from the library; friction with Tom Kowalski over a fence line.
+    validations:
+      required: true
+  - type: checkboxes
+    id: commitments
+    attributes:
+      label: Persona commitments
+      description: These come from RESPONSIBLE_USE.md and the Code of Conduct — every resident honors them.
+      options:
+        - label: This persona is a fictional composite, informed by public demographic data.
+          required: true
+        - label: This persona does not depict any real private individual, named or recognizable.
+          required: true
+        - label: This persona is written with empathy for the community it represents — a portrait, not a caricature.
+          required: true

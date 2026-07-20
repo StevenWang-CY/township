@@ -1,0 +1,122 @@
+{
+  "id": "nj11-2026",
+  "title": "The NJ-11 Special Election",
+  "question": "Who should represent New Jersey's 11th Congressional District — Analilia Mejia (D), Joe Hathaway (R), or Alan B. Bond (I)?",
+  "kind": "election",
+  "options": [
+    {
+      "id": "mejia",
+      "name": "Analilia Mejia",
+      "label": "Mejia",
+      "color": "#4A8FBF",
+      "group": "Democrat",
+      "data_file": "options/mejia.json"
+    },
+    {
+      "id": "hathaway",
+      "name": "Joe Hathaway",
+      "label": "Hathaway",
+      "color": "#C0792A",
+      "group": "Republican",
+      "data_file": "options/hathaway.json"
+    },
+    {
+      "id": "bond",
+      "name": "Alan B. Bond",
+      "label": "Bond",
+      "color": "#9A8E80",
+      "group": "Independent",
+      "data_file": "options/bond.json"
+    }
+  ],
+  "undecided": {
+    "id": "undecided",
+    "label": "Undecided",
+    "color": "#D1D5DB"
+  },
+  "dates": {
+    "decision_day": "2026-04-16",
+    "prose": "Early voting runs April 6-14. Election Day is Thursday, April 16, 2026, with polls open 6:00 AM to 8:00 PM."
+  },
+  "context_md": "You are a voter in New Jersey's 11th Congressional District. A special election is happening on April 16, 2026 to replace Mikie Sherrill, who became governor. The candidates are:\n- Analilia Mejia (Democrat): Progressive, supports Medicare for All, $25 min wage, abolish ICE\n- Joe Hathaway (Republican): 'New generation Republican', lower taxes, supports One Big Beautiful Bill\n- Alan Bond (Independent): Former Wall Street fund manager with fraud conviction, limited platform\n\nEarly voting is April 6-14. Election Day is April 16.",
+  "context_short_md": "You're a voter in NJ-11. Special election is April 16, 2026. Candidates: Analilia Mejia (D), Joe Hathaway (R), Alan Bond (I). Early voting is happening now (April 6-14).",
+  "round_plan": [
+    {
+      "round": 0,
+      "phases": ["seed"],
+      "clock": "08:00",
+      "news_ids": []
+    },
+    {
+      "round": 1,
+      "phases": ["converse", "news"],
+      "clock": "10:00",
+      "news_ids": ["aca-subsidies", "ice-enforcement"]
+    },
+    {
+      "round": 2,
+      "phases": ["converse", "opinion"],
+      "clock": "13:00",
+      "news_ids": []
+    },
+    {
+      "round": 3,
+      "phases": ["news", "converse", "opinion"],
+      "clock": "16:00",
+      "news_ids": ["property-tax"]
+    },
+    {
+      "round": 4,
+      "phases": ["converse", "opinion", "decide"],
+      "clock": "19:00",
+      "news_ids": []
+    }
+  ],
+  "news": [
+    {
+      "id": "aca-subsidies",
+      "headline": "ACA Subsidies at Risk in One Big Beautiful Bill",
+      "description": "Congressional Republicans are pushing the 'One Big Beautiful Bill' which would end enhanced ACA subsidies. For NJ-11, this could mean 40,000+ residents losing health insurance subsidies worth $400-$800/month per family."
+    },
+    {
+      "id": "ice-enforcement",
+      "headline": "ICE Enforcement Increases in Morris County",
+      "description": "Immigration and Customs Enforcement has increased operations in Morris County, with reports of workplace raids in Dover and Parsippany. Community organizations report a chilling effect on residents seeking public services."
+    },
+    {
+      "id": "property-tax",
+      "headline": "Property Tax Reassessment Coming to Morris County",
+      "description": "Morris County has announced a county-wide property tax reassessment for 2027. Homeowners in rapidly appreciating areas like Montclair and Randolph could see significant increases, while some Dover properties may see decreases."
+    }
+  ],
+  "cross_town_pairs": [
+    {
+      "agents": ["Carlos Restrepo", "Pawan Sharma"],
+      "connection": "Fellow restaurant owners who met at a Morris County Restaurant Association mixer. They bonded over the challenges of running a small food business in NJ."
+    },
+    {
+      "agents": ["Maria Santos", "Grace Reyes"],
+      "connection": "Both healthcare workers who occasionally cross paths at Morristown Medical Center during shift changes. They share frustrations about insurance paperwork and patient loads."
+    },
+    {
+      "agents": ["Tom Kowalski", "Frank DeLuca"],
+      "connection": "Veterans who know each other from the Morris County VFW post. They served in different eras but share a deep bond over military service and VA healthcare struggles."
+    },
+    {
+      "agents": ["Sofia Ramirez", "Jordan Williams"],
+      "connection": "Connected on social media through mutual activist friends. Both are young, frustrated with the political establishment, and active in local organizing circles."
+    },
+    {
+      "agents": ["Raj Krishnamurthy", "Vikram Iyer"],
+      "connection": "Indian-American tech professionals who know each other from the Parsippany-area tech meetup circuit. Their families attend some of the same community events."
+    },
+    {
+      "agents": ["Priya Patel", "Jen Russo"],
+      "connection": "Suburban moms whose kids played in the same Morris County youth soccer league. They chat at games about schools, property taxes, and local politics."
+    }
+  ],
+  "cross_town_meeting_place": "Morris County Community Event",
+  "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
+  "gossip_rounds": [2, 3],
+  "town_order": ["dover", "montclair", "parsippany", "randolph"]
+}

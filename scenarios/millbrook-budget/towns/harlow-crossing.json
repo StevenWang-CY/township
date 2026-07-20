@@ -1,0 +1,116 @@
+{
+  "name": "Harlow Crossing",
+  "county": "Ashford County",
+  "tagline": "The Growth Side of the River",
+  "accent_color": "#C08A4E",
+  "ambient_sound": "harlow_crossing_ambient.ogg",
+  "weather_schedule": ["clear", "cloudy", "rain", "clear", "clear"],
+  "demographics": {
+    "population": 5420,
+    "median_age": 37.4,
+    "median_hh_income": 89700,
+    "per_capita_income": 41300,
+    "poverty_rate": "5.2%",
+    "under_18_pct": "27.1%",
+    "homeownership_pct": "78%",
+    "racial_composition": {
+      "white_non_hispanic": "~79%",
+      "asian": "~8%",
+      "hispanic_latino": "~8%",
+      "black_african_american": "~3%"
+    },
+    "foreign_born_pct": "9.3%",
+    "notes": [
+      "Two-thirds of households have at least one commuter driving 40+ minutes each way",
+      "Built out in three waves: postwar ranches (1950s), Fairview (1990s), the cul-de-sac lots (2000s)",
+      "The Route 9 strip carries 14,000 vehicles a day — and every school bus in town"
+    ]
+  },
+  "character": "The growth side of the river: the Route 9 strip, the plaza, the school, the subdivisions with basketball hoops at the curb. Young families, long commutes, delivery cars and bus routes — every pothole on Route 9 is a line item in somebody's household budget. Harlow Crossing didn't work the mill; it grew up in its shadow after the machines went quiet.",
+  "landmarks": [
+    {
+      "name": "Harlow Elementary School",
+      "x": 650,
+      "y": 140,
+      "width": 180,
+      "height": 120,
+      "color": "#E8C15A",
+      "type": "building",
+      "description": "1968 brick school with the biggest gymnasium in town — which is why town meeting happens here"
+    },
+    {
+      "name": "Harlow Plaza",
+      "x": 180,
+      "y": 250,
+      "width": 220,
+      "height": 100,
+      "color": "#C8A06A",
+      "type": "building",
+      "description": "The strip: pharmacy, bank branch, barber, laundromat — and the washboard pavement out front"
+    },
+    {
+      "name": "Rocco's Slice House",
+      "x": 430,
+      "y": 270,
+      "width": 90,
+      "height": 65,
+      "color": "#C94F3D",
+      "type": "building",
+      "description": "Route 9 pizzeria since 1995; league photos on the wall, axle-repair receipts in the register drawer"
+    },
+    {
+      "name": "Harlow Congregational Church",
+      "x": 900,
+      "y": 250,
+      "width": 110,
+      "height": 110,
+      "color": "#C9B896",
+      "type": "church",
+      "description": "White steeple, 1841 — older than the mill; June Hagen does the flowers, and the choir forgives all voices"
+    },
+    {
+      "name": "Route 9",
+      "x": 0,
+      "y": 380,
+      "width": 1200,
+      "height": 40,
+      "color": "#B8AB90",
+      "type": "road",
+      "description": "The commercial strip and detour route: 14,000 cars a day, one famous frost heave, and Culvert 9 underneath"
+    },
+    {
+      "name": "Fairview Subdivision",
+      "x": 120,
+      "y": 520,
+      "width": 220,
+      "height": 140,
+      "color": "#C4B5A0",
+      "type": "housing",
+      "description": "1990s ranches and colonials; flags, hoops, and a back entrance that floods when Culvert 9 backs up"
+    },
+    {
+      "name": "Harlow Firehouse",
+      "x": 560,
+      "y": 470,
+      "width": 130,
+      "height": 90,
+      "color": "#C4453C",
+      "type": "building",
+      "description": "Volunteer Fire Company No. 2 — slab poured by volunteers in 1961; Engine 2 and the pancake breakfasts live here"
+    },
+    {
+      "name": "Community Fields",
+      "x": 850,
+      "y": 520,
+      "width": 250,
+      "height": 180,
+      "color": "#7CB87C",
+      "type": "park",
+      "description": "Rec-league soccer and ball fields by the river bend; floods every April, beloved anyway"
+    }
+  ],
+  "color_theme": {
+    "primary": "#C08A4E",
+    "secondary": "#8F6134"
+  }
+}

@@ -7,14 +7,16 @@ export function useSimulation() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const startSimulation = useCallback(async (rounds = 5) => {
+  // `rounds` omitted -> backend runs the active scenario's full round plan
+  // (the scenario knows its own length; the UI must not assume 5).
+  const startSimulation = useCallback(async (rounds?: number) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/simulation/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rounds }),
+        body: JSON.stringify(rounds != null ? { rounds } : {}),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: SimulationStatus = await res.json();

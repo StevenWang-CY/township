@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose an improvement to the engine, the UI, or the workflow.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What's missing, awkward, or impossible today? Describe the need before the fix.
+      placeholder: When a simulation is running there's no way to tell which round we're in without watching the backend logs...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you build? Sketches, API shapes, and half-formed ideas all welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about, and why they lost.
+    validations:
+      required: false

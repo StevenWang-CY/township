@@ -1,0 +1,50 @@
+[
+  {
+    "id": "mill-collapse",
+    "name": "Storm Topples the Mill's East Wall",
+    "description": "An overnight nor'easter drops the east wall of the Harrow Mill's weave room into the Stillwater. No one is hurt, but the town must spend $80k on emergency fencing, and the building inspector's memo puts 'stabilize versus demolish' estimates side by side for the first time. Adele Pruitt is at the fence line by dawn.",
+    "category": "safety",
+    "expected_impact": "Greenway supporters split — 'stabilize now, before we lose it all' versus 'the ruins are a liability, not a monument.' Roads voters gain a vivid decay narrative. Bonds voters note the town just spent $80k it didn't budget. Undecideds rattled.",
+    "affected_towns": ["millbrook-village", "harlow-crossing"]
+  },
+  {
+    "id": "big-box-interest",
+    "name": "Big-Box Chain Eyes the Mill Campus",
+    "description": "Ridgeline Logistics, buyer of the 38-acre upland mill campus, confirms talks to flip the site to a regional big-box retailer. A leaked traffic study projects Route 9 volumes rising 40%. Harlow Plaza merchants panic; the Village sees delivery trucks in its future.",
+    "category": "development",
+    "expected_impact": "Roads urgency spikes in Harlow Crossing — Route 9 can't take 40% more. Greenway reframed in the Village as the last buffer between the river and a loading dock. Bonds camp argues the new tax base pays down debt by itself. Rocco torn between new customers and dying pavement.",
+    "affected_towns": ["harlow-crossing", "millbrook-village"]
+  },
+  {
+    "id": "donor-naming",
+    "name": "Greenway Donor Unmasked — and He Wants His Name on It",
+    "description": "The anonymous $2M match donor is revealed as a hedge-fund manager with a summer place upriver. The revised pledge letter conditions the gift on 'The Kesselman Riverwalk' naming and a private dock easement below the dam. The Community Trust calls an emergency meeting; the Historical Society goes quiet.",
+    "category": "civic_trust",
+    "expected_impact": "Greenway support wobbles hard — mill families balk at a stranger's name over the Harrow ruins. Nell Braddock forced to choose between the money and the story. Some pragmatists shrug: $2M is $2M. Undecideds sour on the whole article's tone.",
+    "affected_towns": ["millbrook-village", "harlow-crossing"]
+  },
+  {
+    "id": "bridge-closure",
+    "name": "State Orders Main Street Bridge Closed",
+    "description": "A follow-up state inspection finds the pier scour has worsened; the Main Street Bridge is closed to all traffic effective immediately, pending repair. The six-mile Route 9 loop becomes the only crossing. Pedestrians included — the greenway's planned river link is severed.",
+    "category": "infrastructure",
+    "expected_impact": "Roads surges in both towns — Dana Whitcomb's eleven-minute warning becomes lived reality overnight. Greenway plan loses its crossing and part of its case. Bonds camp alone in noting the repair may now qualify for emergency state funding, making local spending premature.",
+    "affected_towns": ["millbrook-village", "harlow-crossing"]
+  },
+  {
+    "id": "pension-rebound",
+    "name": "Strong Quarter Shrinks the Pension Gap",
+    "description": "The municipal pension fund posts a 9.8% quarterly return. Recalculated, Millbrook's unfunded liability falls from $5.9M back toward $4.6M, and the state comptroller's office declines to comment on its own bulletin. The Taxpayers Association updates no yard signs.",
+    "category": "fiscal",
+    "expected_impact": "The bonds argument deflates at its emotional center — the emergency looks less like an emergency. Gordon Tibbs warns that one quarter is not a trend, to a smaller audience. Greenway and roads voters feel licensed to dream and pave respectively. Walt Hagen unmoved: debt still smiles before it bites.",
+    "affected_towns": ["millbrook-village", "harlow-crossing"]
+  },
+  {
+    "id": "flood-scare",
+    "name": "October Storm Floods the Riverbank and Washes Out Culvert 9",
+    "description": "Three inches of rain in six hours: the Stillwater crests over the planned greenway route at the ruins bank, and Culvert 9 fails again, closing Fairview's back entrance and flooding the low corner of Community Fields. Cass Malone reroutes Bus 7 twice in one morning.",
+    "category": "weather",
+    "expected_impact": "Cuts both ways. Roads voters point at Culvert 9 and the closed subdivision entrance. Greenway skeptics point at trail renderings underwater; greenway supporters counter the design's regraded bank is exactly the fix. Undecideds — Cass and Marcus — feel the argument in their own routes and fields.",
+    "affected_towns": ["harlow-crossing", "millbrook-village"]
+  }
+]

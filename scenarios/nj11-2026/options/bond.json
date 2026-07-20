@@ -5,11 +5,11 @@
   "background": "Montclair resident. Dartmouth BA, Harvard MBA. Former Wall Street fund manager.",
   "residence": "Montclair",
   "fraud_conviction": {
-    "description": "Served 6 years in federal prison (2003–2008) after conviction on 6 counts of fraud for a $6.9M pension fund 'cherry-picking' scheme.",
-    "sentence": "6 years federal prison",
-    "years_served": "2003–2008",
-    "charges": "6 counts of fraud",
-    "amount": "$6.9M pension fund cherry-picking scheme"
+    "description": "Sentenced to 12.5 years in federal prison in 2002 for a nearly $7M pension fund 'cherry-picking' scheme. Served about 6 years (2002–2008); released early after cooperating with prosecutors.",
+    "sentence": "12.5 years federal prison (2002 conviction)",
+    "years_served": "2002–2008 (~6 years, early release for cooperation)",
+    "charges": "Fraud (pension fund cherry-picking scheme)",
+    "amount": "Nearly $7M pension fund cherry-picking scheme"
   },
   "positions": [
     {

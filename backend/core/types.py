@@ -14,8 +14,11 @@ class AgentDefinition(BaseModel):
     household: str
     income_bracket: str
     language: str
-    political_registration: Literal["democrat", "republican", "unaffiliated"]
-    initial_lean: Literal["mejia", "hathaway", "bond", "undecided"]
+    # Free-form so any scenario can define its own registrations / stances.
+    # Scenario-level validation happens in backend/core/scenario.py and the
+    # persona lint tests — not here.
+    political_registration: str
+    initial_lean: str
     top_concerns: list[str]
     tools: list[str]
     model: str
@@ -44,7 +47,10 @@ class CivicAgentState(StrEnum):
 
 
 class Opinion(BaseModel):
-    candidate: Literal["mejia", "hathaway", "bond", "undecided"]
+    # `candidate` is the wire-stable field name for "current stance" — its
+    # value is one of the active scenario's stance ids (options + undecided),
+    # enforced via scenario.validate_stance() wherever Opinions are minted.
+    candidate: str
     confidence: int = Field(ge=0, le=100)
     reasoning: str
     top_issues: list[str]

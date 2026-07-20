@@ -16,7 +16,10 @@ class StartRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     town: str | None = None  # If None, run all towns
-    num_rounds: int = Field(default=5, alias="rounds")
+    # None means "run the scenario's full round plan" — the scenario, not
+    # this route, knows how many rounds it has. An explicit value caps the
+    # run at the first N rounds of the plan.
+    num_rounds: int | None = Field(default=None, alias="rounds", ge=1)
 
 
 class ReplayRequest(BaseModel):
@@ -35,6 +38,10 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
             status_code=409,
         )
 
+    # Resolved for the response body; the orchestrator applies the same
+    # default (None -> full scenario round plan) internally.
+    resolved_rounds = req.num_rounds or request.app.state.scenario.total_rounds
+
     if req.town:
         if req.town not in orchestrator.agent_states:
             return JSONResponse(
@@ -48,7 +55,7 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
         return {
             "status": "started",
             "town": req.town,
-            "num_rounds": req.num_rounds,
+            "num_rounds": resolved_rounds,
             "agents": len(orchestrator.agent_states[req.town]),
         }
     else:
@@ -57,7 +64,7 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
         return {
             "status": "started",
             "towns": list(orchestrator.agent_states.keys()),
-            "num_rounds": req.num_rounds,
+            "num_rounds": resolved_rounds,
             "total_agents": total_agents,
         }
 
@@ -67,6 +74,9 @@ async def simulation_status(request: Request):
     """Return current simulation state."""
     orchestrator = request.app.state.orchestrator
     anthropic_client = request.app.state.anthropic_client
+    # The scenario names its own "no stance yet" bucket (UndecidedSpec.id) —
+    # never assume the literal "undecided".
+    undecided_id = request.app.state.scenario.undecided_id
 
     agent_summaries = {}
     for town, agents in orchestrator.agent_states.items():
@@ -78,7 +88,7 @@ async def simulation_status(request: Request):
                 "name": agent.definition.name,
                 "state": agent.state.value,
                 "location": agent.current_location,
-                "current_candidate": opinion.candidate if opinion else "undecided",
+                "current_candidate": opinion.candidate if opinion else undecided_id,
                 "current_confidence": opinion.confidence if opinion else 0,
                 "memories_count": len(agent.memories),
                 "conversations_count": len(agent.conversations),
@@ -105,7 +115,7 @@ async def simulation_status(request: Request):
         # SimulationStatus-compatible additive fields (frontend type match).
         "status": status,
         "current_round": orchestrator.current_round,
-        "total_rounds": getattr(orchestrator, "total_rounds", 5),
+        "total_rounds": orchestrator.total_rounds,
         "agents_loaded": agents_loaded,
     }
 
@@ -126,7 +136,9 @@ async def simulation_results(request: Request):
             status_code=404,
         )
 
-    return JSONResponse(district_summary_to_wire(orchestrator.district_summary))
+    return JSONResponse(
+        district_summary_to_wire(orchestrator.district_summary, request.app.state.scenario)
+    )
 
 
 @router.get("/agent/{agent_id}")

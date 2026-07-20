@@ -1,6 +1,5 @@
 import json
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -12,18 +11,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/gods-view", tags=["gods-view"])
 
-SCENARIOS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "god_view_scenarios.json"
-
 
 @router.get("/scenarios")
-async def get_scenarios():
-    """Return the curated list of God's View scenarios."""
+async def get_scenarios(request: Request):
+    """Return the curated God's View injections for the active scenario."""
+    # The Scenario owns this path: scenarios/<id>/god-scenarios.json normally,
+    # data/god_view_scenarios.json when the deprecated legacy layout loaded.
+    scenarios_path = request.app.state.scenario.god_scenarios_path
     try:
-        with open(SCENARIOS_PATH) as f:
+        with open(scenarios_path) as f:
             scenarios = json.load(f)
         return {"scenarios": scenarios}
     except FileNotFoundError:
-        logger.error(f"Scenarios file not found at {SCENARIOS_PATH}")
+        logger.warning(f"God's View scenarios file not found at {scenarios_path}")
         return {"scenarios": [], "error": "Scenarios file not found"}
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON in scenarios file: {e}")
@@ -39,10 +39,10 @@ async def inject_god_view(req: GodViewRequest, request: Request):
     """
     Inject a variable into the simulation and collect all agent reactions.
 
-    Example descriptions:
-    - "Hathaway is caught on video saying he would vote to defund Social Security"
-    - "A massive factory closure in Dover displaces 200 workers"
-    - "Mejia reverses position on Medicare for All, now supports public option"
+    Example descriptions (adapt to the active scenario):
+    - "A leading option's champion is caught on video contradicting a core promise"
+    - "A major local employer announces a shutdown, displacing hundreds of workers"
+    - "One option's backers reverse a signature position days before the decision"
     """
     orchestrator = request.app.state.orchestrator
     event_bus = request.app.state.event_bus

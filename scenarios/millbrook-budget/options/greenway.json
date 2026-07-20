@@ -1,0 +1,47 @@
+{
+  "name": "The Riverwalk Greenway",
+  "label": "Greenway",
+  "summary": "Transform the town-owned mill riverfront into a stabilized ruins walk, a riverside trail from the dam to the Main Street Bridge, and a permanent market commons on the mill green — a bet that Millbrook's future is a place people come to, not through.",
+  "background": "The greenway idea is older than the money. In 2019, a volunteer design charrette called 'Reimagine the Mill' packed the library for three straight nights and produced a 60-page plan: stabilize the Harrow ruins rather than raze them, run a riverside trail along the nine town-owned acres from the dam to the Main Street Bridge, build out the mill green as a permanent home for the Saturday farmers market, and add a canoe and kayak put-in below the dam. The plan won a state design commendation, was praised by everyone, and was funded by no one. It has sat on a shelf in the town hall records vault for seven years — annotated, dog-eared, and waiting for exactly this windfall.\n\nIts champions are the Millbrook Community Trust, which shepherded the charrette; the Main Street merchants, who watch three vacant storefronts and believe foot traffic is the only rent that pays; and the river people — paddlers, anglers, dog-walkers, and the mill families who never stopped visiting the fence line. They argue that every town in the county can pave a road, but only Millbrook has a ruined woolen mill on a slow green river, and that towns which turned their industrial riverfronts into commons stopped losing their young people. The Historical Society signed on once the Trust agreed in writing that the smokestack stays and the ruins get a preservation covenant, not a wrecking ball.\n\nThe quiet history underneath: the greenway is also an argument about grief. The mill closed in October 1989 and took six hundred jobs with it over its last decade. For some families the ruins are a scar that a park would finally heal; for others they are a grave that joggers should not stretch against. The 2019 plan's most-quoted line — 'the mill made cloth; let it make a town again' — still divides the Wheelhouse Diner's corner booths.",
+  "positions": [
+    {
+      "issue": "Economic development",
+      "stance": "Make Millbrook a destination instead of a pass-through: a riverwalk, market commons, and put-in that give people a reason to park, walk, and spend on Main Street."
+    },
+    {
+      "issue": "Mill heritage",
+      "stance": "Stabilize the ruins and keep the smokestack under a preservation covenant, with an interpretive walk naming the mill's trades — the loom floor, the dye house, the wheelhouse."
+    },
+    {
+      "issue": "Main Street vacancy",
+      "stance": "Foot traffic is the only durable fix for three empty storefronts; every comparable riverfront commons in the region cut village vacancy within five years."
+    },
+    {
+      "issue": "Flood resilience",
+      "stance": "The design regrades and replants the eroding riverbank at the ruins — the same bank that has produced two water rescues in three years."
+    },
+    {
+      "issue": "Youth retention",
+      "stance": "Trails, a put-in, and a commons are the cheapest argument a small town can make to its own twenty-somethings for staying."
+    },
+    {
+      "issue": "Use of a windfall",
+      "stance": "One-time money should buy the one thing the town could never afford from taxes: a transformative public asset on land it already owns."
+    }
+  ],
+  "endorsements": [
+    "Millbrook Community Trust",
+    "Stillwater Watershed Alliance",
+    "Main Street Merchants Association",
+    "Ashford County Trails Coalition",
+    "Millbrook Historical Society (contingent on the preservation covenant)"
+  ],
+  "estimated_cost": "$12.0M total: $9.5M construction (ruins stabilization, trail, market commons, put-in), $0.5M design and permitting, $2.0M maintenance endowment. A pledged $2M donor match, if accepted, would extend the trail across the river to Community Fields.",
+  "tradeoffs": [
+    "Maintenance is forever: mowing, plowing, policing, and insurance outlive any endowment projection, and a park underfunded in year ten looks worse than no park at all.",
+    "It does not fix the posted bridge, a single culvert, or one mile of poor-rated pavement — the failing things stay failing.",
+    "The riverfront sits in the flood plain; a bad spring could put sections of new trail underwater and the repair bills on the town.",
+    "The benefits concentrate on the Village side of the river while the tax base that pays is majority Harlow Crossing.",
+    "Rising riverfront desirability cuts both ways: the same amenity that fills storefronts can raise rents on Chestnut Row and push out the mill families the park claims to honor."
+  ]
+}

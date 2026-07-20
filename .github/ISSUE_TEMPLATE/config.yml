@@ -1,0 +1,9 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report misuse of Township
+    url: https://github.com/StevenWang-CY/township/blob/main/RESPONSIBLE_USE.md
+    about: >-
+      Seen Township presented as a real poll, used for astroturfing, or
+      otherwise turned against its Responsible Use policy? Start here — it
+      explains what counts as misuse and how to report it (privately, if
+      needed).

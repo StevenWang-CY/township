@@ -1,0 +1,58 @@
+# Citation metadata for Township.
+#
+# Note on academic use: if your work builds on Township's agent architecture
+# (generative agents with personas, memory, and deliberation), please ALSO
+# cite Park et al., "Generative Agents: Interactive Simulacra of Human
+# Behavior" (arXiv:2304.03442) — listed under `references` below — alongside
+# this software citation.
+cff-version: 1.2.0
+message: >-
+  If you use Township in your work, please cite it as below. For academic
+  work that builds on the agent architecture, please also cite Park et al.
+  (Generative Agents, arXiv:2304.03442) — see the references section.
+title: "Township: a civic deliberation engine"
+type: software
+authors:
+  - family-names: Wang
+    given-names: Chuyue
+license: MIT
+date-released: "2026-07-20"
+url: "https://github.com/StevenWang-CY/township"
+repository-code: "https://github.com/StevenWang-CY/township"
+abstract: >-
+  AI residents deliberate elections and policy questions in a living pixel
+  town. A simulation, research, and education tool — not a poll and not a
+  forecast.
+keywords:
+  - generative agents
+  - multi-agent simulation
+  - civic deliberation
+  - opinion dynamics
+  - large language models
+references:
+  - type: conference-paper
+    title: "Generative Agents: Interactive Simulacra of Human Behavior"
+    authors:
+      - family-names: Park
+        given-names: Joon Sung
+      - family-names: O'Brien
+        given-names: Joseph C.
+      - family-names: Cai
+        given-names: Carrie J.
+      - family-names: Morris
+        given-names: Meredith Ringel
+      - family-names: Liang
+        given-names: Percy
+      - family-names: Bernstein
+        given-names: Michael S.
+    year: 2023
+    conference:
+      name: >-
+        The 36th Annual ACM Symposium on User Interface Software and
+        Technology (UIST '23)
+    doi: 10.1145/3586183.3606763
+    url: "https://arxiv.org/abs/2304.03442"
+    identifiers:
+      - type: other
+        value: "arXiv:2304.03442"
+        description: arXiv preprint
