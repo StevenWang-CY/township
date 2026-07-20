@@ -7,10 +7,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .core.event_bus import EventBus
+from .core.scenario import load_scenario_with_fallback
 from .providers import create_provider
 from .routes.chat import router as chat_router
 from .routes.gods_view import router as gods_view_router
 from .routes.journal import router as journal_router
+from .routes.scenario import router as scenario_router
 from .routes.simulation import router as simulation_router
 from .routes.towns import router as towns_router
 from .routes.transcribe import router as transcribe_router
@@ -57,16 +59,19 @@ llm_provider = create_provider(max_concurrent=10)
 
 # Determine project root (parent of backend/)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-AGENTS_DIR = os.path.join(PROJECT_ROOT, "agents")
 FRONTEND_DIST = os.path.join(PROJECT_ROOT, "frontend", "dist")
 _SERVE_FRONTEND = os.path.isdir(FRONTEND_DIST)
+
+# Active scenario — chosen via SCENARIO env (default: the NJ-11 flagship).
+# Falls back to the deprecated data/ + agents/ layout when scenarios/<id>
+# is absent (one-release compatibility shim).
+SCENARIO_ID = os.environ.get("SCENARIO", "nj11-2026")
+scenario = load_scenario_with_fallback(SCENARIO_ID)
 
 orchestrator = SimulationOrchestrator(
     anthropic_client=llm_provider,
     event_bus=event_bus,
-    data_dir=DATA_DIR,
-    agents_dir=AGENTS_DIR,
+    scenario=scenario,
 )
 
 # Store globals on app.state for access in route handlers.
@@ -74,10 +79,12 @@ orchestrator = SimulationOrchestrator(
 app.state.event_bus = event_bus
 app.state.llm = llm_provider
 app.state.anthropic_client = llm_provider
+app.state.scenario = scenario
 app.state.orchestrator = orchestrator
 
 
 # Include routers
+app.include_router(scenario_router)
 app.include_router(simulation_router)
 app.include_router(chat_router)
 app.include_router(gods_view_router)
@@ -148,10 +155,9 @@ async def startup():
     provider_name = llm_provider.get_usage_report().get("provider", "unknown")
     logger.info(f"Township started: {agent_count} agents across {len(towns)} towns: {towns}")
     logger.info(f"LLM provider: {provider_name}")
-    logger.info(f"Data dir: {DATA_DIR}")
-    logger.info(f"Agents dir: {AGENTS_DIR}")
+    logger.info(f"Scenario: {scenario.id} ({scenario.title}) from {scenario.scenario_dir}")
     logger.info(
-        "Registered routes: /api/simulation, /api/chat, /api/gods-view, "
+        "Registered routes: /api/scenario, /api/simulation, /api/chat, /api/gods-view, "
         "/api/towns, /api/journal, /api/transcribe, /api/tts, /api/health"
     )
     logger.info(f"CORS allowed origins: {ALLOWED_ORIGINS}")

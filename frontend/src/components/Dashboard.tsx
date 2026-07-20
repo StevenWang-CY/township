@@ -63,7 +63,8 @@ export default function Dashboard({ ws }: DashboardProps) {
 
   const handleStart = useCallback(async () => {
     if (ws.simulationRunning) return;
-    await startSimulation(5);
+    // No round count: the backend runs the scenario's full round plan.
+    await startSimulation();
   }, [startSimulation, ws.simulationRunning]);
 
   const handleReplay = useCallback(async () => {

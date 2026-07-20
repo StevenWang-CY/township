@@ -12,7 +12,7 @@ Every test here asserts a fix that was NOT true before this audit pass:
 """
 import asyncio
 
-from conftest import AGENTS_DIR, DATA_DIR, FakeClient
+from conftest import FakeClient, load_nj11_scenario
 from fastapi.testclient import TestClient
 
 from backend.core.event_bus import EventBus
@@ -180,7 +180,7 @@ def test_god_view_reaction_appends_a_new_opinion():
     fake = FakeClient(mode="normal")
     orch = SimulationOrchestrator(
         anthropic_client=fake, event_bus=EventBus(),
-        data_dir=DATA_DIR, agents_dir=AGENTS_DIR,
+        scenario=load_nj11_scenario(),
     )
     agent = None
     for town_agents in orch.get_all_agent_states().values():

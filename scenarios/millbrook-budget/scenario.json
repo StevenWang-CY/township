@@ -1,0 +1,105 @@
+{
+  "id": "millbrook-budget",
+  "title": "The Millbrook Surplus",
+  "question": "Millbrook has a one-time $12M surplus from the sale of the old mill property. What should it fund?",
+  "options": [
+    {
+      "id": "greenway",
+      "name": "The Riverwalk Greenway",
+      "label": "Greenway",
+      "color": "#3E8E5A",
+      "group": "invest",
+      "data_file": "options/greenway.json"
+    },
+    {
+      "id": "roads",
+      "name": "Fix It First",
+      "label": "Roads & Bridge",
+      "color": "#B0713A",
+      "group": "maintain",
+      "data_file": "options/roads.json"
+    },
+    {
+      "id": "bonds",
+      "name": "Pay Down Debt",
+      "label": "Debt & Taxes",
+      "color": "#5A6FA8",
+      "group": "retire",
+      "data_file": "options/bonds.json"
+    }
+  ],
+  "undecided": {
+    "id": "undecided",
+    "label": "Undecided",
+    "color": "#C9C2B4"
+  },
+  "dates": {
+    "decision_day": "2026-11-03",
+    "prose": "Special Town Meeting: Tuesday, November 3, 2026, 7:00 PM, in the Harlow Elementary School gymnasium — the only room in town that holds everybody. Doors open at 6:15. Quorum is 250 registered voters. Article 4 decides the mill money."
+  },
+  "context_md": "In June, Millbrook sold the 38-acre upland campus of the old Harrow Woolen Mill — closed since 1989, taken for back taxes in 2003 — to Ridgeline Logistics for a net $12 million. The town kept the nine riverfront acres: the ruins, the smokestack, and the dam.\nNow the town has to decide, together and in one room, what that once-in-a-lifetime money is for.\nOn Tuesday, November 3, 2026, at 7:00 PM, a Special Town Meeting convenes in the Harlow Elementary gymnasium. Article 4 puts the whole $12M to a single vote of the registered voters present. This is direct democracy: no council, no delegation — your neighbors, a moderator, and a count.\nOption one, the Riverwalk Greenway, would turn the derelict mill riverfront into a stabilized ruins walk, a riverside trail, and a market commons — a bet that Millbrook's future is a place people come to, not through.\nOption two, Fix It First, would put every dollar into what is already failing: the posted Main Street Bridge, eleven miles of poor-rated pavement, nine culverts, and stormwater — the unglamorous bones of the town.\nOption three, Pay Down Debt, would retire the town's outstanding bonds and shrink its pension gap, cutting the tax levy about five percent and freeing roughly $540,000 a year, forever.\nA voice vote decides unless twenty-five voters demand a secret ballot — and twenty-five voters will.\nWhatever passes, the mill only gets sold once. There is no second $12 million.",
+  "context_short_md": "Millbrook netted a one-time $12M from selling the old Harrow Mill property, and a Special Town Meeting on November 3, 2026 votes on what it funds.\nThe choices: build the Riverwalk Greenway on the mill riverfront, fix the failing bridge, roads, and culverts first, or retire debt and pension obligations for a permanent tax cut.\nOne room, one night, one vote — and no second windfall.",
+  "round_plan": [
+    {
+      "round": 0,
+      "phases": ["seed"],
+      "clock": "08:00",
+      "news_ids": []
+    },
+    {
+      "round": 1,
+      "phases": ["converse", "news"],
+      "clock": "10:00",
+      "news_ids": ["bridge-estimate"]
+    },
+    {
+      "round": 2,
+      "phases": ["converse", "news"],
+      "clock": "13:00",
+      "news_ids": ["greenway-match"]
+    },
+    {
+      "round": 3,
+      "phases": ["converse", "news"],
+      "clock": "16:00",
+      "news_ids": ["pension-warning"]
+    },
+    {
+      "round": 4,
+      "phases": ["converse", "opinion"],
+      "clock": "19:00",
+      "news_ids": []
+    }
+  ],
+  "news": [
+    {
+      "id": "bridge-estimate",
+      "headline": "Engineering Report Doubles Main Street Bridge Repair Estimate to $6.8M",
+      "description": "The structural review the Select Board commissioned from Hartwell & Sloane Engineering finds pier scour and deck delamination on the 1936 Main Street Bridge, doubling the repair estimate from $3.2M to $6.8M. The weight limit drops from 15 tons to 8 tons effective immediately: Engine 2 and the school buses must now detour the Route 9 loop, adding roughly eleven minutes to any cross-river run."
+    },
+    {
+      "id": "greenway-match",
+      "headline": "Anonymous Donor Pledges $2M Match for the Riverwalk Greenway",
+      "description": "A letter delivered through the Millbrook Community Trust pledges a dollar-for-dollar match, up to $2 million, for Riverwalk Greenway construction — contingent on the town committing the surplus at the November 3 meeting. The donor is unnamed. The Trust says the match would extend the trail across the river to Community Fields. The letter was read aloud twice on the Wheelhouse Diner porch before lunch."
+    },
+    {
+      "id": "pension-warning",
+      "headline": "State Comptroller Warns Towns: Pension Fund Returns 'Overstated'",
+      "description": "A state comptroller bulletin lowers the assumed rate of return on municipal pension funds from 6.9% to 6.0%. Recalculated overnight, Millbrook's unfunded pension liability grows from $4.1M to $5.9M, and the finance committee schedules an emergency session. Older residents remember 1998, when a mid-year aid cut and a failed revaluation left the town eleven days from missing payroll."
+    }
+  ],
+  "cross_town_pairs": [
+    {
+      "agents": ["Adele Pruitt", "Cass Malone"],
+      "connection": "Their husbands — Walter Pruitt, the loom fixer, and Roy Malone of the dye house — worked side by side at the Harrow Mill for eighteen years. Now the two widows meet Saturdays at the cider stand at the farmers market and talk about everything except the mill, which is how they talk about the mill."
+    },
+    {
+      "agents": ["Marcus Bell", "Rocco DiSanto"],
+      "connection": "Rocco has sponsored Marcus's rec league since the coach arrived two years ago, and feeds the team after every game — win or lose, so the kids learn it isn't about the score. The coach from away and the pizza man of thirty-one years argue trails versus roads across a counter dusted with flour."
+    }
+  ],
+  "cross_town_meeting_place": "Millbrook Farmers Market",
+  "weather_schedule": ["clear", "cloudy", "rain", "clear", "clear"],
+  "gossip_rounds": [2, 3],
+  "town_order": ["millbrook-village", "harlow-crossing"]
+}

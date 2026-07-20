@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from .scenario import validate_stance
 from .types import (
     AgentState,
     DistrictSummary,
@@ -21,15 +22,6 @@ from .types import (
     Opinion,
     TownSummary,
 )
-
-# ── Town palette (mirrors frontend TOWN_META). Kept here so the backend can
-#    fill in a sensible color when emitting an agent_state to the wire.
-_TOWN_COLORS: dict[str, str] = {
-    "dover": "#dc2626",       # red-600
-    "montclair": "#2563eb",   # blue-600
-    "parsippany": "#16a34a",  # green-600
-    "randolph": "#9333ea",    # purple-600
-}
 
 
 def _initials(name: str) -> str:
@@ -44,8 +36,11 @@ def _initials(name: str) -> str:
     return (parts[0][0] + parts[-1][0]).upper()
 
 
-def _color_for_town(town: str) -> str:
-    return _TOWN_COLORS.get((town or "").lower(), "#888888")
+def _color_for_town(town: str, scenario=None) -> str:
+    """Accent color for a town, sourced from the scenario's town JSON."""
+    if scenario is not None:
+        return scenario.town_color(town)
+    return "#888888"
 
 
 def opinion_to_wire(o: Opinion | None) -> dict | None:
@@ -66,15 +61,25 @@ def opinion_to_wire(o: Opinion | None) -> dict | None:
     }
 
 
-def agent_state_to_wire(s: AgentState) -> dict:
-    """Map a backend AgentState to the frontend AgentState shape."""
+def agent_state_to_wire(s: AgentState, scenario=None) -> dict:
+    """Map a backend AgentState to the frontend AgentState shape.
+
+    `scenario` supplies the town accent color (town JSON `accent_color`);
+    without it the color falls back to a neutral gray.
+    """
     last_op = s.current_opinion
     town = s.definition.town
     if last_op is not None:
         opinion_payload = opinion_to_wire(last_op)
     else:
+        # Pre-seed roster entry: synthesize an opinion from the persona's
+        # initial lean, coerced onto the scenario's stance roster so a bad
+        # lean can never reach the frontend as an unknown color bucket.
+        lean = s.definition.initial_lean
+        if scenario is not None:
+            lean = validate_stance(lean, scenario)
         opinion_payload = {
-            "candidate": s.definition.initial_lean,
+            "candidate": lean,
             "confidence": 25,
             "reasoning": "Initial impression",
             "top_issues": list(s.definition.top_concerns[:3]) if s.definition.top_concerns else [],
@@ -97,7 +102,7 @@ def agent_state_to_wire(s: AgentState) -> dict:
         "location": s.current_location,
         "current_activity": "idle",
         "initials": _initials(s.definition.name),
-        "color": _color_for_town(town),
+        "color": _color_for_town(town, scenario),
         "idle_thoughts": list(s.definition.idle_thoughts),
         "routine": list(s.definition.routine),
         "top_concerns": list(s.definition.top_concerns),
@@ -149,19 +154,20 @@ def town_summary_to_wire(s: TownSummary) -> dict:
     }
 
 
-def _aggregate_opinions(d: DistrictSummary) -> dict[str, int]:
+def _aggregate_opinions(d: DistrictSummary, scenario=None) -> dict[str, int]:
     """Sum opinion distributions across all towns in a DistrictSummary."""
     total: Counter = Counter()
     for ts in d.by_town.values():
         for cand, count in ts.opinion_distribution.items():
             total[cand] += int(count)
-    # Ensure all four candidates are represented even when zero.
-    for k in ("mejia", "hathaway", "bond", "undecided"):
-        total.setdefault(k, 0)
+    # Ensure every stance on the scenario roster is represented even when zero.
+    if scenario is not None:
+        for k in scenario.valid_stance_ids:
+            total.setdefault(k, 0)
     return dict(total)
 
 
-def district_summary_to_wire(d: DistrictSummary) -> dict:
+def district_summary_to_wire(d: DistrictSummary, scenario=None) -> dict:
     """Map a backend DistrictSummary to the frontend DistrictSummary shape."""
     town_wires = [town_summary_to_wire(s) for s in d.by_town.values()]
     # Round is the max rounds_completed across towns
@@ -172,7 +178,7 @@ def district_summary_to_wire(d: DistrictSummary) -> dict:
     return {
         "round": round_num,
         "town_summaries": town_wires,
-        "overall_opinions": _aggregate_opinions(d),
+        "overall_opinions": _aggregate_opinions(d, scenario),
         "cross_town_themes": [],
         "consensus_zones": list(d.consensus_zones),
         "fault_lines": list(d.fault_lines),

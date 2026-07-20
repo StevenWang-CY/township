@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ..core.scenario import validate_stance
 from ..core.types import Opinion, OpinionChangedEvent, RelationshipUpdateEvent
 from ..core.wire import opinion_to_wire
 from ..tools.schemas import get_tools
@@ -150,6 +151,7 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
     orchestrator = request.app.state.orchestrator
     anthropic_client = request.app.state.anthropic_client
     event_bus = request.app.state.event_bus
+    scenario = request.app.state.scenario
 
     user_id = req.user_id or "local"
 
@@ -169,14 +171,14 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
         _record_player_reveal(rel, req.user_profile)
 
     # Build system prompt with full context (including trust)
-    system_prompt = _build_chat_system_prompt(agent_state, trust=rel["trust"])
+    system_prompt = _build_chat_system_prompt(agent_state, scenario, trust=rel["trust"])
 
     # Enrich the user message with profile context if available
     if req.user_profile:
         p = req.user_profile
         user_intro = (
             f"A person named {p.get('name', 'someone')} from {p.get('town', 'the area')}, "
-            f"who cares about {', '.join(p.get('top_concerns', ['the election']))}, "
+            f"who cares about {', '.join(p.get('top_concerns', ['local issues']))}, "
             f"approaches you and says: \"{req.message}\""
         )
     else:
@@ -187,7 +189,7 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
             "role": "user",
             "content": (
                 f"{user_intro}\n\n"
-                f"Respond naturally in character. If they're asking about the election, "
+                f"Respond naturally in character. If they're asking about {scenario.title}, "
                 f"share your genuine views. If they ask about something else, respond "
                 f"as yourself. Keep it conversational — 2-4 sentences."
             ),
@@ -224,6 +226,7 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
         anthropic_client=anthropic_client,
         event_bus=event_bus,
         agent_state=agent_state,
+        scenario=scenario,
         agent_id=agent_id,
         user_id=user_id,
         rel=rel,
@@ -236,6 +239,7 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
         anthropic_client=anthropic_client,
         event_bus=event_bus,
         agent_state=agent_state,
+        scenario=scenario,
         user_message=req.message,
         agent_response=response_text,
     )
@@ -257,6 +261,7 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
     orchestrator = request.app.state.orchestrator
     anthropic_client = request.app.state.anthropic_client
     event_bus = request.app.state.event_bus
+    scenario = request.app.state.scenario
 
     user_id = req.user_id or "local"
 
@@ -275,7 +280,7 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
     turn_num = len(req.conversation_history) // 2
 
     # ── Step 1: Generate user's message ──────────────────────
-    user_persona_prompt = _build_user_persona_prompt(p)
+    user_persona_prompt = _build_user_persona_prompt(p, scenario)
 
     user_context = ""
     if req.conversation_history:
@@ -284,6 +289,11 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
             role = "You" if msg.get("role") == "user" else agent_state.definition.name
             user_context += f"{role}: {msg.get('content', '')}\n"
 
+    opening_line = (
+        f"Start a conversation about {scenario.title} or local issues."
+        if turn_num == 0
+        else "Continue the conversation naturally."
+    )
     user_messages = [
         {
             "role": "user",
@@ -291,7 +301,7 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
                 f"You're having a casual conversation with {agent_state.definition.name}, "
                 f"a {agent_state.definition.occupation} in {agent_state.definition.town}."
                 f"{user_context}\n\n"
-                f"{'Start a conversation about the election or local issues.' if turn_num == 0 else 'Continue the conversation naturally.'} "
+                f"{opening_line} "
                 f"Speak as yourself — 2-3 sentences. Be genuine and specific to your concerns."
             ),
         }
@@ -304,15 +314,15 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         max_tokens=1200,
     )
 
-    user_message = user_result.get("text") or "What do you think about the election?"
+    user_message = user_result.get("text") or f"What do you think about {scenario.title}?"
 
     # ── Step 2: Generate agent's response ────────────────────
-    agent_system = _build_chat_system_prompt(agent_state, trust=rel["trust"])
+    agent_system = _build_chat_system_prompt(agent_state, scenario, trust=rel["trust"])
 
     if p:
         user_intro = (
             f"A person named {p.get('name', 'someone')} from {p.get('town', 'the area')}, "
-            f"who cares about {', '.join(p.get('top_concerns', ['the election']))}, "
+            f"who cares about {', '.join(p.get('top_concerns', ['local issues']))}, "
             f"says: \"{user_message}\""
         )
     else:
@@ -366,6 +376,7 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         anthropic_client=anthropic_client,
         event_bus=event_bus,
         agent_state=agent_state,
+        scenario=scenario,
         agent_id=agent_id,
         user_id=user_id,
         rel=rel,
@@ -378,6 +389,7 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         anthropic_client=anthropic_client,
         event_bus=event_bus,
         agent_state=agent_state,
+        scenario=scenario,
         user_message=user_message,
         agent_response=agent_response,
     )
@@ -423,6 +435,7 @@ async def _reevaluate_opinion(
     anthropic_client,
     event_bus,
     agent_state,
+    scenario,
     user_message: str,
     agent_response: str,
 ) -> bool:
@@ -436,10 +449,10 @@ async def _reevaluate_opinion(
     prev = agent_state.current_opinion
     try:
         system_prompt = (
-            _build_chat_system_prompt(agent_state)
+            _build_chat_system_prompt(agent_state, scenario)
             + "\n\n--- OPINION CHECK ---\n"
-            "Reflect on the exchange below. If it changed how you feel about your vote, "
-            "update your stance honestly; if it didn't, restate your current stance. "
+            "Reflect on the exchange below. If it changed how you feel about your stance, "
+            "update it honestly; if it didn't, restate your current stance. "
             "Call the FormOpinion tool."
         )
         result = await anthropic_client.call_agent(
@@ -450,11 +463,12 @@ async def _reevaluate_opinion(
                     "content": (
                         f"They said: \"{user_message}\"\n"
                         f"You replied: \"{agent_response}\"\n\n"
-                        f"Now call FormOpinion with your current stance on the NJ-11 election."
+                        f"Now call FormOpinion with your current stance on the question: "
+                        f"{scenario.question}"
                     ),
                 }
             ],
-            tools=get_tools(["FormOpinion"]),
+            tools=get_tools(["FormOpinion"], scenario),
             max_tokens=600,
             model=agent_state.definition.model,
         )
@@ -470,7 +484,12 @@ async def _reevaluate_opinion(
             return False
 
         tool_input = tool_use.get("input", {})
-        new_candidate = tool_input.get("candidate", prev.candidate if prev else "undecided")
+        new_candidate = validate_stance(
+            tool_input.get(
+                "candidate", prev.candidate if prev else scenario.undecided_id
+            ),
+            scenario,
+        )
         try:
             new_confidence = int(tool_input.get("confidence", prev.confidence if prev else 50))
         except (TypeError, ValueError):
@@ -522,6 +541,7 @@ async def _classify_and_update_trust(
     anthropic_client,
     event_bus,
     agent_state,
+    scenario,
     agent_id: str,
     user_id: str,
     rel: dict,
@@ -535,7 +555,7 @@ async def _classify_and_update_trust(
     """
     try:
         classify_system = (
-            _build_chat_system_prompt(agent_state, trust=rel["trust"])
+            _build_chat_system_prompt(agent_state, scenario, trust=rel["trust"])
             + "\n\n--- TRUST CLASSIFICATION MODE ---\n"
             "Reflect on the exchange below and call the ClassifyInteraction tool with how "
             "this person made you feel. Keep your trust_delta small unless the tone was "
@@ -553,7 +573,7 @@ async def _classify_and_update_trust(
                     ),
                 }
             ],
-            tools=get_tools(["ClassifyInteraction"]),
+            tools=get_tools(["ClassifyInteraction"], scenario),
             max_tokens=400,
             model=agent_state.definition.model,
         )
@@ -602,49 +622,52 @@ async def _classify_and_update_trust(
         logger.warning(f"ClassifyInteraction failed for {agent_id} / user={user_id}: {e}")
 
 
-def _build_user_persona_prompt(profile: dict) -> str:
+def _build_user_persona_prompt(profile: dict, scenario) -> str:
     """Build a system prompt for the user's AI persona."""
-    name = profile.get("name", "A voter")
-    town = profile.get("town", "NJ-11")
+    name = profile.get("name", "A local resident")
+    town = profile.get("town", "the area")
     leaning = profile.get("political_leaning", "undecided")
-    concerns = ", ".join(profile.get("top_concerns", ["the election"]))
-    personality = profile.get("personality", "A local resident interested in the election.")
+    concerns = ", ".join(profile.get("top_concerns", ["local issues"]))
+    personality = profile.get(
+        "personality", "A local resident interested in the question facing the community."
+    )
 
     return (
-        f"You are {name}, a resident of {town} in New Jersey's 11th Congressional District.\n"
-        f"Political leaning: {leaning}\n"
+        f"You are {name}, a resident of {town}.\n"
+        f"Leaning: {leaning}\n"
         f"Top concerns: {concerns}\n"
         f"About you: {personality}\n\n"
-        f"The NJ-11 special election is on April 16, 2026. "
-        f"Candidates: Analilia Mejia (D), Joe Hathaway (R), Alan Bond (I). "
-        f"Early voting is happening now.\n\n"
-        f"You're having a casual conversation with a neighbor about the election. "
+        f"{scenario.context_short()}\n\n"
+        f"You're having a casual conversation with a neighbor about {scenario.title}. "
         f"Speak naturally as yourself — 2-3 sentences. Reference your personal concerns "
         f"and experiences. Be genuine, curious, and opinionated based on your background. "
         f"Don't be generic — be specific to your situation."
     )
 
 
-def _build_chat_system_prompt(agent_state, trust: int = 0) -> str:
+def _build_chat_system_prompt(agent_state, scenario, trust: int = 0) -> str:
     """Build a comprehensive system prompt for chat interactions."""
     parts = []
 
     # Base persona
     parts.append(agent_state.definition.system_prompt)
 
-    # Election context
+    # Scenario context (short form) + the option roster by label
+    option_labels = scenario.option_label
+    options_line = ", ".join(
+        option_labels[oid] for oid in scenario.valid_stance_ids if oid in option_labels
+    )
     parts.append(
         "\n\n--- CONTEXT ---\n"
-        "You're a voter in NJ-11. Special election is April 16, 2026. "
-        "Candidates: Analilia Mejia (D), Joe Hathaway (R), Alan Bond (I). "
-        "Early voting is happening now (April 6-14)."
+        + scenario.context_short()
+        + f"\nThe options on the table: {options_line}."
     )
 
     # Current opinion
     opinion = agent_state.current_opinion
     if opinion:
         parts.append(
-            f"\n\n--- YOUR CURRENT VOTING STANCE ---\n"
+            f"\n\n--- YOUR CURRENT STANCE ---\n"
             f"Leaning: {opinion.candidate} (confidence: {opinion.confidence}%)\n"
             f"Why: {opinion.reasoning}\n"
             f"Top issues: {', '.join(opinion.top_issues)}"
@@ -667,7 +690,7 @@ def _build_chat_system_prompt(agent_state, trust: int = 0) -> str:
         "and speech patterns. Be warm but authentic. If you mix languages, do so naturally. "
         "Don't break character or mention that you're an AI. "
         "Keep responses conversational and concise (2-4 sentences). "
-        "If asked about the election, share your genuine current views."
+        f"If asked about {scenario.title}, share your genuine current views."
     )
 
     # ── Trust block (always appended last) ─────────────────────

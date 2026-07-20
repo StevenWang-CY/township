@@ -25,6 +25,7 @@ dist/
 # Local state & tooling
 runs/
 data/state/
+data/simulation_cache.json
 launch-kit/
 .claude/
 .playwright-mcp/

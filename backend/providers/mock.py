@@ -68,19 +68,19 @@ _GENERIC_CONCERNS = ["the cost of living", "property taxes", "local schools"]
 
 _DISCUSS_TEMPLATES = [
     "Honestly, {concern} is what keeps me up at night. I want a real plan "
-    "before April 16, not another speech.",
+    "before decision day, not another speech.",
     "I keep coming back to {concern}. Everyone around here feels it, and "
-    "none of the candidates have fully convinced me yet.",
+    "none of the options fully convince me yet.",
     "You know how I feel about {concern} — it hits people like us first. "
     "I'm listening for whoever actually addresses it.",
     "Between you and me, {concern} has only gotten worse this year. That's "
-    "the lens I'm bringing to this election.",
+    "the lens I'm bringing to this decision.",
     "My family talks about {concern} at the dinner table every week. "
     "Whoever speaks to that gets my attention.",
 ]
 
 _TAKEAWAY_TEMPLATES = [
-    "We talked about {concern} and where the candidates stand on it.",
+    "We talked about {concern} and where the options stand on it.",
     "This conversation sharpened how much {concern} matters to my vote.",
     "I came away thinking harder about {concern}.",
     "Hearing another perspective on {concern} gave me something to chew on.",
@@ -90,9 +90,9 @@ _CHAT_TEMPLATES = [
     "Good of you to ask. For me it all comes down to {concern} — that's "
     "what I'm weighing before I vote. What about you?",
     "Things are steady, thanks. Though {concern} is never far from my mind "
-    "these days — this election feels like it matters more than most.",
-    "I'll be straight with you: {concern} is the thing I need these "
-    "candidates to get serious about. So far I'm still listening.",
+    "these days — this decision feels like it matters more than most.",
+    "I'll be straight with you: {concern} is the thing I need people to "
+    "get serious about. So far I'm still listening.",
     "Around here, {concern} is what people actually talk about. The rest "
     "is noise until someone shows me a plan.",
 ]
@@ -101,7 +101,7 @@ _REASONING_TEMPLATES = [
     "After everything I've heard, {lean}. {concern_cap} is still my number "
     "one issue and that's what I'm voting on.",
     "{lean_cap} — mostly because of {concern}. I've listened to neighbors "
-    "and watched the debate, and that's where I land for now.",
+    "and followed the coverage, and that's where I land for now.",
     "It comes down to {concern} for me and my family, so {lean}.",
 ]
 
@@ -220,9 +220,11 @@ class MockProvider:
         }
 
     def _form_opinion(self, tool: dict, name: str, concerns: list[str]) -> dict:
-        stances = _schema_enum(
-            tool, "candidate", ["mejia", "hathaway", "bond", "undecided"]
-        )
+        # The stance roster comes from the tool schema (build_tools() bakes the
+        # active scenario's option ids into the enum). A tool without an enum
+        # gets the only scenario-agnostic stance there is: undecided. Never
+        # fall back to a hardcoded candidate list from one scenario.
+        stances = _schema_enum(tool, "candidate", ["undecided"])
         # Stance is seeded from the agent identity alone, so it stays stable
         # for that agent across every call even as the prompt accretes memories.
         agent_seed = _seed(name, "FormOpinion", str(stances))
@@ -255,7 +257,7 @@ class MockProvider:
         }
         if "dealbreaker" in _schema_props(tool) and agent_seed % 3 != 0:
             result["dealbreaker"] = (
-                f"A candidate reversing course on {concern} would lose me entirely."
+                f"Anyone reversing course on {concern} would lose me entirely."
             )
         return result
 

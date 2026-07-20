@@ -6,8 +6,8 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from ..core.agent_loader import load_all_agents
 from ..core.event_bus import EventBus
+from ..core.scenario import Scenario, validate_stance
 from ..core.types import (
     AgentState,
     CivicAgentState,
@@ -22,9 +22,8 @@ from ..core.types import (
     WeatherChangedEvent,
 )
 from ..core.wire import agent_state_to_wire, district_summary_to_wire
-from ..providers.anthropic_client import AnthropicClient
 from ..simulation.round_manager import RoundManager
-from ..tools.schemas import get_tools
+from ..tools.schemas import build_tools
 
 logger = logging.getLogger(__name__)
 
@@ -39,24 +38,18 @@ class SimulationOrchestrator:
 
     def __init__(
         self,
-        anthropic_client: AnthropicClient,
+        anthropic_client,
         event_bus: EventBus,
-        data_dir: str = "data",
-        agents_dir: str = "agents",
+        scenario: Scenario,
     ):
         self.client = anthropic_client
         self.event_bus = event_bus
-        self.data_dir = Path(data_dir)
-        self.agents_dir = agents_dir
+        self.scenario = scenario
 
-        # Load data files
-        self.candidate_data = self._load_candidates()
-        self.debate_excerpts = self._load_json("debate-excerpts.json")
-        self.town_data = self._load_towns()
-        self.election_logistics = self._load_json("election-logistics.json")
-
-        # Load all agents grouped by town
-        self.agent_definitions = load_all_agents(agents_dir)
+        # All content comes from the scenario package
+        self.town_data = scenario.towns
+        self.agent_definitions = scenario.agents
+        self._tool_registry = build_tools(scenario)
 
         # Runtime state
         self.agent_states: dict[str, list[AgentState]] = {}
@@ -64,44 +57,19 @@ class SimulationOrchestrator:
         self.district_summary: DistrictSummary | None = None
         self.is_running = False
         self.current_round = 0
-        self.total_rounds = 5
+        self.total_rounds = scenario.total_rounds
 
         # Initialize agent states
         self._init_agent_states()
 
         logger.info(
-            f"Orchestrator initialized: {sum(len(v) for v in self.agent_definitions.values())} agents "
+            f"Orchestrator initialized (scenario={scenario.id}): "
+            f"{sum(len(v) for v in self.agent_definitions.values())} agents "
             f"across {len(self.agent_definitions)} towns"
         )
 
-    def _load_json(self, filename: str) -> dict:
-        """Load a JSON file from the data directory."""
-        filepath = self.data_dir / filename
-        if filepath.exists():
-            with open(filepath) as f:
-                return json.load(f)
-        logger.warning(f"Data file not found: {filepath}")
-        return {}
-
-    def _load_candidates(self) -> dict[str, dict]:
-        """Load all candidate JSON files."""
-        candidates = {}
-        cand_dir = self.data_dir / "candidates"
-        if cand_dir.exists():
-            for f in sorted(cand_dir.glob("*.json")):
-                with open(f) as fh:
-                    candidates[f.stem] = json.load(fh)
-        return candidates
-
-    def _load_towns(self) -> dict[str, dict]:
-        """Load all town JSON files."""
-        towns = {}
-        town_dir = self.data_dir / "towns"
-        if town_dir.exists():
-            for f in sorted(town_dir.glob("*.json")):
-                with open(f) as fh:
-                    towns[f.stem] = json.load(fh)
-        return towns
+    def _tools(self, names: list[str]) -> list[dict]:
+        return [self._tool_registry[n] for n in names if n in self._tool_registry]
 
     def _init_agent_states(self):
         """Initialize AgentState objects from definitions."""
@@ -141,9 +109,7 @@ class SimulationOrchestrator:
         rm = RoundManager(
             anthropic_client=self.client,
             event_bus=self.event_bus,
-            candidate_data=self.candidate_data,
-            debate_excerpts=self.debate_excerpts,
-            town_data=self.town_data,
+            scenario=self.scenario,
         )
         cross_pairs = rm._create_cross_town_pairs(self.agent_states)
         tasks = []
@@ -155,8 +121,11 @@ class SimulationOrchestrator:
         successful = sum(1 for r in results if not isinstance(r, Exception))
         logger.info(f"Cross-town gossip complete: {successful}/{len(tasks)} conversations succeeded")
 
-    async def run_full_simulation(self, num_rounds: int = 5) -> DistrictSummary:
+    async def run_full_simulation(self, num_rounds: int | None = None) -> DistrictSummary:
         """Run all towns in parallel, compute district summary."""
+        if num_rounds is None:
+            num_rounds = self.scenario.total_rounds
+        num_rounds = min(num_rounds, self.scenario.total_rounds)
         self.is_running = True
         self.current_round = 0
         self.total_rounds = num_rounds
@@ -168,7 +137,7 @@ class SimulationOrchestrator:
             for town_agents in self.agent_states.values():
                 for agent in town_agents:
                     try:
-                        agent_roster.append(agent_state_to_wire(agent))
+                        agent_roster.append(agent_state_to_wire(agent, self.scenario))
                     except Exception as e:
                         logger.warning("roster wire failed for %s: %s", agent.agent_id, e)
                         # Still append a minimal fallback so the agent renders.
@@ -189,10 +158,9 @@ class SimulationOrchestrator:
             except Exception as e:  # pragma: no cover — defensive
                 logger.warning(f"SimulationStartedEvent publish failed: {e}")
 
-            # Pre-scripted weather across the campaign cycle (one entry per round)
-            weather_schedule: list[str] = [
-                "clear", "cloudy", "rain", "clear", "snow",
-            ]
+            # Pre-scripted weather across the cycle (one entry per round),
+            # straight from the scenario manifest.
+            weather_schedule: list[str] = list(self.scenario.config.weather_schedule)
 
             async def _emit_weather(idx: int) -> None:
                 if idx < 0 or idx >= len(weather_schedule):
@@ -223,15 +191,14 @@ class SimulationOrchestrator:
                 for idx in range(1, len(weather_schedule)):
                     await asyncio.sleep(2.0)
                     await _emit_weather(idx)
-                # Cross-town pairs at round 2 and again at round 3
-                try:
-                    await self._run_cross_town_gossip(round_num=2)
-                except Exception as e:
-                    logger.error(f"Cross-town gossip (round 2) failed: {e}")
-                try:
-                    await self._run_cross_town_gossip(round_num=3)
-                except Exception as e:
-                    logger.error(f"Cross-town gossip (round 3) failed: {e}")
+                # Cross-town pairs at the scenario's gossip rounds
+                for gossip_round in self.scenario.config.gossip_rounds:
+                    try:
+                        await self._run_cross_town_gossip(round_num=gossip_round)
+                    except Exception as e:
+                        logger.error(
+                            f"Cross-town gossip (round {gossip_round}) failed: {e}"
+                        )
 
             atmosphere_task = asyncio.create_task(_atmosphere_and_cross_town())
 
@@ -252,7 +219,9 @@ class SimulationOrchestrator:
                     # Create empty summary for failed town
                     self.town_summaries[town] = TownSummary(
                         town=town,
-                        opinion_distribution={"undecided": len(self.agent_states.get(town, []))},
+                        opinion_distribution={
+                            self.scenario.undecided_id: len(self.agent_states.get(town, []))
+                        },
                         top_issues=[],
                         agent_summaries=[],
                         total_conversations=0,
@@ -269,7 +238,7 @@ class SimulationOrchestrator:
             # was redundant — the frontend already ignored it — so it's gone.
             try:
                 await self.event_bus.publish(SimulationEndedEvent(
-                    summary=district_summary_to_wire(self.district_summary),
+                    summary=district_summary_to_wire(self.district_summary, self.scenario),
                 ))
             except Exception as e:  # pragma: no cover
                 logger.warning(f"SimulationEndedEvent publish failed: {e}")
@@ -287,9 +256,7 @@ class SimulationOrchestrator:
         rm = RoundManager(
             anthropic_client=self.client,
             event_bus=self.event_bus,
-            candidate_data=self.candidate_data,
-            debate_excerpts=self.debate_excerpts,
-            town_data=self.town_data,
+            scenario=self.scenario,
         )
         return await rm.run_town_simulation(
             town=town,
@@ -297,20 +264,55 @@ class SimulationOrchestrator:
             num_rounds=num_rounds,
         )
 
-    async def run_single_town(self, town: str, num_rounds: int = 5) -> TownSummary:
+    async def run_single_town(self, town: str, num_rounds: int | None = None) -> TownSummary:
         """Run simulation for just one town."""
         if town not in self.agent_states:
             raise ValueError(f"Unknown town: {town}. Available: {list(self.agent_states.keys())}")
 
+        if num_rounds is None:
+            num_rounds = self.scenario.total_rounds
+        num_rounds = min(num_rounds, self.scenario.total_rounds)
         self.is_running = True
         self.total_rounds = num_rounds
         try:
+            # Announce the run with this town's roster (mirrors the full-run
+            # path) so the frontend receives agent colors/locations over WS.
+            agent_roster: list[dict] = []
+            for agent in self.agent_states[town]:
+                try:
+                    agent_roster.append(agent_state_to_wire(agent, self.scenario))
+                except Exception as e:
+                    logger.warning("roster wire failed for %s: %s", agent.agent_id, e)
+                    agent_roster.append({
+                        "id": agent.agent_id,
+                        "name": agent.definition.name,
+                        "town": agent.definition.town,
+                        "occupation": agent.definition.occupation,
+                        "opinion": None,
+                        "location": agent.current_location,
+                        "current_activity": "idle",
+                    })
+            try:
+                await self.event_bus.publish(SimulationStartedEvent(
+                    agents=agent_roster,
+                    towns=[town],
+                ))
+            except Exception as e:  # pragma: no cover — defensive
+                logger.warning(f"SimulationStartedEvent publish failed: {e}")
+
             result = await self._run_town_with_tracking(town, num_rounds)
             self.town_summaries[town] = result
 
             # Recompute district summary if we have results
             if self.town_summaries:
                 self.district_summary = self._compute_district_summary(self.town_summaries)
+
+            try:
+                await self.event_bus.publish(SimulationEndedEvent(
+                    summary=district_summary_to_wire(self.district_summary, self.scenario),
+                ))
+            except Exception as e:  # pragma: no cover — defensive
+                logger.warning(f"SimulationEndedEvent publish failed: {e}")
 
             return result
         finally:
@@ -341,13 +343,14 @@ class SimulationOrchestrator:
                     town_issues[issue_name] = importance
             all_issues_by_town[town] = town_issues
 
-        # Prediction: percentage per candidate
-        prediction = {}
+        # Prediction: percentage per stance (seeded so every roster stance
+        # appears even at zero)
+        prediction = {stance: 0.0 for stance in self.scenario.valid_stance_ids}
         if total_agents > 0:
             for candidate, count in total_opinions.items():
                 prediction[candidate] = round((count / total_agents) * 100, 1)
         else:
-            prediction = {"mejia": 0, "hathaway": 0, "bond": 0, "undecided": 100}
+            prediction[self.scenario.undecided_id] = 100
 
         # Consensus zones: issues mentioned by 70%+ of agents across all towns
         all_issue_counts: Counter = Counter()
@@ -473,10 +476,10 @@ class SimulationOrchestrator:
             {
                 "role": "user",
                 "content": (
-                    f"BREAKING DEVELOPMENT in the NJ-11 election:\n\n"
+                    f"BREAKING DEVELOPMENT affecting {self.scenario.title}:\n\n"
                     f"{description}\n\n"
                     f"React to this development. How does it affect you personally? "
-                    f"Does it change how you're thinking about your vote? "
+                    f"Does it change how you're thinking about your decision? "
                     f"Use the ReactToNews tool."
                 ),
             }
@@ -485,7 +488,7 @@ class SimulationOrchestrator:
         result = await self.client.call_agent(
             system_prompt=system_prompt,
             messages=messages,
-            tools=get_tools(["ReactToNews"]),
+            tools=self._tools(["ReactToNews"]),
             max_tokens=400,
             model=agent.definition.model,
         )
@@ -550,10 +553,10 @@ class SimulationOrchestrator:
             {
                 "role": "user",
                 "content": (
-                    f"BREAKING DEVELOPMENT in the NJ-11 election:\n\n{description}\n\n"
+                    f"BREAKING DEVELOPMENT affecting {self.scenario.title}:\n\n{description}\n\n"
                     f"Your gut reaction: {reaction_reasoning}\n\n"
-                    f"Now reconsider your vote in light of this. Who are you leaning "
-                    f"toward, and how confident are you? Use the FormOpinion tool."
+                    f"Now reconsider your stance in light of this. Which option are you "
+                    f"leaning toward, and how confident are you? Use the FormOpinion tool."
                 ),
             }
         ]
@@ -561,7 +564,7 @@ class SimulationOrchestrator:
         result = await self.client.call_agent(
             system_prompt=system_prompt,
             messages=messages,
-            tools=get_tools(["FormOpinion"]),
+            tools=self._tools(["FormOpinion"]),
             max_tokens=700,
             model=agent.definition.model,
         )
@@ -579,7 +582,13 @@ class SimulationOrchestrator:
 
         tool_input = result["tool_use"]["input"]
         new_opinion = Opinion(
-            candidate=tool_input.get("candidate", prev.candidate if prev else "undecided"),
+            candidate=validate_stance(
+                tool_input.get(
+                    "candidate",
+                    prev.candidate if prev else self.scenario.undecided_id,
+                ),
+                self.scenario,
+            ),
             confidence=tool_input.get("confidence", prev.confidence if prev else 50),
             reasoning=tool_input.get("reasoning", "Reconsidered after the development."),
             top_issues=tool_input.get(
@@ -610,11 +619,7 @@ class SimulationOrchestrator:
         """Build system prompt for God's View reactions."""
         parts = [agent.definition.system_prompt]
 
-        parts.append(
-            "\n\n--- ELECTION CONTEXT ---\n"
-            "You are a voter in NJ-11. Special election is April 16, 2026.\n"
-            "Candidates: Mejia (D), Hathaway (R), Bond (I)."
-        )
+        parts.append("\n\n--- CONTEXT ---\n" + self.scenario.context_short())
 
         opinion = agent.current_opinion
         if opinion:

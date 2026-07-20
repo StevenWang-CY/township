@@ -1,0 +1,47 @@
+{
+  "name": "Fix It First",
+  "label": "Roads & Bridge",
+  "summary": "Put every surplus dollar into what is already failing: repair the posted Main Street Bridge, repave eleven miles of poor-rated roads, replace nine culverts including Culvert 9, and fix the stormwater lines — the unglamorous bones of the town.",
+  "background": "Fix It First began as a spreadsheet, not a movement. The 2021 pavement condition survey graded 38 percent of Millbrook's road-miles 'poor' — worst in Ashford County — and the highway crew has been triaging with cold patch ever since. Then came the bridge. The 1936 Main Street Bridge, the only crossing between the Village and Harlow Crossing for six miles in either direction, was posted at 15 tons in 2024 and, after this fall's Hartwell & Sloane inspection found pier scour and deck delamination, at 8 tons. Engine 2 weighs nineteen. School buses weigh twelve. Everything heavy now takes the Route 9 loop, and the loop is why the plan has a fire captain and a bus garage on its side.\n\nIts champions are the people who drive for a living and the people who answer pagers: the volunteer fire company, the highway crew, the school transportation office, the Route 9 businesses whose delivery cars eat axle repairs, and the Fairview families whose back entrance closes every time Culvert 9 backs up. Their argument is arithmetic and fairness at once: asphalt inflation runs ahead of the tax levy, so every deferred year costs more than the last — 'pay now or pay double' — and unlike a park or a tax cut, every single household in town uses the roads every single day.\n\nThe plan's history is a history of losing gracefully. Roads articles have passed at the last four annual meetings, funding patch-and-pave at a pace the highway crew calls 'painting the deck of a sinking boat.' A state bridge grant application was filed in 2025 and wait-listed. Fix It First supporters are done waiting: the surplus is, they say, the only realistic shot at doing the bridge, the culverts, and the worst eleven miles in one swing, without borrowing a dime.",
+  "positions": [
+    {
+      "issue": "Public safety",
+      "stance": "An 8-ton posting adds roughly eleven minutes to any cross-river emergency run; a room fire doubles every sixty seconds. Repairing the bridge is a life-safety expenditure, not a convenience."
+    },
+    {
+      "issue": "School transportation",
+      "stance": "Every bus in town crosses the river or runs Route 9; the detour adds mileage, the potholes add repairs, and both add risk to forty kids per run."
+    },
+    {
+      "issue": "Cost of delay",
+      "stance": "Road repair deferred compounds like debt: the bridge estimate doubled in two years, and asphalt does not get cheaper. Pay now or pay double."
+    },
+    {
+      "issue": "Stormwater and culverts",
+      "stance": "Nine culverts are past design life. Culvert 9 has closed Fairview's back entrance twice and floods Community Fields every April. Drainage is the roads program, not an extra."
+    },
+    {
+      "issue": "Fairness",
+      "stance": "Parks are for some and tax cuts are proportional to wealth, but every household — renter or owner, Village or Crossing — uses the roads every day."
+    },
+    {
+      "issue": "Local economy",
+      "stance": "Delivery businesses, tradespeople, and commuters pay a hidden pothole tax in axles, rims, and time; fixing the roads is the tax cut people can feel in the driver's seat."
+    }
+  ],
+  "endorsements": [
+    "Harlow Crossing Volunteer Fire Company No. 2",
+    "Millbrook Highway Crew (open letter to the Ashford Ledger)",
+    "Route 9 Business Alliance",
+    "Harlow Elementary PTO (bus-route safety committee)",
+    "Ashford County Farm Bureau"
+  ],
+  "estimated_cost": "$12.0M total: $6.8M Main Street Bridge rehabilitation, $2.6M repaving of the worst 11.4 road-miles, $2.1M replacement of nine culverts including Culvert 9, $0.5M stormwater line repairs.",
+  "tradeoffs": [
+    "It is invisible spending: in ten years the town will have exactly what it has now, in good repair, and nothing it didn't have before.",
+    "Asphalt is a recurring cost dressed as a one-time fix — the same miles will need paving again in 15 years, with no new revenue source created.",
+    "The wait-listed state bridge grant could eventually cover much of the $6.8M; spending surplus on it may mean leaving state money on the table.",
+    "It offers no relief on the tax levy and no reduction of the pension gap the comptroller just flagged.",
+    "Consultants' estimates have already doubled once; construction overruns would come back to the town with no reserve left."
+  ]
+}

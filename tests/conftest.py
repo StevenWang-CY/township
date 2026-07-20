@@ -13,8 +13,15 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-DATA_DIR = os.path.join(REPO_ROOT, "data")
-AGENTS_DIR = os.path.join(REPO_ROOT, "agents")
+SCENARIOS_DIR = os.path.join(REPO_ROOT, "scenarios")
+NJ11_SCENARIO_DIR = os.path.join(SCENARIOS_DIR, "nj11-2026")
+
+
+def load_nj11_scenario():
+    """Load the flagship NJ-11 scenario package (fresh instance per call)."""
+    from backend.core.scenario import load_scenario
+
+    return load_scenario(NJ11_SCENARIO_DIR)
 
 
 def _ok(text: str = "", tool_use=None) -> dict:

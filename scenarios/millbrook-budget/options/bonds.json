@@ -1,0 +1,46 @@
+{
+  "name": "Pay Down Debt",
+  "label": "Debt & Taxes",
+  "summary": "Retire the town's outstanding bonds and shrink the pension gap: apply the entire surplus to obligations Millbrook already owes, freeing roughly $540,000 a year in interest and required payments and cutting the tax levy about five percent — permanently.",
+  "background": "Pay Down Debt is the plan of the people who remember March of 1998. That spring, a mid-year state aid cut landed on top of a failed property revaluation and a balloon payment on the sewer bond, and Millbrook came within eleven days of missing municipal payroll. The town survived on tax-anticipation notes borrowed at 9.75 percent and a decade of austerity that closed the Village's second fire station and skipped two road cycles — the same skipped cycles, its advocates note dryly, that everyone is now proposing to fix with borrowed nostalgia. The lesson they took: a small town's margin for error is thinner than it looks, and debt is how the thinness hides.\n\nIts champions are the finance committee's two-member minority, the Millbrook Taxpayers Association, and a quiet constituency that doesn't pack meetings: fixed-income retirees on Chestnut Row and in Fairview whose tax bills have doubled since 2009 while their checks have not. The retired town clerk who signed the 1998 anticipation notes is the plan's institutional memory and its best speaker. Their arithmetic: $7.2M retires the town's outstanding bonds, $4.8M goes against the unfunded pension liability the state comptroller just recalculated to $5.9M, and the roughly $540,000 a year freed from debt service flows back as a permanent five percent levy cut — about $240 a year for the median household, every year, forever.\n\nThe deeper argument is about what a windfall is for. One-time money, they say, should extinguish one-time liabilities — never recurring wants. A park must be mowed forever; a road must be repaved forever; retired debt is simply gone, and the interest it was eating comes home. It is the only option on the warrant that makes every future budget easier instead of harder. It is also, its own advocates concede, the only option nobody will drive past and point at.",
+  "positions": [
+    {
+      "issue": "Tax relief",
+      "stance": "A permanent ~5% levy cut, roughly $240 a year for the median household — real money for fixed-income residents whose bills have doubled since 2009."
+    },
+    {
+      "issue": "Interest savings",
+      "stance": "About $540,000 a year currently leaves town as debt service and required pension catch-up — a plow truck and two teachers' salaries, every year, for nothing."
+    },
+    {
+      "issue": "Pension obligation",
+      "stance": "The comptroller's new assumptions put the unfunded liability at $5.9M; paying $4.8M against it now protects the retirees the town already promised."
+    },
+    {
+      "issue": "Credit and resilience",
+      "stance": "A debt-free town with a funded pension borrows cheaply the day a real emergency comes — 1998 must never happen again."
+    },
+    {
+      "issue": "Intergenerational fairness",
+      "stance": "Don't hand the next generation our IOUs with a ribbon on them; hand them a clean balance sheet and let them choose their own park."
+    },
+    {
+      "issue": "Windfall discipline",
+      "stance": "One-time money for one-time liabilities: spending a windfall on recurring wants is how towns go broke politely."
+    }
+  ],
+  "endorsements": [
+    "Millbrook Taxpayers Association",
+    "Fairview Homeowners Association",
+    "Millbrook Grange No. 114",
+    "Ashford Ledger editorial board"
+  ],
+  "estimated_cost": "$12.0M total: $7.2M retires all outstanding bond principal (sewer refunding, firehouse roof note, 2019 paving bond), $4.8M paid against the $5.9M unfunded pension liability. Estimated $540,000/year freed; ~5% permanent levy reduction (~$240/year, median household).",
+  "tradeoffs": [
+    "Once spent on debt, the town's single transformative windfall is gone — there is no second mill to sell, and no greenway or bridge to show for it.",
+    "The savings are diffuse: $240 a year per household changes no one's life, while a bridge or a riverwalk changes the town's.",
+    "Pension markets move; one strong year could shrink the gap on its own, making the $4.8M paydown look like panic priced at par.",
+    "It fixes no pothole, opens no trail, and shortens no fire response — every physical problem on the warrant remains.",
+    "Prepaying some obligations carries call premiums and lost-arbitrage costs the headline numbers gloss over."
+  ]
+}

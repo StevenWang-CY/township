@@ -1,0 +1,136 @@
+{
+  "name": "Millbrook Village",
+  "county": "Ashford County",
+  "tagline": "The Mill Village",
+  "accent_color": "#7A9E7E",
+  "ambient_sound": "millbrook_village_ambient.ogg",
+  "weather_schedule": ["clear", "cloudy", "rain", "clear", "clear"],
+  "demographics": {
+    "population": 3850,
+    "median_age": 51.2,
+    "median_hh_income": 58900,
+    "per_capita_income": 34200,
+    "poverty_rate": "9.8%",
+    "over_65_pct": "26.4%",
+    "renter_pct": "41%",
+    "racial_composition": {
+      "white_non_hispanic": "~87%",
+      "hispanic_latino": "~6%",
+      "two_or_more": "~4%",
+      "black_african_american": "~2%"
+    },
+    "foreign_born_pct": "5.1%",
+    "notes": [
+      "Roughly one in five households includes a former Harrow Mill worker or a mill widow",
+      "Highest share of fixed-income households in Ashford County",
+      "Housing stock: brick storefront apartments and 1880s mill row houses; median year built 1921"
+    ]
+  },
+  "character": "The old center: brick storefronts on Main Street, mill-era row houses on Chestnut Row, the ruins and the dam and the smokestack that held through forty winters. Older, poorer, prouder than the Crossing across the river. The greenway would be built here — and the tax bill lands here too, on porches where the mailbox still says a dead man's name.",
+  "landmarks": [
+    {
+      "name": "Stillwater River",
+      "x": 0,
+      "y": 60,
+      "width": 1200,
+      "height": 70,
+      "color": "#7FA8C9",
+      "type": "water",
+      "description": "The river that turned the Harrow Mill's wheels for 121 years; slow, brown-green, and patient"
+    },
+    {
+      "name": "Main Street Bridge",
+      "x": 545,
+      "y": 45,
+      "width": 60,
+      "height": 105,
+      "color": "#8B7355",
+      "type": "transport",
+      "description": "1936 concrete arch over the Stillwater, newly posted at 8 tons; the water gauge is bolted to the downstream rail"
+    },
+    {
+      "name": "Millbrook Farmers Market",
+      "x": 180,
+      "y": 170,
+      "width": 160,
+      "height": 100,
+      "color": "#7CB87C",
+      "type": "park",
+      "description": "Saturday market on the old mill green — cider stand, jam tables, and the whole town's opinions"
+    },
+    {
+      "name": "Harrow Mill Ruins",
+      "x": 840,
+      "y": 170,
+      "width": 190,
+      "height": 140,
+      "color": "#9B8578",
+      "type": "building",
+      "description": "Brick shell of the Harrow Woolen Mill, closed October 1989; the smokestack still stands over the dam"
+    },
+    {
+      "name": "The Wheelhouse Diner",
+      "x": 270,
+      "y": 295,
+      "width": 105,
+      "height": 70,
+      "color": "#D96C4F",
+      "type": "building",
+      "description": "Corner booths, cinnamon rolls, and the unofficial second town hall since 1957"
+    },
+    {
+      "name": "Millbrook Town Hall",
+      "x": 500,
+      "y": 280,
+      "width": 140,
+      "height": 95,
+      "color": "#E2D8BF",
+      "type": "building",
+      "description": "White clapboard, 1874; the records vault below holds every deed and warrant article in town history"
+    },
+    {
+      "name": "Main Street",
+      "x": 100,
+      "y": 400,
+      "width": 1000,
+      "height": 30,
+      "color": "#C9B48A",
+      "type": "road",
+      "description": "The village spine: brick storefronts, angled parking, and sidewalks heaved by maple roots"
+    },
+    {
+      "name": "Corbin's Hardware",
+      "x": 330,
+      "y": 470,
+      "width": 110,
+      "height": 70,
+      "color": "#B0713A",
+      "type": "building",
+      "description": "Anchor of the Main Street shops row — hardware and paint downstairs, two rented apartments up"
+    },
+    {
+      "name": "Millbrook Free Library",
+      "x": 640,
+      "y": 475,
+      "width": 125,
+      "height": 85,
+      "color": "#A0C4E8",
+      "type": "building",
+      "description": "Carnegie-style brick library; home of the mill archive and the large-print mysteries"
+    },
+    {
+      "name": "Chestnut Row",
+      "x": 60,
+      "y": 470,
+      "width": 180,
+      "height": 90,
+      "color": "#C4A99B",
+      "type": "housing",
+      "description": "1880s mill workers' row houses, front porches six feet apart; half owned outright, half rented"
+    }
+  ],
+  "color_theme": {
+    "primary": "#7A9E7E",
+    "secondary": "#5C7A60"
+  }
+}

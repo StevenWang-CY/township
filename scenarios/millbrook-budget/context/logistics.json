@@ -1,0 +1,52 @@
+{
+  "decision": "Special Town Meeting of the Town of Millbrook — Article 4: appropriation of the net proceeds ($12,000,000) from the sale of the Harrow Mill upland campus",
+  "reason": "The June 2026 sale of the 38-acre upland mill campus to Ridgeline Logistics netted the town a one-time $12M. Under the town charter, any single appropriation over $500,000 outside the annual budget must be decided by a Special Town Meeting of the registered voters.",
+  "meeting": {
+    "date": "2026-11-03",
+    "day_of_week": "Tuesday",
+    "time": "19:00",
+    "doors_open": "18:15",
+    "location": "Harlow Elementary School gymnasium",
+    "note": "The only room in town that holds everybody; overflow seating in the cafeteria with a live audio feed run by the AV club"
+  },
+  "moderator": "Elected Town Moderator (third term), who owns one gavel, one stopwatch, and the room",
+  "quorum": {
+    "required": 250,
+    "rule": "250 registered voters checked in by the call to order; if quorum fails, the meeting adjourns to November 10 and the article carries over"
+  },
+  "who_may_vote": {
+    "eligible": "Registered voters of the Town of Millbrook, both precincts (Millbrook Village and Harlow Crossing), present in the hall",
+    "non_resident_property_owners": "May be recognized to speak at the moderator's discretion; may not vote",
+    "minors_and_visitors": "Seated in the bleacher section; the PTO runs child care in the school library"
+  },
+  "ballot_procedure": {
+    "default": "Voice vote on Article 4, called by the moderator",
+    "secret_ballot": "A written petition of 25 registered voters, filed before the vote, requires a secret paper ballot with checklist and ballot box; such a petition is universally expected",
+    "amendments": "Amendments from the floor (including splitting the appropriation) are in order if germane to Article 4, at the moderator's ruling",
+    "threshold": "Simple majority of voters present and voting"
+  },
+  "absentee_provisions": {
+    "general_rule": "Open town meeting requires presence; there is no general absentee ballot",
+    "homebound_pilot": "Under the state's Municipal Modernization Act pilot, homebound residents certified by the town nurse may cast a supervised early ballot on Article 4 only, at home, during the week before the meeting; 31 residents qualified as of October",
+    "deployed_service_members": "May file a written statement to be read into the record; may not vote by proxy"
+  },
+  "registration": {
+    "deadline": "2026-10-24",
+    "where": "Town Clerk's office, Millbrook Town Hall, or at the DMV counter in the county seat",
+    "registered_voters": {
+      "millbrook_village_precinct": 2610,
+      "harlow_crossing_precinct": 3845,
+      "total": 6455
+    }
+  },
+  "warrant": {
+    "posted": "2026-10-06",
+    "posting_places": ["Millbrook Town Hall notice board", "Millbrook Free Library", "Harlow Plaza community board", "The Wheelhouse Diner (unofficial but decisive)"],
+    "article_4_text": "To see if the Town will vote to appropriate the net proceeds of the Harrow Mill land sale, being $12,000,000, to fund one of the following: (a) the Riverwalk Greenway project; (b) the Fix It First roads, bridge, and drainage program; or (c) retirement of outstanding bonded debt and unfunded pension liability; or take any other action relative thereto."
+  },
+  "traditions": {
+    "cider": "The fire company auxiliary serves hot cider in the lobby; donations fund the pancake breakfast",
+    "bake_sale": "Harlow Elementary PTO bake sale, gym entrance — historically the true measure of turnout",
+    "seating": "Nobody assigns sides, and yet the Village sits left of the center aisle and the Crossing sits right, as it has been since anyone can remember"
+  }
+}

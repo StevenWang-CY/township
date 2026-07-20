@@ -1,0 +1,61 @@
+name: New scenario
+description: Propose a new civic question for the towns to deliberate.
+title: "[scenario] "
+labels: ["scenario"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        A scenario is a question a community has to answer together, plus the
+        world it's answered in. Millbrook argues over a one-time $12M surplus;
+        NJ-11 revisits a real election after the fact. What should Township
+        argue about next?
+  - type: textarea
+    id: question
+    attributes:
+      label: The question or decision
+      description: The single sentence the whole simulation orbits. If you can't phrase it as one question, it isn't a scenario yet.
+      placeholder: "The county has been offered a 400-acre solar farm on preserved farmland. Approve it?"
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: The options
+      description: "2-4 options, one line each. Every option should be something a reasonable neighbor could genuinely hold."
+      placeholder: |
+        1. Approve — lease revenue funds the schools, climate math wins.
+        2. Approve with conditions — smaller footprint, local-hire mandate.
+        3. Reject — preserved means preserved; find rooftops instead.
+    validations:
+      required: true
+  - type: textarea
+    id: setting
+    attributes:
+      label: Setting and towns
+      description: Where does this happen, and which towns (existing or new) take part? A sketch of each town's character is plenty.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it makes good deliberation
+      description: >-
+        The heart of the proposal. Good scenarios have genuine tensions and
+        cross-cutting interests — residents whose economics, identity, and
+        neighborhood pull them toward different options, so no town votes as
+        a bloc and no option is a strawman.
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Data sources (if real-world)
+      description: >-
+        If the scenario draws on real places, people, or events: link your
+        sources. Real public figures need cited positions; real elections
+        must be retrospective — simulated only after results are certified
+        (see RESPONSIBLE_USE.md). Fully fictional scenarios can leave this
+        blank.
+    validations:
+      required: false
