@@ -1,6 +1,5 @@
 import logging
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -561,7 +560,6 @@ async def _classify_and_update_trust(
 
         classification = "curious"
         trust_delta = 0
-        reasoning = ""
 
         if result.get("tool_use") and result["tool_use"].get("name") == "ClassifyInteraction":
             tool_input = result["tool_use"].get("input", {})
@@ -570,14 +568,13 @@ async def _classify_and_update_trust(
                 trust_delta = int(tool_input.get("trust_delta", 0))
             except (TypeError, ValueError):
                 trust_delta = 0
-            reasoning = tool_input.get("reasoning", "")
 
         # Apply trust change (clamped) and update bookkeeping
         new_trust = max(-100, min(100, int(rel["trust"]) + trust_delta))
         rel["trust"] = new_trust
         rel["encounters"] = int(rel.get("encounters", 0)) + 1
         rel["last_classification"] = classification
-        rel["last_chat_at"] = datetime.now(timezone.utc).isoformat()
+        rel["last_chat_at"] = datetime.now(UTC).isoformat()
         rel["last_message_at"] = rel["last_chat_at"]
 
         # Track topics — pull a cheap "topic" from the user's first 5 words

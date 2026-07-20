@@ -13,7 +13,6 @@ internal backend types.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Optional
 
 from .types import (
     AgentState,
@@ -22,7 +21,6 @@ from .types import (
     Opinion,
     TownSummary,
 )
-
 
 # ── Town palette (mirrors frontend TOWN_META). Kept here so the backend can
 #    fill in a sensible color when emitting an agent_state to the wire.
@@ -50,7 +48,7 @@ def _color_for_town(town: str) -> str:
     return _TOWN_COLORS.get((town or "").lower(), "#888888")
 
 
-def opinion_to_wire(o: Optional[Opinion]) -> Optional[dict]:
+def opinion_to_wire(o: Opinion | None) -> dict | None:
     """Map a backend Opinion to the frontend Opinion shape (plural top_issues).
 
     Returns None when given None so that callers can pass through "no opinion
@@ -110,9 +108,9 @@ def agent_state_to_wire(s: AgentState) -> dict:
 def news_reaction_to_wire(
     r: NewsReaction,
     *,
-    agent_id: Optional[str] = None,
-    town: Optional[str] = None,
-    headline: Optional[str] = None,
+    agent_id: str | None = None,
+    town: str | None = None,
+    headline: str | None = None,
 ) -> dict:
     """Map a backend NewsReaction to the frontend NewsReaction shape."""
     return {

@@ -3,17 +3,19 @@ import os
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .core.event_bus import EventBus
-from .providers.anthropic_client import AnthropicClient
-from .simulation.orchestrator import SimulationOrchestrator
-from .routes.simulation import router as simulation_router
+from .providers import create_provider
 from .routes.chat import router as chat_router
 from .routes.gods_view import router as gods_view_router
-from .routes.towns import router as towns_router
 from .routes.journal import router as journal_router
+from .routes.simulation import router as simulation_router
+from .routes.towns import router as towns_router
 from .routes.transcribe import router as transcribe_router
 from .routes.tts import router as tts_router
+from .simulation.orchestrator import SimulationOrchestrator
 
 # Configure logging
 logging.basicConfig(
@@ -47,27 +49,31 @@ app.add_middleware(
 
 # Global state
 event_bus = EventBus()
-# Bedrock client — auth is picked up from `AWS_BEARER_TOKEN_BEDROCK`
-# (preferred) or the standard AWS credential chain. Region comes from
-# `AWS_REGION` (default us-east-2). Model from `BEDROCK_MODEL_ID`
-# (default us.anthropic.claude-sonnet-4-5-20250929-v1:0).
-anthropic_client = AnthropicClient(max_concurrent=10)
+# LLM provider — chosen via LLM_PROVIDER, or auto-detected from whichever
+# credential is present (ANTHROPIC_API_KEY / AWS_BEARER_TOKEN_BEDROCK /
+# OPENAI_API_KEY / OPENROUTER_API_KEY). With zero credentials the
+# deterministic mock provider runs the whole sim offline.
+llm_provider = create_provider(max_concurrent=10)
 
 # Determine project root (parent of backend/)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 AGENTS_DIR = os.path.join(PROJECT_ROOT, "agents")
+FRONTEND_DIST = os.path.join(PROJECT_ROOT, "frontend", "dist")
+_SERVE_FRONTEND = os.path.isdir(FRONTEND_DIST)
 
 orchestrator = SimulationOrchestrator(
-    anthropic_client=anthropic_client,
+    anthropic_client=llm_provider,
     event_bus=event_bus,
     data_dir=DATA_DIR,
     agents_dir=AGENTS_DIR,
 )
 
-# Store globals on app.state for access in route handlers
+# Store globals on app.state for access in route handlers.
+# `anthropic_client` is a legacy alias for the same provider object.
 app.state.event_bus = event_bus
-app.state.anthropic_client = anthropic_client
+app.state.llm = llm_provider
+app.state.anthropic_client = llm_provider
 app.state.orchestrator = orchestrator
 
 
@@ -81,9 +87,8 @@ app.include_router(transcribe_router)
 app.include_router(tts_router)
 
 
-@app.get("/")
-async def root():
-    """Health check and basic info."""
+def _status_payload() -> dict:
+    """Health/status info shared by GET /api/health (and GET / without a build)."""
     agent_counts = {
         town: len(agents)
         for town, agents in orchestrator.agent_states.items()
@@ -94,8 +99,23 @@ async def root():
         "towns": list(orchestrator.agent_states.keys()),
         "agent_counts": agent_counts,
         "total_agents": sum(agent_counts.values()),
-        "usage": anthropic_client.get_usage_report(),
+        "usage": llm_provider.get_usage_report(),
     }
+
+
+@app.get("/api/health")
+async def health():
+    """Health check and basic info."""
+    return _status_payload()
+
+
+if not _SERVE_FRONTEND:
+    # Without a frontend build, keep the legacy JSON health check at "/".
+    # When frontend/dist exists, "/" serves the app via the static mount below.
+    @app.get("/")
+    async def root():
+        """Health check and basic info."""
+        return _status_payload()
 
 
 @app.websocket("/ws")
@@ -125,19 +145,51 @@ async def startup():
     """Log startup info."""
     agent_count = sum(len(v) for v in orchestrator.agent_states.values())
     towns = list(orchestrator.agent_states.keys())
+    provider_name = llm_provider.get_usage_report().get("provider", "unknown")
     logger.info(f"Township started: {agent_count} agents across {len(towns)} towns: {towns}")
+    logger.info(f"LLM provider: {provider_name}")
     logger.info(f"Data dir: {DATA_DIR}")
     logger.info(f"Agents dir: {AGENTS_DIR}")
     logger.info(
         "Registered routes: /api/simulation, /api/chat, /api/gods-view, "
-        "/api/towns, /api/journal, /api/transcribe, /api/tts"
+        "/api/towns, /api/journal, /api/transcribe, /api/tts, /api/health"
     )
     logger.info(f"CORS allowed origins: {ALLOWED_ORIGINS}")
+    if _SERVE_FRONTEND:
+        logger.info(f"Serving frontend build from {FRONTEND_DIST} at /")
 
 
 @app.on_event("shutdown")
 async def shutdown():
     """Log shutdown and save any state."""
     logger.info("Township shutting down")
-    usage = anthropic_client.get_usage_report()
+    usage = llm_provider.get_usage_report()
     logger.info(f"Final usage: {usage}")
+
+
+class SPAStaticFiles(StaticFiles):
+    """
+    Static files with an SPA fallback: unknown extension-less paths
+    (e.g. /town/dover on a hard refresh) serve index.html so client-side
+    routing works; missing assets still 404.
+    """
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if (
+                exc.status_code == 404
+                and not path.startswith(("api/", "ws"))
+                and "." not in os.path.basename(path)
+            ):
+                return await super().get_response("index.html", scope)
+            raise
+
+
+# Mounted LAST so every API route, /ws, and the docs keep precedence
+# (Starlette matches routes in registration order). This makes the
+# single-container Docker story work: the backend serves the built
+# frontend at "/" whenever frontend/dist exists.
+if _SERVE_FRONTEND:
+    app.mount("/", SPAStaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

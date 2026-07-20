@@ -1,5 +1,7 @@
-import frontmatter
 from pathlib import Path
+
+import frontmatter
+
 from .types import AgentDefinition
 
 

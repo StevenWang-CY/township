@@ -19,7 +19,7 @@ SCENARIOS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "god_v
 async def get_scenarios():
     """Return the curated list of God's View scenarios."""
     try:
-        with open(SCENARIOS_PATH, "r") as f:
+        with open(SCENARIOS_PATH) as f:
             scenarios = json.load(f)
         return {"scenarios": scenarios}
     except FileNotFoundError:

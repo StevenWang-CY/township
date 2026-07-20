@@ -1,15 +1,33 @@
+# Secrets — never commit
+keys.md
+.env
+.env.*
+!.env.example
+*.pem
+
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
-.env
 .venv/
 venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
 
 # Node
 node_modules/
 frontend/dist/
 frontend/.vite/
+dist/
+
+# Local state & tooling
+runs/
+data/state/
+launch-kit/
+.claude/
+.playwright-mcp/
 
 # OS
 .DS_Store

@@ -1,32 +1,30 @@
 import asyncio
-import json
 import logging
 import random
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
+from ..core.event_bus import EventBus
 from ..core.types import (
+    AgentMovedEvent,
+    AgentSpeechEvent,
     AgentState,
     CivicAgentState,
     Conversation,
-    ConversationRecord,
-    NewsReaction,
-    Opinion,
-    TownSummary,
-    AgentMovedEvent,
-    AgentSpeechEvent,
-    ConversationStartedEvent,
     ConversationEndedEvent,
+    ConversationRecord,
+    ConversationStartedEvent,
     CrossTownGossipEvent,
     NewsInjectedEvent,
+    NewsReaction,
     NewsReactionEvent,
+    Opinion,
     OpinionChangedEvent,
-    RoundStartedEvent,
     RoundEndedEvent,
+    RoundStartedEvent,
+    TownSummary,
     WorldClockTickEvent,
 )
-from ..core.event_bus import EventBus
 from ..core.wire import town_summary_to_wire
 from ..providers.anthropic_client import AnthropicClient
 from ..tools.schemas import get_tools
@@ -330,7 +328,7 @@ class RoundManager:
             topic=topic,
             summary="",
             round=round_num,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
         )
         await self.event_bus.publish(ConversationStartedEvent(
             conversation=wire_conversation,
@@ -345,7 +343,7 @@ class RoundManager:
 
         conversation_so_far = ""
 
-        for i, (speaker, listener) in enumerate(zip(speakers, listeners)):
+        for i, (speaker, listener) in enumerate(zip(speakers, listeners, strict=True)):
             try:
                 system_prompt = self._build_agent_system_prompt(speaker, round_num=round_num)
 
@@ -621,7 +619,7 @@ class RoundManager:
             agent.state = CivicAgentState.ERROR
 
     def _build_agent_system_prompt(
-        self, agent_state: AgentState, round_num: Optional[int] = None
+        self, agent_state: AgentState, round_num: int | None = None
     ) -> str:
         """Compose full system prompt: persona + memories + opinions + election context."""
         parts = []
@@ -796,8 +794,8 @@ class RoundManager:
             # Prefer cross-town pairs
             if a.definition.town != b.definition.town:
                 connection = (
-                    f"They met by chance at a Morris County community event and "
-                    f"discovered they share concerns about the upcoming NJ-11 election."
+                    "They met by chance at a Morris County community event and "
+                    "discovered they share concerns about the upcoming NJ-11 election."
                 )
                 matched_pairs.append((a, b, connection))
             elif i + 2 < len(remaining) and remaining[i + 2].definition.town != a.definition.town:
@@ -805,8 +803,8 @@ class RoundManager:
                 remaining[i + 1], remaining[i + 2] = remaining[i + 2], remaining[i + 1]
                 b = remaining[i + 1]
                 connection = (
-                    f"They met by chance at a Morris County community event and "
-                    f"discovered they share concerns about the upcoming NJ-11 election."
+                    "They met by chance at a Morris County community event and "
+                    "discovered they share concerns about the upcoming NJ-11 election."
                 )
                 matched_pairs.append((a, b, connection))
 
@@ -841,7 +839,7 @@ class RoundManager:
                 topic=topic,
                 summary="",
                 round=round_num,
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
             )
         ))
 
@@ -854,7 +852,7 @@ class RoundManager:
 
         conversation_so_far = ""
 
-        for i, (speaker, listener) in enumerate(zip(speakers, listeners)):
+        for i, (speaker, listener) in enumerate(zip(speakers, listeners, strict=True)):
             try:
                 system_prompt = self._build_agent_system_prompt(speaker, round_num=round_num)
 
@@ -1003,7 +1001,7 @@ class RoundManager:
         # Fallback locations
         return random.choice(["Town Center", "Main Street", "Community Center", "Local Park"])
 
-    def _get_landmark(self, town: str, location_name: str) -> Optional[dict]:
+    def _get_landmark(self, town: str, location_name: str) -> dict | None:
         """Get landmark data by name."""
         town_info = self.town_data.get(town, {})
         landmarks = town_info.get("landmarks", [])

@@ -29,7 +29,7 @@ def _load_town(town_id: str) -> dict | None:
         logger.warning(f"Town file not found: {path}")
         return None
     try:
-        with open(path, "r") as fh:
+        with open(path) as fh:
             return json.load(fh)
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON in {path}: {e}")
