@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { appUrl } from "../lib/assetUrl";
 import { AgentSprite } from "./AgentSprite";
 import type { TownId, PoliticalRegistration } from "../types/messages";
 import { TOWN_META } from "../types/messages";
@@ -112,14 +113,14 @@ export class OnboardingScene extends Phaser.Scene {
   /* ── Preload (reuse all existing assets) ─────────────────── */
 
   preload() {
-    this.load.image("rpg-tileset", "/assets/tilesets/rpg-tileset.png");
-    this.load.tilemapTiledJSON("town-map", "/assets/maps/tilemap.json");
-    this.load.spritesheet("campfire", "/assets/spritesheets/campfire.png", { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet("sparkle", "/assets/spritesheets/gentlesparkle32.png", { frameWidth: 32, frameHeight: 32 });
+    this.load.image("rpg-tileset", appUrl("assets/tilesets/rpg-tileset.png"));
+    this.load.tilemapTiledJSON("town-map", appUrl("assets/maps/tilemap.json"));
+    this.load.spritesheet("campfire", appUrl("assets/spritesheets/campfire.png"), { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("sparkle", appUrl("assets/spritesheets/gentlesparkle32.png"), { frameWidth: 32, frameHeight: 32 });
 
     // Character spritesheets
     for (const name of [GREETER_SPRITE, PLAYER_TEMP_SPRITE]) {
-      this.load.spritesheet(`char-${name}`, `/assets/characters/${name}.png`, {
+      this.load.spritesheet(`char-${name}`, appUrl(`assets/characters/${name}.png`), {
         frameWidth: 32, frameHeight: 32,
       });
     }
@@ -127,10 +128,10 @@ export class OnboardingScene extends Phaser.Scene {
     // Player variants for avatar picker. Each gracefully falls back if missing.
     for (let i = 1; i <= 6; i++) {
       const key = `char-player-${i}`;
-      this.load.spritesheet(key, `/assets/characters/player-${i}.png`, { frameWidth: 32, frameHeight: 32 });
+      this.load.spritesheet(key, appUrl(`assets/characters/player-${i}.png`), { frameWidth: 32, frameHeight: 32 });
       this.load.once(`fileerror-spritesheet-${key}`, () => {/* silently skip */});
     }
-    this.load.spritesheet("char-player", "/assets/characters/player.png", { frameWidth: 16, frameHeight: 16 });
+    this.load.spritesheet("char-player", appUrl("assets/characters/player.png"), { frameWidth: 16, frameHeight: 16 });
   }
 
   /* ── Create ──────────────────────────────────────────────── */

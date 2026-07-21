@@ -12,7 +12,7 @@ SHELL := /bin/bash
 PORT   ?= 8001
 PYTHON ?= python3
 
-.PHONY: help install dev dev-backend dev-frontend test lint format build demo sim docker
+.PHONY: help install dev dev-backend dev-frontend test lint format build demo demo-build demo-preview sim docker
 
 help: ## Show this help
 	@printf "\n  \033[1mTownship\033[0m — AI residents deliberating in a living pixel town\n\n"
@@ -59,6 +59,12 @@ demo: ## Zero-key demo: mock LLM provider; serves frontend/dist when built
 		echo "(the API still works: http://localhost:$(PORT))."; \
 	fi
 	LLM_PROVIDER=mock $(PYTHON) -m uvicorn backend.main:app --port $(PORT)
+
+demo-build: ## Build the zero-backend demo player (stages scenarios/*/demo caches) → frontend/dist-demo
+	cd frontend && npm run demo:build
+
+demo-preview: ## Serve the built demo player locally (run 'make demo-build' first)
+	cd frontend && npm run demo:preview
 
 sim: ## Start a full simulation on the running backend (TOWN=dover for one town)
 	@curl -sf -o /dev/null http://localhost:$(PORT)/ || { \

@@ -7,6 +7,7 @@ import { useUserProfile } from "../context/UserProfileContext";
 import { useRelationships } from "../hooks/useRelationships";
 import { useWebSocketContext } from "../context/WebSocketContext";
 import { useAudio } from "../hooks/useAudio";
+import { DEMO_MODE, REPO_URL, INSTALL_HINT } from "../demo/demoMode";
 import SpritePortrait from "./SpritePortrait";
 import MoodIndicator from "./MoodIndicator";
 import TrustBadge from "./TrustBadge";
@@ -400,8 +401,10 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
     }
   }, [messages, agent, profile?.audioAutoplay]);
 
-  // Start auto-conversation when switching to auto mode
+  // Start auto-conversation when switching to auto mode (never in the
+  // zero-backend demo build — there is no /api/chat to drive it).
   useEffect(() => {
+    if (DEMO_MODE) return;
     if (chatMode === "auto" && agent && !autoRunning && !autoStartedRef.current) {
       autoStartedRef.current = true;
       runAutoConversation();
@@ -835,7 +838,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
                   <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
               </button>
-              {profile && (
+              {profile && !DEMO_MODE && (
                 <ChatModeToggle mode={chatMode} onChange={setChatMode} />
               )}
             </div>
@@ -875,7 +878,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
               <div className={`chat-bubble chat-bubble--${msg.role}`}>
                 {msg.role === "agent" ? renderMessageContent(msg.content) : msg.content}
               </div>
-              {msg.role === "agent" && msg.agent_id && (
+              {msg.role === "agent" && msg.agent_id && !DEMO_MODE && (
                 <div className="self-start mt-0.5 ml-1">
                   <ListenButton text={stripGesturesForSpeech(msg.content)} agentId={msg.agent_id} />
                 </div>
@@ -926,7 +929,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         </details>
 
         {/* Topic chips */}
-        {!isAuto && (
+        {!isAuto && !DEMO_MODE && (
           <div className="topic-chips-row">
             {topics.map((t) => (
               <button
@@ -942,7 +945,18 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
           </div>
         )}
 
-        {/* Input */}
+        {/* Input — in the demo build there is no chat backend; a gentle
+            pointer at the 60-second local install replaces send/mic/TTS. */}
+        {DEMO_MODE ? (
+          <div className="px-4 py-3" style={{ borderTop: "1px solid var(--warm-glass-border)", background: "var(--bg-paper)" }}>
+            <div className="demo-locked-note" title={INSTALL_HINT}>
+              <span>
+                Live chat needs the local install —{" "}
+                <a href={REPO_URL} target="_blank" rel="noreferrer">60 seconds, zero keys</a>.
+              </span>
+            </div>
+          </div>
+        ) : (
         <div className="px-4 py-3" style={{ borderTop: "1px solid var(--warm-glass-border)", background: "var(--bg-paper)" }}>
           <div className="relative">
             <input
@@ -1023,6 +1037,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
             )}
           </div>
         </div>
+        )}
       </div>
     </>
   );

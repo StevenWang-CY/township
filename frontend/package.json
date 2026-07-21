@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "predemo:build": "node scripts/stage-demo.mjs",
+    "demo:build": "VITE_DEMO_MODE=1 vite build --outDir dist-demo --base ./",
+    "demo:preview": "vite preview --outDir dist-demo"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +25,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "playwright": "^1.61.1",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
     "vite": "^8.0.5"

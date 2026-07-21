@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { appUrl } from "../lib/assetUrl";
 
 interface SpritePortraitProps {
   agentId: string;
@@ -40,7 +41,7 @@ export default function SpritePortrait({
 
     // "char-Maria_Lopez" → "Maria_Lopez.png"
     const cleanKey = spriteKey.startsWith("char-") ? spriteKey.slice(5) : spriteKey;
-    const url = `/assets/characters/${cleanKey}.png`;
+    const url = appUrl(`assets/characters/${cleanKey}.png`);
 
     const img = new Image();
     img.onload = () => {

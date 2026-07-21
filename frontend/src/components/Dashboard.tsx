@@ -6,8 +6,9 @@ import PlayerHUD from "./PlayerHUD";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useRelationships } from "../hooks/useRelationships";
 import { useSimulation } from "../hooks/useSimulation";
-import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, OpinionChangedEvent, Relationship, NewsReaction } from "../types/messages";
+import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, SimulationEndedEvent, OpinionChangedEvent, Relationship, NewsReaction } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
+import { DEMO_MODE } from "../demo/demoMode";
 
 interface DashboardProps {
   ws: {
@@ -77,6 +78,22 @@ export default function Dashboard({ ws }: DashboardProps) {
     setReplayLoading(false);
   }, []);
 
+  // Zero-backend demo: /api/simulation/results never answers, but the replay
+  // stream carries the same DistrictSummary on its simulation_ended event —
+  // seek to the end of the timeline and the dashboard fills in.
+  const streamedSummary = useMemo<DistrictSummary | null>(() => {
+    const evts = ws.events ?? [];
+    for (let i = evts.length - 1; i >= 0; i--) {
+      if (evts[i].type === "simulation_ended") {
+        return (evts[i] as SimulationEndedEvent).summary ?? null;
+      }
+    }
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.events?.length]);
+
+  const summaryData = results ?? streamedSummary;
+
   const allAgents = Object.values(ws.agents);
   const hasLiveAgents = allAgents.length > 0;
   // Scenario town roster, plus any stray towns present in the agent stream.
@@ -128,20 +145,24 @@ export default function Dashboard({ ws }: DashboardProps) {
   }, [allAgents, filter, towns, undecidedId]);
 
   // The canned consensus / fault-line prose is NJ-11 offline furniture only.
-  const consensusZones = results?.consensus_zones || (scen.isNJ11 ? [
+  const consensusZones = summaryData?.consensus_zones || (scen.isNJ11 && !DEMO_MODE ? [
     "Gateway Tunnel is critical infrastructure",
     "Property taxes are too high across the district",
     "Healthcare affordability affects all demographics",
   ] : []);
 
-  const faultLines = results?.fault_lines || (scen.isNJ11 ? [
+  const faultLines = summaryData?.fault_lines || (scen.isNJ11 && !DEMO_MODE ? [
     "Immigration: Dover fears ICE; Randolph wants enforcement",
     "Taxes: Randolph wants cuts; Montclair wants progressive revenue",
     "Israel/Gaza: Deep divide between progressive and conservative blocs",
   ] : []);
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6" style={{ background: "var(--bg-cream)" }}>
+    <div
+      className="max-w-7xl mx-auto px-6 py-6"
+      // Demo build: leave room for the fixed replay timeline bar.
+      style={{ background: "var(--bg-cream)", paddingBottom: DEMO_MODE ? 88 : undefined }}
+    >
       {/* Header */}
       <div className="mb-6" style={{ animation: "stagger-in 0.5s var(--ease-genshin) backwards" }}>
         <h1
@@ -230,7 +251,13 @@ export default function Dashboard({ ws }: DashboardProps) {
             </p>
           )}
 
-          {/* Simulation controls */}
+          {/* Simulation controls — hidden in the demo build; the replay
+              timeline (bottom of the screen) is the transport there. */}
+          {DEMO_MODE ? (
+            <p className="text-xs italic" style={{ color: "var(--township-ink-muted)" }}>
+              Scrub the replay timeline below — seek to the final round to see where the district lands.
+            </p>
+          ) : (
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleStart}
@@ -274,6 +301,7 @@ export default function Dashboard({ ws }: DashboardProps) {
               </span>
             )}
           </div>
+          )}
         </div>
       </div>
 
@@ -283,7 +311,7 @@ export default function Dashboard({ ws }: DashboardProps) {
           const meta = townMeta(t);
           const issues: string[] =
             ws.townSummaries[t]?.top_issues ||
-            results?.town_summaries?.find((s: any) => s.town === t)?.top_issues ||
+            summaryData?.town_summaries?.find((s: any) => s.town === t)?.top_issues ||
             [];
 
           return (

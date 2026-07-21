@@ -15,6 +15,8 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { ScenarioData, ScenarioOption, ScenarioTownInfo } from "../types/messages";
 import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
+import { DEMO_MODE, demoUrl, resolveDemoScenarioId } from "../demo/demoMode";
+import type { DemoManifest } from "../demo/demoMode";
 
 /* ── NJ-11 synthetic fallback (mirrors backend scenarios/nj11-2026) ── */
 
@@ -208,8 +210,19 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     const ctrl = new AbortController();
     const timeout = window.setTimeout(() => ctrl.abort(), 5000);
 
-    fetch("/api/scenario", { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    // Demo mode (GitHub Pages, zero backend): bootstrap from the STAGED
+    // scenario files instead of /api/scenario. stage-demo.mjs writes a
+    // manifest listing every staged scenario plus one <id>-scenario.json per
+    // scenario in the exact /api/scenario shape.
+    const source: Promise<unknown> = DEMO_MODE
+      ? fetch(demoUrl("manifest.json"), { signal: ctrl.signal })
+          .then((r) => (r.ok ? (r.json() as Promise<DemoManifest>) : Promise.reject(new Error(`HTTP ${r.status}`))))
+          .then((m) => fetch(demoUrl(`${resolveDemoScenarioId(m)}-scenario.json`), { signal: ctrl.signal }))
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      : fetch("/api/scenario", { signal: ctrl.signal })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
+
+    source
       .then((d) => {
         if (cancelled) return;
         if (looksLikeScenario(d)) {
