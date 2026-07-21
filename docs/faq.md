@@ -102,9 +102,9 @@ project's responsible-use commitments. The interesting part isn't a single
 headline number but *where* the simulated deliberation tracked reality and where it
 diverged — which towns it read well, which dynamics (sycophancy, consensus drift,
 turnout blindness) pulled it off course, and what that says about LLM agents as a
-lens on deliberation. A full written error analysis against the certified results
-is planned but not yet published; until it lands, the simulation outputs themselves
-(`GET /api/runs`, the shipped demo replay) are the record to compare.
+lens on deliberation. The full written error analysis against the certified
+results is [nj11-retrospective.md](nj11-retrospective.md) — a town-by-town
+side-by-side of the shipped demo run and the official numbers.
 
 ### Why are personas Markdown files?
 

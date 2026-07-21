@@ -16,6 +16,7 @@ and quickstart, start with the [repository README](../README.md);
 | [persona-template.md](persona-template.md) | A complete, annotated, lint-passing persona to copy from |
 | [deployment.md](deployment.md) | Running Township: local dev, environment variables, the provider matrix, Docker, reverse proxies, and cost guardrails |
 | [faq.md](faq.md) | Short answers on cost, keys, models, memory, licensing, and what Township is not |
+| [nj11-retrospective.md](nj11-retrospective.md) | The flagship NJ-11 run beside the certified April 2026 results — an honest error analysis of what the deliberation sim got right and wrong |
 
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) is the on-ramp for all three contribution
 paths (personas, scenarios, engine/frontend work).
