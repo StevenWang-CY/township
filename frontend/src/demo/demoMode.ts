@@ -4,7 +4,7 @@
  * zero-backend replay player deployed to GitHub Pages: the WebSocket provider
  * is swapped for a recorded event feed, backend-only affordances (chat send,
  * mic, TTS, God's View injection, Start Simulation) become gentle pointers at
- * the 60-second local install, and the DemoTimeline media bar drives playback.
+ * the local zero-key install, and the DemoTimeline media bar drives playback.
  *
  * Everything demo-specific keys off this ONE flag so tree-shaken production
  * builds carry no demo chrome.
@@ -17,7 +17,7 @@ export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "1";
 export const REPO_URL = "https://github.com/StevenWang-CY/township";
 
 /** The one-line pointer used wherever a live-backend feature is gated. */
-export const INSTALL_HINT = "Live chat needs the local install — 60 seconds, zero keys.";
+export const INSTALL_HINT = "Live chat needs the local install — zero keys required.";
 
 /** URL of a staged demo file (see frontend/scripts/stage-demo.mjs). */
 export function demoUrl(file: string): string {

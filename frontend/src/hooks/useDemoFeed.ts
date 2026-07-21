@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SimulationEvent } from "../types/messages";
-import { reducer, initialState } from "./useWebSocket";
+import { replayReducer, initialState } from "./useWebSocket";
 import type { WsState } from "./useWebSocket";
 import { eventDelayMs } from "../demo/pacing";
 import type { DemoSpeed } from "../demo/pacing";
@@ -122,6 +122,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [chapters, setChapters] = useState<DemoChapter[]>([]);
+  const [agentRoster, setAgentRoster] = useState<WsState["agentRoster"]>({});
 
   const stopPlayback = useCallback(() => {
     window.clearTimeout(timerRef.current);
@@ -140,7 +141,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
       return;
     }
     const evt = events[i];
-    stateRef.current = reducer(stateRef.current, { type: "EVENT", payload: evt });
+    stateRef.current = replayReducer(stateRef.current, { type: "EVENT", payload: evt });
     posRef.current = i + 1;
     setView(stateRef.current);
     setPosition(posRef.current);
@@ -160,7 +161,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
       // Pure reducer ⇒ position = synchronous prefix reduction. Instant.
       let s = initialState;
       for (let k = 0; k < target; k++) {
-        s = reducer(s, { type: "EVENT", payload: events[k] });
+        s = replayReducer(s, { type: "EVENT", payload: events[k] });
       }
       stateRef.current = s;
       posRef.current = target;
@@ -230,6 +231,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
     stopPlayback();
     setReady(false);
     setError(null);
+    setAgentRoster({});
 
     fetch(demoUrl(`${scenarioId}.json`), { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -237,6 +239,11 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
         if (cancelled) return;
         const events: SimulationEvent[] = Array.isArray(d?.events) ? d.events : [];
         if (events.length === 0) throw new Error("feed has no events");
+        const started = events.find((event) => event.type === "simulation_started");
+        const roster: WsState["agentRoster"] = {};
+        if (started?.type === "simulation_started") {
+          for (const agent of started.agents) roster[agent.id] = agent;
+        }
         eventsRef.current = events;
         stateRef.current = initialState;
         posRef.current = 0;
@@ -244,6 +251,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
         setPosition(0);
         setDuration(events.length);
         setChapters(buildChapters(events));
+        setAgentRoster(roster);
         setEnded(false);
         setReady(true);
         // Auto-play: the demo should feel alive the moment it loads.
@@ -275,8 +283,11 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
 
   const state = useMemo<WsState>(
     // The feed IS the connection: report connected once the replay is ready.
-    () => ({ ...view, connected: ready }),
-    [view, ready],
+    // The roster is transport metadata, not applied state: publishing it now
+    // keeps every scenario's map and town sidebar authoritative at position 0
+    // without pretending simulation_started has crossed the playhead.
+    () => ({ ...view, connected: ready, agentRoster }),
+    [view, ready, agentRoster],
   );
 
   const player = useMemo<DemoPlayer>(

@@ -29,9 +29,7 @@ DEFAULT_MOCK_DELAY_S = 0.05
 
 # ── Prompt parsing ─────────────────────────────────────────────
 
-_NAME_RE = re.compile(
-    r"You are ([A-Z][a-zA-Z'’.\-]+(?:\s[A-Z][a-zA-Z'’.\-]+){0,3})"
-)
+_NAME_RE = re.compile(r"You are ([A-Z][a-zA-Z'’.\-]+(?:\s[A-Z][a-zA-Z'’.\-]+){0,3})")
 
 _CONCERN_LINE_RES = [
     re.compile(r"[Tt]op issues:\s*([^\n]+)"),
@@ -118,8 +116,7 @@ _NEWS_REASONING_TEMPLATES = [
     "like this changes the math for my family.",
     "I read this twice. Anything touching {concern} touches my household, "
     "so I can't just shrug it off.",
-    "Maybe it's overblown, but with {concern} on my mind it's hard not to "
-    "take this personally.",
+    "Maybe it's overblown, but with {concern} on my mind it's hard not to take this personally.",
 ]
 
 _TRUST_DELTAS = {"curious": 5, "agreeable": 3, "challenging": -2, "hostile": -10}
@@ -180,9 +177,7 @@ def _last_user_message(messages: list[dict]) -> str:
         if message.get("role") == "user":
             content = message.get("content", "")
             if isinstance(content, list):
-                content = " ".join(
-                    str(b.get("text", "")) for b in content if isinstance(b, dict)
-                )
+                content = " ".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
             return str(content)
     return ""
 
@@ -213,9 +208,7 @@ class MockProvider:
             "response": _pick(_DISCUSS_TEMPLATES, seed).format(concern=concern),
             "topic": concern,
             "sentiment": _pick(sentiments, seed >> 8),
-            "key_takeaway": _pick(_TAKEAWAY_TEMPLATES, seed >> 16).format(
-                concern=concern
-            ),
+            "key_takeaway": _pick(_TAKEAWAY_TEMPLATES, seed >> 16).format(concern=concern),
             "gesture": _pick(gestures, seed >> 24),
         }
 
@@ -239,9 +232,7 @@ class MockProvider:
 
         concern = _pick(concerns, agent_seed >> 8)
         lean = (
-            "I'm still not settled on anyone"
-            if stance == "undecided"
-            else f"I'm leaning {stance}"
+            "I'm still not settled on anyone" if stance == "undecided" else f"I'm leaning {stance}"
         )
         reasoning = _pick(_REASONING_TEMPLATES, agent_seed >> 16).format(
             lean=lean,
@@ -256,14 +247,10 @@ class MockProvider:
             "top_issues": concerns[:3],
         }
         if "dealbreaker" in _schema_props(tool) and agent_seed % 3 != 0:
-            result["dealbreaker"] = (
-                f"Anyone reversing course on {concern} would lose me entirely."
-            )
+            result["dealbreaker"] = f"Anyone reversing course on {concern} would lose me entirely."
         return result
 
-    def _react_to_news(
-        self, tool: dict, seed: int, concerns: list[str], news: str
-    ) -> dict:
+    def _react_to_news(self, tool: dict, seed: int, concerns: list[str], news: str) -> dict:
         emotions = _schema_enum(
             tool,
             "emotional_response",
@@ -278,22 +265,16 @@ class MockProvider:
         result = {
             "emotional_response": _pick(emotions, seed >> 8),
             "impact_on_vote": _pick(impacts, seed >> 16),
-            "reasoning": _pick(_NEWS_REASONING_TEMPLATES, seed >> 24).format(
-                concern=concern
-            ),
+            "reasoning": _pick(_NEWS_REASONING_TEMPLATES, seed >> 24).format(concern=concern),
             "would_share_with": _pick(_SHARE_WITH, seed >> 32),
         }
         if "magnitude" in _schema_props(tool):
-            magnitudes = _schema_enum(
-                tool, "magnitude", ["none", "minor", "moderate", "major"]
-            )
+            magnitudes = _schema_enum(tool, "magnitude", ["none", "minor", "moderate", "major"])
             result["magnitude"] = _pick(magnitudes, seed >> 40)
         return result
 
     def _classify_interaction(self, tool: dict, seed: int) -> dict:
-        tones = _schema_enum(
-            tool, "tone", ["agreeable", "challenging", "curious", "hostile"]
-        )
+        tones = _schema_enum(tool, "tone", ["agreeable", "challenging", "curious", "hostile"])
         tone = _pick(tones, seed)
         delta_schema = _schema_props(tool).get("trust_delta", {})
         minimum = delta_schema.get("minimum", -15)
@@ -391,9 +372,7 @@ class MockProvider:
             }
         else:
             seed = _seed(system_prompt or "", last_user, "chat")
-            text = _pick(_CHAT_TEMPLATES, seed).format(
-                concern=_pick(concerns, seed >> 8)
-            )
+            text = _pick(_CHAT_TEMPLATES, seed).format(concern=_pick(concerns, seed >> 8))
 
         # Rough, deterministic token estimate (~4 chars per token) so the
         # UI's usage counters move; cost stays 0.

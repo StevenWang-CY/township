@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:15", location: "Fairview Subdivision", activity: "School lunches, checks the pager charger, kisses Pete's coffee goodbye" }
   - { time: "07:30", location: "Harlow Elementary School", activity: "Drop-off; waves Pete in; eyeballs the crosswalk like it's a scene size-up" }

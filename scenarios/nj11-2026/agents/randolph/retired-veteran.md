@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:00", location: "Residential Cul-de-sacs", activity: "Up at reveille, walks the dog past the immaculate flag" }
   - { time: "07:30", location: "Randolph Diner", activity: "Coffee with the VFW regulars — same booth for 18 years" }

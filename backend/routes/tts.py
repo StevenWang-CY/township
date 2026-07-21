@@ -11,11 +11,12 @@ or the upstream call fails.
 
 import logging
 import os
+from typing import Annotated
 
 import httpx
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +25,31 @@ router = APIRouter(prefix="/api", tags=["tts"])
 # A pleasant, widely-available default ElevenLabs voice ("Rachel").
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 ELEVENLABS_BASE = "https://api.elevenlabs.io/v1/text-to-speech"
+TTS_TEXT_MAX_CHARS = 5_000
+VOICE_ID_MAX_CHARS = 100
+
+TTSText = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=TTS_TEXT_MAX_CHARS,
+    ),
+]
+VoiceId = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=VOICE_ID_MAX_CHARS,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    ),
+]
 
 
 class TTSRequest(BaseModel):
-    text: str
-    voice_id: str | None = None
+    text: TTSText
+    voice_id: VoiceId | None = None
 
 
 def _unavailable(message: str) -> JSONResponse:
@@ -41,11 +62,8 @@ async def text_to_speech(req: TTSRequest):
     if not api_key:
         return _unavailable("ELEVENLABS_API_KEY is not configured on the server.")
 
-    text = (req.text or "").strip()
-    if not text:
-        return _unavailable("No text provided.")
-
-    voice_id = (req.voice_id or "").strip() or DEFAULT_VOICE_ID
+    text = req.text
+    voice_id = req.voice_id or DEFAULT_VOICE_ID
     url = f"{ELEVENLABS_BASE}/{voice_id}"
 
     payload = {
@@ -59,6 +77,7 @@ async def text_to_speech(req: TTSRequest):
         "Accept": "audio/mpeg",
     }
 
+    client: httpx.AsyncClient | None = None
     try:
         client = httpx.AsyncClient(timeout=60.0)
         resp = await client.post(url, headers=headers, json=payload)
@@ -78,5 +97,7 @@ async def text_to_speech(req: TTSRequest):
         return StreamingResponse(_stream(), media_type="audio/mpeg")
 
     except Exception as e:
+        if client is not None:
+            await client.aclose()
         logger.error("TTS proxy failed: %s", e)
-        return _unavailable(f"TTS request failed: {e}")
+        return _unavailable("TTS request failed.")

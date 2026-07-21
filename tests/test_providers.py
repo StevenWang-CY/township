@@ -5,6 +5,7 @@ and the shared error-dict contract.
 
 Everything here runs with zero credentials and zero network.
 """
+
 import asyncio
 import json
 import sys
@@ -34,8 +35,16 @@ CRED_ENV_VARS = (
     "AWS_BEARER_TOKEN_BEDROCK",
     "OPENAI_API_KEY",
     "OPENROUTER_API_KEY",
+    "ANTHROPIC_CACHE_SYSTEM",
+    "BEDROCK_CACHE_SYSTEM",
 )
-MODEL_ENV_VARS = ("OPENAI_MODEL", "OPENROUTER_MODEL", "OLLAMA_MODEL", "LMSTUDIO_MODEL")
+MODEL_ENV_VARS = (
+    "BEDROCK_MODEL_ID",
+    "OPENAI_MODEL",
+    "OPENROUTER_MODEL",
+    "OLLAMA_MODEL",
+    "LMSTUDIO_MODEL",
+)
 
 CARLOS_PROMPT = (
     "You are Carlos Restrepo, age 51. You own La Finca, a Colombian restaurant "
@@ -66,6 +75,7 @@ def run(coro):
 
 # ── Factory: explicit LLM_PROVIDER ─────────────────────────────
 
+
 def test_factory_explicit_mock(monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv("LLM_PROVIDER", "mock")
@@ -78,6 +88,31 @@ def test_factory_explicit_bedrock(monkeypatch):
     provider = create_provider()
     assert isinstance(provider, BedrockProvider)
     assert provider.get_usage_report()["provider"] == "bedrock"
+
+
+def test_bedrock_empty_model_uses_default(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "")
+
+    provider = BedrockProvider()
+
+    assert provider.get_usage_report()["default_model"].startswith("us.anthropic.")
+
+
+def test_anthropic_family_prompt_cache_is_opt_in(monkeypatch):
+    _clear_env(monkeypatch)
+    bedrock = BedrockProvider()
+    assert bedrock._cache_system is False
+
+    monkeypatch.setenv("BEDROCK_CACHE_SYSTEM", "1")
+    assert BedrockProvider()._cache_system is True
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    anthropic = AnthropicProvider()
+    assert anthropic._cache_system is False
+
+    monkeypatch.setenv("ANTHROPIC_CACHE_SYSTEM", "1")
+    assert AnthropicProvider()._cache_system is True
 
 
 def test_factory_explicit_anthropic(monkeypatch):
@@ -121,6 +156,7 @@ def test_factory_unknown_provider_raises(monkeypatch):
 
 
 # ── Factory: auto-detection ────────────────────────────────────
+
 
 def test_factory_autodetect_defaults_to_mock(monkeypatch):
     _clear_env(monkeypatch)
@@ -178,6 +214,7 @@ def test_openai_missing_package_error_mentions_extra(monkeypatch):
 
 # ── translate.py: round-trip on the real schemas ───────────────
 
+
 @pytest.mark.parametrize("tool", [discuss_tool, form_opinion_tool])
 def test_tool_schema_round_trip(tool):
     oai = translate.anthropic_tool_to_openai(tool)
@@ -196,26 +233,36 @@ def test_multiple_tool_defs_convert_in_order():
         [discuss_tool, form_opinion_tool, react_to_news_tool]
     )
     assert [t["function"]["name"] for t in converted] == [
-        "Discuss", "FormOpinion", "ReactToNews",
+        "Discuss",
+        "FormOpinion",
+        "ReactToNews",
     ]
     assert translate.anthropic_tools_to_openai(None) == []
 
 
 def test_openai_completion_with_tool_call_maps_to_contract():
-    args = {"response": "I hear you.", "topic": "taxes",
-            "sentiment": "neutral", "key_takeaway": "We talked taxes."}
+    args = {
+        "response": "I hear you.",
+        "topic": "taxes",
+        "sentiment": "neutral",
+        "key_takeaway": "We talked taxes.",
+    }
     completion = {
-        "choices": [{
-            "message": {
-                "content": None,
-                "tool_calls": [{
-                    "id": "call_abc",
-                    "type": "function",
-                    "function": {"name": "Discuss", "arguments": json.dumps(args)},
-                }],
-            },
-            "finish_reason": "tool_calls",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_abc",
+                            "type": "function",
+                            "function": {"name": "Discuss", "arguments": json.dumps(args)},
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
         "usage": {"prompt_tokens": 120, "completion_tokens": 45},
     }
     result = translate.openai_completion_to_result(completion, cost=0.01)
@@ -243,16 +290,20 @@ def test_openai_completion_text_finish_reasons():
 
 def test_openai_completion_bad_tool_arguments_degrade_gracefully():
     completion = {
-        "choices": [{
-            "message": {
-                "content": None,
-                "tool_calls": [{
-                    "id": "call_bad",
-                    "function": {"name": "Discuss", "arguments": "{not valid json"},
-                }],
-            },
-            "finish_reason": "tool_calls",
-        }],
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_bad",
+                            "function": {"name": "Discuss", "arguments": "{not valid json"},
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
     }
     result = translate.openai_completion_to_result(completion)
     assert result["tool_use"]["input"] == {}
@@ -260,6 +311,7 @@ def test_openai_completion_bad_tool_arguments_degrade_gracefully():
 
 
 # ── MockProvider ───────────────────────────────────────────────
+
 
 @pytest.fixture()
 def fast_mock(monkeypatch):
@@ -328,9 +380,7 @@ def test_mock_react_to_news_fills_schema(fast_mock):
 
 
 def test_mock_classify_interaction_fills_schema(fast_mock):
-    result = run(
-        fast_mock().call_agent(CARLOS_PROMPT, USER_MSG, tools=[classify_interaction_tool])
-    )
+    result = run(fast_mock().call_agent(CARLOS_PROMPT, USER_MSG, tools=[classify_interaction_tool]))
     payload = result["tool_use"]["input"]
     assert payload["tone"] in ("agreeable", "challenging", "curious", "hostile")
     assert -15 <= payload["trust_delta"] <= 15
@@ -361,6 +411,7 @@ def test_mock_usage_report_and_reset(fast_mock):
 
 # ── Error contract ─────────────────────────────────────────────
 
+
 def test_provider_error_contract_preserved(monkeypatch):
     provider = BedrockProvider(max_concurrent=1)
 
@@ -378,6 +429,8 @@ def test_provider_error_contract_preserved(monkeypatch):
 
 # ── App wiring ─────────────────────────────────────────────────
 
+
 def test_app_state_llm_aliases_anthropic_client():
     from backend.main import app
+
     assert app.state.llm is app.state.anthropic_client

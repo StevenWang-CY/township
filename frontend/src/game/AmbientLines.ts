@@ -19,8 +19,8 @@ export interface ExchangeLines {
 /** Generic exchanges keyed by issue. */
 export const CONCERN_EXCHANGES: Record<string, ExchangeLines[]> = {
   immigration: [
-    { a: "Did you hear about the ICE thing on Dickerson?",     b: "I haven't slept right since." },
-    { a: "11 days till the election, and what about DACA?",    b: "I keep hoping. That's all you can do." },
+    { a: "Have you heard how the new rules affect families?",  b: "People need clear answers, not rumors." },
+    { a: "The paperwork keeps changing.",                       b: "And every change lands on real people." },
   ],
   healthcare: [
     { a: "The ACA premium went up again, did you see?",        b: "Brutal. Every year, brutal." },
@@ -35,8 +35,8 @@ export const CONCERN_EXCHANGES: Record<string, ExchangeLines[]> = {
     { a: "The PTA's pushing back on the budget.",                b: "Good. About time." },
   ],
   housing: [
-    { a: "Rents are ridiculous around here.",                   b: "We're looking at Bayonne now. Bayonne." },
-    { a: "You hear about that affordable housing thing?",       b: "Smoke and mirrors, I bet." },
+    { a: "Rents are ridiculous around here.",                   b: "We're looking farther out every week." },
+    { a: "You hear about that affordable housing proposal?",    b: "I want to see the actual numbers." },
   ],
   economy: [
     { a: "Gas is back up over four bucks.",                     b: "And bread. Have you seen bread?" },
@@ -48,7 +48,7 @@ export const CONCERN_EXCHANGES: Record<string, ExchangeLines[]> = {
   ],
   environment: [
     { a: "The creek smells off again.",                          b: "I called the township. Crickets." },
-    { a: "Did you see how warm it was yesterday?",              b: "In April? In Jersey?" },
+    { a: "Did you see how warm it was yesterday?",              b: "The seasons feel different now." },
   ],
   education: [
     { a: "Kids' reading scores came back.",                      b: "And?" },
@@ -58,12 +58,12 @@ export const CONCERN_EXCHANGES: Record<string, ExchangeLines[]> = {
 
 /** Generic fallback exchanges if no concern matches. */
 export const FALLBACK_EXCHANGES: ExchangeLines[] = [
-  { a: "Did you catch the debate?",                              b: "Half of it. Lost the thread." },
-  { a: "Are you voting early or election day?",                  b: "Trying to figure that out myself." },
-  { a: "I keep going back and forth.",                           b: "Same. It's a lot." },
+  { a: "Did you catch the public meeting?",                      b: "Half of it. I still have questions." },
+  { a: "Have you made up your mind?",                            b: "I'm still reading through it all." },
+  { a: "I keep going back and forth.",                           b: "Same. There are real tradeoffs." },
   { a: "Long winter, huh.",                                       b: "Felt like it. Spring's a relief." },
-  { a: "Where are you on Mejia?",                                b: "Tell me where you're at first." },
-  { a: "Lot of yard signs this year.",                            b: "More than I remember." },
+  { a: "What matters most to you in this decision?",             b: "Tell me what you think first." },
+  { a: "A lot of notices around town lately.",                    b: "More than I remember." },
 ];
 
 /** Relationship-flavored lines, keyed by relationship type. */
@@ -73,7 +73,7 @@ export const RELATIONSHIP_EXCHANGES: Record<string, ExchangeLines[]> = {
     { a: "We need to grab coffee.",     b: "Soon. I mean it this time." },
   ],
   neighbor: [
-    { a: "I saw your light on late.",   b: "Couldn't sleep. The election." },
+    { a: "I saw your light on late.",   b: "Couldn't sleep. Too much on my mind." },
     { a: "Need anything from the store?", b: "You're a saint." },
   ],
   acquaintance: [

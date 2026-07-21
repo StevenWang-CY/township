@@ -3,6 +3,7 @@
   "county": "Morris County",
   "tagline": "The Working-Class Heart",
   "accent_color": "#E8763B",
+  "map": {"kind": "tiled", "path": "assets/maps/nj11-2026/dover.tmj", "preview_path": "assets/maps/nj11-2026/dover-preview.png"},
   "ambient_sound": "dover_ambient.ogg",
   "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
   "demographics": {

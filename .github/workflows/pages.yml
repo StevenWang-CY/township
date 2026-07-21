@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -34,9 +34,20 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify the zero-backend demo
+        working-directory: frontend
+        run: npm run test:e2e
+
       - name: Build demo player (stages scenarios/*/demo caches)
         working-directory: frontend
         run: npm run demo:build
+
+      - name: Add social preview to the deployed artifact
+        run: cp docs/media/social-preview.png frontend/dist-demo/social-preview.png
 
       - uses: actions/configure-pages@v5
 

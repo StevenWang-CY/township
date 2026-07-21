@@ -24,12 +24,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
-from pathlib import Path
+from datetime import date
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .agent_loader import load_all_agents
+from .agent_loader import agent_id_from_name, load_all_agents, validate_agent_ids
 from .types import AgentDefinition
 
 logger = logging.getLogger(__name__)
@@ -41,46 +44,198 @@ SCENARIOS_DIR = PROJECT_ROOT / "scenarios"
 VALID_PHASES = ("seed", "converse", "news", "opinion", "decide")
 
 _CLOCK_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+_PACKAGE_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_STANCE_ID_RE = re.compile(r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+CANONICAL_CORE_NOTICE = (
+    "Township is a simulation, not a poll. Its outputs do not measure real public "
+    "opinion and must never be presented as if they do."
+)
 
 
 # ─── Config models (the scenario.json schema) ──────────────────────────────
 
+
 class ScenarioOption(BaseModel):
     """One choice on the table (a candidate, a budget line, a policy)."""
+
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     name: str
     label: str
     color: str
-    group: str | None = None          # e.g. party for elections
-    data_file: str | None = None      # path (relative to scenario dir) to rich data
+    group: str | None = None  # e.g. party for elections
+    data_file: str | None = None  # path (relative to scenario dir) to rich data
+
+    @field_validator("id")
+    @classmethod
+    def _safe_option_id(cls, value: str) -> str:
+        value = value.strip()
+        if not _STANCE_ID_RE.fullmatch(value):
+            raise ValueError(
+                "option id must use lowercase letters, numbers, hyphens, or underscores"
+            )
+        return value
+
+    @field_validator("name", "label")
+    @classmethod
+    def _visible_option_copy(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("option names and labels must not be empty")
+        return value
+
+    @field_validator("color")
+    @classmethod
+    def _option_color(cls, value: str) -> str:
+        value = value.strip()
+        if not _HEX_COLOR_RE.fullmatch(value):
+            raise ValueError("option color must be a six-digit hex color such as #4A8FBF")
+        return value
+
+    @field_validator("data_file")
+    @classmethod
+    def _relative_data_file(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        posix_path = Path(value)
+        windows_path = PureWindowsPath(value)
+        if (
+            not value
+            or "\\" in value
+            or posix_path.is_absolute()
+            or windows_path.is_absolute()
+            or ".." in posix_path.parts
+            or ".." in windows_path.parts
+        ):
+            raise ValueError("data_file must be a relative path within the scenario directory")
+        return value
 
 
 class UndecidedSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str = "undecided"
     label: str = "Undecided"
     color: str = "#D1D5DB"
 
+    @field_validator("id")
+    @classmethod
+    def _safe_undecided_id(cls, value: str) -> str:
+        value = value.strip()
+        if not _STANCE_ID_RE.fullmatch(value):
+            raise ValueError(
+                "undecided id must use lowercase letters, numbers, hyphens, or underscores"
+            )
+        return value
+
+    @field_validator("label")
+    @classmethod
+    def _visible_undecided_label(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("undecided label must not be empty")
+        return value
+
+    @field_validator("color")
+    @classmethod
+    def _undecided_color(cls, value: str) -> str:
+        value = value.strip()
+        if not _HEX_COLOR_RE.fullmatch(value):
+            raise ValueError("undecided color must be a six-digit hex color")
+        return value
+
 
 class DatesSpec(BaseModel):
-    decision_day: str                 # ISO date the community decides
-    prose: str                        # human framing ("Early voting runs ...")
+    model_config = ConfigDict(extra="forbid")
+
+    decision_day: str  # ISO date the community decides
+    prose: str  # human framing ("Early voting runs ...")
+
+    @field_validator("decision_day")
+    @classmethod
+    def _iso_decision_day(cls, value: str) -> str:
+        value = value.strip()
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("decision_day must be an ISO date in YYYY-MM-DD form") from exc
+        return value
+
+    @field_validator("prose")
+    @classmethod
+    def _visible_date_copy(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("date prose must not be empty")
+        return value
+
+
+class ResponsibleUseSpec(BaseModel):
+    """Scenario-owned notices that must travel with every rendered/exported run.
+
+    The core notice is intentionally shared across scenario kinds.  The other
+    fields let a fictional policy exercise describe its subjects truthfully
+    without inheriting election-specific language about real candidates.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    core_notice: str
+    residents_notice: str
+    subjects_notice: str
+    outputs_notice: str
+
+    @field_validator("*")
+    @classmethod
+    def _notice_is_visible_copy(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("responsible-use notices must not be empty")
+        return value
+
+    @field_validator("core_notice")
+    @classmethod
+    def _core_notice_keeps_canonical_warning(cls, value: str) -> str:
+        if value != CANONICAL_CORE_NOTICE:
+            raise ValueError(
+                "core_notice must exactly match Township's canonical simulation-not-a-poll warning"
+            )
+        return value
 
 
 class RoundSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     round: int
-    clock: str = "12:00"              # in-game wall clock "HH:MM"
+    clock: str = "12:00"  # in-game wall clock "HH:MM"
     phases: list[str] = Field(default_factory=list)
     news_ids: list[str] = Field(default_factory=list)
 
     @field_validator("phases")
     @classmethod
     def _known_phases(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("a round must declare at least one phase")
         unknown = [p for p in v if p not in VALID_PHASES]
         if unknown:
-            raise ValueError(
-                f"unknown phases {unknown}; valid phases: {list(VALID_PHASES)}"
-            )
+            raise ValueError(f"unknown phases {unknown}; valid phases: {list(VALID_PHASES)}")
+        if len(set(v)) != len(v):
+            raise ValueError("a round must not repeat a phase")
         return v
+
+    @field_validator("news_ids")
+    @classmethod
+    def _visible_news_ids(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("round news_ids must not contain blank ids")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("round news_ids must not contain duplicates")
+        return cleaned
 
     @field_validator("clock")
     @classmethod
@@ -95,13 +250,25 @@ class RoundSpec(BaseModel):
 
 
 class NewsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     headline: str
     description: str
 
+    @field_validator("id", "headline", "description")
+    @classmethod
+    def _visible_news_copy(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("news id, headline, and description must not be empty")
+        return value
+
 
 class CrossTownPair(BaseModel):
-    agents: list[str]                 # exactly two agent display names
+    model_config = ConfigDict(extra="forbid")
+
+    agents: list[str]  # exactly two agent display names
     connection: str
 
     @field_validator("agents")
@@ -109,26 +276,342 @@ class CrossTownPair(BaseModel):
     def _two_agents(cls, v: list[str]) -> list[str]:
         if len(v) != 2:
             raise ValueError(f"a cross-town pair needs exactly 2 agents, got {len(v)}")
-        return v
+        cleaned = [name.strip() for name in v]
+        if any(not name for name in cleaned):
+            raise ValueError("cross-town pair agent names must not be blank")
+        if cleaned[0].casefold() == cleaned[1].casefold():
+            raise ValueError("a cross-town pair must name two different residents")
+        return cleaned
+
+    @field_validator("connection")
+    @classmethod
+    def _visible_connection(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("cross-town pair connection must not be empty")
+        return value
+
+
+class LandmarkSpec(BaseModel):
+    """Validated 1200×800 world-space landmark consumed by engine and UI."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    x: float = Field(ge=0, le=1200, allow_inf_nan=False)
+    y: float = Field(ge=0, le=800, allow_inf_nan=False)
+    width: float = Field(gt=0, le=1200, allow_inf_nan=False)
+    height: float = Field(gt=0, le=800, allow_inf_nan=False)
+    type: str
+    color: str
+    description: str | None = None
+
+    @field_validator("name", "type")
+    @classmethod
+    def _visible_landmark_copy(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("landmark name and type must not be empty")
+        return value
+
+    @field_validator("color")
+    @classmethod
+    def _landmark_color(cls, value: str) -> str:
+        value = value.strip()
+        if not _HEX_COLOR_RE.fullmatch(value):
+            raise ValueError("landmark color must be a six-digit hex color")
+        return value
+
+    @field_validator("x", "y", "width", "height", mode="before")
+    @classmethod
+    def _numeric_geometry(cls, value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("landmark geometry must be numeric")
+        return value
+
+    @model_validator(mode="after")
+    def _inside_world(self) -> Self:
+        if self.x + self.width > 1200 or self.y + self.height > 800:
+            raise ValueError("landmark rectangle must stay inside the 1200x800 world")
+        return self
+
+
+class DemographicsSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    population: int = Field(ge=1)
+
+    @field_validator("population", mode="before")
+    @classmethod
+    def _integer_population(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("demographics.population must be a positive integer")
+        return value
+
+
+class TownMapSpec(BaseModel):
+    """Scenario-owned pointer to a namespaced authored Tiled map."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["tiled"]
+    path: str
+    preview_path: str
+
+    @field_validator("path", "preview_path")
+    @classmethod
+    def _safe_asset_path(cls, value: str) -> str:
+        value = value.strip()
+        parsed = PurePosixPath(value)
+        if (
+            parsed.is_absolute()
+            or ".." in parsed.parts
+            or not value.startswith("assets/maps/")
+            or parsed.suffix not in {".tmj", ".png"}
+        ):
+            raise ValueError("town map paths must be relative assets/maps/ files")
+        return value
+
+
+class TownSpec(BaseModel):
+    """Minimum safe town payload; additional authored fields pass through."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    accent_color: str
+    demographics: DemographicsSpec
+    landmarks: list[LandmarkSpec] = Field(min_length=1)
+    map: TownMapSpec | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _visible_town_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("town name must not be empty")
+        return value
+
+    @field_validator("accent_color")
+    @classmethod
+    def _town_color(cls, value: str) -> str:
+        value = value.strip()
+        if not _HEX_COLOR_RE.fullmatch(value):
+            raise ValueError("town accent_color must be a six-digit hex color")
+        return value
+
+    @model_validator(mode="after")
+    def _unique_landmark_names(self) -> Self:
+        names = [landmark.name.casefold() for landmark in self.landmarks]
+        if len(set(names)) != len(names):
+            raise ValueError("landmark names must be unique within a town")
+        return self
+
+
+class OptionPositionSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    issue: str
+    stance: str
+
+    @field_validator("issue", "stance")
+    @classmethod
+    def _visible_position_copy(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("option position issue and stance must not be empty")
+        return value
+
+
+class OptionNarrativeNoteSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    description: str
+
+    @field_validator("description")
+    @classmethod
+    def _visible_description(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("option narrative description must not be empty")
+        return value
+
+
+class OptionDataSpec(BaseModel):
+    """Known rich-option fields used by ``build_full_context``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str | None = None
+    background: str | None = None
+    summary: str | None = None
+    party: str | None = None
+    positions: list[OptionPositionSpec] = Field(default_factory=list)
+    endorsements: list[str] = Field(default_factory=list)
+    fraud_conviction: OptionNarrativeNoteSpec | None = None
+
+    @field_validator("name", "background", "summary", "party")
+    @classmethod
+    def _nonblank_optional_copy(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("rich option text fields must not be blank")
+        return value
+
+    @field_validator("endorsements")
+    @classmethod
+    def _visible_endorsements(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("endorsements must be non-empty strings")
+        return cleaned
+
+
+class DebateExchangeSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    topic: str
+    tension_level: int | float | None = None
+    summary: str | None = None
+    key_quote: str | None = None
+
+    @field_validator("topic")
+    @classmethod
+    def _visible_topic(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("debate exchange topic must not be empty")
+        return value
+
+    @field_validator("summary", "key_quote")
+    @classmethod
+    def _visible_optional_summary(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("debate summaries must not be blank")
+        return value
+
+    @field_validator("tension_level", mode="before")
+    @classmethod
+    def _numeric_tension(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("debate tension_level must be numeric")
+        if not 0 <= value <= 5:
+            raise ValueError("debate tension_level must be between 0 and 5")
+        return value
+
+    @model_validator(mode="after")
+    def _position_extras_are_text(self) -> Self:
+        for key, value in (self.__pydantic_extra__ or {}).items():
+            if key.endswith("_position") and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"debate {key} must be a non-empty string")
+        return self
+
+
+class DebateContextSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    debate: dict = Field(default_factory=dict)
+    exchanges: list[DebateExchangeSpec] = Field(default_factory=list)
+
+
+class LogisticsContextSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    race: str | None = None
+    election_day: dict = Field(default_factory=dict)
+    early_voting: dict = Field(default_factory=dict)
+
+
+class GodScenarioSpec(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    description: str
+    category: str
+    expected_impact: str
+    affected_towns: list[str] = Field(default_factory=list)
+
+    @field_validator("id")
+    @classmethod
+    def _safe_god_scenario_id(cls, value: str) -> str:
+        value = value.strip()
+        if not _PACKAGE_ID_RE.fullmatch(value):
+            raise ValueError("God's View scenario id must use lowercase letters and hyphens")
+        return value
+
+    @field_validator("name", "description", "category", "expected_impact")
+    @classmethod
+    def _visible_god_scenario_copy(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("God's View scenario text fields must not be empty")
+        return value
+
+    @field_validator("affected_towns")
+    @classmethod
+    def _clean_affected_towns(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("God's View affected_towns must not contain blanks")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("God's View affected_towns must not contain duplicates")
+        return cleaned
 
 
 class ScenarioConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     title: str
     question: str
-    kind: str = "vote"                # "election" | "vote"
+    kind: Literal["election", "vote"] = "vote"
     options: list[ScenarioOption]
     undecided: UndecidedSpec = Field(default_factory=UndecidedSpec)
     dates: DatesSpec
+    responsible_use: ResponsibleUseSpec
     context_md: str
     context_short_md: str
     round_plan: list[RoundSpec]
     news: list[NewsItem] = Field(default_factory=list)
     cross_town_pairs: list[CrossTownPair] = Field(default_factory=list)
     cross_town_meeting_place: str = "Community Event"
-    weather_schedule: list[str] = Field(default_factory=list)
+    weather_schedule: list[Literal["clear", "cloudy", "rain", "snow", "fog"]] = Field(
+        default_factory=list
+    )
     gossip_rounds: list[int] = Field(default_factory=list)
     town_order: list[str] | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _safe_package_id(cls, value: str) -> str:
+        value = value.strip()
+        if not _PACKAGE_ID_RE.fullmatch(value):
+            raise ValueError("scenario id must use lowercase letters, numbers, and single hyphens")
+        return value
+
+    @field_validator("title", "question", "context_md", "context_short_md")
+    @classmethod
+    def _visible_scenario_copy(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("scenario title, question, and context must not be empty")
+        return value
+
+    @field_validator("cross_town_meeting_place")
+    @classmethod
+    def _visible_meeting_place(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("cross_town_meeting_place must not be empty")
+        return value
 
     @field_validator("options")
     @classmethod
@@ -139,6 +622,14 @@ class ScenarioConfig(BaseModel):
         if len(set(ids)) != len(ids):
             raise ValueError(f"duplicate option ids: {ids}")
         return v
+
+    @field_validator("news")
+    @classmethod
+    def _unique_news_ids(cls, values: list[NewsItem]) -> list[NewsItem]:
+        ids = [item.id for item in values]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"duplicate news ids: {ids}")
+        return values
 
     @field_validator("round_plan")
     @classmethod
@@ -159,8 +650,28 @@ class ScenarioConfig(BaseModel):
             )
         return sorted(v, key=lambda s: s.round)
 
+    @model_validator(mode="after")
+    def _coherent_rosters_and_schedules(self) -> Self:
+        stance_ids = [option.id for option in self.options] + [self.undecided.id]
+        folded = [stance.casefold() for stance in stance_ids]
+        if len(set(folded)) != len(folded):
+            raise ValueError(f"option and undecided ids must be unique ignoring case: {stance_ids}")
+
+        rounds = {spec.round for spec in self.round_plan}
+        if len(set(self.gossip_rounds)) != len(self.gossip_rounds):
+            raise ValueError("gossip_rounds must not contain duplicates")
+        unknown_gossip = [value for value in self.gossip_rounds if value not in rounds]
+        if unknown_gossip:
+            raise ValueError(f"gossip_rounds reference unknown rounds: {unknown_gossip}")
+        if self.weather_schedule and len(self.weather_schedule) != len(self.round_plan):
+            raise ValueError(
+                "weather_schedule must be empty or contain exactly one entry per round"
+            )
+        return self
+
 
 # ─── Runtime object ────────────────────────────────────────────────────────
+
 
 class Scenario:
     """A fully loaded scenario: config + towns + options data + agent roster."""
@@ -173,20 +684,22 @@ class Scenario:
         options_data: dict[str, dict],
         agents: dict[str, list[AgentDefinition]],
         extras: dict[str, dict],
+        god_scenarios: list[dict] | None = None,
         god_scenarios_path: Path | None = None,
+        demo_cache_path: Path | None = None,
     ):
         self.config = config
         self.scenario_dir = scenario_dir
         self.towns = towns
         self.options_data = options_data
         self.agents = agents
-        self.extras = extras          # context/*.json keyed by file stem
+        self.extras = extras  # context/*.json keyed by file stem
+        self.god_scenarios = god_scenarios or []
         # Curated God's View injections. The legacy data/ layout shipped this
         # under a different filename, so the loader owns the path — not the
         # route (backend/routes/gods_view.py just reads whatever this points at).
-        self.god_scenarios_path = (
-            god_scenarios_path or scenario_dir / "god-scenarios.json"
-        )
+        self.god_scenarios_path = god_scenarios_path or scenario_dir / "god-scenarios.json"
+        self.demo_cache_path = demo_cache_path or scenario_dir / "demo" / "simulation_cache.json"
 
     # ── Identity / options ─────────────────────────────────────
 
@@ -197,6 +710,11 @@ class Scenario:
     @property
     def title(self) -> str:
         return self.config.title
+
+    @property
+    def responsible_use(self) -> ResponsibleUseSpec:
+        """The validated disclosure block owned by this scenario package."""
+        return self.config.responsible_use
 
     @property
     def question(self) -> str:
@@ -317,9 +835,13 @@ class Scenario:
                     if key.endswith("_position") and value:
                         speaker = key[: -len("_position")].replace("_", " ").title()
                         parts.append(f"  {speaker}: {value}")
-                quote = ex.get("key_quote")
-                if quote:
-                    parts.append(f'  Key moment: "{quote}"')
+                # Context authors may summarize reporting rather than preserve
+                # an exact transcript. Never add quotation marks the source
+                # data did not claim; keep legacy key_quote packages readable
+                # while rendering both forms honestly as summaries.
+                summary = ex.get("summary") or ex.get("key_quote")
+                if summary:
+                    parts.append(f"  Reported debate summary: {summary}")
                 parts.append("")
 
         # ── Optional: logistics highlights (context/logistics.json) ──
@@ -348,6 +870,7 @@ class Scenario:
 
 # ─── Stance validation ─────────────────────────────────────────────────────
 
+
 def validate_stance(value: str, scenario: Scenario) -> str:
     """
     Coerce a model-produced stance string onto the scenario's roster.
@@ -367,14 +890,14 @@ def validate_stance(value: str, scenario: Scenario) -> str:
             return stance
     logger.warning(
         "Unknown stance %r coerced to %r (valid: %s)",
-        value, scenario.undecided_id, valid,
+        value,
+        scenario.undecided_id,
+        valid,
     )
     return scenario.undecided_id
 
 
-def _validate_agent_leans(
-    config: ScenarioConfig, agents: dict[str, list[AgentDefinition]]
-) -> None:
+def _validate_agent_leans(config: ScenarioConfig, agents: dict[str, list[AgentDefinition]]) -> None:
     """
     Fail loudly at load when a persona's ``initial_lean`` is off the stance
     roster (options + undecided).
@@ -399,22 +922,169 @@ def _validate_agent_leans(
         )
 
 
+def _validate_scenario_references(
+    config: ScenarioConfig,
+    scenario_dir: Path,
+    towns: dict[str, dict],
+    agents: dict[str, list[AgentDefinition]],
+) -> None:
+    """Validate package references that require towns and personas to be loaded."""
+    if config.id != scenario_dir.name:
+        raise ValueError(
+            f"scenario id {config.id!r} must match its directory name {scenario_dir.name!r}"
+        )
+
+    for town_id, town in towns.items():
+        if not _PACKAGE_ID_RE.fullmatch(town_id):
+            raise ValueError(
+                f"town filename stem {town_id!r} must use lowercase letters, numbers, "
+                "and single hyphens"
+            )
+        if not isinstance(town.get("name"), str) or not town["name"].strip():
+            raise ValueError(f"town {town_id!r} must declare a non-empty name")
+
+    if config.town_order is not None:
+        if len(set(config.town_order)) != len(config.town_order):
+            raise ValueError("town_order must not contain duplicates")
+        unknown_towns = [town for town in config.town_order if town not in towns]
+        if unknown_towns:
+            raise ValueError(f"town_order references unknown towns: {unknown_towns}")
+
+    for directory_town, definitions in agents.items():
+        if directory_town not in towns:
+            raise ValueError(
+                f"agent directory {directory_town!r} has no matching towns/*.json file"
+            )
+        mismatched = [agent.name for agent in definitions if agent.town != directory_town]
+        if mismatched:
+            raise ValueError(f"agents in {directory_town!r} declare a different town: {mismatched}")
+
+    by_name: dict[str, tuple[str, str]] = {}
+    known_relationship_targets: set[str] = set()
+    for town, definitions in agents.items():
+        for definition in definitions:
+            key = definition.name.casefold()
+            if key in by_name:
+                prior_town, prior_name = by_name[key]
+                raise ValueError(
+                    f"duplicate resident display name {definition.name!r}: "
+                    f"{prior_town}/{prior_name!r} and {town}/{definition.name!r}"
+                )
+            by_name[key] = (town, definition.name)
+            known_relationship_targets.add(key)
+            known_relationship_targets.add(agent_id_from_name(definition.name).casefold())
+
+            unknown_goal_rounds = [
+                goal
+                for goal in definition.goals
+                if int(goal.removeprefix("round_")) >= len(config.round_plan)
+            ]
+            if unknown_goal_rounds:
+                raise ValueError(
+                    f"resident {definition.name!r} has goals for unknown rounds: "
+                    f"{unknown_goal_rounds}"
+                )
+
+    for definitions in agents.values():
+        for definition in definitions:
+            unresolved = [
+                relation["agent"]
+                for relation in definition.relationships
+                if relation["agent"].casefold() not in known_relationship_targets
+            ]
+            if unresolved:
+                raise ValueError(
+                    f"resident {definition.name!r} has relationships to unknown agents: "
+                    f"{unresolved}"
+                )
+
+    used_in_pairs: set[str] = set()
+    for pair in config.cross_town_pairs:
+        resolved: list[tuple[str, str]] = []
+        for name in pair.agents:
+            key = name.casefold()
+            match = by_name.get(key)
+            if match is None:
+                raise ValueError(f"cross_town_pairs references unknown resident {name!r}")
+            if key in used_in_pairs:
+                raise ValueError(f"cross_town_pairs uses resident {name!r} more than once")
+            used_in_pairs.add(key)
+            resolved.append(match)
+        if resolved[0][0] == resolved[1][0]:
+            raise ValueError(
+                f"cross_town_pairs must cross towns, but {pair.agents!r} are both "
+                f"in {resolved[0][0]!r}"
+            )
+
+
 # ─── Loading ───────────────────────────────────────────────────────────────
 
+
 def find_scenario_dir(scenario_id: str) -> Path:
-    """Resolve ``scenarios/<id>`` under the project root."""
-    return SCENARIOS_DIR / scenario_id
+    """Resolve a scenario from the operator root, working tree, or wheel bundle."""
+    if not _PACKAGE_ID_RE.fullmatch(scenario_id):
+        raise ValueError("scenario id must use lowercase letters, numbers, and single hyphens")
+    roots = scenario_search_roots()
+    for root in roots:
+        candidate = _scenario_descendant(root, scenario_id, label="scenario package")
+        if (candidate / "scenario.json").is_file():
+            return candidate
+    return roots[0] / scenario_id
 
 
-def _load_json(path: Path) -> dict:
+def scenario_search_roots(project_root: Path | None = None) -> tuple[Path, ...]:
+    """Return scenario roots in runtime precedence order.
+
+    A caller-supplied project root is exclusive (used by tests/embedders).
+    Otherwise an explicit ``TOWNSHIP_SCENARIOS_DIR`` wins, then
+    ``./scenarios`` in the launch directory, then the packages bundled in the
+    source checkout or installed wheel. This lets a wheel run scenarios its
+    user authored without ever writing into ``site-packages``.
+    """
+    if project_root is not None:
+        return ((Path(project_root).resolve() / "scenarios"),)
+
+    candidates: list[Path] = []
+    override = os.environ.get("TOWNSHIP_SCENARIOS_DIR")
+    if override:
+        path = Path(override).expanduser()
+        candidates.append(path if path.is_absolute() else Path.cwd() / path)
+    candidates.extend((Path.cwd() / "scenarios", SCENARIOS_DIR))
+
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            roots.append(resolved)
+    return tuple(roots)
+
+
+def _load_json(path: Path) -> Any:
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
 
+def _scenario_descendant(scenario_dir: Path, relative_path: str, *, label: str) -> Path:
+    """Resolve a scenario-owned path and reject traversal or symlink escapes."""
+    root = scenario_dir.resolve()
+    candidate = root / relative_path
+    if candidate.is_symlink():
+        raise ValueError(f"{label} must not be a symbolic link")
+    path = candidate.resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"{label} must stay within scenario directory {root}")
+    return path
+
+
 def load_scenario(scenario_dir: Path | str) -> Scenario:
     """Load and validate a scenario directory into a runtime Scenario."""
-    scenario_dir = Path(scenario_dir)
-    manifest = scenario_dir / "scenario.json"
+    scenario_candidate = Path(scenario_dir)
+    if scenario_candidate.is_symlink():
+        raise ValueError("scenario package must not be a symbolic link")
+    scenario_dir = scenario_candidate.resolve()
+    manifest = _scenario_descendant(scenario_dir, "scenario.json", label="scenario manifest")
     if not manifest.is_file():
         raise FileNotFoundError(f"scenario.json not found in {scenario_dir}")
 
@@ -422,62 +1092,141 @@ def load_scenario(scenario_dir: Path | str) -> Scenario:
 
     # Towns
     towns: dict[str, dict] = {}
-    towns_dir = scenario_dir / "towns"
+    towns_dir = _scenario_descendant(scenario_dir, "towns", label="towns directory")
     if towns_dir.is_dir():
         for f in sorted(towns_dir.glob("*.json")):
-            towns[f.stem] = _load_json(f)
+            safe_file = _scenario_descendant(
+                scenario_dir,
+                str(f.relative_to(scenario_dir)),
+                label=f"town file {f.name!r}",
+            )
+            raw_town = _load_json(safe_file)
+            towns[f.stem] = TownSpec.model_validate(raw_town).model_dump()
     if not towns:
         raise ValueError(f"scenario {config.id!r} has no towns/*.json files")
+    for town_id, town in towns.items():
+        map_spec = town.get("map")
+        if map_spec is None:
+            continue
+        expected = {
+            "kind": "tiled",
+            "path": f"assets/maps/{config.id}/{town_id}.tmj",
+            "preview_path": f"assets/maps/{config.id}/{town_id}-preview.png",
+        }
+        if map_spec != expected:
+            raise ValueError(
+                f"town {town_id!r} map paths must use its scenario-qualified asset namespace"
+            )
 
     # Options data — data_file wins, then options/<id>.json, else empty dict.
     options_data: dict[str, dict] = {}
     for option in config.options:
         data: dict = {}
         if option.data_file:
-            path = scenario_dir / option.data_file
+            path = _scenario_descendant(
+                scenario_dir,
+                option.data_file,
+                label=f"option {option.id!r} data_file",
+            )
             if path.is_file():
                 data = _load_json(path)
             else:
-                logger.warning(
-                    "Option %r data_file missing: %s", option.id, path
+                raise FileNotFoundError(
+                    f"option {option.id!r} declares a missing data_file: {path}"
                 )
         else:
-            default_path = scenario_dir / "options" / f"{option.id}.json"
+            default_path = _scenario_descendant(
+                scenario_dir,
+                f"options/{option.id}.json",
+                label=f"option {option.id!r} default data file",
+            )
             if default_path.is_file():
                 data = _load_json(default_path)
-        options_data[option.id] = data
+        options_data[option.id] = OptionDataSpec.model_validate(data).model_dump()
 
     # Agents (optional at load time — a scenario being authored may not have
     # its roster yet; the orchestrator will simply have zero agents).
     agents: dict[str, list[AgentDefinition]] = {}
-    agents_dir = scenario_dir / "agents"
+    agents_dir = _scenario_descendant(scenario_dir, "agents", label="agents directory")
     if agents_dir.is_dir():
+        for town_dir in sorted(path for path in agents_dir.iterdir() if path.is_dir()):
+            _scenario_descendant(
+                scenario_dir,
+                str(town_dir.relative_to(scenario_dir)),
+                label=f"agent town directory {town_dir.name!r}",
+            )
+            for persona_file in sorted(town_dir.glob("*.md")):
+                _scenario_descendant(
+                    scenario_dir,
+                    str(persona_file.relative_to(scenario_dir)),
+                    label=f"persona file {persona_file.name!r}",
+                )
         agents = load_all_agents(str(agents_dir))
+    validate_agent_ids(agents)
+    _validate_scenario_references(config, scenario_dir, towns, agents)
     _validate_agent_leans(config, agents)
 
     # Optional context extras (debate excerpts, logistics, ...).
     extras: dict[str, dict] = {}
-    context_dir = scenario_dir / "context"
+    context_dir = _scenario_descendant(scenario_dir, "context", label="context directory")
     if context_dir.is_dir():
         for f in sorted(context_dir.glob("*.json")):
-            try:
-                extras[f.stem] = _load_json(f)
-            except json.JSONDecodeError as e:
-                logger.warning("Skipping invalid context file %s: %s", f, e)
+            safe_file = _scenario_descendant(
+                scenario_dir,
+                str(f.relative_to(scenario_dir)),
+                label=f"context file {f.name!r}",
+            )
+            data = _load_json(safe_file)
+            if not isinstance(data, dict):
+                raise ValueError(f"context file {f.name!r} must contain a JSON object")
+            if f.stem == "debate-excerpts":
+                data = DebateContextSpec.model_validate(data).model_dump()
+            elif f.stem == "logistics":
+                data = LogisticsContextSpec.model_validate(data).model_dump()
+            extras[f.stem] = data
+
+    god_scenarios_path = _scenario_descendant(
+        scenario_dir,
+        "god-scenarios.json",
+        label="God's View scenarios file",
+    )
+    god_scenarios: list[dict] = []
+    if god_scenarios_path.is_file():
+        raw_god_scenarios = _load_json(god_scenarios_path)
+        if not isinstance(raw_god_scenarios, list):
+            raise ValueError("god-scenarios.json must contain a JSON array")
+        validated = [GodScenarioSpec.model_validate(item) for item in raw_god_scenarios]
+        ids = [item.id for item in validated]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"duplicate God's View scenario ids: {ids}")
+        for item in validated:
+            unknown = [town for town in item.affected_towns if town not in towns]
+            if unknown:
+                raise ValueError(
+                    f"God's View scenario {item.id!r} references unknown towns: {unknown}"
+                )
+        god_scenarios = [item.model_dump() for item in validated]
+
+    demo_cache_path = _scenario_descendant(
+        scenario_dir,
+        "demo/simulation_cache.json",
+        label="demo replay cache",
+    )
 
     # News-id sanity: every round_plan news_id must exist.
     news_ids = {n.id for n in config.news}
     for spec in config.round_plan:
         missing = [i for i in spec.news_ids if i not in news_ids]
         if missing:
-            raise ValueError(
-                f"round {spec.round} references unknown news ids {missing}"
-            )
+            raise ValueError(f"round {spec.round} references unknown news ids {missing}")
 
     logger.info(
         "Loaded scenario %r: %d towns, %d options, %d agents, %d rounds",
-        config.id, len(towns), len(config.options),
-        sum(len(v) for v in agents.values()), len(config.round_plan),
+        config.id,
+        len(towns),
+        len(config.options),
+        sum(len(v) for v in agents.values()),
+        len(config.round_plan),
     )
     return Scenario(
         config=config,
@@ -486,219 +1235,31 @@ def load_scenario(scenario_dir: Path | str) -> Scenario:
         options_data=options_data,
         agents=agents,
         extras=extras,
+        god_scenarios=god_scenarios,
+        god_scenarios_path=god_scenarios_path,
+        demo_cache_path=demo_cache_path,
     )
 
 
-# ─── Legacy fallback (deprecated — one release only) ───────────────────────
+def load_scenario_with_fallback(scenario_id: str, project_root: Path | None = None) -> Scenario:
+    """Load a named scenario package from ``scenarios/<id>``.
 
-# The pre-scenario repo layout: agents/ + data/{towns,candidates,...} at the
-# project root. External forks/scripts built on that layout keep working for
-# one release via this shim, which synthesizes the NJ-11 ScenarioConfig the
-# engine used to hardcode.
-
-_LEGACY_NJ11_CONFIG: dict = {
-    "id": "nj11-2026",
-    "title": "The NJ-11 Special Election",
-    "question": (
-        "Who should represent New Jersey's 11th Congressional District — "
-        "Analilia Mejia (D), Joe Hathaway (R), or Alan B. Bond (I)?"
-    ),
-    "kind": "election",
-    "options": [
-        {"id": "mejia", "name": "Analilia Mejia", "label": "Mejia", "color": "#4A8FBF", "group": "Democrat"},
-        {"id": "hathaway", "name": "Joe Hathaway", "label": "Hathaway", "color": "#C0792A", "group": "Republican"},
-        {"id": "bond", "name": "Alan B. Bond", "label": "Bond", "color": "#9A8E80", "group": "Independent"},
-    ],
-    "undecided": {"id": "undecided", "label": "Undecided", "color": "#D1D5DB"},
-    "dates": {
-        "decision_day": "2026-04-16",
-        "prose": "Early voting runs April 6-14. Election Day is Thursday, April 16, 2026.",
-    },
-    "context_md": (
-        "You are a voter in New Jersey's 11th Congressional District. "
-        "A special election is happening on April 16, 2026 to replace Mikie Sherrill, "
-        "who became governor. The candidates are:\n"
-        "- Analilia Mejia (Democrat): Progressive, supports Medicare for All, $25 min wage, abolish ICE\n"
-        "- Joe Hathaway (Republican): 'New generation Republican', lower taxes, supports One Big Beautiful Bill\n"
-        "- Alan Bond (Independent): Former Wall Street fund manager with fraud conviction, limited platform\n"
-        "\nEarly voting is April 6-14. Election Day is April 16."
-    ),
-    "context_short_md": (
-        "You're a voter in NJ-11. Special election is April 16, 2026. "
-        "Candidates: Analilia Mejia (D), Joe Hathaway (R), Alan Bond (I). "
-        "Early voting is happening now (April 6-14)."
-    ),
-    "round_plan": [
-        {"round": 0, "phases": ["seed"], "clock": "08:00"},
-        {"round": 1, "phases": ["converse", "news"], "clock": "10:00",
-         "news_ids": ["aca-subsidies", "ice-enforcement"]},
-        {"round": 2, "phases": ["converse", "opinion"], "clock": "13:00"},
-        {"round": 3, "phases": ["news", "converse", "opinion"], "clock": "16:00",
-         "news_ids": ["property-tax"]},
-        {"round": 4, "phases": ["converse", "opinion", "decide"], "clock": "19:00"},
-    ],
-    "news": [
-        {
-            "id": "aca-subsidies",
-            "headline": "ACA Subsidies at Risk in One Big Beautiful Bill",
-            "description": (
-                "Congressional Republicans are pushing the 'One Big Beautiful Bill' which would "
-                "end enhanced ACA subsidies. For NJ-11, this could mean 40,000+ residents losing "
-                "health insurance subsidies worth $400-$800/month per family."
-            ),
-        },
-        {
-            "id": "ice-enforcement",
-            "headline": "ICE Enforcement Increases in Morris County",
-            "description": (
-                "Immigration and Customs Enforcement has increased operations in Morris County, "
-                "with reports of workplace raids in Dover and Parsippany. Community organizations "
-                "report a chilling effect on residents seeking public services."
-            ),
-        },
-        {
-            "id": "property-tax",
-            "headline": "Property Tax Reassessment Coming to Morris County",
-            "description": (
-                "Morris County has announced a county-wide property tax reassessment for 2027. "
-                "Homeowners in rapidly appreciating areas like Montclair and Randolph could see "
-                "significant increases, while some Dover properties may see decreases."
-            ),
-        },
-    ],
-    # The 6 strategic gossip pairings round_manager.CROSS_TOWN_PAIRS used to
-    # hardcode — kept verbatim so legacy forks don't lose curated pairings.
-    "cross_town_pairs": [
-        {
-            "agents": ["Carlos Restrepo", "Pawan Sharma"],
-            "connection": (
-                "Fellow restaurant owners who met at a Morris County Restaurant "
-                "Association mixer. They bonded over the challenges of running a "
-                "small food business in NJ."
-            ),
-        },
-        {
-            "agents": ["Maria Santos", "Grace Reyes"],
-            "connection": (
-                "Both healthcare workers who occasionally cross paths at "
-                "Morristown Medical Center during shift changes. They share "
-                "frustrations about insurance paperwork and patient loads."
-            ),
-        },
-        {
-            "agents": ["Tom Kowalski", "Frank DeLuca"],
-            "connection": (
-                "Veterans who know each other from the Morris County VFW post. "
-                "They served in different eras but share a deep bond over "
-                "military service and VA healthcare struggles."
-            ),
-        },
-        {
-            "agents": ["Sofia Ramirez", "Jordan Williams"],
-            "connection": (
-                "Connected on social media through mutual activist friends. Both "
-                "are young, frustrated with the political establishment, and "
-                "active in local organizing circles."
-            ),
-        },
-        {
-            "agents": ["Raj Krishnamurthy", "Vikram Iyer"],
-            "connection": (
-                "Indian-American tech professionals who know each other from the "
-                "Parsippany-area tech meetup circuit. Their families attend some "
-                "of the same community events."
-            ),
-        },
-        {
-            "agents": ["Priya Patel", "Jen Russo"],
-            "connection": (
-                "Suburban moms whose kids played in the same Morris County youth "
-                "soccer league. They chat at games about schools, property "
-                "taxes, and local politics."
-            ),
-        },
-    ],
-    "cross_town_meeting_place": "Morris County Community Event",
-    "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
-    "gossip_rounds": [2, 3],
-    "town_order": ["dover", "montclair", "parsippany", "randolph"],
-}
-
-
-def _load_legacy_layout(project_root: Path) -> Scenario:
-    """Deprecated: synthesize a Scenario from the pre-scenario repo layout."""
-    logger.warning(
-        "DEPRECATED: loading from the legacy data/ + agents/ layout. "
-        "Move your content into scenarios/<id>/ — this fallback will be "
-        "removed in the next release."
-    )
-    data_dir = project_root / "data"
-    config = ScenarioConfig.model_validate(_LEGACY_NJ11_CONFIG)
-
-    towns: dict[str, dict] = {}
-    towns_dir = data_dir / "towns"
-    if towns_dir.is_dir():
-        for f in sorted(towns_dir.glob("*.json")):
-            towns[f.stem] = _load_json(f)
-    if not towns:
-        raise FileNotFoundError(
-            f"legacy layout has no towns under {towns_dir} — nothing to load"
-        )
-
-    options_data: dict[str, dict] = {}
-    candidates_dir = data_dir / "candidates"
-    if candidates_dir.is_dir():
-        for f in sorted(candidates_dir.glob("*.json")):
-            options_data[f.stem] = _load_json(f)
-
-    agents: dict[str, list[AgentDefinition]] = {}
-    agents_dir = project_root / "agents"
-    if agents_dir.is_dir():
-        agents = load_all_agents(str(agents_dir))
-    _validate_agent_leans(config, agents)
-
-    extras: dict[str, dict] = {}
-    for legacy_name, extra_key in (
-        ("debate-excerpts.json", "debate-excerpts"),
-        ("election-logistics.json", "logistics"),
-    ):
-        path = data_dir / legacy_name
-        if path.is_file():
-            extras[extra_key] = _load_json(path)
-
-    return Scenario(
-        config=config,
-        scenario_dir=data_dir,
-        towns=towns,
-        options_data=options_data,
-        agents=agents,
-        extras=extras,
-        # The legacy layout shipped God's View presets under a different name.
-        god_scenarios_path=data_dir / "god_view_scenarios.json",
-    )
-
-
-def load_scenario_with_fallback(
-    scenario_id: str, project_root: Path | None = None
-) -> Scenario:
+    The function name is retained as a compatibility import, but Township no
+    longer synthesizes election data from a legacy root layout. Every civic
+    fact must live in a scenario package so custom deployments cannot inherit
+    unrelated candidates, towns, or news by accident.
     """
-    Load ``scenarios/<id>``; when that directory is missing, fall back —
-    loudly — to the deprecated pre-scenario ``data/`` + ``agents/`` layout.
-    """
-    root = project_root or PROJECT_ROOT
-    scenario_dir = root / "scenarios" / scenario_id
+    if not _PACKAGE_ID_RE.fullmatch(scenario_id):
+        raise ValueError("scenario id must use lowercase letters, numbers, and single hyphens")
+    roots = scenario_search_roots(project_root)
+    candidates = [
+        _scenario_descendant(root, scenario_id, label="scenario package") for root in roots
+    ]
+    scenario_dir = next(
+        (candidate for candidate in candidates if (candidate / "scenario.json").is_file()),
+        candidates[0],
+    )
     if (scenario_dir / "scenario.json").is_file():
         return load_scenario(scenario_dir)
-
-    legacy_data = root / "data"
-    if (legacy_data / "towns").is_dir():
-        logger.warning(
-            "Scenario dir %s not found — falling back to legacy data/ layout",
-            scenario_dir,
-        )
-        return _load_legacy_layout(root)
-
-    raise FileNotFoundError(
-        f"No scenario found: {scenario_dir} does not exist and no legacy "
-        f"data/ layout is present under {root}"
-    )
+    searched = ", ".join(str(root / scenario_id) for root in roots)
+    raise FileNotFoundError(f"No scenario package found; searched: {searched}")

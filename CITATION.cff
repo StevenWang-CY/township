@@ -12,13 +12,15 @@ message: >-
   (Generative Agents, arXiv:2304.03442) — see the references section.
 title: "Township: a civic deliberation engine"
 type: software
+version: "0.1.0"
 authors:
   - family-names: Wang
     given-names: Chuyue
 license: MIT
-date-released: "2026-07-20"
+date-released: "2026-07-21"
 url: "https://github.com/StevenWang-CY/township"
 repository-code: "https://github.com/StevenWang-CY/township"
+repository-artifact: "https://github.com/StevenWang-CY/township/releases/tag/v0.1.0"
 abstract: >-
   AI residents deliberate elections and policy questions in a living pixel
   town. A simulation, research, and education tool — not a poll and not a
@@ -29,6 +31,8 @@ keywords:
   - civic deliberation
   - opinion dynamics
   - large language models
+  - civic technology
+  - reproducible simulation
 references:
   - type: conference-paper
     title: "Generative Agents: Interactive Simulacra of Human Behavior"

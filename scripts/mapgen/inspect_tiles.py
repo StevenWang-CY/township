@@ -34,9 +34,10 @@ Artifacts
   each. Every tile is drawn at 3x zoom over a checkerboard (so transparent /
   empty cells are obvious) with its GID printed beneath it. Each tileset row
   is split into two strips of 50 columns.
-- ``usage.json``: for each layer of the example map
-  ``frontend/public/assets/maps/tilemap.json``, the set of base GIDs used
-  (flip flags masked) with usage counts, plus flip-flag statistics.
+- ``usage.json``: for each layer of the generated town map
+  ``frontend/public/assets/maps/nj11-2026/dover.tmj``, the set of base GIDs used
+  (flip flags masked) with usage counts, plus flip-flag statistics. GIDs
+  >= 10001 belong to the appended ``township-modern`` tileset (10 columns).
 - ``coverage.json``: per-row count of non-empty tiles in the tileset, so
   empty/garbage GID ranges can be identified without eyeballing blank sheets.
 """
@@ -51,7 +52,7 @@ from PIL import Image, ImageDraw
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TILESET_PATH = REPO_ROOT / "frontend/public/assets/tilesets/rpg-tileset.png"
-TILEMAP_PATH = REPO_ROOT / "frontend/public/assets/maps/tilemap.json"
+TILEMAP_PATH = REPO_ROOT / "frontend/public/assets/maps/nj11-2026/dover.tmj"
 OUT_DIR = Path(__file__).resolve().parent / "_inspect"
 
 TILE = 16
@@ -95,8 +96,9 @@ def tile_nonempty(t: Image.Image) -> bool:
     return alpha.getbbox() is not None
 
 
-def render_contact_sheet(ts: Image.Image, row0: int, row1: int, zoom: int = 3,
-                         cols_per_strip: int = 50) -> Image.Image:
+def render_contact_sheet(
+    ts: Image.Image, row0: int, row1: int, zoom: int = 3, cols_per_strip: int = 50
+) -> Image.Image:
     """Render tileset rows [row0, row1] (inclusive), each row as strips."""
     tz = TILE * zoom
     label_h = 12
@@ -114,8 +116,7 @@ def render_contact_sheet(ts: Image.Image, row0: int, row1: int, zoom: int = 3,
 
     y = pad
     for row in range(row0, row1 + 1):
-        draw.text((pad, y), f"row {row}   (gids {row * COLS + 1}-{(row + 1) * COLS})",
-                  fill=HEADER)
+        draw.text((pad, y), f"row {row}   (gids {row * COLS + 1}-{(row + 1) * COLS})", fill=HEADER)
         y += header_h
         for s in range(strips_per_row):
             c0 = s * cols_per_strip
@@ -132,8 +133,9 @@ def render_contact_sheet(ts: Image.Image, row0: int, row1: int, zoom: int = 3,
     return sheet
 
 
-def render_crop(ts: Image.Image, row0: int, row1: int, col0: int, col1: int,
-                zoom: int = 8) -> Image.Image:
+def render_crop(
+    ts: Image.Image, row0: int, row1: int, col0: int, col1: int, zoom: int = 8
+) -> Image.Image:
     """Zoomed crop of an inclusive tile-rect, GID labels beneath each tile."""
     tz = TILE * zoom
     label_h = 12
@@ -160,8 +162,12 @@ def render_crop(ts: Image.Image, row0: int, row1: int, col0: int, col1: int,
 def analyze_usage() -> dict:
     with open(TILEMAP_PATH) as f:
         tmap = json.load(f)
-    out: dict = {"map": str(TILEMAP_PATH.relative_to(REPO_ROOT)),
-                 "width": tmap["width"], "height": tmap["height"], "layers": {}}
+    out: dict = {
+        "map": str(TILEMAP_PATH.relative_to(REPO_ROOT)),
+        "width": tmap["width"],
+        "height": tmap["height"],
+        "layers": {},
+    }
     for layer in tmap["layers"]:
         if layer.get("type") != "tilelayer":
             continue
@@ -179,11 +185,20 @@ def analyze_usage() -> dict:
             if raw & FLIP_D:
                 flips["d"] += 1
         gids = sorted(counts)
+
+        def where(g: int) -> list:
+            # GIDs >= 10001 live in the appended township-modern sheet
+            # (10 columns); everything below is the 100-column rpg tileset.
+            if g >= 10001:
+                local = g - 10001
+                return ["township-modern", local // 10, local % 10]
+            return ["rpg-tileset", (g - 1) // COLS, (g - 1) % COLS]
+
         out["layers"][layer["name"]] = {
             "distinct_base_gids": len(gids),
             "flip_flag_counts": flips,
             "gid_counts": {str(g): counts[g] for g in gids},
-            "gid_row_col": {str(g): [(g - 1) // COLS, (g - 1) % COLS] for g in gids},
+            "gid_tileset_row_col": {str(g): where(g) for g in gids},
         }
     return out
 
@@ -194,16 +209,25 @@ def analyze_coverage(ts: Image.Image) -> dict:
         n = sum(1 for col in range(COLS) if tile_nonempty(tile_image(ts, row, col)))
         per_row.append(n)
     empty_rows = [r for r, n in enumerate(per_row) if n == 0]
-    return {"nonempty_tiles_per_row": per_row,
-            "total_nonempty": sum(per_row),
-            "fully_empty_rows": empty_rows}
+    return {
+        "nonempty_tiles_per_row": per_row,
+        "total_nonempty": sum(per_row),
+        "fully_empty_rows": empty_rows,
+    }
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--crop", nargs=4, type=int, metavar=("ROW0", "ROW1", "COL0", "COL1"),
-                    help="render a zoomed crop of an inclusive tile-rect instead of full sheets")
-    ap.add_argument("--zoom", type=int, default=None, help="zoom factor (default: 3 sheets, 8 crops)")
+    ap.add_argument(
+        "--crop",
+        nargs=4,
+        type=int,
+        metavar=("ROW0", "ROW1", "COL0", "COL1"),
+        help="render a zoomed crop of an inclusive tile-rect instead of full sheets",
+    )
+    ap.add_argument(
+        "--zoom", type=int, default=None, help="zoom factor (default: 3 sheets, 8 crops)"
+    )
     ap.add_argument("--out", type=str, default=None, help="output filename for --crop")
     args = ap.parse_args()
 

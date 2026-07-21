@@ -1,21 +1,63 @@
+/**
+ * TownScene — the living pixel town.
+ *
+ * ── Capture hooks (for the screenshot / GIF pipeline) ──────────────────
+ * Open any town with `?capture=1` to get a fixed-seed capture scene:
+ *   • `Math.random` is replaced with a seeded mulberry32 PRNG (fixed seed),
+ *     which stabilizes Phaser.Math.Between wander/encounter choices.
+ *   • The world clock starts at 16:30 (golden hour → dusk within a minute
+ *     of real time at the default 60x speed).
+ * The scene also exposes `window.__town` with scriptable controls:
+ *   __town.setWorldTime(h, m?)                  — jump the clock (drives dusk pass)
+ *   __town.setWeather("clear"|"rain"|...)      — force weather
+ *   __town.panTo(x, y)                          — ease the camera to a point
+ *   __town.triggerConversation(idA, idB)        — spotlight two agents talking
+ *   __town.triggerOpinionShift(agentId, optionId) — ring morph + confetti + ballot
+ *   __town.triggerNews(headline?)               — newspaper drop + convergence
+ * (`window.__townshipScene` remains as the raw scene handle for debugging.)
+ */
 import Phaser from "phaser";
 import { appUrl } from "../lib/assetUrl";
 import { AgentSprite, type AgentActivity, type GestureKind } from "./AgentSprite";
 import { PlayerSprite } from "./PlayerSprite";
-import { townAccent, townMapKey } from "./config";
+import { townAccent, townBgColor, townMapKey } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
 import type { UserProfile } from "../context/UserProfileContext";
-import { AGENT_CUSTOMIZATION, ALL_CHARACTER_KEYS, resolveAgentSprite } from "./spriteCustomization";
+import {
+  AGENT_CUSTOMIZATION,
+  ALL_ACCESSORY_SHEETS,
+  ALL_CHARACTER_KEYS,
+  ALL_CUSTOM_SHEETS,
+  resolveAgentSprite,
+} from "./spriteCustomization";
 import { composeTownAmbience, type AmbienceHandle, type MapAnchor } from "./SceneAmbience";
 import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange } from "./AmbientLines";
 import { landmarksFor } from "../hooks/useTownData";
 import { WeatherScene } from "./WeatherScene";
+import {
+  ensureNewspaperTexture,
+  ensureSquareTexture,
+  ensureVignetteTexture,
+  ensureWindowGlowTexture,
+  mulberry32,
+  reducedMotion,
+} from "./pixelTextures";
+import windowGids from "./windowGids.json";
+import { DEMO_MODE } from "../demo/demoMode";
+
+/** Authored art is declared by scenario data, never inferred from a town id. */
+export function hasAuthoredTownMap(mapPath?: string | null): boolean {
+  return typeof mapPath === "string" && mapPath.startsWith("assets/maps/");
+}
 
 /* ── Helper: fetch town data (single source of truth) ───────── */
 
 async function fetchTownData(townId: TownId): Promise<TownData | null> {
+  // The static replay receives its authoritative town payload through
+  // useTownData → setTownData; avoid a guaranteed /api 404 on GitHub Pages.
+  if (DEMO_MODE) return null;
   try {
     const r = await fetch(`/api/towns/${townId}`);
     if (!r.ok) return null;
@@ -27,17 +69,17 @@ async function fetchTownData(townId: TownId): Promise<TownData | null> {
 
 // Generic fallback idle thoughts (used until per-agent banks are wired).
 const IDLE_THOUGHTS = [
-  "Did you see that debate?",
-  "Early voting ends the 14th.",
-  "Who are you voting for?",
-  "I'm still undecided…",
-  "Property taxes are brutal.",
-  "We need real healthcare.",
-  "Immigration needs fixing.",
-  "This election matters.",
-  "My commute is terrible.",
-  "The economy, always.",
-  "Think about the schools.",
+  "I should read the full proposal.",
+  "There are real tradeoffs here.",
+  "I wonder what my neighbors think.",
+  "I'm still making up my mind…",
+  "The household budget is tight.",
+  "Services have to work for everyone.",
+  "I want facts, not another slogan.",
+  "This decision matters.",
+  "That commute gets longer every year.",
+  "The local economy feels uncertain.",
+  "Think about the next generation.",
 ];
 
 /* ── Internal agent record ─────────────────────────────────── */
@@ -54,9 +96,12 @@ interface AgentRecord {
 /* ── TownScene ──────────────────────────────────────────────── */
 
 export class TownScene extends Phaser.Scene {
-  private townId: TownId = "dover";
+  private scenarioId = "";
+  private townId: TownId = "";
+  private mapPath: string | null = null;
   private agentSprites: Map<string, AgentSprite> = new Map();
   private agentRecords: Map<string, AgentRecord> = new Map();
+  private agentOpinions: Map<string, string> = new Map();
   private playerSprite: PlayerSprite | null = null;
   private landmarks: LandmarkData[] = [];
   private landmarkPositions: Map<string, { x: number; y: number }> = new Map();
@@ -75,6 +120,7 @@ export class TownScene extends Phaser.Scene {
   // World clock + sky overlay
   private worldClock = new WorldClock({ startHour: 8, minutesPerSecond: 1 });
   private skyOverlay?: Phaser.GameObjects.Rectangle;
+  private currentWeather: WeatherKind = "clear";
 
   // Night-time lamp glow + sky tint are owned by SceneAmbience + the sky overlay.
   private ambience?: AmbienceHandle;
@@ -82,15 +128,59 @@ export class TownScene extends Phaser.Scene {
   // Encounter scheduling
   private encounterTimer?: Phaser.Time.TimerEvent;
 
+  // Night window glow quads (pane + halo per lit window stamp).
+  private windowGlows: Array<{ obj: Phaser.GameObjects.GameObject & { setAlpha(a: number): unknown }; max: number }> = [];
+
+  // Conversation spotlight state
+  private convoVignette?: Phaser.GameObjects.Image;
+  private convoZoomBase?: number;
+  private convoFailsafe?: Phaser.Time.TimerEvent;
+
+  // Fixed-seed capture mode (?capture=1) — see the doc block at the top.
+  private captureMode = false;
+  private randomBeforeCapture?: typeof Math.random;
+  private reducedMotionRequested = false;
+
+  // The built tilemap (kept for the window-glow scan).
+  private builtMap?: Phaser.Tilemaps.Tilemap;
+  // Scenario towns do not have to ship a Tiled map. This procedural layer is
+  // rebuilt from their authoritative landmark rectangles when no map exists.
+  private fallbackWorld?: Phaser.GameObjects.Container;
+
   constructor() {
     super({ key: "TownScene" });
   }
 
-  init(data: { townId: TownId }) {
+  init(data: { scenarioId: string; townId: TownId; mapPath?: string; reducedMotion?: boolean }) {
+    this.scenarioId = data.scenarioId;
     this.townId = data.townId;
-    // Inline fallback until /api/towns resolves — curated for NJ-11 towns,
-    // a serviceable generic village for any other scenario's towns.
+    this.mapPath = data.mapPath ?? null;
+    this.reducedMotionRequested = Boolean(data.reducedMotion);
+    // Inline fallback until the scenario town payload resolves.
     this.landmarks = landmarksFor(this.townId).slice();
+
+    // Capture mode: seeded RNG + fixed golden-hour clock for stable choices
+    // and composition. Browser/animation timing can still shift pixels.
+    // Overriding Math.random is deliberate and confined to capture sessions.
+    try {
+      this.captureMode = new URLSearchParams(window.location.search).get("capture") === "1";
+    } catch {
+      this.captureMode = false;
+    }
+    if (this.captureMode) {
+      this.randomBeforeCapture ??= Math.random;
+      // Stable per-town seed: reloads match exactly, while the four capture
+      // stills do not repeat the same passers-by and wander coordinates.
+      let seed = 0x70a11ce;
+      for (const ch of this.townId) {
+        seed = Math.imul(seed ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+      }
+      Math.random = mulberry32(seed);
+      this.worldClock = new WorldClock({ startHour: 16, startMinute: 30, minutesPerSecond: 1 });
+    } else if (this.randomBeforeCapture) {
+      Math.random = this.randomBeforeCapture;
+      this.randomBeforeCapture = undefined;
+    }
   }
 
   /* ── Preload ─────────────────────────────────────────────── */
@@ -102,8 +192,12 @@ export class TownScene extends Phaser.Scene {
     this.load.image("township-modern", appUrl("assets/tilesets/township-modern.png"));
     this.load.image("speech-bubble", appUrl("assets/speech_bubble/v2.png"));
 
-    // Per-town generated tilemap (scripts/mapgen emits one per town).
-    this.load.tilemapTiledJSON(townMapKey(this.townId), appUrl(`assets/maps/${this.townId}.tmj`));
+    // Authored maps are an explicit scenario adapter. Town ids are only
+    // unique inside a scenario package; an unrelated package reusing an id
+    // must receive the procedural renderer instead of somebody else's town.
+    if (hasAuthoredTownMap(this.mapPath)) {
+      this.load.tilemapTiledJSON(townMapKey(this.townId), appUrl(this.mapPath!));
+    }
 
     // Animated water-foam frames (bottom half of gentlewaterfall32.png is foam) — used as
     // lake surface shimmer. We treat the whole sheet as 32×32 cells; foam frames live in
@@ -125,6 +219,22 @@ export class TownScene extends Phaser.Scene {
         frameHeight: 32,
       });
       this.characterKeys.add(fileName);
+    }
+
+    // Baked palette-swap outfit sheets (scripts/mapgen/outfits.py).
+    for (const [key, path] of Object.entries(ALL_CUSTOM_SHEETS)) {
+      this.load.spritesheet(key, appUrl(`assets/characters/${path}`), {
+        frameWidth: 32,
+        frameHeight: 32,
+      });
+    }
+
+    // Pixel accessory overlays (scripts/mapgen/accessories.py).
+    for (const [key, path] of Object.entries(ALL_ACCESSORY_SHEETS)) {
+      this.load.spritesheet(key, appUrl(`assets/characters/${path}`), {
+        frameWidth: 32,
+        frameHeight: 32,
+      });
     }
 
     // Folk spritesheet as additional fallback
@@ -151,11 +261,18 @@ export class TownScene extends Phaser.Scene {
     // preview the night pass without waiting on the world clock.
     (window as unknown as { __townshipScene?: TownScene }).__townshipScene = this;
 
-    // Generate outfit/accessory overlay textures programmatically (FIX 17).
-    this.generateOverlayTextures();
+    // Scriptable capture API (see doc block at the top of this file).
+    this.installCaptureApi();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.removeCaptureApi());
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.removeCaptureApi());
 
     // Tilemap — the generated pixel world (layers, collision, anchors).
     this.buildTilemap(W, H);
+
+    // Night window glow — warm additive quads over every window stamp
+    // found in buildings-base; alpha driven from the world clock so they
+    // ignite through dusk (the money shot).
+    this.buildWindowGlows();
 
     // Sky overlay — ABOVE buildings-top (5000) so the night tint covers
     // rooftops too; lamp glows sit above it at 6001 and pierce the dark.
@@ -172,12 +289,7 @@ export class TownScene extends Phaser.Scene {
     this.layoutLandmarksAndDecor();
 
     fetchTownData(this.townId).then((d) => {
-      if (d && d.landmarks?.length) {
-        this.landmarks = d.landmarks;
-        this.townDataResolved = true;
-        // Re-layout (cheap — destroys old graphics and re-creates).
-        this.rebuildLandmarks();
-      }
+      if (d) this.setTownData(d);
     });
 
     // Character walk / idle animations
@@ -207,7 +319,14 @@ export class TownScene extends Phaser.Scene {
         repeat: -1,
       });
     }
-    this.ambience = composeTownAmbience(this, this.townId, this.mapAnchors, W, H);
+    this.ambience = composeTownAmbience(
+      this,
+      this.scenarioId,
+      this.townId,
+      this.mapAnchors,
+      W,
+      H,
+    );
     this.ambience.setHour(this.worldClock.hour);
 
     // Register + launch the Weather scene in parallel
@@ -216,12 +335,16 @@ export class TownScene extends Phaser.Scene {
     }
     this.scene.launch("WeatherScene", { townId: this.townId });
 
-    // Encounter conversations every 12-20s
-    this.encounterTimer = this.time.addEvent({
-      delay: 16000,
-      loop: true,
-      callback: () => this.tryEncounterConversation(),
-    });
+    // A live town gets local ambient encounters. A recorded replay is driven
+    // exclusively by its event feed, otherwise autonomous dialogue can leak
+    // across a backward seek and make the selected playhead nondeterministic.
+    if (!DEMO_MODE) {
+      this.encounterTimer = this.time.addEvent({
+        delay: 16000,
+        loop: true,
+        callback: () => this.tryEncounterConversation(),
+      });
+    }
 
     // If a player spawn was queued before scene activation, run it now.
     if (this.playerSpawnPending) {
@@ -261,7 +384,9 @@ export class TownScene extends Phaser.Scene {
     // Tick world clock and update sky tint when minute changes
     const prevMin = this.worldClock.minute;
     const prevHour = this.worldClock.hour;
-    this.worldClock.tick(delta);
+    // Replay time is authoritative event state. Live towns retain the ambient
+    // ticking clock between backend updates.
+    if (!DEMO_MODE) this.worldClock.tick(delta);
     if (this.worldClock.minute !== prevMin || this.worldClock.hour !== prevHour) {
       this.refreshSkyOverlay();
       this.tickRoutines();
@@ -271,8 +396,22 @@ export class TownScene extends Phaser.Scene {
       }
     }
 
-    // Y-based depth sort – characters "behind" others appear further back
-    this.agentSprites.forEach((s) => s.syncDepth());
+    // Y-based depth sort – characters "behind" others appear further back.
+    // A resident can walk out of the followed camera after speaking; retire
+    // that transient callout before it becomes a clipped, detached panel.
+    const view = this.cameras.main.worldView;
+    this.agentSprites.forEach((s) => {
+      s.syncDepth();
+      if (
+        s.getSpeechBubbleCount() > 0
+        && (
+          s.x < view.left + 22
+          || s.x > view.right - 22
+          || s.y < view.top + 16
+          || s.y > view.bottom - 8
+        )
+      ) s.clearSpeechBubbles();
+    });
     this.playerSprite?.updatePlayer(delta);
 
     // Player ↔ landmark collision
@@ -282,6 +421,16 @@ export class TownScene extends Phaser.Scene {
   }
 
   /* ── Agent Management (called from React / TownView) ──── */
+
+  /** Push authoritative scenario town data into an already-running scene.
+   *  Static demo builds use this because `/api/towns/:id` is unavailable;
+   *  live builds call the same path after their API fetch resolves. */
+  setTownData(data: TownData) {
+    if (!data?.landmarks?.length) return;
+    this.landmarks = data.landmarks.slice();
+    this.townDataResolved = true;
+    if (this.scene?.isActive?.()) this.rebuildLandmarks();
+  }
 
   addAgent(agent: AgentState & { routine?: RoutineEntry[] }) {
     if (this.agentSprites.has(agent.id)) return;
@@ -296,7 +445,7 @@ export class TownScene extends Phaser.Scene {
     const sx = spawn.x;
     const sy = spawn.y;
 
-    const custom = resolveAgentSprite(agent.id);
+    const custom = resolveAgentSprite(agent.id, this.scenarioId);
 
     const sprite = new AgentSprite(this, sx, sy, {
       id: agent.id,
@@ -306,16 +455,16 @@ export class TownScene extends Phaser.Scene {
       town: agent.town,
       opinionColor: this.opinionColor(agent.opinion?.candidate),
       spriteKey: custom.spriteKey,
+      customKey: custom.customKey,
       accessoryKey: custom.accessoryKey,
       tint: custom.tint,
-      // Couples render as a single body with a small companion-ring indicator
-      // inside the opinion ring (see AgentSprite.redrawRing). The previous
-      // side-by-side second body read as a "second figure" parked next to
-      // the agent.
+      // Couples render as a REAL second body (own spritesheet) that trails
+      // the lead with a delayed follow — see AgentSprite.updateCompanion.
       partner: custom.partner,
     });
 
     this.agentSprites.set(agent.id, sprite);
+    this.agentOpinions.set(agent.id, agent.opinion?.candidate ?? "");
 
     const record: AgentRecord = {
       sprite,
@@ -327,10 +476,64 @@ export class TownScene extends Phaser.Scene {
 
     // If a routine is supplied, the clock tick drives motion. Otherwise we
     // fall back to randomized wandering.
-    if (!record.routine) {
+    if (!record.routine && !DEMO_MODE) {
       const initDelay = Phaser.Math.Between(1500, 6000);
       this.time.delayedCall(initDelay, () => this.scheduleWander(agent.id));
     }
+  }
+
+  /** Reconcile the visible town to a reducer snapshot after a replay seek or
+   *  a live-history gap. This updates durable state without replaying old
+   *  speech, confetti, audio, or movement tweens. */
+  syncReplayState(
+    agents: AgentState[],
+    positions: Record<string, { location: string; x?: number; y?: number }>,
+    clock: { hour: number; minute: number },
+    weather: WeatherKind,
+  ) {
+    const wanted = new Set(agents.map((agent) => agent.id));
+    for (const [id, sprite] of this.agentSprites) {
+      if (sprite === this.playerSprite || wanted.has(id)) continue;
+      sprite.destroy();
+      this.agentSprites.delete(id);
+      this.agentRecords.delete(id);
+      this.agentOpinions.delete(id);
+    }
+
+    this.clearConversationSpotlight(true);
+    for (const agent of agents) {
+      this.addAgent(agent);
+      const sprite = this.agentSprites.get(agent.id);
+      if (!sprite) continue;
+
+      const recorded = positions[agent.id];
+      const precise = Number.isFinite(recorded?.x) && Number.isFinite(recorded?.y);
+      const landmark = this.landmarkPositions.get(recorded?.location ?? agent.location)
+        ?? this.wanderPoints[0]
+        ?? { x: 400, y: 400 };
+
+      // When an older event has no pixel coordinates, give each resident a
+      // stable offset around the landmark so repeated seeks never reshuffle or
+      // stack the whole roster. FNV-1a keeps this scenario-agnostic.
+      let hash = 2166136261;
+      for (let i = 0; i < agent.id.length; i++) {
+        hash ^= agent.id.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      const dx = ((hash & 0xff) / 255 - 0.5) * 54;
+      const dy = (((hash >>> 8) & 0xff) / 255 - 0.5) * 36;
+      const x = precise ? recorded.x! : landmark.x + dx;
+      const y = precise ? recorded.y! : landmark.y + dy;
+      const activity = agent.activity && agent.activity !== "walking"
+        ? agent.activity
+        : "idle";
+
+      sprite.syncReplayState(x, y, this.opinionColor(agent.opinion?.candidate), activity);
+      this.agentOpinions.set(agent.id, agent.opinion?.candidate ?? "");
+    }
+
+    this.setWorldTime(clock.hour, clock.minute, false);
+    this.setWeather(weather);
   }
 
   moveAgent(agentId: string, toLocation: string, x?: number, y?: number) {
@@ -351,11 +554,35 @@ export class TownScene extends Phaser.Scene {
   }
 
   showAgentSpeech(agentId: string, text: string, duration?: number) {
-    this.agentSprites.get(agentId)?.showSpeechBubble(text, duration);
+    const sprite = this.agentSprites.get(agentId);
+    if (!sprite) return;
+    // Off-camera dialogue remains available in Recent Activity. Avoid drawing
+    // a detached or clipped parchment callout when its resident is outside the
+    // safe camera area (the bubble tail deliberately stays anchored to them).
+    const view = this.cameras.main.worldView;
+    if (
+      sprite.x < view.left + 22
+      || sprite.x > view.right - 22
+      || sprite.y < view.top + 16
+      || sprite.y > view.bottom - 8
+    ) return;
+    // The activity rail retains every line. Cap simultaneous canvas callouts
+    // so fast replay remains legible instead of turning into a wall of paper.
+    // A resident's new line replaces their stale line. Keeping both makes a
+    // paced replay look like a stack of simultaneous dialogue even though the
+    // lines arrived sequentially.
+    if (sprite.getSpeechBubbleCount() > 0) sprite.clearSpeechBubbles();
+    const visible = [...this.agentSprites.values()]
+      .reduce((total, agent) => total + agent.getSpeechBubbleCount(), 0);
+    if (visible >= 2) return;
+    sprite.showSpeechBubble(text, duration);
   }
 
   updateAgentOpinion(agentId: string, candidate: string) {
-    this.agentSprites.get(agentId)?.setOpinionColor(this.opinionColor(candidate));
+    // Opinion events can represent confidence/reasoning shifts without a
+    // stance-color change; they still deserve the ballot/confetti beat.
+    this.agentOpinions.set(agentId, candidate);
+    this.agentSprites.get(agentId)?.setOpinionColor(this.opinionColor(candidate), true);
   }
 
   showAgentEmote(agentId: string, type: "reflecting" | "opinion_changed") {
@@ -366,7 +593,9 @@ export class TownScene extends Phaser.Scene {
     this.agentSprites.get(agentId)?.playGesture(gesture);
   }
 
-  /** Backend conversation_started → pair sprites face each other + go "talking". */
+  /** Backend conversation_started → pair sprites face each other + go
+   *  "talking", plus the conversation spotlight (vignette dim + gentle
+   *  camera ease + a spark between the talkers). */
   handleConversationStarted(conversation: { participants: string[] }) {
     if (!conversation || !Array.isArray(conversation.participants)) return;
     const sprites = conversation.participants
@@ -379,6 +608,7 @@ export class TownScene extends Phaser.Scene {
       me.faceToward(other.x, other.y);
       me.setActivity("talking");
     }
+    this.playConversationSpotlight(sprites[0], sprites[1]);
   }
 
   /** Backend conversation_ended → walk talkers back to idle. */
@@ -386,6 +616,100 @@ export class TownScene extends Phaser.Scene {
     this.agentSprites.forEach((s) => {
       if (s.getActivity() === "talking") s.setActivity("idle");
     });
+    this.clearConversationSpotlight();
+  }
+
+  /** Dim the scene ~8% behind a soft vignette, ease the camera toward the
+   *  pair, and pop a small square-spark between the talkers. */
+  private playConversationSpotlight(a: AgentSprite, b: AgentSprite) {
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2 - 30;
+
+    // Reduced-motion mode keeps the semantic talking state + bubbles, but
+    // omits the decorative spark, vignette and camera movement entirely.
+    if (reducedMotion()) {
+      this.clearConversationSpotlight();
+      return;
+    }
+
+    // A tiny square spark makes the conversational focal point legible.
+    const squareKey = ensureSquareTexture(this);
+    for (let i = 0; i < 4; i++) {
+      const spark = this.add.image(midX, midY, squareKey)
+        .setTint(0xffe6a8)
+        .setDepth(520)
+        .setAlpha(0);
+      const dx = (i % 2 === 0 ? -1 : 1) * (3 + i * 2);
+      this.tweens.add({
+        targets: spark,
+        alpha: { from: 0.95, to: 0 },
+        x: midX + dx,
+        y: midY - 8 - i * 3,
+        duration: 480 + i * 90,
+        delay: i * 60,
+        ease: "Stepped",
+        easeParams: [4],
+        onComplete: () => spark.destroy(),
+      });
+    }
+
+    // Vignette dim (~8% overall, heavier toward the edges).
+    if (!this.convoVignette) {
+      const W = Number(this.game.config.width);
+      const H = Number(this.game.config.height);
+      this.convoVignette = this.add.image(W / 2, H / 2, ensureVignetteTexture(this))
+        .setDisplaySize(W * 1.15, H * 1.15)
+        .setDepth(6002)
+        .setAlpha(0);
+    }
+    this.tweens.add({ targets: this.convoVignette, alpha: 0.5, duration: 420, ease: "Sine.easeOut" });
+    // Failsafe: never leave the town dimmed if conversation_ended is lost.
+    this.convoFailsafe?.remove(false);
+    this.convoFailsafe = this.time.delayedCall(12000, () => {
+      if (this.convoVignette) this.clearConversationSpotlight();
+    });
+
+    // Gentle camera ease to the pair — skipped while the follow-camera owns
+    // framing (a spawned player).
+    if (!this.playerSprite) {
+      const cam = this.cameras.main;
+      if (this.convoZoomBase === undefined) this.convoZoomBase = cam.zoom;
+      cam.pan(midX, midY, 520, "Sine.easeInOut");
+      cam.zoomTo(this.convoZoomBase * 1.09, 520, "Sine.easeInOut");
+    }
+  }
+
+  private clearConversationSpotlight(immediate = false) {
+    this.convoFailsafe?.remove(false);
+    this.convoFailsafe = undefined;
+    if (this.convoVignette) {
+      const v = this.convoVignette;
+      this.convoVignette = undefined;
+      if (immediate || reducedMotion()) {
+        v.destroy();
+      } else {
+        this.tweens.add({
+          targets: v,
+          alpha: 0,
+          duration: 380,
+          ease: "Sine.easeIn",
+          onComplete: () => v.destroy(),
+        });
+      }
+    }
+    if (!this.playerSprite && this.convoZoomBase !== undefined) {
+      const cam = this.cameras.main;
+      const W = Number(this.game.config.width);
+      const H = Number(this.game.config.height);
+      if (immediate || reducedMotion()) {
+        cam.setZoom(this.convoZoomBase);
+        cam.centerOn(W / 2, H / 2);
+      } else {
+        cam.zoomTo(this.convoZoomBase, 520, "Sine.easeInOut");
+        cam.pan(W / 2, H / 2, 520, "Sine.easeInOut");
+      }
+      this.convoZoomBase = undefined;
+    }
   }
 
   /** Cross-town gossip pulse — flash a "!" emote on the from-agent if present. */
@@ -402,50 +726,204 @@ export class TownScene extends Phaser.Scene {
   }
 
   /** Force the clock; called from WS world_clock_tick. */
-  setWorldTime(h: number, m: number) {
+  setWorldTime(h: number, m = 0, applyRoutines = true) {
     this.worldClock.setTime(h, m);
     this.refreshSkyOverlay();
-    this.tickRoutines();
+    if (applyRoutines && !DEMO_MODE) this.tickRoutines();
     this.ambience?.setHour(this.worldClock.hour);
   }
 
   /** Forward weather to the WeatherScene. */
   setWeather(w: WeatherKind) {
+    this.currentWeather = w;
     const ws = this.scene.get("WeatherScene") as any;
     if (ws && typeof ws.setWeather === "function") ws.setWeather(w);
   }
 
-  /** Camera beats — short, < 1.2s pan/zoom for narrative emphasis. */
-  playNewsBeat() {
+  /** Small, read-only diagnostic surface for capture tooling and regression
+   *  tests. It contains rendered state only; no scenario identities. */
+  getReplaySnapshot() {
+    return {
+      clock: { hour: this.worldClock.hour, minute: this.worldClock.minute },
+      weather: this.currentWeather,
+      agents: Object.fromEntries(
+        [...this.agentSprites.entries()]
+          .filter(([, sprite]) => sprite !== this.playerSprite)
+          .map(([id, sprite]) => [id, {
+            x: Math.round(sprite.x),
+            y: Math.round(sprite.y),
+            activity: sprite.getActivity(),
+            opinionColor: sprite.getOpinionColor(),
+            opinion: this.agentOpinions.get(id) ?? "",
+            speechBubbles: sprite.getSpeechBubbleCount(),
+          }]),
+      ),
+      conversationSpotlight: Boolean(this.convoVignette),
+    };
+  }
+
+  /** Install `window.__town` — the scriptable control surface used by the
+   *  capture pipeline (scripts/capture). See the doc block at the top. */
+  private installCaptureApi() {
+    const api = {
+      setWorldTime: (h: number, m = 0) => this.setWorldTime(h, m),
+      setWeather: (kind: WeatherKind) => this.setWeather(kind),
+      panTo: (x: number, y: number) => {
+        const cam = this.cameras.main;
+        if (!cam) return;
+        if (reducedMotion()) cam.centerOn(x, y);
+        else cam.pan(x, y, 600, "Sine.easeInOut");
+      },
+      triggerConversation: (agentA: string, agentB: string) => {
+        this.handleConversationStarted({ participants: [agentA, agentB] });
+        this.time.delayedCall(5200, () => this.handleConversationEnded("capture"));
+      },
+      triggerOpinionShift: (agentId: string, optionId: string) => {
+        this.updateAgentOpinion(agentId, optionId);
+        this.playOpinionShiftBeat(agentId);
+      },
+      triggerNews: (headline?: string) => this.playNewsBeat(headline),
+      snapshot: () => this.getReplaySnapshot(),
+      mapMode: () => this.builtMap ? "tilemap" as const : "procedural" as const,
+      /** List agent ids present in this town (capture scripts pick pairs). */
+      agents: () => [...this.agentSprites.entries()]
+        .filter(([, sprite]) => sprite !== this.playerSprite)
+        .map(([id]) => id),
+    };
+    (window as unknown as { __town?: typeof api }).__town = api;
+  }
+
+  /** Restore globals and remove stale window handles when the Phaser game is
+   *  destroyed or a town scene is restarted. */
+  private removeCaptureApi() {
+    if (this.randomBeforeCapture) {
+      Math.random = this.randomBeforeCapture;
+      this.randomBeforeCapture = undefined;
+    }
+    const hooks = window as unknown as {
+      __town?: unknown;
+      __townshipScene?: TownScene;
+    };
+    if (hooks.__townshipScene === this) {
+      delete hooks.__town;
+      delete hooks.__townshipScene;
+    }
+  }
+
+  /** News beat: a pixel newspaper drops at the plaza, nearby agents briefly
+   *  converge with "!" emotes, plus the short camera emphasis. */
+  playNewsBeat(_headline?: string) {
     const cam = this.cameras.main;
     if (!cam) return;
-    const top = { x: cam.midPoint.x, y: 80 };
-    cam.pan(top.x, top.y, 350, "Sine.easeInOut");
-    cam.zoomTo(cam.zoom * 1.15, 300, "Sine.easeInOut");
-    this.time.delayedCall(700, () => {
-      if (this.playerSprite) {
-        cam.pan(this.playerSprite.x, this.playerSprite.y, 400, "Sine.easeInOut");
+    const baseCenter = { x: cam.midPoint.x, y: cam.midPoint.y };
+
+    // Where the paper lands: prefer a plaza-ish label anchor, then any
+    // label anchor, then the town centre.
+    let spot = { x: 600, y: 400 };
+    let best: { x: number; y: number } | undefined;
+    for (const [name, pos] of this.mapLabels) {
+      if (/plaza|green|square|commons|park|hall/i.test(name)) { best = pos; break; }
+      best = best ?? pos;
+    }
+    if (best) spot = { x: best.x, y: best.y + 24 };
+    const land = this.findFreeNear(spot.x, spot.y);
+
+    const motionOk = !reducedMotion();
+
+    // The paper: falls from the sky with a stepped drop + landing squash.
+    const paper = this.add.image(land.x, motionOk ? land.y - 130 : land.y, ensureNewspaperTexture(this))
+      .setScale(2)
+      .setDepth(100 + land.y)
+      .setAlpha(motionOk ? 0.0 : 1);
+    const settle = () => {
+      // Landing squash + a puff of two dust squares.
+      if (motionOk) {
+        this.tweens.add({
+          targets: paper, scaleX: 2.5, scaleY: 1.5, duration: 90, yoyo: true, ease: "Quad.easeOut",
+        });
+        const squareKey = ensureSquareTexture(this);
+        for (const dx of [-8, 8]) {
+          const dust = this.add.image(land.x + dx, land.y + 2, squareKey)
+            .setTint(0xcfc7b0).setAlpha(0.8).setDepth(100 + land.y);
+          this.tweens.add({
+            targets: dust, x: land.x + dx * 2, alpha: 0, duration: 300,
+            ease: "Quad.easeOut", onComplete: () => dust.destroy(),
+          });
+        }
       }
-      cam.zoomTo(cam.zoom / 1.15, 400, "Sine.easeInOut");
+      // Nearby agents react; only motion-enabled scenes converge physically.
+      let converged = 0;
+      this.agentSprites.forEach((s) => {
+        if (s === this.playerSprite || converged >= 4) return;
+        const d = Phaser.Math.Distance.Between(s.x, s.y, land.x, land.y);
+        if (d > 190 || d < 30) return;
+        converged++;
+        const t = this.findFreeNear(
+          land.x + Phaser.Math.Between(-34, 34),
+          land.y + Phaser.Math.Between(16, 40),
+        );
+        s.showEmote("surprise");
+        if (motionOk) {
+          this.time.delayedCall(220 + converged * 160, () => s.moveToPosition(t.x, t.y));
+        }
+      });
+    };
+    if (motionOk) {
+      this.tweens.add({
+        targets: paper,
+        y: land.y,
+        alpha: 1,
+        duration: 620,
+        ease: "Stepped",
+        easeParams: [7],
+        onComplete: settle,
+      });
+    } else {
+      settle();
+    }
+    // The paper lingers, then fades.
+    this.time.delayedCall(7000, () => {
+      if (motionOk) {
+        this.tweens.add({ targets: paper, alpha: 0, duration: 700, onComplete: () => paper.destroy() });
+      } else {
+        paper.destroy();
+      }
     });
+
+    // Camera emphasis (existing beat).
+    if (motionOk) {
+      const baseZoom = cam.zoom;
+      cam.pan(land.x, land.y, 350, "Sine.easeInOut");
+      cam.zoomTo(baseZoom * 1.15, 300, "Sine.easeInOut");
+      this.time.delayedCall(900, () => {
+        if (this.playerSprite) {
+          cam.pan(this.playerSprite.x, this.playerSprite.y, 400, "Sine.easeInOut");
+        } else {
+          cam.pan(baseCenter.x, baseCenter.y, 400, "Sine.easeInOut");
+        }
+        cam.zoomTo(baseZoom, 400, "Sine.easeInOut");
+      });
+    }
   }
 
   playOpinionShiftBeat(agentId: string) {
     const cam = this.cameras.main;
     const sprite = this.agentSprites.get(agentId);
-    if (!cam || !sprite) return;
+    if (!cam || !sprite || reducedMotion()) return;
     const z = cam.zoom;
+    const baseCenter = { x: cam.midPoint.x, y: cam.midPoint.y };
     cam.pan(sprite.x, sprite.y, 280, "Sine.easeInOut");
     cam.zoomTo(z * 1.2, 240, "Sine.easeInOut");
     this.time.delayedCall(600, () => {
       cam.zoomTo(z, 380, "Sine.easeInOut");
       if (this.playerSprite) cam.pan(this.playerSprite.x, this.playerSprite.y, 380, "Sine.easeInOut");
+      else cam.pan(baseCenter.x, baseCenter.y, 380, "Sine.easeInOut");
     });
   }
 
   playSimEndBeat() {
     const cam = this.cameras.main;
-    if (!cam) return;
+    if (!cam || reducedMotion()) return;
     const z = cam.zoom;
     cam.zoomTo(z * 0.7, 800, "Sine.easeInOut");
     this.time.delayedCall(1000, () => cam.zoomTo(z, 700, "Sine.easeInOut"));
@@ -519,13 +997,14 @@ export class TownScene extends Phaser.Scene {
     this.agentSprites.forEach((s) => s.destroy());
     this.agentSprites.clear();
     this.agentRecords.clear();
+    this.agentOpinions.clear();
   }
 
   /* ── Player Management ──────────────────────────────────── */
 
   addPlayer(profile: UserProfile) {
     if (this.playerSprite) return; // already spawned
-    if (!this.scene.isActive()) {
+    if (!this.scene?.isActive?.()) {
       // Queue until create() runs.
       this.playerSpawnPending = profile;
       return;
@@ -559,6 +1038,9 @@ export class TownScene extends Phaser.Scene {
       town: profile.town,
       spriteKey,
     });
+    // Automated product captures need stable composition; pausing player
+    // input also prevents proximity dwell from opening a random chat panel.
+    if (this.captureMode) this.playerSprite.inputEnabled = false;
 
     // Register in agentSprites so depth sorting includes the player
     this.agentSprites.set(profile.agentId, this.playerSprite);
@@ -624,7 +1106,7 @@ export class TownScene extends Phaser.Scene {
 
   private scheduleWander(agentId: string) {
     const sprite = this.agentSprites.get(agentId);
-    if (!sprite || !this.scene.isActive()) return;
+    if (!sprite || !this.scene?.isActive?.()) return;
 
     const idleDelay = Phaser.Math.Between(4000, 13000);
     this.time.delayedCall(idleDelay, () => {
@@ -635,7 +1117,9 @@ export class TownScene extends Phaser.Scene {
       sp.moveToPosition(target.x, target.y, () => {
         // Occasionally show an idle thought after arriving.
         // Prefer the agent's own bank (from agent.idle_thoughts) over generic.
-        if (Math.random() < 0.28) {
+        const visibleBubbles = [...this.agentSprites.values()]
+          .reduce((total, agent) => total + agent.getSpeechBubbleCount(), 0);
+        if (Math.random() < 0.28 && visibleBubbles < 2) {
           const rec = this.agentRecords.get(agentId);
           const bank = rec?.idleThoughts && rec.idleThoughts.length > 0
             ? rec.idleThoughts
@@ -723,8 +1207,13 @@ export class TownScene extends Phaser.Scene {
       { name: "up",    start: 9, end: 11, idle: 10 },
     ];
 
-    for (const charName of this.characterKeys) {
-      const key = `char-${charName}`;
+    // Base bodies + baked palette-swap sheets all need walk/idle anims
+    // (accessory overlays are frame-synced, not independently animated).
+    const bodyKeys = [
+      ...[...this.characterKeys].map((n) => `char-${n}`),
+      ...Object.keys(ALL_CUSTOM_SHEETS),
+    ];
+    for (const key of bodyKeys) {
       if (!this.textures.exists(key)) continue;
 
       for (const d of dirs) {
@@ -897,55 +1386,6 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  /* ── Generate outfit + accessory overlay textures ──────────── */
-
-  /**
-   * Build 96×128 (3×4 grid of 32×32 cells) textures for head-only accessory
-   * overlays (kippah / hijab / cap). These hug the silhouette so they read
-   * as part of the figure. Outfit overlays (chest patches) were removed —
-   * the previous flat-rect approach drew a ~31×20 px solid block on top of
-   * each body and read as a floating shape besides the figure.
-   */
-  private generateOverlayTextures() {
-    const accessories: Record<string, (g: Phaser.GameObjects.Graphics, cx: number, cy: number) => void> = {
-      "accessory-kippah": (g, cx, cy) => {
-        // Small dark cap on crown of head
-        g.fillStyle(0x222244, 0.92);
-        g.fillEllipse(cx, cy - 26, 9, 3);
-      },
-      "accessory-hijab": (g, cx, cy) => {
-        // Colored arc covering the head
-        g.fillStyle(0x6a4a6a, 0.92);
-        g.fillEllipse(cx, cy - 24, 18, 13);
-        g.fillStyle(0x6a4a6a, 0.92);
-        g.fillRect(cx - 7, cy - 22, 14, 8);
-      },
-      "accessory-cap": (g, cx, cy) => {
-        // Baseball cap visor + crown
-        g.fillStyle(0x4a5a4a, 1);
-        g.fillEllipse(cx, cy - 25, 14, 6);
-        g.fillRect(cx - 6, cy - 24, 12, 4);
-        // Visor
-        g.fillStyle(0x222222, 1);
-        g.fillRect(cx - 8, cy - 22, 8, 2);
-      },
-    };
-    for (const [key, draw] of Object.entries(accessories)) {
-      if (this.textures.exists(key)) continue;
-      const g = this.add.graphics();
-      g.setVisible(false);
-      for (let row = 0; row < 4; row++) {
-        for (let col = 0; col < 3; col++) {
-          const cx = col * 32 + 16;
-          const cy = row * 32 + 32;
-          draw(g, cx, cy);
-        }
-      }
-      g.generateTexture(key, 96, 128);
-      g.destroy();
-    }
-  }
-
   /* ── Tilemap / Landmark layout ─────────────────────────── */
 
   /**
@@ -961,6 +1401,7 @@ export class TownScene extends Phaser.Scene {
     const mapKey = townMapKey(this.townId);
     if (!this.cache.tilemap.has(mapKey)) {
       console.warn(`[TownScene] tilemap missing for town "${this.townId}"`);
+      this.buildFallbackTown(W, H);
       return;
     }
 
@@ -970,7 +1411,10 @@ export class TownScene extends Phaser.Scene {
       const ts = map.addTilesetImage(name, name);
       if (ts) tilesets.push(ts);
     }
-    if (tilesets.length === 0) return;
+    if (tilesets.length === 0) {
+      this.buildFallbackTown(W, H);
+      return;
+    }
 
     const layerDepths: Array<[string, number]> = [
       ["ground", 0],
@@ -1025,6 +1469,207 @@ export class TownScene extends Phaser.Scene {
       }
       this.mapAnchors.push({ kind, x, y, stamp: props.stamp });
     }
+
+    this.builtMap = map;
+  }
+
+  /**
+   * Draw a small, legible pixel-town directly from scenario landmark data.
+   * This is the first-run path for newly scaffolded scenarios: map art is an
+   * optional enhancement, never a prerequisite for a usable simulation.
+   */
+  private buildFallbackTown(W: number, H: number) {
+    this.fallbackWorld?.destroy(true);
+    this.fallbackWorld = this.add.container(0, 0).setDepth(-5);
+    this.builtMap = undefined;
+    this.mapAnchors = [];
+    this.mapLabels.clear();
+
+    this.collisionGroup?.clear(true, true);
+    this.collisionRects = [];
+    this.collisionGroup = this.physics.add.staticGroup();
+
+    const ink = 0x4b3b2b;
+    const background = Phaser.Display.Color.HexStringToColor(townBgColor(this.townId)).color;
+    const accent = Phaser.Display.Color.HexStringToColor(townAccent(this.townId)).color;
+    const ground = this.add.graphics();
+    ground.fillStyle(background, 1);
+    ground.fillRect(0, 0, W, H);
+    // A quiet checker texture keeps the generated world from reading as a
+    // placeholder while remaining neutral across scenario subject matter.
+    for (let y = 0; y < H; y += 32) {
+      for (let x = (y / 32) % 2 === 0 ? 0 : 32; x < W; x += 64) {
+        ground.fillStyle(0xffffff, 0.035);
+        ground.fillRect(x, y, 32, 32);
+      }
+    }
+    this.fallbackWorld.add(ground);
+
+    const ordered = [...this.landmarks].sort((a, b) => {
+      const priority = (item: LandmarkData) => {
+        const type = item.type.toLowerCase();
+        if (type.includes("road") || type.includes("street") || type.includes("path")) return 0;
+        if (type.includes("water") || type.includes("river") || type.includes("lake")) return 1;
+        if (type.includes("park") || type.includes("green")) return 2;
+        return 3;
+      };
+      return priority(a) - priority(b);
+    });
+
+    for (const landmark of ordered) {
+      const type = landmark.type.toLowerCase();
+      const x = Phaser.Math.Clamp(landmark.x, 12, W - 12);
+      const y = Phaser.Math.Clamp(landmark.y, 12, H - 12);
+      const width = Phaser.Math.Clamp(landmark.width, 18, W - x - 8);
+      const height = Phaser.Math.Clamp(landmark.height, 16, H - y - 8);
+      const authored = landmark.color
+        ? Phaser.Display.Color.HexStringToColor(landmark.color).color
+        : accent;
+      const shape = this.add.graphics();
+
+      if (type.includes("road") || type.includes("street") || type.includes("path")) {
+        shape.fillStyle(0x9d8467, 0.92);
+        shape.fillRoundedRect(x, y, width, height, Math.min(8, height / 3));
+        shape.lineStyle(2, 0xf1d39b, 0.62);
+        if (width >= height) {
+          for (let dx = x + 20; dx < x + width - 8; dx += 42) {
+            shape.lineBetween(dx, y + height / 2, Math.min(dx + 20, x + width), y + height / 2);
+          }
+        } else {
+          for (let dy = y + 20; dy < y + height - 8; dy += 42) {
+            shape.lineBetween(x + width / 2, dy, x + width / 2, Math.min(dy + 20, y + height));
+          }
+        }
+      } else if (type.includes("water") || type.includes("river") || type.includes("lake")) {
+        shape.fillStyle(0x79aeb2, 0.92);
+        shape.fillRoundedRect(x, y, width, height, 12);
+        shape.lineStyle(2, 0xc5e7df, 0.68);
+        for (let dy = y + 12; dy < y + height; dy += 18) {
+          shape.lineBetween(x + 12, dy, x + Math.max(14, width - 12), dy);
+        }
+      } else if (type.includes("park") || type.includes("green") || type.includes("garden")) {
+        shape.fillStyle(authored, 0.62);
+        shape.fillRoundedRect(x, y, width, height, 10);
+        shape.lineStyle(2, 0xeff1c7, 0.55);
+        shape.strokeRoundedRect(x + 4, y + 4, Math.max(8, width - 8), Math.max(8, height - 8), 8);
+        // Pixel-tree clusters at opposite corners.
+        for (const [tx, ty] of [[x + 18, y + 18], [x + width - 18, y + height - 18]]) {
+          shape.fillStyle(0x765238, 1);
+          shape.fillRect(tx - 2, ty + 3, 4, 10);
+          shape.fillStyle(0x4f855b, 1);
+          shape.fillCircle(tx, ty, 10);
+          shape.fillStyle(0x78a96f, 1);
+          shape.fillCircle(tx - 4, ty - 4, 6);
+        }
+      } else {
+        const roofHeight = Math.min(30, Math.max(12, height * 0.28));
+        const wallY = y + roofHeight * 0.65;
+        const wallHeight = Math.max(12, height - roofHeight * 0.65);
+        shape.fillStyle(0x3a2d22, 0.2);
+        shape.fillRoundedRect(x + 5, wallY + 7, width, wallHeight, 4);
+        shape.fillStyle(authored, 0.82);
+        shape.fillRoundedRect(x, wallY, width, wallHeight, 4);
+        shape.fillStyle(Phaser.Display.Color.IntegerToColor(authored).darken(22).color, 1);
+        shape.fillTriangle(x - 5, wallY + 3, x + width / 2, y, x + width + 5, wallY + 3);
+        // A door and paired warm windows make every landmark readable at a
+        // glance, even when its scenario only supplies a type and rectangle.
+        const doorWidth = Math.min(16, width * 0.18);
+        shape.fillStyle(ink, 0.86);
+        shape.fillRect(x + width / 2 - doorWidth / 2, y + height - 24, doorWidth, 24);
+        shape.fillStyle(0xffe0a0, 0.88);
+        if (width > 48) {
+          shape.fillRect(x + 11, wallY + 14, 13, 11);
+          shape.fillRect(x + width - 24, wallY + 14, 13, 11);
+        }
+
+        const rect = { x, y: wallY, w: width, h: wallHeight };
+        this.collisionRects.push(rect);
+        const zone = this.add.zone(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h);
+        this.physics.add.existing(zone, true);
+        this.collisionGroup.add(zone);
+      }
+      this.fallbackWorld.add(shape);
+
+      if (!(type.includes("road") || type.includes("street") || type.includes("path"))) {
+        const label = this.add.text(x + width / 2, y + height + 5, landmark.name, {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "11px",
+          color: "#3f3226",
+          backgroundColor: "rgba(255,250,238,0.88)",
+          padding: { x: 5, y: 2 },
+          resolution: 2,
+        }).setOrigin(0.5, 0).setDepth(4);
+        this.fallbackWorld.add(label);
+        this.mapLabels.set(landmark.name, { x: x + width / 2, y: y + height + 5 });
+      }
+    }
+
+    // A simple civic-square seal gives sparse packages a deliberate center.
+    const seal = this.add.graphics();
+    seal.lineStyle(3, accent, 0.4);
+    seal.strokeCircle(W / 2, H / 2, 44);
+    seal.lineStyle(1, accent, 0.24);
+    seal.strokeCircle(W / 2, H / 2, 36);
+    this.fallbackWorld.add(seal);
+  }
+
+  /**
+   * Scan buildings-base for window tiles (GID list generated from the
+   * mapgen registry — scripts/mapgen/export_window_gids.py) and cover each
+   * with a warm additive pane + soft halo. Their alpha is driven from
+   * refreshSkyOverlay() so they ignite through dusk and die at dawn.
+   * Depth 6001 puts them above the sky tint (6000) — like the lamp glows,
+   * they pierce the dark.
+   */
+  private buildWindowGlows() {
+    this.windowGlows = [];
+    const layer = this.builtMap?.getLayer("buildings-base")?.tilemapLayer;
+    if (!layer) return;
+    const tileSize: number = windowGids.tileSize;
+    const glowKey = ensureWindowGlowTexture(this);
+    type WindowSpec = {
+      topLeftGid: number;
+      w: number;
+      h: number;
+      panes: Array<{ x: number; y: number; w: number; h: number }>;
+    };
+    const place = (quads: WindowSpec[], paneMax: number, haloMax: number) => {
+      for (const q of quads) {
+        layer.forEachTile((tile) => {
+          if (tile.index !== q.topLeftGid) return;
+          const wpx = q.w * tileSize;
+          const hpx = q.h * tileSize;
+          const x = tile.pixelX;
+          const y = tile.pixelY;
+          // The generated metadata traces the actual glass silhouette. This
+          // matters because the modern sash has tall panes while the teal
+          // facade stamp has two tiny clerestory panes above a dark opening.
+          for (const p of q.panes) {
+            const pane = this.add.rectangle(
+              x + p.x,
+              y + p.y,
+              p.w,
+              p.h,
+              0xffc873,
+            )
+              .setOrigin(0, 0)
+              .setBlendMode(Phaser.BlendModes.ADD)
+              .setDepth(6001)
+              .setAlpha(0);
+            this.windowGlows.push({ obj: pane, max: paneMax });
+          }
+          // Soft spill halo around it.
+          const halo = this.add.image(x + wpx / 2, y + hpx / 2, glowKey)
+            .setDisplaySize(wpx * 3.4, hpx * 3.4)
+            .setBlendMode(Phaser.BlendModes.ADD)
+            .setDepth(6001)
+            .setAlpha(0);
+          this.windowGlows.push({ obj: halo, max: haloMax });
+        });
+      }
+    };
+    place(windowGids.windows, 0.38, 0.34);
+    this.refreshSkyOverlay();
   }
 
   /**
@@ -1044,11 +1689,13 @@ export class TownScene extends Phaser.Scene {
     cam.centerOn(W / 2, H / 2);
   }
 
-  /** Recompute landmark positions + wander waypoints from this.landmarks.
-   *  The visual world is the tilemap now — nothing is drawn here. */
+  /** Recompute landmark positions + wander waypoints from this.landmarks. */
   private rebuildLandmarks() {
     this.landmarkPositions.clear();
     this.wanderPoints = [];
+    if (!this.builtMap) {
+      this.buildFallbackTown(Number(this.game.config.width), Number(this.game.config.height));
+    }
     this.layoutLandmarksAndDecor();
   }
 
@@ -1107,13 +1754,24 @@ export class TownScene extends Phaser.Scene {
 
   private refreshSkyOverlay() {
     if (!this.skyOverlay) return;
-    const tint = WorldClock.computeDayNightTint(this.worldClock.fractionalHour());
+    const h = this.worldClock.fractionalHour();
+    const tint = WorldClock.computeDayNightTint(h);
     this.skyOverlay.setFillStyle(tint.color, tint.alpha);
+
+    // Window ignition curve: dark → lit across dusk (17:00-19:30), lit all
+    // night, fading out across dawn (5:00-7:00). Minute-level clock steps
+    // make the ramp read as a continuous fade.
+    let g = 0;
+    if (h >= 17 && h < 19.5) g = (h - 17) / 2.5;
+    else if (h >= 19.5 || h < 5) g = 1;
+    else if (h >= 5 && h < 7) g = 1 - (h - 5) / 2;
+    for (const w of this.windowGlows) w.obj.setAlpha(w.max * g);
   }
 
   /* ── Per-town flavor — papel-picado, ducks, dogs, leaves ── */
 
   private addTownFlavor(town: TownId) {
+    if (this.scenarioId !== "nj11-2026") return;
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
     switch (town) {
@@ -1128,6 +1786,10 @@ export class TownScene extends Phaser.Scene {
     // NOTE: the papel-picado bunting (strung between two random landmark
     // roofs) was dropped with the move to real tilemaps — over baked pixel
     // buildings the unstrung triangles read as floating confetti.
+
+    // Reduced motion keeps the map, residents, and authored tile details but
+    // omits all continuously scheduled decorative motion.
+    if (this.reducedMotionRequested || reducedMotion()) return;
 
     // Salsa music notes ♪ near "Bodega Row"
     const bodega = this.landmarkPositions.get("Bodega Row") ?? this.landmarkPositions.get("La Finca Restaurant");
@@ -1156,10 +1818,12 @@ export class TownScene extends Phaser.Scene {
 
   private addMontclairFlavor(W: number, H: number) {
     // Falling sugar maple leaves — saturated reds & oranges
-    this.time.addEvent({
-      delay: 1100, loop: true,
-      callback: () => this.spawnLeaf(W, H, [0xb9302a, 0xe25e3b, 0xd8a14a, 0xa84c6c]),
-    });
+    if (!(this.reducedMotionRequested || reducedMotion())) {
+      this.time.addEvent({
+        delay: 1100, loop: true,
+        callback: () => this.spawnLeaf(W, H, [0xb9302a, 0xe25e3b, 0xd8a14a, 0xa84c6c]),
+      });
+    }
 
     // Pride / HHNHHF lawn signs near Town Hall
     const hall = this.landmarkPositions.get("Town Hall");
@@ -1179,6 +1843,8 @@ export class TownScene extends Phaser.Scene {
   }
 
   private addParsippanyFlavor(W: number, H: number) {
+    if (this.reducedMotionRequested || reducedMotion()) return;
+
     // Duck flies across Lake Parsippany every 30s
     const lake = this.landmarkPositions.get("Lake Parsippany");
     if (lake) {
@@ -1217,6 +1883,8 @@ export class TownScene extends Phaser.Scene {
   }
 
   private addRandolphFlavor(W: number, H: number) {
+    if (this.reducedMotionRequested || reducedMotion()) return;
+
     // Two golden retrievers chasing each other in Hedden Park
     const park = this.landmarkPositions.get("Hedden Park") ?? this.landmarks.find((l) => l.type === "park");
     if (park) {
@@ -1297,7 +1965,7 @@ export class TownScene extends Phaser.Scene {
     return name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
   }
 
-  /** Scenario option colors injected from React (non-NJ-11 scenarios). */
+  /** Scenario option colors injected from React. */
   private optionColors: Record<string, string> = {};
 
   /** Inject the active scenario's option→color map (see TownView). */
@@ -1307,12 +1975,7 @@ export class TownScene extends Phaser.Scene {
 
   private opinionColor(candidate?: string): string {
     if (candidate && this.optionColors[candidate]) return this.optionColors[candidate];
-    switch (candidate) {
-      case "mejia":    return "#3B82F6";
-      case "hathaway": return "#EF4444";
-      case "bond":     return "#9CA3AF";
-      default:         return "#FFFFFF";
-    }
+    return "#FFFFFF";
   }
 }
 

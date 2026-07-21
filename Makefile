@@ -10,9 +10,14 @@
 SHELL := /bin/bash
 
 PORT   ?= 8001
+UV     := $(shell command -v uv 2>/dev/null)
+ifeq ($(strip $(UV)),)
 PYTHON ?= python3
+else
+PYTHON ?= $(UV) run --locked --extra dev python
+endif
 
-.PHONY: help install dev dev-backend dev-frontend test lint format build demo demo-build demo-preview sim docker
+.PHONY: help install dev dev-backend dev-frontend test test-e2e lint format build demo demo-build demo-preview capture-setup capture-media sim docker
 
 help: ## Show this help
 	@printf "\n  \033[1mTownship\033[0m — AI residents deliberating in a living pixel town\n\n"
@@ -21,8 +26,12 @@ help: ## Show this help
 	@printf "\n  Variables: PORT=%s (backend port), PYTHON=%s\n\n" "$(PORT)" "$(PYTHON)"
 
 install: ## Install backend (editable, with dev extras) + frontend deps
-	$(PYTHON) -m pip install -e ".[dev]"
-	cd frontend && npm install
+	@if command -v uv >/dev/null 2>&1; then \
+		uv sync --locked --extra dev; \
+	else \
+		$(PYTHON) -m pip install -e ".[dev]"; \
+	fi
+	cd frontend && npm ci
 
 dev: ## Run backend (:8001) + frontend (:5173) together; Ctrl-C stops both
 	@trap 'kill 0' INT TERM; \
@@ -38,7 +47,11 @@ dev-frontend: ## Frontend only: Vite dev server on :5173 (proxies /api + /ws)
 
 test: ## Run backend tests (no API keys needed) + frontend type-check
 	$(PYTHON) -m pytest -q
+	cd frontend && npm run test:scripts
 	cd frontend && npx tsc --noEmit
+
+test-e2e: ## Run the zero-backend Chromium, mobile, and WCAG browser suite
+	cd frontend && npm run test:e2e
 
 lint: ## Ruff lint over backend + tests
 	$(PYTHON) -m ruff check backend tests
@@ -50,14 +63,9 @@ format: ## Auto-format and fix lint findings in backend + tests
 build: ## Production frontend build → frontend/dist
 	cd frontend && npm run build
 
-demo: ## Zero-key demo: mock LLM provider; serves frontend/dist when built
+demo: build ## Zero-key local app: build the UI, then serve it with the deterministic mock
 	@echo "Township demo — MockProvider, no API keys required."
-	@if [ -d frontend/dist ]; then \
-		echo "Built frontend found — open http://localhost:$(PORT) once the server is up."; \
-	else \
-		echo "No frontend/dist yet — run 'make build' first to get the full UI"; \
-		echo "(the API still works: http://localhost:$(PORT))."; \
-	fi
+	@echo "Open http://localhost:$(PORT) once the server is up."
 	LLM_PROVIDER=mock $(PYTHON) -m uvicorn backend.main:app --port $(PORT)
 
 demo-build: ## Build the zero-backend demo player (stages scenarios/*/demo caches) → frontend/dist-demo
@@ -65,6 +73,12 @@ demo-build: ## Build the zero-backend demo player (stages scenarios/*/demo cache
 
 demo-preview: ## Serve the built demo player locally (run 'make demo-build' first)
 	cd frontend && npm run demo:preview
+
+capture-setup: ## Install Playwright Chromium for automated product captures
+	cd frontend && npx playwright install chromium
+
+capture-media: demo-build ## Regenerate README hero, product stills, mobile proof, and social card
+	node scripts/capture/capture.mjs
 
 sim: ## Start a full simulation on the running backend (TOWN=dover for one town)
 	@curl -sf -o /dev/null http://localhost:$(PORT)/ || { \

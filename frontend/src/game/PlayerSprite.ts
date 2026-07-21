@@ -270,6 +270,10 @@ export class PlayerSprite extends AgentSprite {
   }
 
   private showInteractPrompt() {
+    // Phones already support tapping a resident to open chat. An E-key chip
+    // has no useful input contract there and competes with the HUD, mini-map,
+    // and proximity card for a very small canvas.
+    if (this.scene.scale.width <= 600) return;
     if (this.promptVisible) return;
     this.promptVisible = true;
     this.interactPrompt.setVisible(true);
@@ -583,4 +587,3 @@ export class PlayerSprite extends AgentSprite {
     super.destroy(fromScene);
   }
 }
-

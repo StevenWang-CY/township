@@ -31,7 +31,7 @@
     {
       "issue": "Israel/Gaza",
       "stance": "Called Netanyahu a war criminal. Condition aid on human rights.",
-      "quote": "Called Netanyahu a war criminal"
+      "reported_phrase": "Called Netanyahu a war criminal"
     },
     {
       "issue": "One Big Beautiful Bill",
@@ -61,7 +61,7 @@
   "debate_performance": {
     "date": "2026-04-01",
     "format": "Virtual, hosted by NJ Globe + Rider University's Rebovich Institute",
-    "key_quotes": [
+    "reported_moments": [
       "Called Hathaway a 'wolf in sheep's clothing'",
       "Called Hathaway a 'rubber stamp for Trump'"
     ],

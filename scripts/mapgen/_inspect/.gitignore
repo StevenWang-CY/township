@@ -1,0 +1,5 @@
+# Ephemeral raw-sheet slices emitted by inspect_tiles.py. Keep the curated
+# registry/modern acceptance sheets tracked; regenerate these local crops when
+# investigating a tile.
+crop_*.png
+rows_*.png

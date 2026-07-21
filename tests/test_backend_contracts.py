@@ -13,12 +13,19 @@ Every test here asserts a fix that was NOT true before this audit pass:
 import asyncio
 
 from conftest import FakeClient, load_nj11_scenario
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from backend.core.event_bus import EventBus
 from backend.core.types import DistrictSummary, TownSummary
-from backend.core.wire import agent_state_to_wire, district_summary_to_wire, town_summary_to_wire
+from backend.core.wire import (
+    agent_state_to_wire,
+    district_summary_to_wire,
+    opinion_to_wire,
+    town_summary_to_wire,
+)
 from backend.main import app
+from backend.routes.chat import _trust_band
+from backend.routes.player_state import PLAYER_CAPABILITY_HEADER
 from backend.simulation.orchestrator import SimulationOrchestrator
 
 
@@ -28,6 +35,9 @@ def _first_agent_id() -> str:
         if town_agents:
             return town_agents[0].agent_id
     raise RuntimeError("no agents loaded")
+
+
+_PLAYER_HEADERS = {PLAYER_CAPABILITY_HEADER: "A" * 43}
 
 
 # ── Route behaviour ────────────────────────────────────────────
@@ -49,7 +59,8 @@ def test_chat_llm_error_returns_503():
     try:
         with TestClient(app) as c:
             r = c.post(f"/api/chat/{agent_id}",
-                       json={"message": "How's business?", "user_id": "t"})
+                       json={"message": "How's business?", "user_id": "t"},
+                       headers=_PLAYER_HEADERS)
         assert r.status_code == 503
         assert r.json().get("error") == "llm_unavailable"
     finally:
@@ -57,7 +68,7 @@ def test_chat_llm_error_returns_503():
         app.state.orchestrator.client = orig
 
 
-def test_chat_success_returns_full_opinion_and_trust():
+def test_chat_success_returns_trust_without_mutating_public_opinion():
     agent_id = _first_agent_id()
     agent = app.state.orchestrator.get_agent_state(agent_id)
     snapshot = list(agent.opinions)  # restore afterward (test mutates state)
@@ -75,19 +86,45 @@ def test_chat_success_returns_full_opinion_and_trust():
                     "user_profile": {"name": "Sam", "town": "dover",
                                      "top_concerns": ["healthcare"]},
                 },
+                headers=_PLAYER_HEADERS,
             )
         assert r.status_code == 200
         data = r.json()
         assert data["response"]
         assert "trust" in data and "opinion_changed" in data
-        # The fake FormOpinion shifts an un-formed agent to a real stance,
-        # so the response opinion is the full wire shape (not the hand-built 4-field dict).
-        assert data["opinion"] is not None
-        assert data["opinion"]["candidate"] == "mejia"
-        assert "round_number" in data["opinion"]  # full opinion_to_wire shape
-        assert data["opinion_changed"] is True
+        assert data["relationship"]["trust"] == 4
+        assert data["opinion"] == opinion_to_wire(agent.current_opinion)
+        assert data["opinion_changed"] is False
+        assert agent.opinions == snapshot
     finally:
         agent.opinions = snapshot
+        app.state.anthropic_client = orig
+        app.state.orchestrator.client = orig
+
+
+def test_auto_chat_first_provider_failure_is_generic_and_not_forwarded():
+    agent_id = _first_agent_id()
+    orig = app.state.anthropic_client
+    fake = FakeClient(mode="error")
+    app.state.anthropic_client = fake
+    app.state.orchestrator.client = fake
+    try:
+        with TestClient(app) as c:
+            response = c.post(
+                f"/api/chat/auto/{agent_id}",
+                json={
+                    "user_profile": {"name": "Sam", "top_concerns": ["schools"]},
+                    "conversation_history": [],
+                },
+            )
+        assert response.status_code == 503
+        assert response.json() == {
+            "error": "llm_unavailable",
+            "message": "Could not continue this conversation right now.",
+        }
+        assert "simulated outage" not in response.text
+        assert len(fake.calls) == 1
+    finally:
         app.state.anthropic_client = orig
         app.state.orchestrator.client = orig
 
@@ -143,6 +180,14 @@ def test_agent_wire_includes_living_world_fields():
     # reach the wire (this is the fix that revives the living-world feature).
     assert len(wire["idle_thoughts"]) > 0
     assert len(wire["routine"]) > 0
+
+
+def test_trust_band_boundaries_match_frontend_contract():
+    assert _trust_band(-31) == "hostile"
+    assert _trust_band(-30) == "guarded"
+    assert _trust_band(0) == "warming"
+    assert _trust_band(50) == "warming"
+    assert _trust_band(51) == "friend"
 
 
 def test_summaries_expose_failed_agents():

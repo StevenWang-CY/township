@@ -60,7 +60,7 @@ body:
       description: >-
         Which perspective, demographic, or experience is missing or thin in
         this town's current cast? Skim the existing residents in
-        agents/<town>/ or scenarios/<scenario>/agents/ first.
+        scenarios/<scenario>/agents/<town>/ first.
       placeholder: Dover has no retirees on fixed incomes; property-tax debates are missing that voice entirely.
     validations:
       required: true

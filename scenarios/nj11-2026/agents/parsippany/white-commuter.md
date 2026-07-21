@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:00", location: "NJ Transit Stop", activity: "Catches the Morristown Line to Hoboken with the rest of the commuter herd" }
   - { time: "07:30", location: "Corporate Park", activity: "Stops by the pharma campus for a meeting before catching the next leg" }

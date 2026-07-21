@@ -13,6 +13,10 @@ interface MiniMapProps {
   getData: () => MiniMapData | null;
   /** Town id — selects the generated map preview used as the background. */
   townId?: string;
+  /** Scenario-qualified preview asset declared by the town package. */
+  previewPath?: string;
+  /** False for scenario-local town ids that do not own vendored preview art. */
+  showAuthoredPreview?: boolean;
   /** Called when the player clicks on an agent dot. */
   onPinClick?: (agentId: string) => void;
   width?: number;
@@ -22,12 +26,17 @@ interface MiniMapProps {
 export default function MiniMap({
   getData,
   townId,
+  previewPath,
+  showAuthoredPreview = true,
   onPinClick,
   width = 180,
   height = 120,
 }: MiniMapProps) {
   const [data, setData] = useState<MiniMapData | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => setPreviewFailed(false), [townId, previewPath, showAuthoredPreview]);
 
   useEffect(() => {
     const tick = () => {
@@ -44,11 +53,14 @@ export default function MiniMap({
   if (!data || data.width === 0) {
     return (
       <div
-        className="minimap"
-        style={{ width, height, opacity: 0.5 }}
+        className="minimap pixel-frame"
+        style={{ width, height }}
         aria-label="Mini-map"
+        aria-busy="true"
+        role="status"
       >
-        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>Map loading…</span>
+        <span className="minimap-loading-mark" aria-hidden="true" />
+        <span className="minimap-loading-label">Mapping the neighborhood…</span>
       </div>
     );
   }
@@ -58,7 +70,7 @@ export default function MiniMap({
 
   return (
     <div
-      className="minimap"
+      className="minimap pixel-frame"
       style={{ width, height }}
       aria-label="Mini-map"
     >
@@ -68,52 +80,76 @@ export default function MiniMap({
         viewBox={`0 0 ${width} ${height}`}
         style={{ display: "block" }}
       >
+        <defs>
+          <pattern id="minimap-fallback-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+            <rect width="10" height="10" fill="var(--bg-warm)" />
+            <path d="M10 0H0V10" fill="none" stroke="var(--gold-light)" strokeOpacity="0.22" strokeWidth="1" />
+          </pattern>
+        </defs>
+        <rect x={0} y={0} width={width} height={height} fill="url(#minimap-fallback-grid)" />
         {/* Generated map preview as the background — keep it crisp. */}
-        {townId ? (
+        {previewPath && showAuthoredPreview && !previewFailed ? (
           <image
-            href={appUrl(`assets/maps/${townId}-preview.png`)}
+            href={appUrl(previewPath)}
             x={0}
             y={0}
             width={width}
             height={height}
             preserveAspectRatio="none"
+            onError={() => setPreviewFailed(true)}
             style={{ imageRendering: "pixelated" }}
           />
-        ) : (
-          <rect x={0} y={0} width={width} height={height} fill="rgba(255,252,245,0.85)" />
-        )}
+        ) : null}
         {/* Agent dots (town accent colors) */}
         {data.agents.map((a) => (
-          <circle
+          <g
             key={a.id}
-            cx={a.x * scaleX}
-            cy={a.y * scaleY}
-            r={2.5}
-            fill={a.color}
-            stroke="#fff"
-            strokeWidth={0.6}
-            style={{ cursor: onPinClick ? "pointer" : "default", pointerEvents: "all" }}
-            onClick={(e) => {
-              e.stopPropagation();
+            role={onPinClick ? "button" : undefined}
+            tabIndex={onPinClick ? 0 : undefined}
+            aria-label={onPinClick ? `Focus resident ${a.id.replace(/-/g, " ")}` : undefined}
+            style={{ cursor: onPinClick ? "pointer" : "default" }}
+            onClick={(event) => {
+              event.stopPropagation();
               onPinClick?.(a.id);
             }}
+            onKeyDown={(event) => {
+              if (!onPinClick || (event.key !== "Enter" && event.key !== " ")) return;
+              event.preventDefault();
+              onPinClick(a.id);
+            }}
           >
-            <title>{a.id}</title>
-          </circle>
+            <circle cx={a.x * scaleX} cy={a.y * scaleY} r={7} fill="transparent" />
+            <circle
+              cx={a.x * scaleX}
+              cy={a.y * scaleY}
+              r={2.5}
+              fill={a.color}
+              stroke="var(--text-on-accent)"
+              strokeWidth={0.8}
+            />
+            <title>{a.id.replace(/-/g, " ")}</title>
+          </g>
         ))}
         {/* Player dot */}
         {data.player && (
-          <g>
+          <g className="minimap-player-marker">
+            <circle
+              className="minimap-player-halo"
+              cx={data.player.x * scaleX}
+              cy={data.player.y * scaleY}
+              r={6}
+              fill="none"
+              stroke="var(--gold-accent)"
+              strokeWidth={1}
+            />
             <circle
               cx={data.player.x * scaleX}
               cy={data.player.y * scaleY}
               r={4}
-              fill="#C4A35A"
-              stroke="#fff"
+              fill="var(--gold-accent)"
+              stroke="var(--text-on-accent)"
               strokeWidth={1}
-            >
-              <animate attributeName="r" values="4;5;4" dur="1.6s" repeatCount="indefinite" />
-            </circle>
+            />
           </g>
         )}
       </svg>

@@ -112,12 +112,18 @@ export interface AmbienceHandle {
 
 export function composeTownAmbience(
   scene: Phaser.Scene,
+  scenarioId: string,
   town: TownId,
   anchors: MapAnchor[],
   W: number,
   H: number,
 ): AmbienceHandle {
-  const pal = PALETTES[town] ?? DEFAULT_PALETTE;
+  // Town ids are package-local. Only apply the NJ-authored accent adapter
+  // inside its owning scenario so a custom package can safely reuse "dover"
+  // (or any other id) and receive the neutral presentation.
+  const pal = scenarioId === "nj11-2026"
+    ? PALETTES[town] ?? DEFAULT_PALETTE
+    : DEFAULT_PALETTE;
   const rng = mulberry32(0xa11ce ^ (town.length * 211));
   const objects: Phaser.GameObjects.GameObject[] = [];
   const tweens: Phaser.Tweens.Tween[] = [];
@@ -151,13 +157,19 @@ export function composeTownAmbience(
           const post = scene.add.image(a.x, a.y, key).setOrigin(0.5, 1).setDepth(propDepth(a.y));
           objects.push(post);
         }
-        // Additive halo at the lantern head (lamppost is 2x5 tiles tall).
-        const glow = scene.add.graphics();
-        glow.fillStyle(pal.lampGlow, 0.55);
-        glow.fillCircle(a.x, a.y - 62, 22);
-        glow.fillStyle(pal.lampGlow, 0.85);
-        glow.fillCircle(a.x, a.y - 62, 13);
-        glow.setAlpha(0.08);
+        // Additive light at the lantern head (lamppost is 2x5 tiles tall).
+        // Keep the spill tight and translucent: maps deliberately cluster a
+        // few lamps around plazas, where broad opaque discs quickly bleach
+        // the tile art. Drawing around a local origin also makes the subtle
+        // scale flicker stay pinned to the bulb instead of orbiting (0, 0).
+        const glow = scene.add.graphics().setPosition(a.x, a.y - 62);
+        glow.fillStyle(pal.lampGlow, 0.12);
+        glow.fillCircle(0, 0, 14);
+        glow.fillStyle(pal.lampGlow, 0.22);
+        glow.fillCircle(0, 0, 8);
+        glow.fillStyle(pal.lampGlow, 0.5);
+        glow.fillCircle(0, 0, 3);
+        glow.setAlpha(0.025);
         glow.setBlendMode(Phaser.BlendModes.ADD);
         // Above the sky tint so lamps visibly pierce the night.
         glow.setDepth(6001);
@@ -340,7 +352,7 @@ export function composeTownAmbience(
       lastHour = hour;
       const night = hour < 6 || hour >= 19;
       const dusk = (hour >= 17 && hour < 19) || (hour >= 5 && hour < 7);
-      const targetAlpha = night ? 0.62 : dusk ? 0.34 : 0.08;
+      const targetAlpha = night ? 0.42 : dusk ? 0.22 : 0.025;
       for (const g of lampGlows) {
         scene.tweens.add({
           targets: g, alpha: targetAlpha, duration: 600, ease: "Sine.easeInOut",

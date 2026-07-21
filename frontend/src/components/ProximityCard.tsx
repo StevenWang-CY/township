@@ -1,5 +1,6 @@
 import type { AgentState, LeanId } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
+import SpritePortrait from "./SpritePortrait";
 
 interface ProximityCardProps {
   agent: AgentState;
@@ -7,9 +8,17 @@ interface ProximityCardProps {
   /** Screen-space x,y (top-center of card). */
   x: number;
   y: number;
+  /** Horizontal distance from the clamped card center to the resident. */
+  anchorOffsetX?: number;
 }
 
-export default function ProximityCard({ agent, trust = 0, x, y }: ProximityCardProps) {
+export default function ProximityCard({
+  agent,
+  trust = 0,
+  x,
+  y,
+  anchorOffsetX = 0,
+}: ProximityCardProps) {
   const { townMeta, optionColor, optionLabel, undecidedId } = useScenario();
   const meta = townMeta(agent.town);
   const candidate = (agent.opinion?.candidate as LeanId) ?? undecidedId;
@@ -30,6 +39,15 @@ export default function ProximityCard({ agent, trust = 0, x, y }: ProximityCardP
     >
       <div className="proximity-card-inner">
         <div className="proximity-card-row">
+          <SpritePortrait
+            agentId={agent.id}
+            spriteKey={agent.sprite_key}
+            accessoryKey={agent.accessory_key}
+            fallbackInitials={agent.initials}
+            color={agent.color || meta.color}
+            size={26}
+            ringColor={candidateColor}
+          />
           <span
             className="proximity-card-name"
             style={{ color: meta.color }}
@@ -62,7 +80,12 @@ export default function ProximityCard({ agent, trust = 0, x, y }: ProximityCardP
           </div>
         </div>
       </div>
-      <div className="proximity-card-tail" />
+      <div
+        className="proximity-card-tail"
+        style={{
+          left: `clamp(18px, calc(50% + ${anchorOffsetX}px), calc(100% - 18px))`,
+        }}
+      />
     </div>
   );
 }

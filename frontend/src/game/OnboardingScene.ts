@@ -2,7 +2,6 @@ import Phaser from "phaser";
 import { appUrl } from "../lib/assetUrl";
 import { AgentSprite } from "./AgentSprite";
 import type { TownId, PoliticalRegistration } from "../types/messages";
-import { TOWN_META } from "../types/messages";
 import { townAccent } from "./config";
 
 /** Scenario town info passed in from React (OnboardingView). */
@@ -12,18 +11,15 @@ export interface OnboardingTownInfo {
   tagline: string;
   color: string;
   population?: string;
+  mapPath?: string;
 }
 
-/** NJ-11 fallback roster — used when no scenario roster is passed in. */
-const NJ11_TOWN_ROSTER: OnboardingTownInfo[] = Object.entries(TOWN_META).map(
-  ([id, m]) => ({
-    id,
-    name: m.name,
-    tagline: m.tagline,
-    color: townAccent(id) || m.color,
-    population: m.population,
-  }),
-);
+/** Scenario-defined choice shown during the optional in-canvas flow. */
+export interface OnboardingStanceInfo {
+  id: string;
+  label: string;
+  color: string;
+}
 
 /**
  * OnboardingScene — NPC-guided onboarding using real tilemap + character sprites.
@@ -49,12 +45,6 @@ const CONCERNS = [
   { key: "environment", label: "Environment", dot: "#22C55E" },
 ];
 
-const LEANINGS: Array<{ key: PoliticalRegistration; label: string; color: number; colorHex: string }> = [
-  { key: "democrat", label: "Democrat", color: 0x3b82f6, colorHex: "#3B82F6" },
-  { key: "republican", label: "Republican", color: 0xef4444, colorHex: "#EF4444" },
-  { key: "unaffiliated", label: "Independent", color: 0x9ca3af, colorHex: "#9CA3AF" },
-];
-
 const OUTFITS = [
   { key: "casual",   label: "Casual",   color: 0x6b9bdc },
   { key: "business", label: "Business", color: 0x3b3a55 },
@@ -70,8 +60,8 @@ export class OnboardingScene extends Phaser.Scene {
 
   // Collected onboarding data
   private userName = "";
-  private userTown: TownId = "dover";
-  private userLeaning: PoliticalRegistration = "unaffiliated";
+  private userTown: TownId = "town";
+  private userLeaning: PoliticalRegistration = "undecided";
   private userConcerns: string[] = [];
   private userPersonality = "";
   private userAvatar = "char-player";
@@ -80,18 +70,27 @@ export class OnboardingScene extends Phaser.Scene {
   // Pre-selected town from URL query param
   private preselectedTown: TownId | null = null;
 
-  // Scenario town roster (from GET /api/scenario via OnboardingView);
-  // defaults to the NJ-11 towns for the offline / zero-config path.
-  private townRoster: OnboardingTownInfo[] = NJ11_TOWN_ROSTER;
+  // Scenario vocabulary arrives from the validated bootstrap payload.
+  private townRoster: OnboardingTownInfo[] = [];
+  private stanceRoster: OnboardingStanceInfo[] = [];
+  private decorativeMode = false;
 
   constructor() {
     super({ key: "OnboardingScene" });
   }
 
-  init(data: { preselectedTown?: TownId; towns?: OnboardingTownInfo[] }) {
+  init(data: {
+    preselectedTown?: TownId;
+    towns?: OnboardingTownInfo[];
+    stances?: OnboardingStanceInfo[];
+    decorative?: boolean;
+  }) {
     if (data.towns && data.towns.length > 0) this.townRoster = data.towns;
-    this.userTown = this.townRoster[0]?.id ?? "dover";
+    if (data.stances && data.stances.length > 0) this.stanceRoster = data.stances;
+    this.userTown = this.townRoster[0]?.id ?? "town";
+    this.userLeaning = this.stanceRoster[this.stanceRoster.length - 1]?.id ?? "undecided";
     this.preselectedTown = data.preselectedTown ?? null;
+    this.decorativeMode = Boolean(data.decorative);
     if (this.preselectedTown) this.userTown = this.preselectedTown;
   }
 
@@ -115,8 +114,10 @@ export class OnboardingScene extends Phaser.Scene {
   preload() {
     this.load.image("rpg-tileset", appUrl("assets/tilesets/rpg-tileset.png"));
     this.load.image("township-modern", appUrl("assets/tilesets/township-modern.png"));
-    // Dover's generated map doubles as the onboarding backdrop.
-    this.load.tilemapTiledJSON("onboarding-map", appUrl("assets/maps/dover.tmj"));
+    // The selected scenario town supplies the backdrop when it has a generated
+    // map; buildTilemap() paints a neutral village when it does not.
+    const mapPath = this.townInfo(this.userTown).mapPath;
+    if (mapPath) this.load.tilemapTiledJSON("onboarding-map", appUrl(mapPath));
     this.load.spritesheet("campfire", appUrl("assets/spritesheets/campfire.png"), { frameWidth: 32, frameHeight: 32 });
     this.load.spritesheet("sparkle", appUrl("assets/spritesheets/gentlesparkle32.png"), { frameWidth: 32, frameHeight: 32 });
 
@@ -169,7 +170,7 @@ export class OnboardingScene extends Phaser.Scene {
       name: "You",
       initials: "?",
       color: "#3B5998",
-      town: "dover",
+      town: this.userTown,
       spriteKey: this.textures.exists(`char-${PLAYER_TEMP_SPRITE}`) ? `char-${PLAYER_TEMP_SPRITE}` : undefined,
     });
 
@@ -190,26 +191,47 @@ export class OnboardingScene extends Phaser.Scene {
     this.cameras.main.centerOn(W * 0.5, H * 0.5);
 
     // ── Start the onboarding sequence ───────────────────────
-    this.time.delayedCall(1200, () => this.startGreeterEntrance());
+    if (this.decorativeMode) {
+      this.time.delayedCall(500, () => this.startDecorativeScene());
+    } else {
+      this.time.delayedCall(1200, () => this.startGreeterEntrance());
+    }
   }
 
   /* ── Onboarding Flow ────────────────────────────────────── */
+
+  /** A quiet, non-interactive welcome beat behind the semantic React form. */
+  private startDecorativeScene() {
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    this.greeter = new AgentSprite(this, W * 0.57, H * 0.52, {
+      id: "town-guide",
+      name: "Town Guide",
+      initials: "TG",
+      color: "#E8763B",
+      town: this.userTown,
+      spriteKey: this.textures.exists(`char-${GREETER_SPRITE}`) ? `char-${GREETER_SPRITE}` : undefined,
+    });
+    this.greeter.faceToward(W * 0.42, H * 0.52);
+    this.greeter.showSpeechBubble("Welcome to the town square.", 8000);
+    this.spawnSparkles(W * 0.5, H * 0.43, 4);
+  }
 
   private startGreeterEntrance() {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
 
-    // Rosa enters from the right
+    // A friendly guide enters from the right.
     const startX = W * 0.85;
     const targetX = W * 0.55;
     const y = H * 0.52;
 
     this.greeter = new AgentSprite(this, startX, y, {
-      id: "rosa-greeter",
-      name: "Rosa",
-      initials: "R",
+      id: "town-guide",
+      name: "Town Guide",
+      initials: "TG",
       color: "#E8763B",
-      town: "dover",
+      town: this.userTown,
       spriteKey: this.textures.exists(`char-${GREETER_SPRITE}`) ? `char-${GREETER_SPRITE}` : undefined,
     });
 
@@ -221,7 +243,7 @@ export class OnboardingScene extends Phaser.Scene {
       this.time.delayedCall(400, () => {
         this.greeter?.showSpeechBubble("Welcome to Township!", 2500);
         this.time.delayedCall(3000, () => {
-          this.greeter?.showSpeechBubble("I'm Rosa — what's your name?", 4000);
+          this.greeter?.showSpeechBubble("I'm your town guide — what's your name?", 4000);
           this.time.delayedCall(1500, () => {
             this.currentStep = "name";
             this.events.emit("onboarding-need-input", {
@@ -636,11 +658,18 @@ export class OnboardingScene extends Phaser.Scene {
 
       const pillWidth = 110;
       const gap = 14;
-      const totalWidth = LEANINGS.length * pillWidth + (LEANINGS.length - 1) * gap;
+      const totalWidth = this.stanceRoster.length * pillWidth + (this.stanceRoster.length - 1) * gap;
       const startX = (W - totalWidth) / 2 + pillWidth / 2;
       const y = H * 0.78;
 
-      LEANINGS.forEach((lean, i) => {
+      this.stanceRoster.forEach((stance, i) => {
+        const parsed = Number.parseInt(stance.color.replace("#", ""), 16);
+        const lean = {
+          key: stance.id,
+          label: stance.label,
+          color: Number.isFinite(parsed) ? parsed : 0x8a7e6e,
+          colorHex: stance.color,
+        };
         const cx = startX + i * (pillWidth + gap);
         const pill = this.createLeaningPill(lean, cx, y, container);
 
@@ -660,7 +689,7 @@ export class OnboardingScene extends Phaser.Scene {
   }
 
   private createLeaningPill(
-    lean: typeof LEANINGS[number],
+    lean: { key: PoliticalRegistration; label: string; color: number; colorHex: string },
     x: number, y: number,
     _parent: Phaser.GameObjects.Container,
   ): Phaser.GameObjects.Container {
@@ -983,18 +1012,46 @@ export class OnboardingScene extends Phaser.Scene {
   /* ── Ambient Effects (reused patterns from TownScene) ──── */
 
   private buildTilemap(W: number, H: number) {
+    if (!this.cache.tilemap.has("onboarding-map")) {
+      this.buildGenericBackdrop(W, H);
+      return;
+    }
     const map = this.make.tilemap({ key: "onboarding-map" });
     const tilesets: Phaser.Tilemaps.Tileset[] = [];
     for (const name of ["rpg-tileset", "township-modern"]) {
       const ts = map.addTilesetImage(name, name);
       if (ts) tilesets.push(ts);
     }
-    if (tilesets.length === 0) return;
+    if (tilesets.length === 0) {
+      this.buildGenericBackdrop(W, H);
+      return;
+    }
     const scale = Math.max(W / map.widthInPixels, H / map.heightInPixels);
     const names = ["ground", "ground-detail", "deco-below", "buildings-base", "buildings-top"];
     names.forEach((name, i) => {
       map.createLayer(name, tilesets)?.setScale(scale).setDepth(i);
     });
+  }
+
+  private buildGenericBackdrop(W: number, H: number) {
+    const g = this.add.graphics().setDepth(0);
+    g.fillStyle(0xdfe9d7, 1);
+    g.fillRect(0, 0, W, H);
+    g.fillStyle(0xc8ad83, 1);
+    g.fillRect(0, H * 0.56, W, 76);
+    g.fillStyle(0xe8d7b8, 1);
+    g.fillRect(0, H * 0.56 + 18, W, 40);
+    for (let i = 0; i < 7; i++) {
+      const x = 70 + i * 175;
+      const y = i % 2 === 0 ? H * 0.29 : H * 0.36;
+      g.fillStyle(i % 2 === 0 ? 0xc79169 : 0xa9b9c8, 1);
+      g.fillRoundedRect(x, y, 112, 86, 4);
+      g.fillStyle(0x715747, 1);
+      g.fillTriangle(x - 8, y, x + 56, y - 40, x + 120, y);
+      g.fillStyle(0xf5d99b, 1);
+      g.fillRect(x + 18, y + 22, 18, 22);
+      g.fillRect(x + 76, y + 22, 18, 22);
+    }
   }
 
   private buildAmbientFX(W: number, H: number) {

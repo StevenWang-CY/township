@@ -3,6 +3,7 @@
   "county": "Essex County",
   "tagline": "The Progressive Hub",
   "accent_color": "#6B5CE7",
+  "map": {"kind": "tiled", "path": "assets/maps/nj11-2026/montclair.tmj", "preview_path": "assets/maps/nj11-2026/montclair-preview.png"},
   "ambient_sound": "montclair_ambient.ogg",
   "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
   "demographics": {

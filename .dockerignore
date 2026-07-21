@@ -9,6 +9,16 @@
 keys.md
 .env
 .env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.secrets
+.aws
+.npmrc
+.pypirc
+.netrc
+credentials*.json
 
 # Python
 __pycache__
@@ -23,12 +33,17 @@ build
 # Node — stage 1 runs `npm ci` itself
 frontend/node_modules
 frontend/dist
+frontend/dist-demo
 frontend/.vite
+frontend/public/demo/*.json
 
 # Local state, mirrors, docs that don't belong in an image
 runs
 data/state
+data/simulation_cache.json
 launch-kit
 township-mirror*
 *.pdf
 tests
+docs
+scripts

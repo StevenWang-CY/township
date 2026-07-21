@@ -10,7 +10,7 @@ API equivalents so personas written for either provider work unchanged.
 Env vars:
 - ANTHROPIC_API_KEY       (required)
 - ANTHROPIC_MODEL         (default claude-sonnet-4-5)
-- ANTHROPIC_CACHE_SYSTEM  (default on; "0" disables prompt caching)
+- ANTHROPIC_CACHE_SYSTEM  (default off; "1" enables experimental caching)
 """
 
 import logging
@@ -61,7 +61,7 @@ class AnthropicProvider(_AnthropicFamilyProvider):
             )
         client = AsyncAnthropic(api_key=key, timeout=60.0, max_retries=2)
         default_model = os.environ.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL)
-        cache_system = env_flag("ANTHROPIC_CACHE_SYSTEM", default=True)
+        cache_system = env_flag("ANTHROPIC_CACHE_SYSTEM", default=False)
         super().__init__(
             client,
             default_model=default_model,
@@ -70,5 +70,6 @@ class AnthropicProvider(_AnthropicFamilyProvider):
         )
         logger.info(
             "Anthropic API provider initialised: model=%s cache_system=%s",
-            default_model, cache_system,
+            default_model,
+            cache_system,
         )

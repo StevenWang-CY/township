@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "07:30", location: "Boutique Row", activity: "Cardamom chai, school lunches for Ananya and Dev, Gujarati call with mom" }
   - { time: "08:30", location: "Town Hall", activity: "Drops Dev at middle school, Ananya rides her bike" }

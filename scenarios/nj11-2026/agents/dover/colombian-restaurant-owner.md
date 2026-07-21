@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:30", location: "Public Housing", activity: "Wakes up with Elena, makes coffee, reviews the day's specials" }
   - { time: "08:00", location: "La Finca Restaurant", activity: "Opens La Finca, preps stocks and arepa dough" }

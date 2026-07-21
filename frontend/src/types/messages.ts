@@ -235,6 +235,7 @@ export interface WeatherChangedEvent {
 }
 
 export interface RelationshipUpdateEvent {
+  /** @deprecated Private relationship changes are no longer broadcast. */
   type: "relationship_update";
   agent_id: string;
   player_id: string;
@@ -296,7 +297,7 @@ export interface Relationship {
 export const TRUST_BAND = (
   t: number
 ): "hostile" | "guarded" | "warming" | "friend" =>
-  t < -30 ? "hostile" : t < 0 ? "guarded" : t < 50 ? "warming" : "friend";
+  t < -30 ? "hostile" : t < 0 ? "guarded" : t <= 50 ? "warming" : "friend";
 
 /* ── Town data (fetched from /api/towns) ───────────────────── */
 
@@ -320,6 +321,7 @@ export interface TownData {
   ambient_sound?: string;
   landmarks: LandmarkData[];
   demographics?: Record<string, unknown>;
+  map?: TownMapInfo | null;
 }
 
 export interface TownDataResponse {
@@ -375,6 +377,8 @@ export interface ChatResponse {
   trust: number;
   trust_band: TrustBand;
   opinion_changed: boolean;
+  /** Private to the initiating browser; never sent over the simulation WS. */
+  relationship: Relationship | null;
 }
 
 /* ── God's View response (POST /api/gods-view) ─────────────── */
@@ -390,68 +394,17 @@ export interface OpinionShift {
 export interface GodsViewResponse {
   reactions: NewsReaction[];
   opinion_shifts: OpinionShift[];
+  opinion_distribution_before: Record<LeanId, number>;
+  opinion_distribution_after: Record<LeanId, number>;
 }
-
-/* ── NJ-11 fallback metadata ───────────────────────────────── */
-//
-// These tables describe the flagship NJ-11 scenario ONLY. They exist so the
-// app renders fully offline (no backend) and are the seed for the synthetic
-// fallback scenario in ScenarioContext. Components must NOT import these
-// directly — use the useScenario() helpers (optionColor/optionLabel/townMeta)
-// which resolve against the ACTIVE scenario and fall back to these values.
-
-export const TOWN_META: Record<TownId, { name: string; tagline: string; population: string; color: string; county: string }> = {
-  dover: {
-    name: "Dover",
-    tagline: "The Working-Class Heart",
-    population: "18,435",
-    color: "#C0792A",
-    county: "Morris",
-  },
-  montclair: {
-    name: "Montclair",
-    tagline: "The Progressive Hub",
-    population: "40,341",
-    color: "#4A8FBF",
-    county: "Essex",
-  },
-  parsippany: {
-    name: "Parsippany",
-    tagline: "The Suburban Melting Pot",
-    population: "56,397",
-    color: "#5D9E4F",
-    county: "Morris",
-  },
-  randolph: {
-    name: "Randolph",
-    tagline: "The Republican Suburb",
-    population: "26,604",
-    color: "#8B7D6B",
-    county: "Morris",
-  },
-};
-
-export const CANDIDATE_COLORS: Record<LeanId, string> = {
-  mejia: "#4A8FBF",
-  hathaway: "#C0792A",
-  bond: "#9A8E80",
-  undecided: "#D1D5DB",
-};
-
-export const CANDIDATE_NAMES: Record<LeanId, string> = {
-  mejia: "Mejia",
-  hathaway: "Hathaway",
-  bond: "Bond",
-  undecided: "Undecided",
-};
 
 /* ── Scenario bootstrap (GET /api/scenario) ────────────────── */
 
 export interface ScenarioOption {
   id: string;
-  /** Full display name, e.g. "Analilia Mejia" / "The Riverwalk Greenway". */
+  /** Full display name, e.g. a candidate name or policy title. */
   name: string;
-  /** Short chip/legend label, e.g. "Mejia" / "Greenway". */
+  /** Short chip/legend label. */
   label: string;
   color: string;
   group?: string | null;
@@ -464,6 +417,20 @@ export interface ScenarioTownInfo {
   color: string;
   county?: string;
   population?: number | string;
+  map?: TownMapInfo | null;
+}
+
+export interface TownMapInfo {
+  kind: "tiled";
+  path: string;
+  preview_path: string;
+}
+
+export interface ScenarioResponsibleUse {
+  core_notice: string;
+  residents_notice: string;
+  subjects_notice: string;
+  outputs_notice: string;
 }
 
 export interface ScenarioData {
@@ -476,4 +443,5 @@ export interface ScenarioData {
   towns: ScenarioTownInfo[];
   total_rounds: number;
   dates: { decision_day: string; prose: string };
+  responsible_use: ScenarioResponsibleUse;
 }

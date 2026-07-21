@@ -3,6 +3,7 @@
   "county": "Ashford County",
   "tagline": "The Mill Village",
   "accent_color": "#7A9E7E",
+  "map": {"kind": "tiled", "path": "assets/maps/millbrook-budget/millbrook-village.tmj", "preview_path": "assets/maps/millbrook-budget/millbrook-village-preview.png"},
   "ambient_sound": "millbrook_village_ambient.ogg",
   "weather_schedule": ["clear", "cloudy", "rain", "clear", "clear"],
   "demographics": {

@@ -10,6 +10,8 @@ journals) is small and per-process. Three primitives cover all of it:
   never leave a torn file behind.
 - ``load_json(path, default)`` — best-effort read that returns ``default``
   on a missing or corrupt file instead of raising.
+- ``load_json_strict(path)`` — lossless read for private state, where treating
+  corruption as an empty store could destroy recoverable data.
 - ``DebouncedSaver`` — coalesces bursts of ``mark_dirty()`` calls into one
   atomic write every ``interval`` seconds, with ``aflush()`` for shutdown.
 """
@@ -27,15 +29,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# township/ — anchored on this file (backend/core/storage.py → repo root).
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# Source checkouts keep their familiar repository-local data layout. An
+# installed API-only wheel has no writable repository root, so its default
+# persistence root is the directory from which Township was launched.
+_PACKAGE_PARENT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = (
+    _PACKAGE_PARENT if (_PACKAGE_PARENT / "pyproject.toml").is_file() else Path.cwd().resolve()
+)
 
 # Mutable per-deployment state (relationships, journals). Gitignored.
 # Overridable via TOWNSHIP_STATE_DIR (read once, at import) so tests and
 # embedders keep their state out of the repo.
-STATE_DIR = Path(
-    os.environ.get("TOWNSHIP_STATE_DIR") or PROJECT_ROOT / "data" / "state"
-)
+STATE_DIR = Path(os.environ.get("TOWNSHIP_STATE_DIR") or PROJECT_ROOT / "data" / "state")
 
 
 def runs_root() -> Path:
@@ -60,9 +65,7 @@ def save_json_atomic(path: Path | str, obj: Any, minify: bool = False) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    fd, tmp_name = tempfile.mkstemp(
-        dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
-    )
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             if minify:
@@ -77,6 +80,12 @@ def save_json_atomic(path: Path | str, obj: Any, minify: bool = False) -> None:
         except OSError:
             pass
         raise
+
+
+def load_json_strict(path: Path | str) -> Any:
+    """Read JSON and propagate every I/O/parse error to the caller."""
+    with Path(path).open(encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def load_json(path: Path | str, default: Any = None) -> Any:
@@ -133,7 +142,13 @@ class DebouncedSaver:
     async def _flush_after_interval(self) -> None:
         await asyncio.sleep(self._interval)
         if self._dirty:
-            self._write()
+            try:
+                self._write()
+            except Exception:
+                # The state remains dirty. Explicit endpoint/shutdown flushes
+                # surface the failure; background timers cannot raise into an
+                # unobserved task.
+                pass
 
     async def aflush(self) -> None:
         """Cancel any pending timer and persist immediately (shutdown path)."""
@@ -152,7 +167,6 @@ class DebouncedSaver:
         try:
             save_json_atomic(self.path, self._get_state(), minify=self._minify)
         except Exception as e:
-            # Never let a persistence hiccup take down the caller; the next
-            # mutation re-marks dirty and retries.
             self._dirty = True
             logger.error("DebouncedSaver write to %s failed: %s", self.path, e)
+            raise

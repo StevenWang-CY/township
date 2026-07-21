@@ -3,7 +3,9 @@
 Thanks for being here. Township runs on three kinds of contributions — personas,
 scenarios, and engine/frontend work — and the first one needs no Python at all.
 Everything below assumes a fresh clone and zero API keys: the deterministic mock
-provider means the whole project runs end to end without credentials.
+provider means the whole project runs end to end without credentials. Install
+[`uv`](https://docs.astral.sh/uv/) for the exact committed Python dependency
+graph; `make install` falls back to pip when uv is unavailable.
 
 One document outranks this one: [`RESPONSIBLE_USE.md`](RESPONSIBLE_USE.md). Read
 it before touching anything election-facing, and know its bright line — residents
@@ -11,13 +13,16 @@ are fictional composites, never real private individuals.
 
 ## Dev setup
 
-You need Python ≥ 3.11 and Node 20 (CI runs Python 3.11/3.12, Node 20).
+You need Python ≥ 3.11 and Node `^20.19.0` or `>=22.12.0`
+(CI runs Python 3.11/3.12 and Node 22).
 
 ```bash
-make install    # pip install -e ".[dev]" + frontend npm install
+make install    # pip install -e ".[dev]" + reproducible frontend npm ci
 make dev        # backend on :8001 + Vite on :5173 together
 make test       # pytest (offline, mock provider) + npx tsc --noEmit
 make lint       # ruff over backend/ and tests/
+make capture-setup  # once: install Playwright Chromium
+make test-e2e       # static demo, mobile, keyboard, and WCAG browser checks
 ```
 
 `make dev-backend` / `make dev-frontend` run one side alone, and `make format`
@@ -92,9 +97,10 @@ If you catch yourself hardcoding a candidate, town, or news beat inside
 
 ## Engine and frontend PRs
 
-Run `make lint` and `make test` before pushing; CI runs the same ruff, pytest,
-and `tsc --noEmit` you have locally, plus a zero-key smoke run. All backend tests
-run offline against the mock provider — new tests should too.
+Run `make lint` and `make test` before pushing. For frontend changes, also run
+`make test-e2e`; CI runs the same ruff, pytest, TypeScript, production-build,
+browser, mobile-overflow, keyboard, and WCAG checks, plus a zero-key smoke run.
+All backend tests run offline against the mock provider — new tests should too.
 
 The one contract to respect: the backend and frontend share a WebSocket wire
 format. Event `type` literals live in `backend/core/types.py` and their DTO
@@ -106,7 +112,9 @@ screenshot or short clip in the PR (before/after if you're replacing something).
 
 Secrets only ever travel via environment variables (`ANTHROPIC_API_KEY`,
 `AWS_BEARER_TOKEN_BEDROCK`, `OPENAI_API_KEY`, …) — never commit a key or write
-one into a tracked file.
+one into a tracked file. Pushes and pull requests run a full-history Gitleaks
+scan. If a credential ever lands in Git, revoke it first; deleting the
+working-tree file is not enough.
 
 ## Commit style
 

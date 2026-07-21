@@ -21,6 +21,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["transcribe"])
 
 OPENAI_TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions"
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
+
+
+async def _read_upload_limited(audio: UploadFile, max_bytes: int) -> bytes | None:
+    """Read at most ``max_bytes + 1`` bytes; ``None`` means too large."""
+    if audio.size is not None and audio.size > max_bytes:
+        return None
+
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        # The extra byte distinguishes an exactly-at-limit file from a larger
+        # stream even when the multipart part did not declare a size.
+        chunk = await audio.read(min(_READ_CHUNK_BYTES, max_bytes + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > max_bytes:
+            return None
+    return b"".join(chunks)
 
 
 @router.post("/transcribe")
@@ -47,7 +69,18 @@ async def transcribe(audio: UploadFile | None = None):
         )
 
     try:
-        audio_bytes = await audio.read()
+        audio_bytes = await _read_upload_limited(audio, MAX_AUDIO_BYTES)
+        if audio_bytes is None:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "transcript": "",
+                    "error": "audio_too_large",
+                    "message": (
+                        f"Audio uploads are limited to {MAX_AUDIO_BYTES // (1024 * 1024)} MiB."
+                    ),
+                },
+            )
         if not audio_bytes:
             return JSONResponse(
                 status_code=503,
@@ -90,6 +123,6 @@ async def transcribe(audio: UploadFile | None = None):
             content={
                 "transcript": "",
                 "error": "transcription_unavailable",
-                "message": f"Transcription failed: {e}",
+                "message": "Transcription request failed.",
             },
         )

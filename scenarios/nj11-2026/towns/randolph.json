@@ -3,6 +3,7 @@
   "county": "Morris County",
   "tagline": "The Republican Suburb",
   "accent_color": "#4A9B5C",
+  "map": {"kind": "tiled", "path": "assets/maps/nj11-2026/randolph.tmj", "preview_path": "assets/maps/nj11-2026/randolph-preview.png"},
   "ambient_sound": "randolph_ambient.ogg",
   "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
   "demographics": {

@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:45", location: "Boutique Row", activity: "Pour-over coffee, scrolls Times/ProPublica on phone, hates herself for it" }
   - { time: "08:00", location: "Town Hall", activity: "Drops Lily and Marcus at Bradford Elementary, says hi to other parents" }

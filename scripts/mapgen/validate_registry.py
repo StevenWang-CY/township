@@ -48,14 +48,12 @@ TS = load_tileset()
 def tile_img(g: int) -> Image.Image:
     row, col = rc(g)
     t = tiles.TILE_SIZE
-    return TS.crop((col * t, row * t, (col + 1) * t, (row + 1) * t)).resize(
-        (TZ, TZ), Image.NEAREST)
+    return TS.crop((col * t, row * t, (col + 1) * t, (row + 1) * t)).resize((TZ, TZ), Image.NEAREST)
 
 
 def render_grid(gids: list[list[int]], backdrop: bool = True) -> Image.Image:
     h, w = len(gids), max(len(r) for r in gids)
-    img = Image.new("RGBA", (w * TZ, h * TZ),
-                    GRASS_BG if backdrop else (60, 62, 70, 255))
+    img = Image.new("RGBA", (w * TZ, h * TZ), GRASS_BG if backdrop else (60, 62, 70, 255))
     for r, row in enumerate(gids):
         for c, g in enumerate(row):
             if g:
@@ -99,8 +97,9 @@ def blob_demo(b: Blob) -> Image.Image:
     right = render_grid(hole)
 
     gap = TZ // 2
-    out = Image.new("RGBA", (left.width + gap + right.width,
-                             max(left.height, right.height)), (0, 0, 0, 0))
+    out = Image.new(
+        "RGBA", (left.width + gap + right.width, max(left.height, right.height)), (0, 0, 0, 0)
+    )
     out.alpha_composite(left, (0, 0))
     out.alpha_composite(right, (left.width + gap, 0))
     return out
@@ -165,17 +164,26 @@ def layout(entries: list[tuple[str, list[tuple[str, Image.Image]]]]) -> Image.Im
 def main() -> None:
     sections: list[tuple[str, list[tuple[str, Image.Image]]]] = []
 
-    sections.append(("terrain blobs (patch + hole demo)", [
-        (b.name, blob_demo(b)) for b in tiles.BLOBS.values()
-    ]))
-    sections.append(("terrain fills (seamlessness check)", [
-        (name, fill_demo(f)) for name, f in tiles.FILLS.items()
-    ]))
+    sections.append(
+        (
+            "terrain blobs (patch + hole demo)",
+            [(b.name, blob_demo(b)) for b in tiles.BLOBS.values()],
+        )
+    )
+    sections.append(
+        (
+            "terrain fills (seamlessness check)",
+            [(name, fill_demo(f)) for name, f in tiles.FILLS.items()],
+        )
+    )
 
     cliff = [list(tiles.CLIFF_GRASS["top_edge"])]
-    cliff += [[tiles.CLIFF_GRASS["west_edge"][i]]
-              + list(tiles.CLIFF_PLATEAU_FILL[4 * i:4 * i + 4])
-              + [tiles.CLIFF_GRASS["east_edge"][i]] for i in range(3)]
+    cliff += [
+        [tiles.CLIFF_GRASS["west_edge"][i]]
+        + list(tiles.CLIFF_PLATEAU_FILL[4 * i : 4 * i + 4])
+        + [tiles.CLIFF_GRASS["east_edge"][i]]
+        for i in range(3)
+    ]
     for key in ("lip", "face_upper", "face_lower", "face_base", "bottom_edge"):
         cliff.append(list(tiles.CLIFF_GRASS[key]))
     sections.append(("cliff kit (assembled)", [("cliff_grass", render_grid(cliff))]))
@@ -183,22 +191,64 @@ def main() -> None:
     def stamps(names: list[str]) -> list[tuple[str, Image.Image]]:
         return [(n, stamp_demo(tiles.STAMPS[n])) for n in names]
 
-    sections.append(("water / ponds / bridges", stamps([
-        "pond_grass", "pond_stone", "pond_terracotta", "bridge_stone",
-    ]) + [("path_pad_tan", stamp_demo(tiles.STAMPS["path_pad_tan"]))]))
+    sections.append(
+        (
+            "water / ponds / bridges",
+            stamps(
+                [
+                    "pond_grass",
+                    "pond_stone",
+                    "pond_terracotta",
+                    "bridge_stone",
+                ]
+            )
+            + [("path_pad_tan", stamp_demo(tiles.STAMPS["path_pad_tan"]))],
+        )
+    )
 
-    sections.append(("trees & bushes", stamps([
-        "tree_light", "tree_dark", "tree_small", "tree_round_small",
-        "bush_round", "tree_fruit_a", "tree_fruit_b", "tree_fruit_c",
-    ])))
+    sections.append(
+        (
+            "trees & bushes",
+            stamps(
+                [
+                    "tree_light",
+                    "tree_dark",
+                    "tree_small",
+                    "tree_round_small",
+                    "bush_round",
+                    "tree_fruit_a",
+                    "tree_fruit_b",
+                    "tree_fruit_c",
+                ]
+            ),
+        )
+    )
 
-    sections.append(("rocks / stumps / logs", stamps([
-        "rock_big", "rock_med", "rock_small", "stones_small",
-        "boulder_gray_a", "boulder_gray_b",
-        "boulder_purple_0", "boulder_purple_1", "boulder_purple_2",
-        "boulder_purple_3", "stump_wide", "stump_tall", "log", "log_large",
-        "rock_outcrop_a", "rock_outcrop_b",
-    ])))
+    sections.append(
+        (
+            "rocks / stumps / logs",
+            stamps(
+                [
+                    "rock_big",
+                    "rock_med",
+                    "rock_small",
+                    "stones_small",
+                    "boulder_gray_a",
+                    "boulder_gray_b",
+                    "boulder_purple_0",
+                    "boulder_purple_1",
+                    "boulder_purple_2",
+                    "boulder_purple_3",
+                    "stump_wide",
+                    "stump_tall",
+                    "log",
+                    "log_large",
+                    "rock_outcrop_a",
+                    "rock_outcrop_b",
+                ]
+            ),
+        )
+    )
 
     # assembled wooden fence pen (like the example map) + metal pieces
     F = tiles.FENCE_WOOD
@@ -218,45 +268,129 @@ def main() -> None:
         put(rail, 4, c)
     put(F["rail_v"], 2, 0)
     put(F["rail_v"], 2, 8)
-    fence_items = [("fence_wood pen (assembled)", render_grid(pen)),
-                   ("fence_posts", stamp_demo(F["post_pair"]))]
-    fence_items += [(f"metal {k}", stamp_demo(s))
-                    for k, s in tiles.FENCE_METAL.items()]
+    fence_items = [
+        ("fence_wood pen (assembled)", render_grid(pen)),
+        ("fence_posts", stamp_demo(F["post_pair"])),
+    ]
+    fence_items += [(f"metal {k}", stamp_demo(s)) for k, s in tiles.FENCE_METAL.items()]
     fence_items += stamps(["post_wood_a", "post_wood_b"])
     sections.append(("fences", fence_items))
 
-    sections.append(("facades & walls", stamps([
-        "facade_stone_large", "facade_stone_small", "facade_cream",
-        "wall_timber_band", "facade_brick", "facade_stone_gray",
-        "wall_banded_blue", "wall_banded_cream",
-    ]) + [("wall_rough_fill", fill_demo(tiles.WALL_ROUGH_FILL))]))
+    sections.append(
+        (
+            "facades & walls",
+            stamps(
+                [
+                    "facade_stone_large",
+                    "facade_stone_small",
+                    "facade_cream",
+                    "wall_timber_band",
+                    "facade_brick",
+                    "facade_stone_gray",
+                    "wall_banded_blue",
+                    "wall_banded_cream",
+                ]
+            )
+            + [("wall_rough_fill", fill_demo(tiles.WALL_ROUGH_FILL))],
+        )
+    )
 
-    sections.append(("doors & windows", stamps([
-        "door_wood", "door_metal", "doorway_dark", "door_red", "window_teal",
-    ])))
+    sections.append(
+        (
+            "doors & windows",
+            stamps(
+                [
+                    "door_wood",
+                    "door_metal",
+                    "doorway_dark",
+                    "door_red",
+                    "window_teal",
+                ]
+            ),
+        )
+    )
 
-    sections.append(("pads / decks / floors", stamps([
-        "deck_light", "deck_dark", "stone_pad_dark", "stone_floor_pad",
-        "carpet_red",
-    ])))
+    sections.append(
+        (
+            "pads / decks / floors",
+            stamps(
+                [
+                    "deck_light",
+                    "deck_dark",
+                    "stone_pad_dark",
+                    "stone_floor_pad",
+                    "carpet_red",
+                ]
+            ),
+        )
+    )
 
-    sections.append(("street & market props", stamps([
-        "lamppost", "torch_0", "torch_1", "torch_2", "metal_grate",
-        "market_stall", "sign_standing_0", "sign_standing_1",
-        "sign_standing_2", "sign_standing_3", "sign_standing_4",
-        "sign_wall_0", "sign_wall_1", "sign_wall_2", "sign_wall_3",
-        "sign_wall_4", "sign_stall_0", "sign_stall_1", "sign_stall_2",
-        "sign_stall_3", "sign_stall_4",
-        "bucket", "crate", "barrel", "jug", "menu_board", "statue",
-        "planter_empty", "planter_yellow", "planter_purple",
-        "banner_red_a", "banner_red_b", "plate_empty", "plate_bread",
-        "plate_salad", "plate_berries", "plate_fish",
-        "haystack", "well", "web_spider", "web_plain", "stool",
-    ])))
+    sections.append(
+        (
+            "street & market props",
+            stamps(
+                [
+                    "lamppost",
+                    "torch_0",
+                    "torch_1",
+                    "torch_2",
+                    "metal_grate",
+                    "market_stall",
+                    "sign_standing_0",
+                    "sign_standing_1",
+                    "sign_standing_2",
+                    "sign_standing_3",
+                    "sign_standing_4",
+                    "sign_wall_0",
+                    "sign_wall_1",
+                    "sign_wall_2",
+                    "sign_wall_3",
+                    "sign_wall_4",
+                    "sign_stall_0",
+                    "sign_stall_1",
+                    "sign_stall_2",
+                    "sign_stall_3",
+                    "sign_stall_4",
+                    "bucket",
+                    "crate",
+                    "barrel",
+                    "jug",
+                    "menu_board",
+                    "statue",
+                    "planter_empty",
+                    "planter_yellow",
+                    "planter_purple",
+                    "banner_red_a",
+                    "banner_red_b",
+                    "plate_empty",
+                    "plate_bread",
+                    "plate_salad",
+                    "plate_berries",
+                    "plate_fish",
+                    "haystack",
+                    "well",
+                    "web_spider",
+                    "web_plain",
+                    "stool",
+                ]
+            ),
+        )
+    )
 
-    sections.append(("vegetation props & singles", stamps([
-        "fern", "snowdrop", "beanpoles", "flower_patch",
-    ]) + [(name, single_demo(g)) for name, g in tiles.SINGLES.items()]))
+    sections.append(
+        (
+            "vegetation props & singles",
+            stamps(
+                [
+                    "fern",
+                    "snowdrop",
+                    "beanpoles",
+                    "flower_patch",
+                ]
+            )
+            + [(name, single_demo(g)) for name, g in tiles.SINGLES.items()],
+        )
+    )
 
     sheet = layout(sections)
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -10,13 +10,13 @@ Everything below is governed by [RESPONSIBLE_USE.md](../RESPONSIBLE_USE.md):
 
 > **Township is a simulation, not a poll.** Its outputs do not measure real public opinion and must never be presented as if they do.
 > **The residents are fictional composites**, informed by public demographic data. No real resident is depicted.
-> **The candidates are real public figures**; their positions are quoted from cited public sources, not invented.
+> **Real public figures are represented through public source material**, summarized where necessary; verify the scenario's cited sources before relying on any claim.
 > **Every output is an LLM artifact**, shaped by who wrote the personas and by the model's own biases.
 
 This is an error analysis, not a validation. The simulation was never a
 prediction instrument, and nothing here should be read as "it nearly called the
-race." The narrower question: ground LLM agents in authored personas and real,
-cited campaign material — *which features of a real electorate's behavior show
+race." The narrower question: ground LLM agents in authored personas and
+authored summaries of public campaign material — *which features of a real electorate's behavior show
 up anyway, and which are structurally invisible?*
 
 ## TL;DR
@@ -65,7 +65,7 @@ Markdown persona — occupation, income, worries, and what would change their
 mind ([persona-authoring.md](persona-authoring.md)).
 
 What the model saw: the [scenario package](../scenarios/nj11-2026/) — candidate
-positions and debate excerpts quoted from cited public sources, town
+position and debate summaries derived from the package's file-level public source lists, town
 demographics, and three mid-run news beats (ACA subsidies at risk in the One Big
 Beautiful Bill; increased ICE enforcement in Morris County; a property tax
 reassessment). All of it reflects the race as of early April 2026. No polls, no

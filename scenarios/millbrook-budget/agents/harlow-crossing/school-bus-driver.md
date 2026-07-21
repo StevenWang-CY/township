@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "05:45", location: "Fairview Subdivision", activity: "Coffee in the dark; walks Biscuit to the corner and back at beagle pace" }
   - { time: "06:30", location: "Harlow Elementary School", activity: "Pre-trip inspection on Bus 7 — the same eleven checks Roy taught her" }

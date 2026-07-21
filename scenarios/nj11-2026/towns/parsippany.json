@@ -3,6 +3,7 @@
   "county": "Morris County",
   "tagline": "The Suburban Melting Pot",
   "accent_color": "#2DA8A8",
+  "map": {"kind": "tiled", "path": "assets/maps/nj11-2026/parsippany.tmj", "preview_path": "assets/maps/nj11-2026/parsippany-preview.png"},
   "ambient_sound": "parsippany_ambient.ogg",
   "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
   "demographics": {

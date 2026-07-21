@@ -5,7 +5,7 @@
  * scrubber with round-chapter ticks + tooltips, elapsed label, and a
  * "LIVE REPLAY" badge.
  *
- * Keyboard: Space play/pause, ←/→ seek (ignored while typing in inputs).
+ * Keyboard: Space play/pause, ←/→ seek (without stealing focused controls).
  * Renders nothing outside demo mode (DemoPlayerContext is null there).
  * ─────────────────────────────────────────────────────────── */
 
@@ -27,10 +27,18 @@ function fmtClock(hour: number | null, minute: number | null): string | null {
   return `${h12}:${mm} ${hour < 12 ? "AM" : "PM"}`;
 }
 
-function isTypingTarget(el: EventTarget | null): boolean {
+function isInteractiveTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    tag === "BUTTON" ||
+    tag === "A" ||
+    el.isContentEditable ||
+    el.closest('[role="slider"]') !== null
+  );
 }
 
 /* Chunky, slightly pixel play/pause/replay glyphs. */
@@ -70,7 +78,10 @@ export default function DemoTimeline() {
   useEffect(() => {
     if (!player || !player.ready) return;
     const onKey = (e: KeyboardEvent) => {
-      if (isTypingTarget(e.target)) return;
+      // Let focused controls keep their native keyboard behavior. The track
+      // has its own slider handler below; this global transport is for the
+      // rest of the page only.
+      if (isInteractiveTarget(e.target)) return;
       if (e.code === "Space") {
         e.preventDefault();
         player.toggle();
@@ -122,15 +133,22 @@ export default function DemoTimeline() {
   /* Feed failed to load — a quiet, honest card instead of a dead bar. */
   if (player.error) {
     return (
-      <div className="demo-timeline demo-timeline--error" role="status">
+      <div className="demo-timeline demo-timeline--error pixel-frame" role="alert">
         <span>
           Replay unavailable —{" "}
-          <a href={REPO_URL} target="_blank" rel="noreferrer">run Township locally</a> in 60 seconds, zero keys.
+          <a href={REPO_URL} target="_blank" rel="noreferrer">run Township locally</a> with zero keys required.
         </span>
       </div>
     );
   }
-  if (!player.ready) return null;
+  if (!player.ready) {
+    return (
+      <div className="demo-timeline demo-timeline--loading pixel-frame" role="status" aria-live="polite">
+        <span className="demo-timeline-loading-mark" aria-hidden="true" />
+        <span>Preparing the town replay…</span>
+      </div>
+    );
+  }
 
   const pct = player.duration > 0 ? (player.position / player.duration) * 100 : 0;
   const round = ws.currentRound;
@@ -142,7 +160,7 @@ export default function DemoTimeline() {
   const atStart = player.position === 0 && !player.playing;
 
   return (
-    <div className="demo-timeline" role="group" aria-label="Replay timeline">
+    <div className="demo-timeline pixel-frame" role="group" aria-label="Replay timeline">
       {/* LIVE REPLAY badge */}
       <div className="demo-timeline-badge" title={scen.title}>
         <span className="demo-timeline-badge-dot" aria-hidden="true" />
@@ -161,36 +179,48 @@ export default function DemoTimeline() {
         {player.ended ? <ReplayIcon /> : player.playing ? <PauseIcon /> : <PlayIcon />}
       </button>
 
-      {/* Scrubber */}
-      <div
-        ref={trackRef}
-        className="demo-timeline-track"
-        role="slider"
-        aria-label="Replay position"
-        aria-valuemin={0}
-        aria-valuemax={player.duration}
-        aria-valuenow={player.position}
-        aria-valuetext={`Event ${player.position} of ${player.duration}${round ? `, round ${round}` : ""}`}
-        tabIndex={0}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowRight") { e.preventDefault(); player.seekBy(ARROW_SEEK_EVENTS); }
-          if (e.key === "ArrowLeft") { e.preventDefault(); player.seekBy(-ARROW_SEEK_EVENTS); }
-        }}
-      >
-        <div className="demo-timeline-rail" />
-        <div className="demo-timeline-fill" style={{ width: `${pct}%` }} />
+      {/* The slider and chapter buttons are siblings: interactive elements
+          must never be nested inside another interactive ARIA widget. */}
+      <div className="demo-timeline-scrubber">
+        <div
+          ref={trackRef}
+          className="demo-timeline-track"
+          role="slider"
+          aria-label="Replay position"
+          aria-valuemin={0}
+          aria-valuemax={player.duration}
+          aria-valuenow={player.position}
+          aria-valuetext={`Event ${player.position} of ${player.duration}${ws.totalRounds > 0 ? `, round ${round}` : ""}`}
+          tabIndex={0}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "ArrowRight") { e.preventDefault(); player.seekBy(ARROW_SEEK_EVENTS); }
+            if (e.key === "ArrowLeft") { e.preventDefault(); player.seekBy(-ARROW_SEEK_EVENTS); }
+            if (e.key === "Home") { e.preventDefault(); player.seekTo(0); }
+            if (e.key === "End") { e.preventDefault(); player.seekTo(player.duration); }
+          }}
+        >
+          <div className="demo-timeline-rail" />
+          <div className="demo-timeline-fill" style={{ width: `${pct}%` }} />
+          <div className="demo-timeline-playhead" style={{ left: `${pct}%` }} aria-hidden="true" />
+        </div>
         {/* Round-chapter ticks */}
-        {player.chapters.map((ch) => {
+        {player.chapters.map((ch, chapterIndex) => {
           const left = player.duration > 0 ? (ch.index / player.duration) * 100 : 0;
+          // Preserve a full 24 px hit target even when early/late chapter
+          // positions bunch near an edge. Each neighbor gets its own lane.
+          const minimumLeft = 12 + chapterIndex * 24;
+          const minimumRight = 12 + (player.chapters.length - 1 - chapterIndex) * 24;
           const chClock = fmtClock(ch.hour, ch.minute);
           return (
             <button
               key={ch.round}
               className="demo-timeline-tick"
-              style={{ left: `${left}%` }}
+              style={{ left: `clamp(${minimumLeft}px, ${left}%, calc(100% - ${minimumRight}px))` }}
               aria-label={`Skip to round ${ch.round}${chClock ? ` (${chClock})` : ""}`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -217,8 +247,6 @@ export default function DemoTimeline() {
               : ""}
           </div>
         )}
-        {/* Playhead */}
-        <div className="demo-timeline-playhead" style={{ left: `${pct}%` }} aria-hidden="true" />
       </div>
 
       {/* Elapsed label */}

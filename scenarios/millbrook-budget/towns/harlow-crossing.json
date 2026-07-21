@@ -3,6 +3,7 @@
   "county": "Ashford County",
   "tagline": "The Growth Side of the River",
   "accent_color": "#C08A4E",
+  "map": {"kind": "tiled", "path": "assets/maps/millbrook-budget/harlow-crossing.tmj", "preview_path": "assets/maps/millbrook-budget/harlow-crossing-preview.png"},
   "ambient_sound": "harlow_crossing_ambient.ogg",
   "weather_schedule": ["clear", "cloudy", "rain", "clear", "clear"],
   "demographics": {

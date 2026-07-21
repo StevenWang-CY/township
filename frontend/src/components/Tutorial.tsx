@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 const STORAGE_KEY = "township-tutorial-seen";
 
@@ -58,7 +58,7 @@ const STEPS: Array<{ title: string; body: string; icon: ReactNode }> = [
   },
   {
     title: "Read the opinion ring",
-    body: "The colored ring around each agent shows who they support — blue for Mejia, orange for Hathaway.",
+    body: "The colored ring around each resident shows their current position. The sidebar key uses this scenario's own palette.",
     icon: <IconPalette />,
   },
 ];
@@ -73,14 +73,51 @@ export default function Tutorial({ forceShow = false, onDismiss }: TutorialProps
     }
   });
   const [step, setStep] = useState(0);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const nextButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
-  if (!open) return null;
-
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
     try { localStorage.setItem(STORAGE_KEY, "1"); } catch { /* ignore */ }
     setOpen(false);
     onDismiss?.();
-  };
+  }, [onDismiss]);
+
+  useEffect(() => {
+    if (!open) return;
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
+    requestAnimationFrame(() => nextButtonRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dismiss();
+        return;
+      }
+      if (event.key !== "Tab" || !modalRef.current) return;
+      const focusable = Array.from(
+        modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      requestAnimationFrame(() => restoreFocusRef.current?.focus());
+    };
+  }, [dismiss, open]);
+
+  if (!open) return null;
 
   const next = () => {
     if (step >= STEPS.length - 1) dismiss();
@@ -91,7 +128,7 @@ export default function Tutorial({ forceShow = false, onDismiss }: TutorialProps
 
   return (
     <div className="tutorial-backdrop" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
-      <div className="tutorial-modal">
+      <div ref={modalRef} className="tutorial-modal">
         <div className="tutorial-modal-icon">{current.icon}</div>
         <h3 id="tutorial-title" className="tutorial-modal-title">{current.title}</h3>
         <p className="tutorial-modal-body">{current.body}</p>
@@ -107,7 +144,7 @@ export default function Tutorial({ forceShow = false, onDismiss }: TutorialProps
 
         <div className="tutorial-modal-actions">
           <button onClick={dismiss} className="tutorial-skip">Skip</button>
-          <button onClick={next} className="tutorial-next">
+          <button ref={nextButtonRef} onClick={next} className="tutorial-next">
             {step >= STEPS.length - 1 ? "Got it" : "Next"}
           </button>
         </div>

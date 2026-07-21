@@ -14,23 +14,56 @@ services:
   backend:
     build: .
     command: python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8001
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=3)"]
     environment:
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
-      # Only used when LLM_PROVIDER points at a real provider; harmless empty.
+      LLM_MAX_CONCURRENT: ${LLM_MAX_CONCURRENT:-10}
+      MOCK_DELAY_S: ${MOCK_DELAY_S:-0.05}
+
+      # Hosted providers. Empty credentials are harmless until selected.
       AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
       AWS_REGION: ${AWS_REGION:-us-east-2}
-      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}
+      BEDROCK_CACHE_SYSTEM: ${BEDROCK_CACHE_SYSTEM:-0}
+      BEDROCK_MAX_RETRIES: ${BEDROCK_MAX_RETRIES:-2}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-5}
+      ANTHROPIC_CACHE_SYSTEM: ${ANTHROPIC_CACHE_SYSTEM:-0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4.5}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+
+      # Local OpenAI-compatible providers resolve back to the host.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      LMSTUDIO_BASE_URL: ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-local-model}
+
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:4173,http://localhost:3000}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      SCENARIO: ${SCENARIO:-nj11-2026}
+      TOWNSHIP_RUNS_DIR: /app/runs
+      TOWNSHIP_STATE_DIR: /app/data/state
+      TOWNSHIP_CACHE_PATH: ${TOWNSHIP_CACHE_PATH:-/app/data/simulation_cache.json}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
-      - "8001:8001"
-      - "5173:5173" # published here because the frontend service shares this network namespace
+      - "127.0.0.1:8001:8001"
+      - "127.0.0.1:5173:5173" # published here because the frontend service shares this network namespace
     volumes:
       - ./backend:/app/backend
-      - ./data:/app/data
-      - ./agents:/app/agents
-      # - ./scenarios:/app/scenarios  # uncomment once the scenario engine lands (Phase 2)
+      - ./scenarios:/app/scenarios
+      # Named volumes retain the image's UID 10001 ownership on native Linux.
+      - backend_data:/app/data
+      - backend_runs:/app/runs
 
   frontend:
-    image: node:20
+    image: node:22-slim
     working_dir: /app
     network_mode: "service:backend"
     depends_on:
@@ -40,7 +73,9 @@ services:
       # Linux-native node_modules live in a named volume so they never
       # clobber the host's (macOS) install.
       - frontend_node_modules:/app/node_modules
-    command: sh -c "npm install && npm run dev -- --host"
+    command: sh -c "npm ci && npm run dev -- --host"
 
 volumes:
   frontend_node_modules:
+  backend_data:
+  backend_runs:

@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:00", location: "Stillwater River", activity: "Dawn paddle upstream past the ruins; reads the water gauge on the Main Street Bridge rail" }
   - { time: "08:30", location: "Millbrook Farmers Market", activity: "Opens the rental shed on the green, hauls boats, talks greenway with anyone holding cider" }

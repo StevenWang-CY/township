@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from conftest import REPO_ROOT
 
+from backend.core.agent_loader import agent_id_from_name
 from backend.core.scenario import load_scenario
 
 SCENARIOS_ROOT = Path(REPO_ROOT) / "scenarios"
@@ -28,12 +29,6 @@ SCENARIO_DIRS = sorted(
     for p in (SCENARIOS_ROOT.iterdir() if SCENARIOS_ROOT.is_dir() else [])
     if (p / "scenario.json").is_file() and (p / "agents").is_dir()
 )
-
-
-def _agent_slug(name: str) -> str:
-    """Mirror the orchestrator's agent_id derivation (name → slug)."""
-    return name.lower().replace(" ", "-").replace(".", "")
-
 
 @pytest.fixture(params=SCENARIO_DIRS, ids=lambda p: p.name)
 def scenario(request):
@@ -76,7 +71,7 @@ def test_relationships_resolve_to_real_agents(scenario):
     known = set()
     for defs in scenario.agents.values():
         for d in defs:
-            known.add(_agent_slug(d.name))
+            known.add(agent_id_from_name(d.name))
             known.add(d.name.lower())
     unresolved: list[str] = []
     for defs in scenario.agents.values():

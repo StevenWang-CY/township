@@ -15,7 +15,7 @@ export type AudioKey =
 /*
  * The previous implementation streamed /assets/audio/sfx/*.ogg files that do
  * not exist in the repo. This version SYNTHESIZES every cue with the Web Audio
- * API — no external files, crisp and deterministic. The exported hook API
+ * API — no external files, self-contained, and available offline. The exported hook API
  * (play / setEnabled / setVolume / enabled) and the AudioKey union are
  * unchanged so App.tsx / ChatPanel consume it without modification.
  */
