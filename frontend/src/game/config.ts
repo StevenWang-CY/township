@@ -21,9 +21,9 @@ export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
 
 /* ── Landmark Definitions ──────────────────────────────────── */
 
-// Landmark data has moved to `useTownData()` (which fetches from /api/towns,
-// with a hard-coded fallback identical to the prior `TOWN_LANDMARKS` table).
-// This interface remains here for any legacy import sites.
+// Landmark data has moved to `useTownData()` (which fetches the active
+// scenario package and uses a neutral village only while it resolves). This
+// interface remains here for any legacy import sites.
 export interface Landmark {
   name: string;
   x: number;
@@ -41,78 +41,29 @@ export function townMapKey(townId: TownId): string {
   return `${townId}-map`;
 }
 
-/* ── ElevenLabs Voice Mapping ─────────────────────────────── */
+/* ── Optional TTS voice palette ────────────────────────────── */
 
-export const AGENT_VOICES: Record<string, { voiceId: string; label: string }> = {
-  default: { voiceId: "21m00Tcm4TlvDq8ikWAM", label: "Default" },
-  // Map agents by demographic type
-  "latino-male": { voiceId: "29vD33N1CtxCmqQRPOHJ", label: "Warm Male" },
-  "latina-female": { voiceId: "EXAVITQu4vr4xnSDxMaL", label: "Energetic Female" },
-  "elderly-female": { voiceId: "MF3mGyEYCl7XYWbV9V6O", label: "Gentle Female" },
-  "elderly-male": { voiceId: "VR6AewLTigWG4xSOukaG", label: "Authoritative Male" },
-  "indian-male": { voiceId: "TxGEqnHWrfWFTfGW9XjX", label: "Professional Male" },
-  "indian-female": { voiceId: "pNInz6obpgDQGcFmaJgB", label: "Soft Female" },
-  "american-male": { voiceId: "VR6AewLTigWG4xSOukaG", label: "Authoritative Male" },
-  "asian-female": { voiceId: "pNInz6obpgDQGcFmaJgB", label: "Soft Female" },
-  "young-female": { voiceId: "jBpfuIE2acCO8z3wKNLl", label: "Young Female" },
-  "young-male": { voiceId: "yoZ06aMxZJJ28mfd3POQ", label: "Young Male" },
-  "middle-aged-male": { voiceId: "VR6AewLTigWG4xSOukaG", label: "Mature Male" },
-  "middle-aged-female": { voiceId: "EXAVITQu4vr4xnSDxMaL", label: "Mature Female" },
-};
+// Stable variety without inferring a voice from a resident's name,
+// background, age, gender, or scenario. Deployments may still override voice
+// behavior server-side through their TTS provider configuration.
+const CONVERSATION_VOICES = [
+  "21m00Tcm4TlvDq8ikWAM",
+  "29vD33N1CtxCmqQRPOHJ",
+  "EXAVITQu4vr4xnSDxMaL",
+  "MF3mGyEYCl7XYWbV9V6O",
+  "TxGEqnHWrfWFTfGW9XjX",
+  "pNInz6obpgDQGcFmaJgB",
+] as const;
 
-// Map each of the 26 agents to a voice type.
-export const AGENT_VOICE_MAP: Record<string, string> = {
-  // ── Dover ─────────────────────────────────────────────────
-  "carlos-restrepo": "latino-male",
-  "miguel-hernandez": "latino-male",
-  "maria-santos": "latina-female",
-  "esperanza-guzman": "elderly-female",
-  "sofia-ramirez": "young-female",
-  "tom-kowalski": "elderly-male",
-  // ── Montclair ─────────────────────────────────────────────
-  "sarah-&-david-chen": "asian-female",
-  "rosa-chen": "elderly-female",
-  "jordan-williams": "young-male",
-  "carmen-&-alejandro-vargas": "latina-female",
-  "rabbi-daniel-goldstein": "middle-aged-male",
-  "priya-patel": "indian-female",
-  "margaret-\"peggy\"-o'brien": "elderly-female",
-  // ── Parsippany ────────────────────────────────────────────
-  "raj-&-sunita-krishnamurthy": "indian-male",
-  "kantibhai-\"kanti\"-desai": "indian-male",
-  "brian-mccarthy": "middle-aged-male",
-  "aisha-&-omar-khan": "indian-female",
-  "pawan-sharma": "indian-male",
-  "linda-morrison": "elderly-female",
-  "grace-reyes": "middle-aged-female",
-  // ── Randolph ──────────────────────────────────────────────
-  "michael-\"mike\"-brennan": "middle-aged-male",
-  "jennifer-\"jen\"-russo": "middle-aged-female",
-  "frank-deluca": "elderly-male",
-  "tyler-&-megan-hart": "young-male",
-  "vikram-iyer": "indian-male",
-  "tony-mancini": "middle-aged-male",
-};
+/** Pick a consistent, scenario-neutral voice for a resident id. */
+export function voiceIdForAgent(agentId: string): string {
+  return CONVERSATION_VOICES[stableHash(agentId) % CONVERSATION_VOICES.length];
+}
 
 /* ── Town Background / Accent Colors ───────────────────────── */
 //
-// The NJ-11 towns keep their hand-curated palettes; towns from other
-// scenarios get a deterministic pick from a small curated palette (seeded by
-// town id) so every town still feels intentionally colored — never grey.
-
-const NJ11_BG_COLORS: Record<string, string> = {
-  dover: "#EDE4D6",
-  montclair: "#E8E4F0",
-  parsippany: "#E0ECE8",
-  randolph: "#E4ECE0",
-};
-
-const NJ11_ACCENT: Record<string, string> = {
-  dover: "#E8763B",
-  montclair: "#6B5CE7",
-  parsippany: "#2DA8A8",
-  randolph: "#4A9B5C",
-};
+// Runtime scenario payloads own the primary UI colors. These deterministic
+// fallbacks give procedural/loading art a deliberate palette for any town id.
 
 /** Warm, parchment-compatible accent palette for unknown towns. */
 const GENERIC_ACCENTS = [
@@ -129,21 +80,21 @@ const GENERIC_BGS = [
   "#EDE6D6", "#E4EBE0", "#EDE2D2", "#E4E6EE", "#E2ECDF", "#ECE3E2",
 ];
 
-function townHash(townId: string): number {
+function stableHash(value: string): number {
   let h = 2166136261;
-  for (let i = 0; i < townId.length; i++) {
-    h ^= townId.charCodeAt(i);
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
   return Math.abs(h);
 }
 
-/** Accent color for a town — NJ-11 curated, otherwise seeded-but-stable. */
+/** Seeded-but-stable accent used before scenario metadata resolves. */
 export function townAccent(townId: TownId): string {
-  return NJ11_ACCENT[townId] ?? GENERIC_ACCENTS[townHash(townId) % GENERIC_ACCENTS.length];
+  return GENERIC_ACCENTS[stableHash(townId) % GENERIC_ACCENTS.length];
 }
 
 /** Canvas background wash for a town. */
 export function townBgColor(townId: TownId): string {
-  return NJ11_BG_COLORS[townId] ?? GENERIC_BGS[townHash(townId) % GENERIC_BGS.length];
+  return GENERIC_BGS[stableHash(townId) % GENERIC_BGS.length];
 }

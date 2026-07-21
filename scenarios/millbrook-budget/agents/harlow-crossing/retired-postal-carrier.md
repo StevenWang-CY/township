@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:00", location: "Fairview Subdivision", activity: "Walks the loop at mail-pace, rain or shine; neither snow nor rain, still true" }
   - { time: "07:30", location: "The Wheelhouse Diner", activity: "Tuesdays: coffee with Gordon Tibbs, split cinnamon roll, alternate who pays" }

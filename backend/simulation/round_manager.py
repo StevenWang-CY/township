@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 
 from ..core.event_bus import EventBus
-from ..core.scenario import Scenario, validate_stance
+from ..core.scenario import RoundSpec, Scenario, validate_stance
 from ..core.types import (
     AgentMovedEvent,
     AgentSpeechEvent,
@@ -71,59 +71,108 @@ class RoundManager:
             f"{len(specs)} rounds (scenario={self.scenario.id})"
         )
 
-        news_by_id = self.scenario.news_by_id
         total_conversations = 0
 
         for spec in specs:
-            round_num = spec.round
-            await self.event_bus.publish(RoundStartedEvent(
-                round=round_num,
+            total_conversations = await self.run_town_round(
                 town=town,
+                agent_states=agent_states,
+                spec=spec,
                 total_rounds=num_rounds,
-            ))
-
-            # Emit a world-clock tick once per round (cosmetic on the frontend)
-            hour, minute = spec.clock_tuple()
-            await self.event_bus.publish(WorldClockTickEvent(
-                hour=hour, minute=minute, town=town,
-            ))
-
-            # Phases run in the order the scenario declares them.
-            for phase in spec.phases:
-                if phase == "seed":
-                    await self._run_seed_round(agent_states, round_num)
-                elif phase == "converse":
-                    convos = await self._run_conversation_round(agent_states, round_num)
-                    total_conversations += convos
-                elif phase == "news":
-                    news_events = [
-                        {"headline": news_by_id[i].headline, "description": news_by_id[i].description}
-                        for i in spec.news_ids
-                        if i in news_by_id
-                    ]
-                    if news_events:
-                        await self._run_news_round(agent_states, news_events, round_num)
-                elif phase == "opinion":
-                    await self._run_opinion_round(agent_states, round_num)
-                elif phase == "decide":
-                    # Mark all (non-errored) agents as decided
-                    for agent in agent_states:
-                        if agent.state != CivicAgentState.ERROR:
-                            agent.state = CivicAgentState.DECIDED
-
-            # Emit a per-town RoundEndedEvent so the frontend can update HUD/timeline.
-            # _build_town_summary is safe to call mid-run — it aggregates whatever
-            # opinions the agents currently hold.
-            await self.event_bus.publish(RoundEndedEvent(
-                round=round_num,
-                town=town,
-                summary=[town_summary_to_wire(
-                    self._build_town_summary(town, agent_states, total_conversations, round_num + 1)
-                )],
-            ))
+                total_conversations=total_conversations,
+            )
 
         # Build town summary
         return self._build_town_summary(town, agent_states, total_conversations, num_rounds)
+
+    async def run_town_round(
+        self,
+        town: str,
+        agent_states: list[AgentState],
+        spec: RoundSpec,
+        total_rounds: int,
+        total_conversations: int = 0,
+    ) -> int:
+        """Run one declared round and return the cumulative conversation count.
+
+        The orchestrator uses this boundary to keep every town on the same
+        round before it emits district weather or runs cross-town gossip.
+        ``run_town_simulation`` remains the convenient standalone wrapper.
+        """
+        round_num = spec.round
+        await self.event_bus.publish(
+            RoundStartedEvent(
+                round=round_num,
+                town=town,
+                total_rounds=total_rounds,
+            )
+        )
+
+        hour, minute = spec.clock_tuple()
+        await self.event_bus.publish(
+            WorldClockTickEvent(
+                hour=hour,
+                minute=minute,
+                town=town,
+            )
+        )
+
+        news_by_id = self.scenario.news_by_id
+        for phase in spec.phases:
+            if phase == "seed":
+                await self._run_seed_round(agent_states, round_num)
+            elif phase == "converse":
+                total_conversations += await self._run_conversation_round(agent_states, round_num)
+            elif phase == "news":
+                news_events = [
+                    {
+                        "headline": news_by_id[news_id].headline,
+                        "description": news_by_id[news_id].description,
+                    }
+                    for news_id in spec.news_ids
+                    if news_id in news_by_id
+                ]
+                if news_events:
+                    await self._run_news_round(agent_states, news_events, round_num)
+            elif phase == "opinion":
+                await self._run_opinion_round(agent_states, round_num)
+            elif phase == "decide":
+                for agent in agent_states:
+                    if agent.state != CivicAgentState.ERROR:
+                        agent.state = CivicAgentState.DECIDED
+
+        await self.event_bus.publish(
+            RoundEndedEvent(
+                round=round_num,
+                town=town,
+                summary=[
+                    town_summary_to_wire(
+                        self._build_town_summary(
+                            town,
+                            agent_states,
+                            total_conversations,
+                            round_num + 1,
+                        )
+                    )
+                ],
+            )
+        )
+        return total_conversations
+
+    def build_town_summary(
+        self,
+        town: str,
+        agents: list[AgentState],
+        total_conversations: int,
+        rounds_completed: int,
+    ) -> TownSummary:
+        """Build a final town summary after orchestrated round execution."""
+        return self._build_town_summary(
+            town,
+            agents,
+            total_conversations,
+            rounds_completed,
+        )
 
     async def _run_seed_round(self, agents: list[AgentState], round_num: int = 0):
         """Inject the scenario briefing, get initial opinions from all agents."""
@@ -153,15 +202,17 @@ class RoundManager:
             agent.current_location = location
             landmark = self._get_landmark(town, location)
             if landmark:
-                await self.event_bus.publish(AgentMovedEvent(
-                    agent_id=agent.agent_id,
-                    agent_name=agent.definition.name,
-                    town=town,
-                    from_location=from_location,
-                    to_location=location,
-                    x=landmark.get("x", 400),
-                    y=landmark.get("y", 300),
-                ))
+                await self.event_bus.publish(
+                    AgentMovedEvent(
+                        agent_id=agent.agent_id,
+                        agent_name=agent.definition.name,
+                        town=town,
+                        from_location=from_location,
+                        to_location=location,
+                        x=landmark.get("x", 400),
+                        y=landmark.get("y", 300),
+                    )
+                )
 
             # Ask agent to form initial opinion
             system_prompt = self._build_agent_system_prompt(agent, round_num=round_num)
@@ -188,9 +239,7 @@ class RoundManager:
             # Genuine LLM/transport failure — mark ERROR, do NOT mint a
             # confident fallback opinion.
             if result.get("stop_reason") == "error":
-                logger.error(
-                    "Seed call errored for %s: %s", agent.agent_id, result.get("error")
-                )
+                logger.error("Seed call errored for %s: %s", agent.agent_id, result.get("error"))
                 agent.state = CivicAgentState.ERROR
                 return
 
@@ -203,7 +252,9 @@ class RoundManager:
                         self.scenario,
                     ),
                     confidence=tool_input.get("confidence", 30),
-                    reasoning=tool_input.get("reasoning", "Initial impression based on what I've heard."),
+                    reasoning=tool_input.get(
+                        "reasoning", "Initial impression based on what I've heard."
+                    ),
                     top_issues=tool_input.get("top_issues", agent.definition.top_concerns[:3]),
                     dealbreaker=tool_input.get("dealbreaker"),
                     round_number=round_num,
@@ -213,13 +264,15 @@ class RoundManager:
                     f"Round {round_num}: Formed initial opinion - leaning {opinion.candidate} "
                     f"(confidence: {opinion.confidence}%). Reasoning: {opinion.reasoning}"
                 )
-                await self.event_bus.publish(OpinionChangedEvent(
-                    agent_id=agent.agent_id,
-                    agent_name=agent.definition.name,
-                    town=agent.definition.town,
-                    old_opinion=None,
-                    new_opinion=opinion,
-                ))
+                await self.event_bus.publish(
+                    OpinionChangedEvent(
+                        agent_id=agent.agent_id,
+                        agent_name=agent.definition.name,
+                        town=agent.definition.town,
+                        old_opinion=None,
+                        new_opinion=opinion,
+                    )
+                )
             else:
                 # Fallback: create opinion from initial lean
                 opinion = Opinion(
@@ -238,13 +291,15 @@ class RoundManager:
             agent.state = CivicAgentState.ERROR
             # Fallback opinion so simulation can continue
             if not agent.opinions:
-                agent.opinions.append(Opinion(
-                    candidate=validate_stance(agent.definition.initial_lean, self.scenario),
-                    confidence=20,
-                    reasoning="Still figuring things out.",
-                    top_issues=agent.definition.top_concerns[:3],
-                    round_number=round_num,
-                ))
+                agent.opinions.append(
+                    Opinion(
+                        candidate=validate_stance(agent.definition.initial_lean, self.scenario),
+                        confidence=20,
+                        reasoning="Still figuring things out.",
+                        top_issues=agent.definition.top_concerns[:3],
+                        round_number=round_num,
+                    )
+                )
 
     async def _run_conversation_round(self, agents: list[AgentState], round_num: int) -> int:
         """Pair agents randomly, run discussions at town locations. Returns number of conversations."""
@@ -262,6 +317,8 @@ class RoundManager:
         """Run a 3-exchange conversation between two agents."""
         town = agent_a.definition.town
         location = self._pick_location(town)
+        from_a = agent_a.current_location
+        from_b = agent_b.current_location
         agent_a.current_location = location
         agent_b.current_location = location
         agent_a.state = CivicAgentState.DISCUSSING
@@ -272,25 +329,33 @@ class RoundManager:
         ly = landmark.get("y", 300) if landmark else 300
 
         # Move both agents to location
-        await self.event_bus.publish(AgentMovedEvent(
-            agent_id=agent_a.agent_id,
-            agent_name=agent_a.definition.name,
-            town=town,
-            from_location=agent_a.current_location,
-            to_location=location,
-            x=lx - 30, y=ly,
-        ))
-        await self.event_bus.publish(AgentMovedEvent(
-            agent_id=agent_b.agent_id,
-            agent_name=agent_b.definition.name,
-            town=town,
-            from_location=agent_b.current_location,
-            to_location=location,
-            x=lx + 30, y=ly,
-        ))
+        await self.event_bus.publish(
+            AgentMovedEvent(
+                agent_id=agent_a.agent_id,
+                agent_name=agent_a.definition.name,
+                town=town,
+                from_location=from_a,
+                to_location=location,
+                x=lx - 30,
+                y=ly,
+            )
+        )
+        await self.event_bus.publish(
+            AgentMovedEvent(
+                agent_id=agent_b.agent_id,
+                agent_name=agent_b.definition.name,
+                town=town,
+                from_location=from_b,
+                to_location=location,
+                x=lx + 30,
+                y=ly,
+            )
+        )
 
         # Pick a conversation topic based on shared concerns
-        shared_concerns = set(agent_a.definition.top_concerns) & set(agent_b.definition.top_concerns)
+        shared_concerns = set(agent_a.definition.top_concerns) & set(
+            agent_b.definition.top_concerns
+        )
         if shared_concerns:
             topic = random.choice(list(shared_concerns))
         else:
@@ -310,9 +375,11 @@ class RoundManager:
             round=round_num,
             timestamp=datetime.now(UTC).isoformat(),
         )
-        await self.event_bus.publish(ConversationStartedEvent(
-            conversation=wire_conversation,
-        ))
+        await self.event_bus.publish(
+            ConversationStartedEvent(
+                conversation=wire_conversation,
+            )
+        )
 
         dialogue_parts = []
         key_takeaways = {}
@@ -354,7 +421,9 @@ class RoundManager:
                 if result.get("stop_reason") == "error":
                     logger.error(
                         "Conversation exchange %d errored for %s: %s",
-                        i, speaker.agent_id, result.get("error"),
+                        i,
+                        speaker.agent_id,
+                        result.get("error"),
                     )
                     speaker.state = CivicAgentState.ERROR
                     dialogue_parts.append(f"{speaker.definition.name}: [unavailable]")
@@ -375,15 +444,17 @@ class RoundManager:
                         f"Takeaway: {takeaway}"
                     )
 
-                    await self.event_bus.publish(AgentSpeechEvent(
-                        agent_id=speaker.agent_id,
-                        agent_name=speaker.definition.name,
-                        town=town,
-                        text=response_text[:150],
-                        location=location,
-                        sentiment=sentiment,
-                        gesture=gesture,
-                    ))
+                    await self.event_bus.publish(
+                        AgentSpeechEvent(
+                            agent_id=speaker.agent_id,
+                            agent_name=speaker.definition.name,
+                            town=town,
+                            text=response_text[:150],
+                            location=location,
+                            sentiment=sentiment,
+                            gesture=gesture,
+                        )
+                    )
                 else:
                     # Use text response as fallback (model didn't call the tool)
                     text = result.get("text", "...")[:200]
@@ -414,23 +485,29 @@ class RoundManager:
 
         # Emit a ConversationEnded so the frontend can finalize bubbles / log entry
         try:
-            await self.event_bus.publish(ConversationEndedEvent(
-                conversation_id=convo_id,
-                summary="; ".join(key_takeaways.values())[:200],
-            ))
+            await self.event_bus.publish(
+                ConversationEndedEvent(
+                    conversation_id=convo_id,
+                    summary="; ".join(key_takeaways.values())[:200],
+                )
+            )
         except Exception:  # pragma: no cover — defensive
             pass
 
-    async def _run_news_round(self, agents: list[AgentState], news_events: list[dict], round_num: int):
+    async def _run_news_round(
+        self, agents: list[AgentState], news_events: list[dict], round_num: int
+    ):
         """Inject news and get reactions from all agents."""
         logger.info(f"Running news round {round_num} with {len(news_events)} events")
 
         for news in news_events:
-            await self.event_bus.publish(NewsInjectedEvent(
-                headline=news["headline"],
-                description=news["description"],
-                round=round_num,
-            ))
+            await self.event_bus.publish(
+                NewsInjectedEvent(
+                    headline=news["headline"],
+                    description=news["description"],
+                    round=round_num,
+                )
+            )
 
             tasks = []
             for agent in agents:
@@ -484,32 +561,37 @@ class RoundManager:
 
                 # Speech bubble for the visible reaction
                 sentiment = (
-                    "negative" if emotional in ("angry", "anxious")
+                    "negative"
+                    if emotional in ("angry", "anxious")
                     else ("positive" if emotional == "hopeful" else "neutral")
                 )
-                await self.event_bus.publish(AgentSpeechEvent(
-                    agent_id=agent.agent_id,
-                    agent_name=agent.definition.name,
-                    town=agent.definition.town,
-                    text=f"Re: {news['headline'][:50]}... - {reasoning[:100]}",
-                    location=agent.current_location,
-                    sentiment=sentiment,
-                ))
+                await self.event_bus.publish(
+                    AgentSpeechEvent(
+                        agent_id=agent.agent_id,
+                        agent_name=agent.definition.name,
+                        town=agent.definition.town,
+                        text=f"Re: {news['headline'][:50]}... - {reasoning[:100]}",
+                        location=agent.current_location,
+                        sentiment=sentiment,
+                    )
+                )
 
                 # A structured NewsReactionEvent for the dashboard / news ticker
                 try:
-                    await self.event_bus.publish(NewsReactionEvent(
-                        reaction=NewsReaction(
-                            agent_id=agent.agent_id,
-                            agent_name=agent.definition.name,
-                            town=agent.definition.town,
-                            headline=news["headline"],
-                            event=news["headline"],
-                            emotional_response=emotional,
-                            impact_on_vote=impact,
-                            reasoning=reasoning,
-                        ),
-                    ))
+                    await self.event_bus.publish(
+                        NewsReactionEvent(
+                            reaction=NewsReaction(
+                                agent_id=agent.agent_id,
+                                agent_name=agent.definition.name,
+                                town=agent.definition.town,
+                                headline=news["headline"],
+                                event=news["headline"],
+                                emotional_response=emotional,
+                                impact_on_vote=impact,
+                                reasoning=reasoning,
+                            ),
+                        )
+                    )
                 except Exception:  # pragma: no cover
                     pass
 
@@ -536,7 +618,11 @@ class RoundManager:
 
             # Build context about recent conversations and memories
             recent_memories = agent.get_recent_memories(10)
-            memories_text = "\n".join(f"- {m}" for m in recent_memories) if recent_memories else "No recent events."
+            memories_text = (
+                "\n".join(f"- {m}" for m in recent_memories)
+                if recent_memories
+                else "No recent events."
+            )
 
             messages = [
                 {
@@ -561,9 +647,7 @@ class RoundManager:
             )
 
             if result.get("stop_reason") == "error":
-                logger.error(
-                    "Opinion call errored for %s: %s", agent.agent_id, result.get("error")
-                )
+                logger.error("Opinion call errored for %s: %s", agent.agent_id, result.get("error"))
                 agent.state = CivicAgentState.ERROR
                 return
 
@@ -591,13 +675,15 @@ class RoundManager:
                     f"(confidence: {opinion.confidence}%). {opinion.reasoning}"
                 )
 
-                await self.event_bus.publish(OpinionChangedEvent(
-                    agent_id=agent.agent_id,
-                    agent_name=agent.definition.name,
-                    town=agent.definition.town,
-                    old_opinion=before,
-                    new_opinion=opinion,
-                ))
+                await self.event_bus.publish(
+                    OpinionChangedEvent(
+                        agent_id=agent.agent_id,
+                        agent_name=agent.definition.name,
+                        town=agent.definition.town,
+                        old_opinion=before,
+                        new_opinion=opinion,
+                    )
+                )
 
             agent.state = CivicAgentState.IDLE
 
@@ -621,8 +707,7 @@ class RoundManager:
         recent = agent_state.get_recent_memories(10)
         if recent:
             parts.append(
-                "\n\n--- YOUR RECENT EXPERIENCES ---\n"
-                + "\n".join(f"- {m}" for m in recent)
+                "\n\n--- YOUR RECENT EXPERIENCES ---\n" + "\n".join(f"- {m}" for m in recent)
             )
 
         # Current opinion
@@ -644,9 +729,7 @@ class RoundManager:
             # Resolve the effective round number: caller-supplied wins, else
             # last opinion's round, else 0.
             if round_num is None:
-                round_num = (
-                    agent_state.opinions[-1].round_number if agent_state.opinions else 0
-                )
+                round_num = agent_state.opinions[-1].round_number if agent_state.opinions else 0
             key = f"round_{round_num}"
             current_goal = goals.get(key)
             if current_goal:
@@ -693,7 +776,12 @@ class RoundManager:
             agent_a = name_lookup.get(name_a.lower())
             agent_b = name_lookup.get(name_b.lower())
 
-            if agent_a and agent_b and agent_a.agent_id not in used_agents and agent_b.agent_id not in used_agents:
+            if (
+                agent_a
+                and agent_b
+                and agent_a.agent_id not in used_agents
+                and agent_b.agent_id not in used_agents
+            ):
                 matched_pairs.append((agent_a, agent_b, pair_def.connection))
                 used_agents.add(agent_a.agent_id)
                 used_agents.add(agent_b.agent_id)
@@ -717,7 +805,9 @@ class RoundManager:
                 b = remaining[i + 1]
                 matched_pairs.append((a, b, chance_connection))
 
-        logger.info(f"Created {len(matched_pairs)} cross-town pairs ({len([p for p in matched_pairs if p[2] != ''])} with connection stories)")
+        logger.info(
+            f"Created {len(matched_pairs)} cross-town pairs ({len([p for p in matched_pairs if p[2] != ''])} with connection stories)"
+        )
         return matched_pairs
 
     async def run_cross_town_conversation(
@@ -730,7 +820,9 @@ class RoundManager:
         agent_b.state = CivicAgentState.DISCUSSING
 
         # Pick a conversation topic based on shared concerns
-        shared_concerns = set(agent_a.definition.top_concerns) & set(agent_b.definition.top_concerns)
+        shared_concerns = set(agent_a.definition.top_concerns) & set(
+            agent_b.definition.top_concerns
+        )
         if shared_concerns:
             topic = random.choice(list(shared_concerns))
         else:
@@ -738,19 +830,21 @@ class RoundManager:
             topic = random.choice(all_concerns)
 
         convo_id = uuid.uuid4().hex[:8]
-        await self.event_bus.publish(ConversationStartedEvent(
-            conversation=Conversation(
-                id=convo_id,
-                participants=[agent_a.agent_id, agent_b.agent_id],
-                participant_names=[agent_a.definition.name, agent_b.definition.name],
-                town=agent_a.definition.town,
-                location=location,
-                topic=topic,
-                summary="",
-                round=round_num,
-                timestamp=datetime.now(UTC).isoformat(),
+        await self.event_bus.publish(
+            ConversationStartedEvent(
+                conversation=Conversation(
+                    id=convo_id,
+                    participants=[agent_a.agent_id, agent_b.agent_id],
+                    participant_names=[agent_a.definition.name, agent_b.definition.name],
+                    town=agent_a.definition.town,
+                    location=location,
+                    topic=topic,
+                    summary="",
+                    round=round_num,
+                    timestamp=datetime.now(UTC).isoformat(),
+                )
             )
-        ))
+        )
 
         dialogue_parts = []
         key_takeaways = {}
@@ -795,10 +889,14 @@ class RoundManager:
                 if result.get("stop_reason") == "error":
                     logger.error(
                         "Cross-town exchange %d errored for %s: %s",
-                        i, speaker.agent_id, result.get("error"),
+                        i,
+                        speaker.agent_id,
+                        result.get("error"),
                     )
                     speaker.state = CivicAgentState.ERROR
-                    dialogue_parts.append(f"{speaker.definition.name} ({speaker.definition.town}): [unavailable]")
+                    dialogue_parts.append(
+                        f"{speaker.definition.name} ({speaker.definition.town}): [unavailable]"
+                    )
                     conversation_so_far = "\n".join(dialogue_parts)
                 elif result["tool_use"] and result["tool_use"]["name"] == "Discuss":
                     tool_input = result["tool_use"]["input"]
@@ -807,7 +905,9 @@ class RoundManager:
                     takeaway = tool_input.get("key_takeaway", "")
                     gesture = tool_input.get("gesture")
 
-                    dialogue_parts.append(f"{speaker.definition.name} ({speaker.definition.town}): {response_text}")
+                    dialogue_parts.append(
+                        f"{speaker.definition.name} ({speaker.definition.town}): {response_text}"
+                    )
                     conversation_so_far = "\n".join(dialogue_parts)
                     key_takeaways[speaker.definition.name] = takeaway
 
@@ -817,22 +917,28 @@ class RoundManager:
                         f"Takeaway: {takeaway}"
                     )
 
-                    await self.event_bus.publish(AgentSpeechEvent(
-                        agent_id=speaker.agent_id,
-                        agent_name=speaker.definition.name,
-                        town=speaker.definition.town,
-                        text=response_text[:150],
-                        location=location,
-                        sentiment=sentiment,
-                        gesture=gesture,
-                    ))
+                    await self.event_bus.publish(
+                        AgentSpeechEvent(
+                            agent_id=speaker.agent_id,
+                            agent_name=speaker.definition.name,
+                            town=speaker.definition.town,
+                            text=response_text[:150],
+                            location=location,
+                            sentiment=sentiment,
+                            gesture=gesture,
+                        )
+                    )
                 else:
                     text = result.get("text", "...")[:200]
-                    dialogue_parts.append(f"{speaker.definition.name} ({speaker.definition.town}): {text}")
+                    dialogue_parts.append(
+                        f"{speaker.definition.name} ({speaker.definition.town}): {text}"
+                    )
                     conversation_so_far = "\n".join(dialogue_parts)
 
             except Exception as e:
-                logger.error(f"Error in cross-town conversation exchange {i} for {speaker.agent_id}: {e}")
+                logger.error(
+                    f"Error in cross-town conversation exchange {i} for {speaker.agent_id}: {e}"
+                )
                 dialogue_parts.append(f"{speaker.definition.name}: [conversation interrupted]")
                 conversation_so_far = "\n".join(dialogue_parts)
 
@@ -854,10 +960,12 @@ class RoundManager:
             agent_b.state = CivicAgentState.IDLE
 
         try:
-            await self.event_bus.publish(ConversationEndedEvent(
-                conversation_id=convo_id,
-                summary="; ".join(key_takeaways.values())[:200],
-            ))
+            await self.event_bus.publish(
+                ConversationEndedEvent(
+                    conversation_id=convo_id,
+                    summary="; ".join(key_takeaways.values())[:200],
+                )
+            )
         except Exception:  # pragma: no cover
             pass
 
@@ -868,20 +976,24 @@ class RoundManager:
         try:
             takeaway_a = key_takeaways.get(agent_a.definition.name, "") or topic
             takeaway_b = key_takeaways.get(agent_b.definition.name, "") or topic
-            await self.event_bus.publish(CrossTownGossipEvent(
-                from_town=agent_a.definition.town,
-                to_town=agent_b.definition.town,
-                from_agent=agent_a.agent_id,
-                to_agent=agent_b.agent_id,
-                message=takeaway_a[:120],
-            ))
-            await self.event_bus.publish(CrossTownGossipEvent(
-                from_town=agent_b.definition.town,
-                to_town=agent_a.definition.town,
-                from_agent=agent_b.agent_id,
-                to_agent=agent_a.agent_id,
-                message=takeaway_b[:120],
-            ))
+            await self.event_bus.publish(
+                CrossTownGossipEvent(
+                    from_town=agent_a.definition.town,
+                    to_town=agent_b.definition.town,
+                    from_agent=agent_a.agent_id,
+                    to_agent=agent_b.agent_id,
+                    message=takeaway_a[:120],
+                )
+            )
+            await self.event_bus.publish(
+                CrossTownGossipEvent(
+                    from_town=agent_b.definition.town,
+                    to_town=agent_a.definition.town,
+                    from_agent=agent_b.agent_id,
+                    to_agent=agent_a.agent_id,
+                    message=takeaway_b[:120],
+                )
+            )
         except Exception:  # pragma: no cover
             pass
 
@@ -941,27 +1053,37 @@ class RoundManager:
             final_opinion = agent.current_opinion
             if final_opinion:
                 # Defensive: tolerate an unexpected candidate value mid-run.
-                opinion_dist[final_opinion.candidate] = opinion_dist.get(final_opinion.candidate, 0) + 1
+                opinion_dist[final_opinion.candidate] = (
+                    opinion_dist.get(final_opinion.candidate, 0) + 1
+                )
                 for issue in final_opinion.top_issues:
                     all_issues[issue] = all_issues.get(issue, 0) + 1
             else:
                 undecided = self.scenario.undecided_id
                 opinion_dist[undecided] = opinion_dist.get(undecided, 0) + 1
 
-            agent_summaries.append({
-                "agent_id": agent.agent_id,
-                "name": agent.definition.name,
-                "occupation": agent.definition.occupation,
-                "final_candidate": final_opinion.candidate if final_opinion else self.scenario.undecided_id,
-                "final_confidence": final_opinion.confidence if final_opinion else 0,
-                "final_reasoning": final_opinion.reasoning if final_opinion else "",
-                "opinion_trajectory": [
-                    {"candidate": o.candidate, "confidence": o.confidence, "round": o.round_number}
-                    for o in agent.opinions
-                ],
-                "total_memories": len(agent.memories),
-                "total_conversations": len(agent.conversations),
-            })
+            agent_summaries.append(
+                {
+                    "agent_id": agent.agent_id,
+                    "name": agent.definition.name,
+                    "occupation": agent.definition.occupation,
+                    "final_candidate": final_opinion.candidate
+                    if final_opinion
+                    else self.scenario.undecided_id,
+                    "final_confidence": final_opinion.confidence if final_opinion else 0,
+                    "final_reasoning": final_opinion.reasoning if final_opinion else "",
+                    "opinion_trajectory": [
+                        {
+                            "candidate": o.candidate,
+                            "confidence": o.confidence,
+                            "round": o.round_number,
+                        }
+                        for o in agent.opinions
+                    ],
+                    "total_memories": len(agent.memories),
+                    "total_conversations": len(agent.conversations),
+                }
+            )
 
         # Sort issues by frequency, compute importance as fraction
         total_agents = len(agents) or 1

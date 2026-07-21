@@ -1,15 +1,21 @@
+import re
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+_CLOCK_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
 
 
 class AgentDefinition(BaseModel):
     """Parsed from .md frontmatter + body"""
+
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     town: str
     description: str
-    age: int
+    age: int = Field(ge=0, le=125)
     occupation: str
     household: str
     income_bracket: str
@@ -19,9 +25,13 @@ class AgentDefinition(BaseModel):
     # persona lint tests — not here.
     political_registration: str
     initial_lean: str
-    top_concerns: list[str]
-    tools: list[str]
-    model: str
+    top_concerns: list[str] = Field(min_length=1, max_length=20)
+    tools: list[Literal["Discuss", "FormOpinion", "ReactToNews", "ClassifyInteraction"]] = Field(
+        min_length=1
+    )
+    # Optional per-resident pin. When omitted, the active provider's configured
+    # default wins (for example OPENAI_MODEL or BEDROCK_MODEL_ID).
+    model: str | None = None
     system_prompt: str  # The markdown body
 
     # ── Phase 3 extensions (all OPTIONAL, preserve backward compat) ──
@@ -35,6 +45,130 @@ class AgentDefinition(BaseModel):
 
     goals: dict[str, str] = Field(default_factory=dict)
     # e.g. {"round_0": "Learn what each candidate stands for.", ...}
+
+    @field_validator(
+        "name",
+        "town",
+        "description",
+        "occupation",
+        "household",
+        "income_bracket",
+        "language",
+        "political_registration",
+        "initial_lean",
+        "system_prompt",
+    )
+    @classmethod
+    def _required_persona_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("persona text fields must not be empty")
+        return value
+
+    @field_validator("model")
+    @classmethod
+    def _optional_model_is_visible(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("persona model must not be blank")
+        return value
+
+    @field_validator("top_concerns", "idle_thoughts")
+    @classmethod
+    def _nonblank_string_lists(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("persona concern/thought lists must contain non-empty strings")
+        if len({value.casefold() for value in cleaned}) != len(cleaned):
+            raise ValueError("persona concern/thought lists must not contain duplicates")
+        return cleaned
+
+    @field_validator("routine")
+    @classmethod
+    def _valid_routine(cls, values: list[dict]) -> list[dict]:
+        if len(values) > 48:
+            raise ValueError("persona routine may contain at most 48 entries")
+        cleaned: list[dict] = []
+        seen_times: set[str] = set()
+        for entry in values:
+            if not isinstance(entry, dict):
+                raise ValueError("routine entries must be objects")
+            time = entry.get("time")
+            location = entry.get("location")
+            activity = entry.get("activity")
+            if not isinstance(time, str) or not _CLOCK_RE.fullmatch(time.strip()):
+                raise ValueError("routine time must be HH:MM in 24-hour form")
+            if not isinstance(location, str) or not location.strip():
+                raise ValueError("routine location must be a non-empty string")
+            if not isinstance(activity, str) or not activity.strip():
+                raise ValueError("routine activity must be a non-empty string")
+            time = time.strip()
+            if time in seen_times:
+                raise ValueError("routine entries must not repeat a time")
+            seen_times.add(time)
+            cleaned.append(
+                {
+                    **entry,
+                    "time": time,
+                    "location": location.strip(),
+                    "activity": activity.strip(),
+                }
+            )
+        return cleaned
+
+    @field_validator("relationships")
+    @classmethod
+    def _valid_relationships(cls, values: list[dict]) -> list[dict]:
+        if len(values) > 50:
+            raise ValueError("persona relationships may contain at most 50 entries")
+        cleaned: list[dict] = []
+        targets: set[str] = set()
+        for entry in values:
+            if not isinstance(entry, dict):
+                raise ValueError("relationship entries must be objects")
+            target = entry.get("agent")
+            relation_type = entry.get("type")
+            context = entry.get("context")
+            strength = entry.get("strength")
+            if not isinstance(target, str) or not target.strip():
+                raise ValueError("relationship agent must be a non-empty string")
+            if not isinstance(relation_type, str) or not relation_type.strip():
+                raise ValueError("relationship type must be a non-empty string")
+            if not isinstance(context, str) or not context.strip():
+                raise ValueError("relationship context must be a non-empty string")
+            if (
+                isinstance(strength, bool)
+                or not isinstance(strength, (int, float))
+                or not 0 <= strength <= 1
+            ):
+                raise ValueError("relationship strength must be numeric from 0 to 1")
+            key = target.strip().casefold()
+            if key in targets:
+                raise ValueError("persona relationships must not repeat an agent")
+            targets.add(key)
+            cleaned.append(
+                {
+                    **entry,
+                    "agent": target.strip(),
+                    "type": relation_type.strip(),
+                    "context": context.strip(),
+                }
+            )
+        return cleaned
+
+    @field_validator("goals")
+    @classmethod
+    def _valid_goals(cls, values: dict[str, str]) -> dict[str, str]:
+        cleaned: dict[str, str] = {}
+        for key, value in values.items():
+            if not re.fullmatch(r"round_[0-9]+", key):
+                raise ValueError("persona goal keys must use round_<number>")
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("persona goals must be non-empty strings")
+            cleaned[key] = value.strip()
+        return cleaned
 
 
 class CivicAgentState(StrEnum):
@@ -63,8 +197,9 @@ class Conversation(BaseModel):
     Wire-level conversation payload (matches the frontend Conversation interface
     exactly — see frontend/src/types/messages.ts).
     """
+
     id: str
-    participants: list[str]            # agent ids
+    participants: list[str]  # agent ids
     participant_names: list[str]
     town: str
     location: str
@@ -122,6 +257,7 @@ class AgentState(BaseModel):
 
 
 # ─── Simulation events (discriminated union, past-tense to match frontend) ───
+
 
 class RoundStartedEvent(BaseModel):
     type: Literal["round_started"] = "round_started"
@@ -236,6 +372,7 @@ class SimulationEndedEvent(BaseModel):
 
 # ── New ambient / atmospheric events (§3.2, §5.2, §7) ──
 
+
 class WorldClockTickEvent(BaseModel):
     type: Literal["world_clock_tick"] = "world_clock_tick"
     hour: int
@@ -250,12 +387,25 @@ class WeatherChangedEvent(BaseModel):
 
 
 class RelationshipUpdateEvent(BaseModel):
+    """Deprecated legacy wire shape; private relationship state is HTTP-only."""
+
     type: Literal["relationship_update"] = "relationship_update"
     agent_id: str
     player_id: str
     trust: int
     delta: int
     classification: str
+
+
+# Browser-private state must never enter the shared EventBus, persisted run
+# artifacts, exports, or replay stream. Keep the legacy model deserializable so
+# old caches remain readable, but centralize the deny-list used at every egress.
+PRIVATE_EVENT_TYPES = frozenset({"relationship_update"})
+
+
+def is_private_event(event: Any) -> bool:
+    event_type = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
+    return event_type in PRIVATE_EVENT_TYPES
 
 
 SimulationEvent = (

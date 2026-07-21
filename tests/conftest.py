@@ -15,6 +15,12 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+# The test contract is always offline, even when a contributor's local .env
+# contains live provider credentials. Explicit process variables win over the
+# package's dotenv loader and prevent accidental billable calls.
+os.environ["LLM_PROVIDER"] = "mock"
+os.environ["MOCK_DELAY_S"] = "0"
+
 # Keep player-state persistence (relationships/journal) out of the repo's
 # data/state/ during tests. Must happen before any `backend` import — the
 # route modules bind their state paths at import time.

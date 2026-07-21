@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:30", location: "Chestnut Row", activity: "Reads the posted meeting minutes online with red-pen energy; two eggs, no salt, Eileen's orders" }
   - { time: "07:30", location: "The Wheelhouse Diner", activity: "Corner booth, coffee; Tuesdays with Walt Hagen, Thursdays with Adele Pruitt; holds informal office hours whether asked or not" }

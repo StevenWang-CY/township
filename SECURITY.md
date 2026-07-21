@@ -34,10 +34,22 @@ A few things worth knowing about Township's security posture:
 - **Never commit credentials.** No API key belongs in this repository, in a
   scenario file, or in a persona. A committed key in any PR will be treated
   as a security incident (revoke, purge, report).
+- **Player state uses bearer capabilities, not accounts.** A random secret held
+  by the browser authorizes one player id; only its SHA-256 digest is stored.
+  Bindings and relationship/journal mutations are durable before success is
+  acknowledged. Invalid private-state files lock those routes closed, and
+  pre-capability rows are removed from active state into an API-inaccessible
+  `*.legacy-unbound.json` quarantine for operator review.
+- **Public artifacts are version-gated.** Replay, run export, and static-demo
+  staging require the current schema and privacy markers. Township refuses
+  unversioned caches/runs because old private influence can survive inside
+  ordinary-looking public prose and cannot be removed reliably by event type.
 - **No telemetry.** Township phones home to nothing. The only outbound
-  network calls are the LLM/TTS/STT provider APIs you configure — and in
-  mock or replay mode, none at all. Any change that adds undisclosed
-  outbound traffic is a vulnerability.
+  network calls are the LLM/TTS/STT provider APIs you configure. The static
+  Pages replay makes no provider calls; a local mock/replay session also makes
+  none unless you explicitly invoke optional `/api/transcribe` or `/api/tts`
+  with their credentials configured. Any undisclosed outbound traffic is a
+  vulnerability.
 - **Model behavior is not a vulnerability.** Biased, incorrect, or otherwise
   unwanted model output is a limitation, not an exploit — see
   [RESPONSIBLE_USE.md](RESPONSIBLE_USE.md). Misuse of Township itself can be

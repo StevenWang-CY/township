@@ -7,6 +7,9 @@ on:
     - cron: "17 6 * * *" # nightly, 06:17 UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -18,11 +21,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install
-        run: pip install -e ".[dev]"
+      - name: Install uv
+        run: python -m pip install uv==0.10.12
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev
 
       - name: Mock simulation tests
-        run: python -m pytest tests/test_mock_simulation.py -q
+        run: uv run --locked python -m pytest tests/test_mock_simulation.py -q
 
       - name: CLI end-to-end (millbrook, mock provider)
-        run: township run --scenario millbrook-budget --provider mock
+        run: uv run --locked township run --scenario millbrook-budget --provider mock

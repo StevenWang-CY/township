@@ -1,5 +1,8 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import type { TownId, PoliticalRegistration } from "../types/messages";
+import { DEMO_MODE } from "../demo/demoMode";
+import { useScenarioContext } from "./ScenarioContext";
+import { preparePlayerCapability } from "../lib/playerCapability";
 
 /* ── User Profile Types ───────────────────────────────────────── */
 
@@ -29,7 +32,7 @@ export interface UserProfile {
 interface UserProfileContextValue {
   profile: UserProfile | null;
   isOnboarded: boolean;
-  setProfile: (p: UserProfile) => void;
+  setProfile: (p: UserProfile) => Promise<void>;
   clearProfile: () => void;
   chatMode: "manual" | "auto";
   setChatMode: (m: "manual" | "auto") => void;
@@ -42,6 +45,38 @@ interface UserProfileContextValue {
 
 const STORAGE_KEY = "township-user-profile";
 
+// The hosted replay has no accounts and writes no profile data. A small
+// in-memory guest lets first-time visitors use accessibility preferences,
+// open the journal explainer, and appear in the town without onboarding.
+const DEMO_GUEST_PROFILE: UserProfile = {
+  name: "Demo Visitor",
+  town: "demo-town",
+  politicalLeaning: "unaffiliated",
+  topConcerns: [],
+  personality: "Exploring a recorded civic deliberation.",
+  initials: "DV",
+  color: "#3B5998",
+  agentId: "player-demo-visitor",
+  playerId: "demo-visitor",
+  spriteKey: "char-player",
+  audioEnabled: true,
+  audioAutoplay: false,
+  reducedMotion: false,
+  highContrast: false,
+  metAgents: [],
+  persuadedAgents: [],
+};
+
+function freshDemoGuest(town: TownId): UserProfile {
+  return {
+    ...DEMO_GUEST_PROFILE,
+    town,
+    topConcerns: [],
+    metAgents: [],
+    persuadedAgents: [],
+  };
+}
+
 const UserProfileContext = createContext<UserProfileContextValue | null>(null);
 
 /* ── Helpers ──────────────────────────────────────────────────── */
@@ -49,7 +84,7 @@ const UserProfileContext = createContext<UserProfileContextValue | null>(null);
 function safeUUID(): string {
   try {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID().slice(0, 8);
+      return crypto.randomUUID();
     }
   } catch {
     /* ignore */
@@ -93,7 +128,11 @@ function readStoredProfile(): UserProfile | null {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
     const parsed = JSON.parse(stored);
-    return migrateProfile(parsed);
+    const migrated = migrateProfile(parsed);
+    // Persist generated privacy/session fields once so a pre-migration profile
+    // does not receive a different player ID on every reload.
+    if (migrated) localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+    return migrated;
   } catch {
     return null;
   }
@@ -102,11 +141,23 @@ function readStoredProfile(): UserProfile | null {
 /* ── Provider ─────────────────────────────────────────────────── */
 
 export function UserProfileProvider({ children }: { children: ReactNode }) {
-  const [profile, setProfileState] = useState<UserProfile | null>(() => readStoredProfile());
+  const scenario = useScenarioContext();
+  const demoTown = scenario.scenario.towns[0]?.id ?? "demo-town";
+  const [profile, setProfileState] = useState<UserProfile | null>(() => (
+    DEMO_MODE ? freshDemoGuest(demoTown) : readStoredProfile()
+  ));
 
   const [chatMode, setChatMode] = useState<"manual" | "auto">("manual");
 
+  // The staged scenario can change via ?scenario=. Keep the in-memory guest
+  // rooted in that package rather than leaking the flagship's first town.
+  useEffect(() => {
+    if (!DEMO_MODE) return;
+    setProfileState((prev) => prev ? { ...prev, town: demoTown } : freshDemoGuest(demoTown));
+  }, [demoTown]);
+
   const persist = (p: UserProfile | null) => {
+    if (DEMO_MODE) return;
     if (p) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
     } else {
@@ -114,7 +165,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const setProfile = (p: UserProfile) => {
+  const setProfile = async (p: UserProfile) => {
     // Ensure playerId is stable across re-saves
     const withId: UserProfile = {
       ...p,
@@ -126,12 +177,15 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
       reducedMotion: p.reducedMotion ?? profile?.reducedMotion ?? false,
       highContrast: p.highContrast ?? profile?.highContrast ?? false,
     };
-    setProfileState(withId);
+    if (!DEMO_MODE && !await preparePlayerCapability()) {
+      throw new Error("Private browser storage is unavailable.");
+    }
     persist(withId);
+    setProfileState(withId);
   };
 
   const clearProfile = () => {
-    setProfileState(null);
+    setProfileState(DEMO_MODE ? freshDemoGuest(demoTown) : null);
     persist(null);
   };
 

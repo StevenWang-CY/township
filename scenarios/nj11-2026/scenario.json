@@ -38,6 +38,12 @@
     "decision_day": "2026-04-16",
     "prose": "Early voting runs April 6-14. Election Day is Thursday, April 16, 2026, with polls open 6:00 AM to 8:00 PM."
   },
+  "responsible_use": {
+    "core_notice": "Township is a simulation, not a poll. Its outputs do not measure real public opinion and must never be presented as if they do.",
+    "residents_notice": "The residents are fictional composites informed by public demographic data. No real resident is depicted.",
+    "subjects_notice": "The candidates are real public figures. Their documented positions are summarized from public sources; source coverage is incomplete and should be independently verified.",
+    "outputs_notice": "Every output is an LLM artifact, shaped by authored personas, scenario framing, and model biases."
+  },
   "context_md": "You are a voter in New Jersey's 11th Congressional District. A special election is happening on April 16, 2026 to replace Mikie Sherrill, who became governor. The candidates are:\n- Analilia Mejia (Democrat): Progressive, supports Medicare for All, $25 min wage, abolish ICE\n- Joe Hathaway (Republican): 'New generation Republican', lower taxes, supports One Big Beautiful Bill\n- Alan Bond (Independent): Former Wall Street fund manager with fraud conviction, limited platform\n\nEarly voting is April 6-14. Election Day is April 16.",
   "context_short_md": "You're a voter in NJ-11. Special election is April 16, 2026. Candidates: Analilia Mejia (D), Joe Hathaway (R), Alan Bond (I). Early voting is happening now (April 6-14).",
   "round_plan": [
@@ -107,11 +113,11 @@
       "connection": "Connected on social media through mutual activist friends. Both are young, frustrated with the political establishment, and active in local organizing circles."
     },
     {
-      "agents": ["Raj Krishnamurthy", "Vikram Iyer"],
+      "agents": ["Raj & Sunita Krishnamurthy", "Vikram Iyer"],
       "connection": "Indian-American tech professionals who know each other from the Parsippany-area tech meetup circuit. Their families attend some of the same community events."
     },
     {
-      "agents": ["Priya Patel", "Jen Russo"],
+      "agents": ["Priya Patel", "Jennifer \"Jen\" Russo"],
       "connection": "Suburban moms whose kids played in the same Morris County youth soccer league. They chat at games about schools, property taxes, and local politics."
     }
   ],

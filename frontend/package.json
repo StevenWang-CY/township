@@ -1,33 +1,47 @@
 {
-  "name": "frontend",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "township-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The React and Phaser interface for Township's civic deliberation engine.",
   "scripts": {
+    "predev": "node scripts/stage-legal.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/clean-demo.mjs && node scripts/stage-legal.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "predemo:build": "node scripts/stage-demo.mjs",
+    "predemo:build": "node scripts/stage-demo.mjs && node scripts/stage-legal.mjs",
     "demo:build": "VITE_DEMO_MODE=1 vite build --outDir dist-demo --base ./",
-    "demo:preview": "vite preview --outDir dist-demo"
+    "demo:preview": "vite preview --outDir dist-demo",
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "test:e2e": "playwright test"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "generative-agents",
+    "civic-tech",
+    "phaser",
+    "react"
+  ],
+  "author": "Chuyue Wang and Township contributors",
+  "license": "MIT",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "dependencies": {
     "phaser": "^3.90.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-router-dom": "^7.14.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.2",
-    "@types/react": "^19.2.14",
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^6.0.3",
     "playwright": "^1.61.1",
-    "tailwindcss": "^4.2.2",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.5"
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.5"
   }
 }

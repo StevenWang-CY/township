@@ -5,8 +5,9 @@ Draws every tile layer in TownScene's order, approximates anchor sprites
 with registry stamps (trees, lamps, flowers) so the preview matches what the
 running game will show, and can overlay faint landmark-name labels.
 
-Outputs ``frontend/public/assets/maps/<town>-preview.png`` (1x, 1200x800)
-and ``<town>-preview@2x.png``.
+Outputs ``frontend/public/assets/maps/<scenario>/<town>-preview.png`` (1200x800). The
+source is pixel art, so an upscaled duplicate adds repository and deployment
+weight without adding detail; consumers can scale this file losslessly.
 
 Run:
     python3 -m scripts.mapgen.render_preview dover [--labels]
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +29,7 @@ from mapgen import tiles as R  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAPS_DIR = REPO_ROOT / "frontend/public/assets/maps"
+PACKAGE_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 T = 16
 
 _rpg = None
@@ -36,9 +39,9 @@ _modern = None
 def _sheets():
     global _rpg, _modern
     if _rpg is None:
-        _rpg = Image.open(
-            REPO_ROOT / "frontend/public/assets/tilesets/rpg-tileset.png"
-        ).convert("RGBA")
+        _rpg = Image.open(REPO_ROOT / "frontend/public/assets/tilesets/rpg-tileset.png").convert(
+            "RGBA"
+        )
         _modern = Image.open(
             REPO_ROOT / "frontend/public/assets/tilesets/township-modern.png"
         ).convert("RGBA")
@@ -88,9 +91,30 @@ def _anchor_props(obj: dict) -> dict:
     return {p["name"]: p["value"] for p in obj.get("properties", [])}
 
 
-def render(town_id: str, scenario: str = "nj11-2026",
-           labels: bool = False) -> Path:
-    tmj = json.loads((MAPS_DIR / f"{town_id}.tmj").read_text())
+def _validated_id(value: str, *, label: str) -> str:
+    if not isinstance(value, str) or PACKAGE_ID_RE.fullmatch(value) is None:
+        raise ValueError(f"{label} must use lowercase letters, numbers, and single hyphens")
+    return value
+
+
+def _asset_path(scenario: str, filename: str) -> Path:
+    root = MAPS_DIR.resolve()
+    scenario = _validated_id(scenario, label="scenario id")
+    scenario_dir = root / scenario
+    if scenario_dir.is_symlink() or not scenario_dir.resolve().is_relative_to(root):
+        raise ValueError("preview assets must stay inside the map directory")
+    path = scenario_dir / filename
+    if path.resolve().parent != scenario_dir.resolve():
+        raise ValueError("preview assets must stay inside their scenario namespace")
+    return path
+
+
+def render(town_id: str, scenario: str = "nj11-2026", labels: bool = False) -> Path:
+    town_id = _validated_id(town_id, label="town id")
+    tmj_path = _asset_path(scenario, f"{town_id}.tmj")
+    if tmj_path.is_symlink() or not tmj_path.is_file():
+        raise ValueError("generated town map is missing or unsafe")
+    tmj = json.loads(tmj_path.read_text())
     W, H = tmj["width"] * T, tmj["height"] * T
     canvas = Image.new("RGBA", (W, H), (40, 44, 40, 255))
     layers = {ly["name"]: ly for ly in tmj["layers"]}
@@ -105,8 +129,7 @@ def render(town_id: str, scenario: str = "nj11-2026",
         props = _anchor_props(obj)
         kind = props.get("kind", "")
         if kind == "tree":
-            stamp = R.STAMPS.get(props.get("stamp", "tree_light"),
-                                 R.TREE_LIGHT)
+            stamp = R.STAMPS.get(props.get("stamp", "tree_light"), R.TREE_LIGHT)
             draw_stamp(canvas, stamp, obj["x"], obj["y"])
         elif kind == "lamp":
             draw_stamp(canvas, R.LAMPPOST, obj["x"], obj["y"])
@@ -126,30 +149,32 @@ def render(town_id: str, scenario: str = "nj11-2026",
         # the layout's label anchors are authoritative (they may be nudged
         # to dodge collisions); fall back to landmark centers when a map
         # was built without a layout module and has no label anchors
-        spots = [(o["x"], o["y"], _anchor_props(o).get("text") or o["name"])
-                 for o in anchors
-                 if _anchor_props(o).get("kind") == "label"]
+        spots = [
+            (o["x"], o["y"], _anchor_props(o).get("text") or o["name"])
+            for o in anchors
+            if _anchor_props(o).get("kind") == "label"
+        ]
         if not spots:
-            town_path = (REPO_ROOT / "scenarios" / scenario / "towns"
-                         / f"{town_id}.json")
+            scenarios_root = (REPO_ROOT / "scenarios").resolve()
+            town_path = scenarios_root / scenario / "towns" / f"{town_id}.json"
+            if town_path.is_symlink() or not town_path.resolve().is_relative_to(scenarios_root):
+                raise ValueError("town preview input must stay inside the scenarios directory")
             if town_path.exists():
-                spots = [(lm["x"] + lm["width"] / 2,
-                          lm["y"] + lm["height"] / 2, lm["name"])
-                         for lm in json.loads(town_path.read_text())
-                         .get("landmarks", [])]
+                spots = [
+                    (lm["x"] + lm["width"] / 2, lm["y"] + lm["height"] / 2, lm["name"])
+                    for lm in json.loads(town_path.read_text()).get("landmarks", [])
+                ]
         draw = ImageDraw.Draw(canvas)
         for cx, cy, text in spots:
             tw = draw.textlength(text)
             for dx, dy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
-                draw.text((cx - tw / 2 + dx, cy + dy), text,
-                          fill=(20, 20, 20, 160))
+                draw.text((cx - tw / 2 + dx, cy + dy), text, fill=(20, 20, 20, 160))
             draw.text((cx - tw / 2, cy), text, fill=(255, 250, 235, 210))
 
-    out1 = MAPS_DIR / f"{town_id}-preview.png"
-    out2 = MAPS_DIR / f"{town_id}-preview@2x.png"
+    out1 = _asset_path(scenario, f"{town_id}-preview.png")
+    out1.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out1)
-    canvas.resize((W * 2, H * 2), Image.NEAREST).save(out2)
-    print(f"wrote {out1} and {out2.name}")
+    print(f"wrote {out1}")
     return out1
 
 

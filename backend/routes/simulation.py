@@ -5,6 +5,13 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..core.artifacts import (
+    ArtifactFormatError,
+    ArtifactPrivacyError,
+    is_public_artifact,
+    require_replay_artifact,
+)
+from ..core.storage import PROJECT_ROOT as APPLICATION_ROOT
 from ..core.storage import load_json, runs_root
 from ..core.wire import district_summary_to_wire, opinion_to_wire
 from .runs import RUN_ID_RE, resolve_run_dir
@@ -15,11 +22,12 @@ router = APIRouter(prefix="/api/simulation", tags=["simulation"])
 
 # township/ — anchored on this file (backend/routes/simulation.py → repo root)
 # so relative cache paths resolve identically from any working directory.
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = APPLICATION_ROOT
 
 
 class StartRequest(BaseModel):
     """Accepts either `num_rounds` or its alias `rounds` from the wire."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     town: str | None = None  # If None, run all towns
@@ -34,14 +42,15 @@ class ReplayRequest(BaseModel):
 
     `cache_path` is resolved against the project root and must stay inside it.
     """
+
     cache_path: str | None = None
     run_id: str | None = None
-    speed: float = 1.0
+    speed: float = Field(default=1.0, ge=0.1, le=1000.0)
 
 
 def _demo_cache_path(scenario) -> Path:
     """The active scenario's shipped demo replay."""
-    return scenario.scenario_dir / "demo" / "simulation_cache.json"
+    return scenario.demo_cache_path
 
 
 def _resolve_replay_path(req: ReplayRequest, scenario) -> Path | JSONResponse:
@@ -73,20 +82,33 @@ def _resolve_replay_path(req: ReplayRequest, scenario) -> Path | JSONResponse:
     return _demo_cache_path(scenario)
 
 
+async def _run_reserved_replay(
+    orchestrator,
+    event_bus,
+    cache_path: str,
+    speed: float,
+    operation_token: str,
+) -> None:
+    """Replay under the shared operation reservation and always release it."""
+    from ..simulation.replay import replay
+
+    try:
+        await replay(event_bus, cache_path, speed)
+    finally:
+        orchestrator.release_operation(operation_token)
+
+
 @router.post("/start")
 async def start_simulation(req: StartRequest, request: Request, background_tasks: BackgroundTasks):
     """Start simulation as a background task. Returns immediately."""
     orchestrator = request.app.state.orchestrator
 
-    if orchestrator.is_running:
-        return JSONResponse(
-            {"status": "error", "message": "Simulation already running"},
-            status_code=409,
-        )
-
     # Resolved for the response body; the orchestrator applies the same
     # default (None -> full scenario round plan) internally.
-    resolved_rounds = req.num_rounds or request.app.state.scenario.total_rounds
+    scenario_rounds = request.app.state.scenario.total_rounds
+    resolved_rounds = (
+        scenario_rounds if req.num_rounds is None else min(req.num_rounds, scenario_rounds)
+    )
 
     if req.town:
         if req.town not in orchestrator.agent_states:
@@ -97,7 +119,22 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
                 },
                 status_code=404,
             )
-        background_tasks.add_task(orchestrator.run_single_town, req.town, req.num_rounds)
+        operation_token = orchestrator.try_reserve_operation("simulation")
+        if operation_token is None:
+            return JSONResponse(
+                {"status": "error", "message": "Simulation or replay already running"},
+                status_code=409,
+            )
+        try:
+            background_tasks.add_task(
+                orchestrator.run_single_town,
+                req.town,
+                req.num_rounds,
+                _operation_token=operation_token,
+            )
+        except Exception:
+            orchestrator.release_operation(operation_token)
+            raise
         return {
             "status": "started",
             "town": req.town,
@@ -105,8 +142,22 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
             "agents": len(orchestrator.agent_states[req.town]),
         }
     else:
-        background_tasks.add_task(orchestrator.run_full_simulation, req.num_rounds)
         total_agents = sum(len(v) for v in orchestrator.agent_states.values())
+        operation_token = orchestrator.try_reserve_operation("simulation")
+        if operation_token is None:
+            return JSONResponse(
+                {"status": "error", "message": "Simulation or replay already running"},
+                status_code=409,
+            )
+        try:
+            background_tasks.add_task(
+                orchestrator.run_full_simulation,
+                req.num_rounds,
+                _operation_token=operation_token,
+            )
+        except Exception:
+            orchestrator.release_operation(operation_token)
+            raise
         return {
             "status": "started",
             "towns": list(orchestrator.agent_states.keys()),
@@ -129,16 +180,18 @@ async def simulation_status(request: Request):
         town_agents = []
         for agent in agents:
             opinion = agent.current_opinion
-            town_agents.append({
-                "agent_id": agent.agent_id,
-                "name": agent.definition.name,
-                "state": agent.state.value,
-                "location": agent.current_location,
-                "current_candidate": opinion.candidate if opinion else undecided_id,
-                "current_confidence": opinion.confidence if opinion else 0,
-                "memories_count": len(agent.memories),
-                "conversations_count": len(agent.conversations),
-            })
+            town_agents.append(
+                {
+                    "agent_id": agent.agent_id,
+                    "name": agent.definition.name,
+                    "state": agent.state.value,
+                    "location": agent.current_location,
+                    "current_candidate": opinion.candidate if opinion else undecided_id,
+                    "current_confidence": opinion.confidence if opinion else 0,
+                    "memories_count": len(agent.memories),
+                    "conversations_count": len(agent.conversations),
+                }
+            )
         agent_summaries[town] = town_agents
 
     agents_loaded = sum(len(v) for v in orchestrator.agent_states.values())
@@ -208,16 +261,19 @@ async def get_agent(agent_id: str, request: Request):
 
 
 @router.post("/replay")
-async def replay_simulation(req: ReplayRequest, request: Request, background_tasks: BackgroundTasks):
+async def replay_simulation(
+    req: ReplayRequest, request: Request, background_tasks: BackgroundTasks
+):
     """Replay a cached simulation through the WebSocket.
 
     Source resolution: explicit `cache_path` (project-root anchored) wins,
     then `run_id` (a persisted runs/ directory), then the active scenario's
     shipped demo cache.
     """
-    from ..simulation.replay import load_cache_summary, replay
+    from ..simulation.replay import load_cache_summary
 
     event_bus = request.app.state.event_bus
+    orchestrator = request.app.state.orchestrator
 
     resolved = _resolve_replay_path(req, request.app.state.scenario)
     if isinstance(resolved, JSONResponse):
@@ -225,12 +281,37 @@ async def replay_simulation(req: ReplayRequest, request: Request, background_tas
 
     summary = await load_cache_summary(str(resolved))
     if "error" in summary:
+        error = summary["error"]
+        messages = {
+            "cache_not_found": "Replay cache not found",
+            "cache_invalid": "Replay cache is invalid",
+            "legacy_artifact_restricted": (
+                "Replay artifact predates the private-player boundary; regenerate it"
+            ),
+        }
         return JSONResponse(
-            {"status": "error", "message": summary["error"]},
-            status_code=404,
+            {"status": "error", "message": messages.get(error, "Replay unavailable")},
+            status_code=409 if error == "legacy_artifact_restricted" else 404,
         )
 
-    background_tasks.add_task(replay, event_bus, str(resolved), req.speed)
+    operation_token = orchestrator.try_reserve_operation("replay")
+    if operation_token is None:
+        return JSONResponse(
+            {"status": "error", "message": "Simulation or replay already running"},
+            status_code=409,
+        )
+    try:
+        background_tasks.add_task(
+            _run_reserved_replay,
+            orchestrator,
+            event_bus,
+            str(resolved),
+            req.speed,
+            operation_token,
+        )
+    except Exception:
+        orchestrator.release_operation(operation_token)
+        raise
 
     return {
         "status": "replaying",
@@ -246,30 +327,48 @@ async def replay_available(request: Request):
     sources: list[dict] = []
 
     demo = _demo_cache_path(scenario)
-    if demo.is_file():
-        sources.append({
-            "kind": "demo",
-            "scenario_id": scenario.id,
-            "cache_path": str(demo.relative_to(PROJECT_ROOT))
-            if demo.is_relative_to(PROJECT_ROOT)
-            else str(demo),
-        })
+    demo_doc = load_json(demo, {}) if demo.is_file() else {}
+    try:
+        require_replay_artifact(demo_doc)
+        demo_available = True
+    except (ArtifactFormatError, ArtifactPrivacyError):
+        demo_available = False
+    if demo_available:
+        sources.append(
+            {
+                "kind": "demo",
+                "scenario_id": scenario.id,
+            }
+        )
 
     root = runs_root()
     if root.is_dir():
         for run_dir in sorted(root.iterdir(), reverse=True):
-            if not run_dir.is_dir() or not RUN_ID_RE.match(run_dir.name):
+            if (
+                run_dir.is_symlink()
+                or not run_dir.is_dir()
+                or not RUN_ID_RE.match(run_dir.name)
+            ):
                 continue
             if not (run_dir / "events.json").is_file():
                 continue
             run_summary = load_json(run_dir / "summary.json", {}) or {}
-            sources.append({
-                "kind": "run",
-                "run_id": run_dir.name,
-                "scenario_id": run_summary.get("scenario_id"),
-                "ended_at": run_summary.get("ended_at"),
-                "events": run_summary.get("counts", {}).get("events"),
-            })
+            events_doc = load_json(run_dir / "events.json", {}) or {}
+            if not is_public_artifact(run_summary) or not is_public_artifact(events_doc):
+                continue
+            try:
+                require_replay_artifact(events_doc)
+            except (ArtifactFormatError, ArtifactPrivacyError):
+                continue
+            sources.append(
+                {
+                    "kind": "run",
+                    "run_id": run_dir.name,
+                    "scenario_id": run_summary.get("scenario_id"),
+                    "ended_at": run_summary.get("ended_at"),
+                    "events": run_summary.get("counts", {}).get("events"),
+                }
+            )
 
     return {"sources": sources}
 
@@ -290,10 +389,15 @@ async def latest_recap(request: Request):
     root = runs_root()
     if root.is_dir():
         for run_dir in sorted(root.iterdir(), reverse=True):
-            if not run_dir.is_dir() or not RUN_ID_RE.match(run_dir.name):
+            if (
+                run_dir.is_symlink()
+                or not run_dir.is_dir()
+                or not RUN_ID_RE.match(run_dir.name)
+            ):
                 continue
             recap_path = run_dir / "recap.md"
-            if recap_path.is_file():
+            summary = load_json(run_dir / "summary.json", {}) or {}
+            if recap_path.is_file() and is_public_artifact(summary):
                 recap = recap_path.read_text(encoding="utf-8")
                 return {
                     "recap_markdown": recap,

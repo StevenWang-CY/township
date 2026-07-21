@@ -1,332 +1,271 @@
-# Township
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/brand/lockup-dark.svg">
+    <img src="docs/media/brand/lockup.svg" alt="Township" width="420">
+  </picture>
+</p>
 
-**A civic swarm intelligence engine for NJ-11's 2026 special election.**
+<p align="center">
+  <strong>Put a civic question in a living pixel town. Watch AI residents reason, talk, disagree, and change their minds.</strong>
+</p>
 
-Built for the CBC × Wharton AI × Anthropic hackathon — "Machines of Loving Grace" track: Democratic Governance & Collaboration.
+<p align="center">
+  <a href="https://stevenwang-cy.github.io/township/"><strong>Explore the live demo</strong></a>
+  ·
+  <a href="docs/README.md">Read the docs</a>
+  ·
+  <a href="CONTRIBUTING.md">Add a resident or scenario</a>
+</p>
 
----
+<p align="center">
+  <a href="https://github.com/StevenWang-CY/township/actions/workflows/backend.yml"><img alt="Backend CI" src="https://github.com/StevenWang-CY/township/actions/workflows/backend.yml/badge.svg"></a>
+  <a href="https://github.com/StevenWang-CY/township/actions/workflows/frontend.yml"><img alt="Frontend CI" src="https://github.com/StevenWang-CY/township/actions/workflows/frontend.yml/badge.svg"></a>
+  <a href="https://github.com/StevenWang-CY/township/actions/workflows/smoke.yml"><img alt="Zero-key smoke test" src="https://github.com/StevenWang-CY/township/actions/workflows/smoke.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-C4A35A"></a>
+  <a href="https://stevenwang-cy.github.io/township/"><img alt="Static demo" src="https://img.shields.io/badge/demo-live-3E8E5A"></a>
+</p>
 
-## What It Is
+<p align="center">
+  <a href="https://stevenwang-cy.github.io/township/">
+    <img src="docs/media/hero.gif" alt="Township replaying a multi-round civic deliberation across a living pixel town" width="960">
+  </a>
+</p>
 
-Township is a living digital twin of NJ-11's electorate. Four New Jersey towns — Dover, Montclair, Parsippany, and Randolph — are each populated by AI residents who deliberate about a real congressional election happening April 16, 2026. Users walk through Phaser-rendered towns, talk directly to residents, watch opinions shift in real time, and inject variables via a "God's View" panel to see how events reshape the district.
+Township is an open-source engine for making civic deliberation visible. A
+scenario package defines the question, options, towns, fictional residents, local
+context, and news beats. The Python engine runs a configurable sequence of
+`seed → converse → news → opinion → decide`; a typed event stream brings every
+walk, conversation, reaction, and opinion shift to a React + Phaser world.
 
-The core insight is that swarm intelligence — emergent collective behavior from many independent agents reasoning and talking to each other — can simulate the democratic deliberation process that this election's broken information infrastructure failed to provide. NJ-11 had one debate (April 1, virtual), one candidate excluded entirely, and a Thursday election with 203,543 unaffiliated voters who have almost nowhere to turn for reasoned perspective. Township creates that space.
+It is designed for research, education, media literacy, and agent development.
+It is also deliberately easy to inspect: personas are Markdown, scenarios are
+JSON, runs are portable event logs, and a deterministic mock makes the complete
+pipeline work without credentials or network access.
 
----
+> [!IMPORTANT]
+> **Township is a simulation, not a poll.** Its outputs do not measure real
+> public opinion and must never be presented as if they do. Residents are
+> fictional composites and every output is an LLM artifact. Read
+> [Responsible Use](RESPONSIBLE_USE.md) before creating or publishing a
+> real-world scenario.
 
-## The Election
+## Why Township
 
-**Race:** Special election for NJ's 11th Congressional District (U.S. House)  
-**Reason:** Mikie Sherrill (D) vacated after winning the 2025 NJ gubernatorial race  
-**Election Day:** Thursday, April 16, 2026  
-**Early voting:** April 6–14, 2026 — *happening now*
+- **A world, not a spreadsheet.** Residents follow routines through distinct
+  towns, meet at local landmarks, speak in-world, react to news, and carry their
+  changing stance into a district dashboard.
+- **Scenario-first by construction.** Candidates, budget choices, places,
+  personas, and news live under `scenarios/<id>/`—never hardcoded in the engine.
+- **Zero-key from the first clone.** The deterministic mock exercises every
+  phase and powers offline tests. The Pages demo replays committed runs with no
+  backend and no API calls.
+- **Live and replay share one path.** Both publish the same discriminated event
+  union, so a saved run drives the same pixel town and charts as live inference.
+- **Bring the model you trust.** Bedrock, Anthropic, OpenAI, OpenRouter, Ollama,
+  LM Studio, and the built-in mock implement one provider contract.
+- **Runs are research artifacts.** Successful best-effort persistence publishes a
+  complete event log and structured summary under `runs/`, plus a narrative recap
+  when recap generation succeeds.
+- **Human-readable agents.** Each resident is one Markdown file with structured
+  frontmatter, prose voice, routines, concerns, goals, and relationships.
 
-**Voter registration:** 229,561 D / 164,954 R / 203,543 Unaffiliated  
-**Cook PVI:** D+5
+## Try it in two minutes
 
-### Candidates
-
-| | Analilia Mejia (D) | Joe Hathaway (R) | Alan Bond (Ind.) |
-|---|---|---|---|
-| Background | Co-exec dir, Center for Popular Democracy. Daughter of Colombian/Dominican immigrants. Won upset primary over Tom Malinowski. | Randolph councilman/former mayor. Yale '09. Former Christie aide. | Dartmouth/Harvard MBA. Former Wall Street fund manager. Served 6 years federal prison (fraud). |
-| Key positions | Medicare for All, $25 min wage, abolish ICE, free public college, PRO Act, condition Israel aid | Lower taxes, tax freeze for first-time homebuyers, unconditional Israel support, One Big Beautiful Bill, Gateway Tunnel | Affordability, education, healthcare, community safety |
-| Endorsements | Sanders, Warren, AOC, Jayapal, Ro Khanna | — | — |
-
----
-
-## The Four Towns
-
-| Town | Pop. | Median Income | Character | Agents |
-|---|---|---|---|---|
-| **Dover** | 18,435 | $70,519 | 75% Hispanic, 51.5% foreign-born, working-class heart | 6 (2D / 0R / 4U) |
-| **Montclair** | 40,341 | $151,075 | Progressive hub, arts/culture, racially diverse | 7 (4D / 1R / 2U) |
-| **Parsippany** | 56,397 | $112,327 | 35–38% Asian (primarily South Asian), swing-voter suburban | 7 (2D / 2R / 3U) |
-| **Randolph** | 26,604 | $175,000 | Hathaway's home base, affluent, lean Republican | 6 (1D / 3R / 2U) |
-| **District total** | | | | **26 (9D / 6R / 11U)** |
-
-These four towns span the district's full spectrum: income ($70k–$175k), race (14% to 75% Hispanic), immigrant share (9% to 51% foreign-born), and political lean (deep blue to lean red).
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                   FRONTEND (React + Vite)                 │
-│                                                           │
-│   NJ-11 SVG Map → Town View (Phaser 3) → Chat Panel      │
-│                   District Dashboard → God's View         │
-└───────────────────────┬──────────────────────────────────┘
-                        │ WebSocket (discriminated union msgs)
-┌───────────────────────┴──────────────────────────────────┐
-│                  BACKEND (Python / FastAPI)                │
-│                                                           │
-│   Simulation Orchestrator (asyncio.gather, 4 towns)       │
-│   ├── RoundManager  (5-round deliberation loop)           │
-│   ├── EventBus      (async pub/sub + WS forwarding)       │
-│   ├── AgentLoader   (.md frontmatter → AgentDefinition)   │
-│   └── Bedrock      (Claude Sonnet 4.5, prompt caching)   │
-│                                                           │
-│   Routes: /api/simulation/* · /api/chat/{id} · /api/gods-view
-└──────────────────────────────────────────────────────────┘
-```
-
-**Key design decisions:**
-
-| Decision | Choice | Why |
-|---|---|---|
-| Backend | Python + FastAPI | Native async, Pydantic validation |
-| LLM | AWS Bedrock — Claude Sonnet 4.5 (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`) | Native Anthropic Messages API via `AsyncAnthropicBedrock`; prompt caching on the system block; bearer-token auth via `AWS_BEARER_TOKEN_BEDROCK` |
-| Frontend | React + Vite + Phaser 3 | Tilemap + animated character sprites |
-| Agent personas | Markdown + YAML frontmatter | Git-trackable, no-code editing, hot-reloadable |
-| Memory | Simple chronological list | All memories fit in prompt context for 3–5 rounds |
-| Simulation | Pre-compute + replay | Demo reliability; chat and God's View are live API calls |
-| State | useReducer + WebSocket | Discriminated union messages drive all frontend state |
-
----
-
-## Simulation Engine
-
-Five rounds of deliberation per run:
-
-```
-Round 0 — Seed injection
-  All agents receive candidate positions, debate excerpts, election logistics.
-  Each processes through personal lens → initial FormOpinion.
-
-Round 1 — Local conversations
-  Agents move to landmarks in their town. 2–3 Discuss tool calls per agent.
-  Memories update after each conversation.
-
-Round 2 — News reaction
-  EventBus publishes debate clips, endorsement news, cost-of-living data.
-  ReactToNews tool. Reflections trigger for agents with high memory importance.
-
-Round 3 — Cross-town gossip
-  Select agents "hear from a contact in another town."
-  Dover's Carlos hears from Parsippany's Raj about healthcare costs.
-  Montclair's Sarah hears from Randolph's Mike about tax burden.
-
-Round 4 — Deepening
-  More local conversations, now cross-informed. Undecided agents begin
-  crystallizing — or staying authentically conflicted.
-
-Round 5 — Election eve
-  Final FormOpinion from all 26 agents.
-  Some remain undecided. ReportAgent generates district-wide analysis.
-```
-
-All four towns run in parallel via `asyncio.gather`. A shared EventBus carries cross-town events in Round 3.
-
----
-
-## Agent System
-
-### Persona format
-
-Each of the 26 agents is a Markdown file with YAML frontmatter that becomes the system prompt. No code changes needed to add or edit agents.
-
-```yaml
----
-name: Carlos Restrepo
-town: dover
-occupation: Owner, La Finca Restaurant
-age: 51
-political_registration: unaffiliated
-initial_lean: undecided
-top_concerns:
-  - healthcare costs (ACA marketplace, no employer plan)
-  - immigration enforcement (employees, community fear)
-  - property taxes on commercial lease
-  - son's college affordability
-tools: [Discuss, FormOpinion, ReactToNews]
----
-
-You are Carlos Restrepo, age 51. You own La Finca, a Colombian restaurant on
-Blackwell Street in Dover, NJ...
-```
-
-### Agent tools (schema-validated)
-
-- **Discuss** — conversation with another agent at a location; captures stance, dialogue, key takeaway
-- **FormOpinion** — crystallize election stance: candidate, confidence 0–100, reasoning, top issues, dealbreaker
-- **ReactToNews** — process a news event: emotional response, impact on vote, reasoning
-
-### Cognitive architecture
-
-Adapted from Park et al. (2023) "Generative Agents" ([arXiv:2304.03442](https://arxiv.org/abs/2304.03442)):
-
-- **Memory stream** — chronological list of observations, conversations, reflections; pre-seeded from persona
-- **Reflection** — triggered when accumulated memory importance exceeds threshold; synthesizes patterns into higher-level insight
-- **Planning** — each round, agent decides where to go, who to talk to, what to raise
-
----
-
-## Frontend
-
-### NJ-11 District Map (`DistrictMap.tsx`)
-SVG map of the four towns with animated pins, hover cards showing demographics, election banner, and click-through to each town.
-
-### Town View (`TownView.tsx` + `TownScene.ts`)
-Phaser 3 game scene wrapping a real ai-town tilemap (rpg-tileset, 40×40 tiles). Per-town landmarks are overlaid as named zones. Agent sidebar shows all residents with live opinion indicators.
-
-### Animated agent characters (`AgentSprite.ts` + `TownScene.ts`)
-
-Each of the 26 agents is rendered as a Smallville-format character spritesheet (96×128 px, 3 cols × 4 rows = 12 frames):
-
-| Row | Frames | Animation |
-|---|---|---|
-| 0 | 0–2 | Walk down |
-| 1 | 3–5 | Walk left |
-| 2 | 6–8 | Walk right |
-| 3 | 9–11 | Walk up |
-
-**Movement:** Agents wander autonomously between town landmarks and waypoints (4–13 second idle intervals, staggered so they don't all leave at once). `moveToPosition()` computes dx/dy to select the correct directional walk animation, then uses a Phaser tween with `Sine.easeInOut` easing. Duration scales with distance (3.8 ms/px, clamped 600–2800 ms).
-
-**Idle:** Gentle 2.5px Y-bob tween + ground shadow pulse. Phase-randomized per agent so each feels independent. Slow 1.6 fps "breathe" idle cycle on spritesheet.
-
-**Ground shadow:** Ellipse squishes 1.45× wider while walking, restores on arrival.
-
-**Y-depth sorting:** `syncDepth()` called every frame — agents further down the screen render in front, creating isometric-style layering.
-
-**Speech bubbles:** Drop shadow, white rounded body, styled border, downward tail pointer. Pop-in with `Back.easeOut` scale + alpha, fade-out with `Quad.easeIn`. Show on simulation events and randomly during wandering (idle election thoughts, 28% chance on arrival).
-
-**Opinion rings:** Three-layer concentric rings (halo / mid / crisp) color-coded by candidate lean. Ripple burst on opinion change.
-
-**Ambient life:** 4 background NPC passers-by (0.65 alpha) wander independently. Birds fly across the sky with wing-flap scale tweens.
-
-### Chat Panel (`ChatPanel.tsx`)
-Slide-in panel for live in-character conversation with any agent. Typed via `/api/chat/{agent_id}` — full persona + memory context passed to the LLM.
-
-### District Dashboard (`Dashboard.tsx`)
-4-column cross-town opinion comparison with SVG donut charts, consensus patterns, and fault lines.
-
-### God's View (`GodsView.tsx`)
-Inject variables (news events, policy announcements, hypothetical scenarios) and see before/after opinion shifts across all 26 agents.
-
----
-
-## Running Locally
-
-**Backend**
+Requirements: Python 3.11+ and Node `^20.19.0` or `>=22.12.0`.
 
 ```bash
+git clone https://github.com/StevenWang-CY/township.git
 cd township
-pip install -r backend/requirements.txt
-
-# Copy the env template and fill in your credentials (see .env.example for the
-# full list and inline docs).
-cp .env.example .env
-# ... edit .env ...
-
-# Either source the .env or pass the vars inline:
-AWS_BEARER_TOKEN_BEDROCK=<your-bedrock-api-key> \
-AWS_REGION=us-east-2 \
-BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0 \
-python -m uvicorn backend.main:app --reload --port 8001
+make install
+SCENARIO=millbrook-budget make demo
 ```
 
-**Environment variables** (all server-side — see `.env.example`):
+Open [localhost:8001](http://localhost:8001). `make demo` builds and serves the
+complete app with the deterministic mock provider: offline, free, and with no
+`.env` file required. Use `make dev` instead when you want backend/frontend hot
+reload on ports 8001 and 5173. If [`uv`](https://docs.astral.sh/uv/) is installed,
+`make install` honors the committed lock exactly; pip remains the supported
+fallback.
 
-| Var | Purpose |
-|---|---|
-| `AWS_BEARER_TOKEN_BEDROCK` | Bedrock API key (LLM auth); SigV4 credential chain is the fallback |
-| `AWS_REGION` | Bedrock region (default `us-east-2`) |
-| `BEDROCK_MODEL_ID` | Model override (default Claude Sonnet 4.5) |
-| `BEDROCK_CACHE_SYSTEM` | Prompt caching on the persona block (default on; `0` to disable) |
-| `ELEVENLABS_API_KEY` | **Server-side** TTS key — `POST /api/tts` proxies ElevenLabs so the browser never holds a key |
-| `OPENAI_API_KEY` | Whisper speech-to-text for `POST /api/transcribe` (`whisper-1`) |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins (default `localhost:5173,4173,3000`) |
-
-Voice features degrade gracefully: when `ELEVENLABS_API_KEY` / `OPENAI_API_KEY`
-are absent, `/api/tts` and `/api/transcribe` return a `503` JSON body the
-frontend handles cleanly.
-
-**Frontend**
+Prefer the terminal?
 
 ```bash
-cd frontend
-npm install
-npm run dev   # Vite dev server on :5173, proxies /api and /ws to :8001
+township run --scenario millbrook-budget --provider mock
 ```
 
----
+That command runs the full deliberation and, when the best-effort finalization steps
+succeed, prints a recap and leaves a portable artifact in `runs/<run_id>/`. Useful
+next commands:
 
-## File Structure
-
-```
-township/
-├── backend/
-│   ├── main.py                     # FastAPI app, WebSocket /ws
-│   ├── core/
-│   │   ├── types.py                # Pydantic models (AgentDefinition, Opinion, events)
-│   │   ├── agent_loader.py         # .md frontmatter → AgentDefinition
-│   │   └── event_bus.py            # Async pub/sub + WebSocket forwarding
-│   ├── providers/
-│   │   └── anthropic_client.py     # AsyncAnthropicBedrock wrapper (Claude Sonnet 4.5, prompt caching, bearer-token auth)
-│   ├── simulation/
-│   │   ├── orchestrator.py         # Multi-town parallel runner, DistrictSummary
-│   │   ├── round_manager.py        # 5-round simulation loop (673 lines)
-│   │   └── replay.py               # Cached simulation playback
-│   ├── routes/
-│   │   ├── simulation.py           # POST /start, GET /status, /results, POST /replay
-│   │   ├── chat.py                 # POST /api/chat/{agent_id}
-│   │   └── gods_view.py            # POST /api/gods-view
-│   └── tools/
-│       └── schemas.py              # Discuss, FormOpinion, ReactToNews schemas
-├── frontend/
-│   └── src/
-│       ├── game/
-│       │   ├── TownScene.ts        # Phaser scene: tilemap, landmarks, autonomous NPCs, birds
-│       │   ├── AgentSprite.ts      # Character class: 4-dir walk anims, speech bubbles, depth
-│       │   └── config.ts           # Landmark coordinates, town accents, voice mapping
-│       ├── components/
-│       │   ├── DistrictMap.tsx     # SVG NJ-11 entry map
-│       │   ├── TownView.tsx        # Phaser wrapper + agent sidebar
-│       │   ├── ChatPanel.tsx       # In-character agent chat
-│       │   ├── Dashboard.tsx       # Cross-town opinion dashboard
-│       │   ├── OpinionChart.tsx    # SVG donut charts
-│       │   └── GodsView.tsx        # Variable injection panel
-│       ├── hooks/
-│       │   ├── useWebSocket.ts     # WS connection, auto-reconnect, useReducer state
-│       │   └── useSimulation.ts    # REST API hooks
-│       └── types/
-│           └── messages.ts         # Discriminated union message types
-├── agents/
-│   ├── dover/       (6 agents)
-│   ├── montclair/   (7 agents)
-│   ├── parsippany/  (7 agents)
-│   └── randolph/    (6 agents)
-└── data/
-    ├── candidates/  (mejia, hathaway, bond)
-    ├── towns/       (demographics, landmarks)
-    ├── debate-excerpts.json
-    └── election-logistics.json
+```bash
+township scenarios
+township replay --demo --scenario nj11-2026
+township serve --scenario millbrook-budget --provider mock
 ```
 
----
+The Python wheel is intentionally API/headless-only; it includes the CLI and
+scenario packages, not the compiled web UI. Use the Docker image for a packaged
+full application, or run the frontend from this source checkout.
 
-## Inspiration
+The [hosted demo](https://stevenwang-cy.github.io/township/) is a static replay
+player. It makes zero network model calls and clearly labels recorded runs; use a
+local backend for live chat, new simulations, voice, and God's View injections.
 
-**[Stanford Generative Agents (Smallville)](https://github.com/joonspk-research/generative_agents)**  
-Park et al., "Generative Agents: Interactive Simulacra of Human Behavior" (arXiv:2304.03442). The cognitive architecture — memory stream, reflection, planning — is directly adapted from this work. Character spritesheets (32×32, 4-directional walk cycles) are sourced from the Smallville asset library. The simulation structure (agent plans, conversations, daily rounds) follows the Smallville pattern.
+## What you can explore
 
-**[a16z ai-town](https://github.com/a16z-infra/ai-town)**  
-Open-source TypeScript agent simulation framework. We use the `rpg-tileset.png` + `tilemap.json` tile assets directly. The React-wrapping-Phaser approach in `TownView.tsx` follows ai-town's frontend pattern. The ambient NPC wandering system and speech bubble design are also informed by ai-town's implementation.
-
-**Key divergences from both:**  
-Township runs server-side Python simulation (not client-side JS), uses Azure OpenAI instead of Claude/GPT-4, is grounded in a real election with verified demographic data, and is designed for public demo reliability via pre-compute + replay rather than purely live inference.
-
----
-
-## Cost Estimates
-
-| Activity | Est. Cost |
+| Surface | What it reveals |
 |---|---|
-| Dev testing (Dover, 3 rounds) | ~$0.50 |
-| Full simulation (26 agents, 5 rounds) | ~$3.50 |
-| Demo chat (~20 exchanges) | ~$0.50 |
-| God's View (3 injections) | ~$1.00 |
-| **Total demo budget** | **~$7.50** |
+| **District map** | Each town's setting, cast, demographics, and live balance of agent stances |
+| **Living town** | Routines, weather, time of day, conversations, gossip, gestures, and opinion ripples rendered in Phaser |
+| **Resident chat** | In-character conversation with private relationship context, trust, voice hooks, and a capability-protected personal journal |
+| **Dashboard** | Cross-town patterns, issue fault lines, conversations, and stance trajectories |
+| **God's View** | A transparent intervention sandbox for asking how agents react to a hypothetical development |
+| **Replay timeline** | Pause, seek, change speed, or jump between rounds in a recorded run |
 
-*Claude Sonnet 4.5 on Bedrock is priced at $3/M input and $15/M output. Prompt caching on the system block (the agent persona) is enabled by default and reduces repeated-call input cost by ~85%. Set `BEDROCK_CACHE_SYSTEM=0` to disable.*
+## How it works
+
+```mermaid
+flowchart LR
+    P["Scenario package<br/>JSON + Markdown"] --> O["FastAPI orchestrator<br/>towns run in parallel"]
+    O <--> L["LLM provider<br/>or deterministic mock"]
+    O --> E["Typed event stream<br/>WebSocket + EventBus"]
+    E --> W["React + Phaser<br/>town, chat, dashboard"]
+    E --> R[("Portable run<br/>events + summary<br/>recap when available")]
+    R --> Q["Replay"]
+    Q --> E
+```
+
+The frontend's simulation timeline sees exactly what the event log sees; REST
+supplies validated scenario vocabulary and explicit roster/town snapshots.
+Pydantic event models in the backend mirror a TypeScript discriminated union in
+the frontend, guarded by a contract test. That makes recorded, live, headless,
+and visual runs different views of the same simulation—not separate products
+that can silently drift.
+
+Read the [architecture guide](docs/architecture.md) for the prompt pipeline,
+wire contract, persistence model, cost accounting, and module-by-module tour.
+
+## Author a civic world
+
+Scaffold a package that already loads and lints:
+
+```bash
+township new-scenario school-boundary-vote
+township new-agent school-boundary-vote townsville --name "Maya Brooks"
+township run --scenario school-boundary-vote --provider mock
+```
+
+```text
+scenarios/school-boundary-vote/
+├── scenario.json              # question, options, rounds, news, town order
+├── towns/*.json               # place, demographics, landmarks, map metadata
+├── options/*.json             # arguments, positions, evidence, sources
+├── agents/<town>/*.md         # fictional resident personas
+├── context/*.json             # logistics or other shared evidence
+└── god-scenarios.json         # optional intervention presets
+```
+
+The package can describe an election, a budget, a zoning hearing, a school-board
+decision, or another shared civic choice. The engine does not know the names of
+your towns or options. Start with the complete
+[scenario format](docs/scenario-format.md), the
+[persona authoring guide](docs/persona-authoring.md), or copy the fully annotated
+[persona template](docs/persona-template.md).
+
+## Providers
+
+Set `LLM_PROVIDER` explicitly, or leave it unset and Township will detect a
+configured credential before falling back—loudly—to `mock`.
+
+| Provider | `LLM_PROVIDER` | Credential / endpoint |
+|---|---|---|
+| Deterministic mock | `mock` | None |
+| AWS Bedrock | `bedrock` | `AWS_BEARER_TOKEN_BEDROCK` or the standard AWS credential chain |
+| Anthropic API | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI API | `openai` | `OPENAI_API_KEY` |
+| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
+| Ollama | `ollama` | Local OpenAI-compatible endpoint |
+| LM Studio | `lmstudio` | Local OpenAI-compatible endpoint |
+
+Source/development installs and the Docker image include the OpenAI client. A plain
+Python wheel install needs `pip install 'township[openai]'` before using OpenAI,
+OpenRouter, Ollama, or LM Studio.
+
+Concurrency, model IDs, prompt caching, endpoints, CORS, and deployment options
+are documented in [Deployment](docs/deployment.md) and [`.env.example`](.env.example).
+Secrets belong only in environment variables.
+
+## Included scenarios
+
+| Scenario | Cast | What ships |
+|---|---:|---|
+| **The Millbrook Surplus** | 8 residents · 2 towns | A fictional direct-democracy vote over a one-time $12M surplus, plus a zero-cost mock replay. It proves the engine is not election-specific. |
+| **NJ-11 Special Election** | 26 residents · 4 towns | A retrospective of the certified April 2026 race, with a complete Bedrock/Claude replay and a published error analysis. |
+
+### The shipped NJ run, without spin
+
+The included NJ-11 replay contains **883 events**, **405 model calls**,
+**1,501,405 metered token units**, and **zero failed agents**. Its provider usage
+after generating the recap was **$7.3298**; the district summary, finalized just
+before that last recap call, records **$7.3192**.
+
+The 26 fictional characters ended at 19 Mejia, 5 Hathaway, 0 Bond, and 2
+undecided. Those are **character states, not votes, percentages, a sample, or a
+forecast**. The [NJ-11 retrospective](docs/nj11-retrospective.md) compares the
+run with certified results and documents selection bias, consensus drift,
+turnout blindness, and where the simulation failed. The exact event log is
+[committed with the scenario](scenarios/nj11-2026/demo/simulation_cache.json), so
+the claims are reproducible.
+
+## Repository map
+
+| Path | Purpose |
+|---|---|
+| `backend/core/` | Pydantic domain models, scenario/persona loading, wire DTOs, storage, EventBus |
+| `backend/simulation/` | Multi-round loop, multi-town orchestration, replay, recap, run persistence |
+| `backend/providers/` | Bedrock, Anthropic, OpenAI-compatible, local, and mock adapters |
+| `backend/routes/` | Simulation, chat, God's View, scenarios, towns, journal, runs, voice |
+| `frontend/src/game/` | Phaser world, resident sprites, clock, weather, routines, capture hooks |
+| `frontend/src/components/` | Map, town, chat, journal, dashboard, replay player, accessibility controls |
+| `scenarios/<id>/` | All domain-specific content and optional demo replay |
+| `tests/` | Offline backend, provider, persona, scenario, CLI, replay, and wire-contract tests |
+
+## Documentation
+
+- [Documentation index](docs/README.md) — the shortest route to every guide
+- [Architecture](docs/architecture.md) · [API](docs/api.md) · [Deployment](docs/deployment.md)
+- [Scenario format](docs/scenario-format.md) · [Persona authoring](docs/persona-authoring.md)
+- [FAQ](docs/faq.md) · [Roadmap](ROADMAP.md)
+- [Responsible Use](RESPONSIBLE_USE.md) · [Security](SECURITY.md)
+- [Third-party art and font notices](THIRD_PARTY_NOTICES.md)
+
+## Contributing
+
+Personas are the best first contribution: they need empathy and local texture,
+not Python. Scenarios add whole new civic worlds. Engine, research, frontend, art,
+accessibility, and documentation work are equally welcome.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md), choose a
+[`good first issue`](https://github.com/StevenWang-CY/township/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22),
+or propose a [new resident](https://github.com/StevenWang-CY/township/issues/new?template=new_persona.yml)
+or [scenario](https://github.com/StevenWang-CY/township/issues/new?template=new_scenario.yml).
+Community participation follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Citation, license, and provenance
+
+Township is released under the [MIT License](LICENSE). Cite the software using
+[`CITATION.cff`](CITATION.cff); academic work building on its generative-agent
+architecture should also cite Park et al., *Generative Agents* (UIST 2023), as
+recorded in that file.
+
+Vendored and derivative pixel assets remain subject to their asset-specific
+licenses and documented provenance qualifications. Every source, modification,
+and license is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Press and project media include
+the [social preview](docs/media/social-preview.png) and the
+[brand kit](docs/media/brand/README.md).
+
+---
+
+<p align="center">
+  <strong>Build a town worth listening to.</strong>
+</p>

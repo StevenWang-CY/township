@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:45", location: "Chestnut Row", activity: "Coffee in Walter's mug, crossword at the kitchen window" }
   - { time: "08:00", location: "Harrow Mill Ruins", activity: "Morning walk along the fence line — picks up litter, checks the smokestack, says nothing out loud" }

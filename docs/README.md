@@ -10,17 +10,19 @@ and quickstart, start with the [repository README](../README.md);
 | Document | One-liner |
 |----------|-----------|
 | [architecture.md](architecture.md) | How the pieces fit — scenario package → simulation engine → event stream → frontend — plus the wire contract, prompt assembly, and design decisions |
-| [api.md](api.md) | The full REST + WebSocket reference, with real captured responses from a mock-provider server |
+| [api.md](api.md) | The full REST + WebSocket reference, with current request/response shapes and trimmed illustrative examples |
 | [scenario-format.md](scenario-format.md) | The full scenario package spec — `scenario.json`, towns, options, personas, news beats, validation — with both shipped packages as worked examples |
 | [persona-authoring.md](persona-authoring.md) | Writing a resident: every frontmatter field, the craft of voice and ambivalence, the ethics rules, and the submission checklist |
 | [persona-template.md](persona-template.md) | A complete, annotated, lint-passing persona to copy from |
 | [deployment.md](deployment.md) | Running Township: local dev, environment variables, the provider matrix, Docker, reverse proxies, and cost guardrails |
 | [faq.md](faq.md) | Short answers on cost, keys, models, memory, licensing, and what Township is not |
 | [nj11-retrospective.md](nj11-retrospective.md) | The flagship NJ-11 run beside the certified April 2026 results — an honest error analysis of what the deliberation sim got right and wrong |
+| [ROADMAP.md](../ROADMAP.md) | What comes after v0.1: reproducible experiments, deeper social dynamics, creator tooling, accessibility, and explicit non-goals |
 
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) is the on-ramp for all three contribution
 paths (personas, scenarios, engine/frontend work).
-`docs/media/` holds the baseline UI screenshots referenced by the README.
+[`docs/media/`](media/README.md) holds the README hero, social preview, product captures, and the
+project's reusable [brand kit](media/brand/README.md).
 The map-generation pipeline has its own guide at
 [`scripts/mapgen/README.md`](../scripts/mapgen/README.md).
 

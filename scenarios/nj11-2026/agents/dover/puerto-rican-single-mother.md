@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "05:30", location: "Public Housing", activity: "Coffee, lunches for Julian and Camila, scrubs the night off her hands" }
   - { time: "07:00", location: "Factory", activity: "Reports to Morris Hills Care Center — bed baths, vitals, charting" }

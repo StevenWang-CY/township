@@ -55,12 +55,15 @@ top_concerns:
   - Dev riding the Route 9 washboard twice a day in Bus 7
   - burnout, hers and the town's — you cannot triage what you never treat
 
-# Optional. These are the defaults; include them for clarity or omit them.
+# Optional. These are the default tools; include them for clarity or omit them.
 tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
+
+# Optional per-agent model pin. Normally omit this so the provider-level
+# BEDROCK_MODEL_ID / ANTHROPIC_MODEL / OPENAI_MODEL / ... setting wins.
+# model: claude-sonnet-4-5
 
 # Optional but strongly encouraged: drives her movement in the pixel
 # town. `location` must name a landmark from towns/harlow-crossing.json —

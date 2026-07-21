@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:45", location: "Corbin's Hardware", activity: "Wakes above the store to Mr. Corbin's radio through the floor; oatmeal, whistle, clipboard" }
   - { time: "07:30", location: "Harlow Elementary School", activity: "Aide shift — drop-off duty, high-fives, the reading-corner kids" }

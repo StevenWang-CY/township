@@ -5,6 +5,10 @@ import { useWebSocketContext } from "../context/WebSocketContext";
 import { useScenario } from "../hooks/useScenario";
 import type { ResolvedTownMeta, ScenarioContextValue } from "../hooks/useScenario";
 import type { TownId, LeanId, AgentState } from "../types/messages";
+import { appUrl } from "../lib/assetUrl";
+import SpritePortrait from "./SpritePortrait";
+import { rosterAgentsFromPayload } from "./residentRoster";
+import { DEMO_MODE } from "../demo/demoMode";
 
 /** Compute leading (non-undecided) option per town from agent states. */
 function leadingOptionPerTown(
@@ -34,6 +38,18 @@ function leadingOptionPerTown(
   return out;
 }
 
+function motionIsReduced(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    document.documentElement.hasAttribute("data-reduced-motion") ||
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+  );
+}
+
+function withAlpha(color: string, alphaHex: string, fallback: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}${alphaHex}` : fallback;
+}
+
 /* ───────────────────────────────────────────────────────────────
    Illustrated District Map — Genshin / Anime style atlas page.
 
@@ -51,12 +67,15 @@ interface Pin {
   description: string;
 }
 
-const NJ11_PINS: Pin[] = [
-  { id: "dover", cx: 250, cy: 240, description: "Majority-Hispanic working-class heart" },
-  { id: "parsippany", cx: 490, cy: 300, description: "Largest town, Asian-American hub" },
-  { id: "randolph", cx: 340, cy: 410, description: "Affluent suburban community" },
-  { id: "montclair", cx: 730, cy: 230, description: "Progressive arts & culture center" },
-];
+// Coordinate-only presentation adapter for the illustrated flagship atlas.
+// Names, descriptions, colors, dates, and resident counts still come from
+// the active scenario package and transport roster.
+const NJ11_PIN_LAYOUT: Record<string, { cx: number; cy: number }> = {
+  dover: { cx: 250, cy: 240 },
+  parsippany: { cx: 490, cy: 300 },
+  randolph: { cx: 340, cy: 410 },
+  montclair: { cx: 730, cy: 230 },
+};
 
 /* ── Seeded layout helpers (generic scenarios) ───────────────── */
 
@@ -208,11 +227,15 @@ function Mountain({ x, y, s = 1, variant = 0 }: { x: number; y: number; s?: numb
 function Cloud({ x, y, s = 1, driftDur = "100s" }: { x: number; y: number; s?: number; driftDur?: string }) {
   return (
     <g transform={`translate(${x},${y}) scale(${s})`} opacity="0.35">
-      <animateTransform attributeName="transform" type="translate" values="0,0;80,0;0,0" dur={driftDur} repeatCount="indefinite" />
-      <ellipse cx="0" cy="0" rx="22" ry="9" fill="white" />
-      <ellipse cx="-14" cy="2" rx="14" ry="7" fill="white" />
-      <ellipse cx="16" cy="1" rx="16" ry="8" fill="white" />
-      <ellipse cx="5" cy="-5" rx="12" ry="7" fill="white" />
+      <g>
+        {!motionIsReduced() && (
+          <animateTransform attributeName="transform" type="translate" values="0,0;80,0;0,0" dur={driftDur} repeatCount="indefinite" />
+        )}
+        <ellipse cx="0" cy="0" rx="22" ry="9" fill="white" />
+        <ellipse cx="-14" cy="2" rx="14" ry="7" fill="white" />
+        <ellipse cx="16" cy="1" rx="16" ry="8" fill="white" />
+        <ellipse cx="5" cy="-5" rx="12" ry="7" fill="white" />
+      </g>
     </g>
   );
 }
@@ -288,6 +311,7 @@ function TownMarker({
   onClick,
   leader,
   leaderColor,
+  leaderLabel,
   metCount,
   totalCount,
 }: {
@@ -299,6 +323,7 @@ function TownMarker({
   onClick: () => void;
   leader: LeanId | null;
   leaderColor: string | null;
+  leaderLabel: string | null;
   metCount: number;
   totalCount: number;
 }) {
@@ -314,13 +339,25 @@ function TownMarker({
 
   return (
     <g
+      className="district-map-pin"
+      role="button"
+      tabIndex={0}
+      aria-label={`${meta.name}. ${leaderLabel ? `${leaderLabel} is leading. ` : "No leading option yet. "}${metCount} of ${totalCount} residents met. Enter town.`}
       onClick={onClick}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
+      onFocus={onHover}
+      onBlur={onLeave}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
       style={{ cursor: "pointer" }}
     >
       {/* Hit area */}
-      <circle cx={pin.cx} cy={pin.cy} r="50" fill="transparent" />
+      <circle className="district-map-pin-hit-area" cx={pin.cx} cy={pin.cy} r="50" fill="transparent" />
 
       <defs>
         <radialGradient id={glowId}>
@@ -345,14 +382,14 @@ function TownMarker({
 
       {/* Outer pulsing ring */}
       <circle cx={pin.cx} cy={pin.cy} r="20" fill="none" stroke={meta.color} strokeWidth="1" opacity="0.3">
-        <animate attributeName="r" values="20;30;20" dur="3s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="0.35;0;0.35" dur="3s" repeatCount="indefinite" />
+        {!motionIsReduced() && <animate attributeName="r" values="20;30;20" dur="3s" repeatCount="indefinite" />}
+        {!motionIsReduced() && <animate attributeName="opacity" values="0.35;0;0.35" dur="3s" repeatCount="indefinite" />}
       </circle>
 
       {/* Second pulse (offset timing) */}
       <circle cx={pin.cx} cy={pin.cy} r="18" fill="none" stroke={meta.color} strokeWidth="0.6" opacity="0.2">
-        <animate attributeName="r" values="18;26;18" dur="3s" begin="1.5s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="0.2;0;0.2" dur="3s" begin="1.5s" repeatCount="indefinite" />
+        {!motionIsReduced() && <animate attributeName="r" values="18;26;18" dur="3s" begin="1.5s" repeatCount="indefinite" />}
+        {!motionIsReduced() && <animate attributeName="opacity" values="0.2;0;0.2" dur="3s" begin="1.5s" repeatCount="indefinite" />}
       </circle>
 
       {/* Waypoint base — outer ring */}
@@ -589,7 +626,9 @@ function NJ11Terrain() {
       {/* River shimmer */}
       {[[192, 185], [220, 230], [248, 278], [280, 330], [325, 378]].map(([cx, cy], i) => (
         <circle key={`shimmer-${i}`} cx={cx} cy={cy} r="1.3" fill="white" opacity="0.5">
-          <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
+          {!motionIsReduced() && (
+            <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
+          )}
         </circle>
       ))}
 
@@ -769,7 +808,9 @@ function GenericTerrain({ pins, seedKey }: { pins: Pin[]; seedKey: string }) {
       />
       {layout.shimmers.map(([sx, sy], i) => (
         <circle key={`gshimmer-${i}`} cx={sx} cy={sy} r="1.3" fill="white" opacity="0.5">
-          <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
+          {!motionIsReduced() && (
+            <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
+          )}
         </circle>
       ))}
       {layout.bridge && <Bridge x={layout.bridge.x} y={layout.bridge.y} s={0.75} />}
@@ -827,55 +868,102 @@ export default function DistrictMap() {
 
   useEffect(() => { setLoaded(true); }, []);
 
-  const isNJ11 = scen.isNJ11;
+  // This identity check selects an optional illustrated skin only; no domain
+  // facts are sourced from it.
+  const hasNJ11Atlas = scen.scenario.id === "nj11-2026";
 
   const pins = useMemo<Pin[]>(() => {
-    if (isNJ11) return NJ11_PINS;
+    if (hasNJ11Atlas) {
+      return scen.scenario.towns.map((town) => {
+        const point = NJ11_PIN_LAYOUT[town.id];
+        return point
+          ? { id: town.id, ...point, description: town.tagline ?? "" }
+          : genericPins([{ id: town.id, tagline: town.tagline }], `${scen.scenario.id}:${town.id}`)[0];
+      });
+    }
     return genericPins(
       scen.scenario.towns.map((t) => ({ id: t.id, tagline: t.tagline })),
       scen.scenario.id,
     );
-  }, [isNJ11, scen.scenario]);
+  }, [hasNJ11Atlas, scen.scenario]);
 
   const townIds = useMemo(() => pins.map((p) => p.id), [pins]);
 
   const agents = useMemo(() => Object.values(ws.agents), [ws.agents]);
+  const [rosterAgents, setRosterAgents] = useState<AgentState[]>([]);
+
+  // Before a live simulation starts, use the real scenario roster so every
+  // atlas gets the same portrait + leading-option treatment. Static demos get
+  // an authoritative transport roster primed from their staged feed.
+  useEffect(() => {
+    setRosterAgents([]);
+    if (DEMO_MODE) return;
+    const ctrl = new AbortController();
+    fetch("/api/simulation/agents", { signal: ctrl.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (!payload) return;
+        setRosterAgents(rosterAgentsFromPayload(payload, townIds, scen.undecidedId));
+      })
+      .catch(() => { /* zero-backend demo: the replay supplies residents */ });
+    return () => ctrl.abort();
+  }, [scen.scenario.id, scen.undecidedId, townIds]);
+
+  const displayAgents = useMemo(() => {
+    if (agents.length > 0) return agents;
+    const transportRoster = Object.values(ws.agentRoster);
+    if (transportRoster.length > 0) return transportRoster;
+    return rosterAgents;
+  }, [agents, ws.agentRoster, rosterAgents]);
+
   const leaders = useMemo(
-    () => leadingOptionPerTown(agents, townIds, scen.undecidedId),
-    [agents, townIds, scen.undecidedId],
+    () => leadingOptionPerTown(displayAgents, townIds, scen.undecidedId),
+    [displayAgents, townIds, scen.undecidedId],
   );
   const townTotals: Record<TownId, number> = useMemo(() => {
     const out: Record<TownId, number> = {};
     for (const t of townIds) out[t] = 0;
-    for (const a of agents) out[a.town] = (out[a.town] || 0) + 1;
-    // Fallback to canonical NJ-11 counts when no agents have streamed in yet.
-    if (agents.length === 0 && isNJ11) {
-      out.dover = 6; out.montclair = 7; out.parsippany = 7; out.randolph = 6;
+    for (const a of displayAgents) out[a.town] = (out[a.town] || 0) + 1;
+    return out;
+  }, [displayAgents, townIds]);
+  // Deterministic "face of the town" for the hover card: first roster entry
+  // from the live stream, replay metadata, or API roster.
+  const firstResident: Record<TownId, AgentState | null> = useMemo(() => {
+    const out: Record<TownId, AgentState | null> = {};
+    for (const t of townIds) {
+      out[t] = displayAgents.find((agent) => agent.town === t) ?? null;
     }
     return out;
-  }, [agents, townIds, isNJ11]);
+  }, [displayAgents, townIds]);
+
+  // Towns whose preview PNG 404'd — hide the image, keep the card.
+  const [previewFailed, setPreviewFailed] = useState<Record<string, boolean>>({});
+
   const metPerTown: Record<TownId, number> = useMemo(() => {
     const out: Record<TownId, number> = {};
     for (const t of townIds) out[t] = 0;
     if (!profile?.metAgents) return out;
     // We can't know the town of every met agent without the agent list; intersect
-    // with whatever we have. When ws.agents is empty, fall back to 0.
-    for (const a of agents) {
+    // with whatever roster is currently visible.
+    for (const a of displayAgents) {
       if (profile.metAgents.includes(a.id) && out[a.town] !== undefined) out[a.town]++;
     }
     return out;
-  }, [profile?.metAgents, agents, townIds]);
+  }, [profile?.metAgents, displayAgents, townIds]);
 
   const goToTown = (id: TownId) => {
-    if (isOnboarded) {
+    // The hosted replay should reveal its strongest surface immediately;
+    // profile creation remains part of the interactive local experience.
+    if (DEMO_MODE || isOnboarded) {
       navigate(`/town/${id}`);
     } else {
       navigate(`/onboarding?town=${id}`);
     }
   };
 
-  const totalResidents = agents.length || (isNJ11 ? 26 : 0);
+  const totalResidents = displayAgents.length;
   const dday = decisionDayLabel(scen);
+  const motionReduced = motionIsReduced();
 
   return (
     <div
@@ -924,7 +1012,7 @@ export default function DistrictMap() {
             animationDelay: "150ms",
           }}
         >
-          {isNJ11 ? "New Jersey's 11th Congressional District" : scen.title}
+          {scen.title}
         </p>
         <p className="text-base" style={{ color: "var(--text-muted)" }}>
           Click a community to meet your AI neighbors
@@ -1020,7 +1108,7 @@ export default function DistrictMap() {
           ))}
 
           {/* ─── Layers 2–7: Terrain ───────────────────────── */}
-          {isNJ11 ? (
+          {hasNJ11Atlas ? (
             <NJ11Terrain />
           ) : (
             <GenericTerrain pins={pins} seedKey={scen.scenario.id} />
@@ -1038,6 +1126,7 @@ export default function DistrictMap() {
               onClick={() => goToTown(pin.id)}
               leader={leaders[pin.id]}
               leaderColor={leaders[pin.id] ? scen.optionColor(leaders[pin.id]) : null}
+              leaderLabel={leaders[pin.id] ? scen.optionLabel(leaders[pin.id]) : null}
               metCount={metPerTown[pin.id]}
               totalCount={townTotals[pin.id]}
             />
@@ -1045,7 +1134,9 @@ export default function DistrictMap() {
 
           {/* ─── Layer 9: Compass Rose ─────────────────────── */}
           <g style={{ transformOrigin: "905px 530px" }}>
-            <animateTransform attributeName="transform" type="rotate" from="0 905 530" to="360 905 530" dur="120s" repeatCount="indefinite" />
+            {!motionReduced && (
+              <animateTransform attributeName="transform" type="rotate" from="0 905 530" to="360 905 530" dur="120s" repeatCount="indefinite" />
+            )}
             <CompassRose x={905} y={530} />
           </g>
 
@@ -1054,35 +1145,100 @@ export default function DistrictMap() {
 
           {/* ─── Title cartouche ───────────────────────────── */}
           <g transform="translate(65, 48)">
-            <rect x="-10" y="-8" width={isNJ11 ? 155 : Math.max(155, scen.title.length * 6.8 + 24)} height="40" rx="5" fill="rgba(237,231,218,0.92)"
+            <rect x="-10" y="-8" width={Math.max(155, scen.title.length * 6.8 + 24)} height="40" rx="5" fill="rgba(237,231,218,0.92)"
               stroke="#C4B49A" strokeWidth="0.6" filter="url(#labelShadow)" />
             <text x="0" y="7" fontSize="11" fontWeight="700" fill="#5A4A38"
               fontFamily="var(--font-display)" letterSpacing="0.5">
-              {isNJ11 ? "NJ-11 District" : scen.title}
+              {scen.title}
             </text>
             <text x="0" y="22" fontSize="7.5" fill="#A89078" fontFamily="Inter, sans-serif" letterSpacing="0.3">
-              {isNJ11
-                ? "26 AI Residents · 4 Towns"
-                : [
-                    totalResidents ? `${totalResidents} AI Residents` : "AI Residents",
-                    `${pins.length} Town${pins.length === 1 ? "" : "s"}`,
-                  ].join(" · ")}
+              {[
+                totalResidents ? `${totalResidents} AI Residents` : "AI Residents",
+                `${pins.length} Town${pins.length === 1 ? "" : "s"}`,
+              ].join(" · ")}
             </text>
           </g>
 
           {/* ─── Decorative birds ───────────────────────────── */}
           <g opacity="0.3">
             <path d="M420,95 Q425,87 430,93 Q435,87 440,95" fill="none" stroke="#6B5B45" strokeWidth="0.9">
-              <animateMotion dur="18s" repeatCount="indefinite" path="M0,0 C50,-10 100,5 150,-5 C200,-15 250,0 300,-10 L350,0" />
+              {!motionReduced && <animateMotion dur="18s" repeatCount="indefinite" path="M0,0 C50,-10 100,5 150,-5 C200,-15 250,0 300,-10 L350,0" />}
             </path>
             <path d="M415,100 Q418,94 421,99 Q424,94 427,100" fill="none" stroke="#6B5B45" strokeWidth="0.7">
-              <animateMotion dur="20s" repeatCount="indefinite" path="M0,0 C40,-8 80,3 120,-3 C160,-10 200,5 280,-8 L320,0" />
+              {!motionReduced && <animateMotion dur="20s" repeatCount="indefinite" path="M0,0 C40,-8 80,3 120,-3 C160,-10 200,5 280,-8 L320,0" />}
             </path>
             <path d="M410,97 Q413,92 416,96 Q419,92 422,97" fill="none" stroke="#6B5B45" strokeWidth="0.5">
-              <animateMotion dur="22s" repeatCount="indefinite" path="M0,0 C30,-6 60,4 100,-4 C140,-8 180,2 240,-6 L280,0" />
+              {!motionReduced && <animateMotion dur="22s" repeatCount="indefinite" path="M0,0 C30,-6 60,4 100,-4 C140,-8 180,2 240,-6 L280,0" />}
             </path>
           </g>
         </svg>
+
+        {/* ── Waypoint hover card (HTML overlay over the SVG) ──── */}
+        {pins.map((pin) => {
+          if (hovered !== pin.id) return null;
+          const meta = scen.townMeta(pin.id);
+          const leader = leaders[pin.id];
+          const chipColor = leader ? scen.optionColor(leader) : "rgba(154,142,128,0.9)";
+          const resident = firstResident[pin.id];
+          return (
+            <div
+              key={`hover-${pin.id}`}
+              className="map-hover-card pixel-frame"
+              style={{
+                left: `${(pin.cx / 1000) * 100}%`,
+                top: `${(pin.cy / 620) * 100}%`,
+              }}
+              role="tooltip"
+              aria-hidden="true"
+            >
+              <div className="map-hover-card-preview-frame pixel-frame pixel-frame--quiet">
+                <div className="map-hover-card-preview-fallback" aria-hidden="true">
+                  {!meta.map?.preview_path || previewFailed[pin.id]
+                    ? "Preview unavailable"
+                    : `Opening ${meta.name}`}
+                </div>
+                {!previewFailed[pin.id] && meta.map?.preview_path && (
+                  <img
+                    className="map-hover-card-preview"
+                    src={appUrl(meta.map.preview_path)}
+                    alt=""
+                    onError={() =>
+                      setPreviewFailed((m) => (m[pin.id] ? m : { ...m, [pin.id]: true }))
+                    }
+                  />
+                )}
+              </div>
+              <div className="map-hover-card-row">
+                {resident && (
+                  <SpritePortrait
+                    agentId={resident.id}
+                    spriteKey={resident.sprite_key}
+                    accessoryKey={resident.accessory_key}
+                    fallbackInitials={resident.initials}
+                    color={resident.color || meta.color}
+                    size={22}
+                  />
+                )}
+                <span className="map-hover-card-name">{meta.name}</span>
+              </div>
+              <span
+                className="map-hover-card-chip"
+                style={{
+                  background: leader
+                    ? withAlpha(chipColor, "1F", "color-mix(in srgb, currentColor 12%, transparent)")
+                    : "rgba(154,142,128,0.1)",
+                  color: leader ? chipColor : "var(--text-muted)",
+                  borderColor: leader
+                    ? withAlpha(chipColor, "55", "color-mix(in srgb, currentColor 34%, transparent)")
+                    : "rgba(154,142,128,0.35)",
+                }}
+              >
+                <span className="map-hover-card-chip-dot" style={{ background: chipColor }} />
+                {leader ? `Leading: ${scen.optionLabel(leader)}` : "No leader yet"}
+              </span>
+            </div>
+          );
+        })}
 
         {/* ── Ambient Floating Particles ──────────────────────── */}
         <div className="ambient-particles">
@@ -1110,8 +1266,9 @@ export default function DistrictMap() {
           background: "var(--warm-glass)",
           backdropFilter: "blur(var(--warm-glass-blur))",
           WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
-          border: "1px solid var(--warm-glass-border)",
-          borderTop: "1px solid rgba(196, 163, 90, 0.3)",
+          borderWidth: "1px",
+          borderStyle: "solid",
+          borderColor: "rgba(196, 163, 90, 0.3) var(--warm-glass-border) var(--warm-glass-border)",
           animation: "stagger-in 0.5s var(--ease-genshin) backwards",
           animationDelay: "500ms",
         }}
@@ -1128,30 +1285,24 @@ export default function DistrictMap() {
         </svg>
         <p style={{
           fontFamily: "var(--font-display)",
-          color: "var(--gold-accent)",
+          color: "var(--gold-ink)",
           fontSize: "14px",
           fontWeight: 600,
         }}>
-          {isNJ11
-            ? "NJ-11 Special Election — April 16, 2026"
-            : dday
-              ? `${scen.title} — ${dday}`
-              : scen.title}
+          {dday ? `${scen.title} — ${dday}` : scen.title}
         </p>
         <p className="mt-1" style={{
           fontFamily: "var(--font-body)",
           color: "var(--text-secondary)",
           fontSize: "12px",
         }}>
-          {isNJ11
-            ? "Early voting happening now (April 6 – 14). 26 AI residents across 4 towns are deliberating."
-            : scen.scenario.dates?.prose || scen.question}
+          {scen.scenario.dates?.prose || scen.question}
         </p>
       </div>
 
       {/* ── Town Cards ───────────────────────────────────────── */}
       <div className="mt-6 district-town-cards max-w-3xl w-full">
-        {(isNJ11 ? (["montclair", "parsippany", "dover", "randolph"] as TownId[]) : townIds).map((id, idx) => {
+        {townIds.map((id, idx) => {
           const meta = scen.townMeta(id);
           const isActive = hovered === id;
           return (
@@ -1163,8 +1314,9 @@ export default function DistrictMap() {
                 background: isActive
                   ? `linear-gradient(135deg, rgba(${hexToRgb(meta.color)},0.08), var(--card-bg))`
                   : "var(--card-bg)",
-                border: `1.5px solid ${isActive ? meta.color : "var(--card-border)"}`,
-                borderLeft: `3px solid ${meta.color}`,
+                borderWidth: "1.5px 1.5px 1.5px 3px",
+                borderStyle: "solid",
+                borderColor: `${isActive ? meta.color : "var(--card-border)"} ${isActive ? meta.color : "var(--card-border)"} ${isActive ? meta.color : "var(--card-border)"} ${meta.color}`,
                 boxShadow: isActive
                   ? `0 4px 16px rgba(${hexToRgb(meta.color)},0.15)`
                   : "var(--card-shadow)",
@@ -1174,6 +1326,8 @@ export default function DistrictMap() {
               }}
               onMouseEnter={() => setHovered(id)}
               onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(id)}
+              onBlur={() => setHovered(null)}
             >
               <div className="flex items-center gap-2 mb-1">
                 <span
@@ -1198,7 +1352,7 @@ export default function DistrictMap() {
                   fontFamily: "var(--font-body)",
                   fontSize: "12px",
                   fontStyle: "italic",
-                  color: "var(--text-muted)",
+                  color: "var(--text-secondary)",
                 }}>
                   {meta.tagline}
                 </p>
@@ -1207,7 +1361,7 @@ export default function DistrictMap() {
                 <p className="mt-1" style={{
                   fontSize: "12px",
                   fontWeight: 600,
-                  color: meta.color,
+                  color: "var(--text-secondary)",
                 }}>
                   {meta.population}
                 </p>

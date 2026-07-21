@@ -62,7 +62,7 @@ Optional fields with defaults:
 | Field | Default | What it does |
 |---|---|---|
 | `tools` | `[Discuss, FormOpinion, ReactToNews]` | The tool set exposed to the model. Leave it alone unless you know why. |
-| `model` | `claude-sonnet-4-5` | Per-agent model override. |
+| `model` | provider default | Optional per-agent model override. Omit it to honor the active provider's environment configuration. |
 
 And the four optional living-world fields, which older personas simply omit
 (they fall back to empty). These are where a resident stops being a survey
@@ -271,8 +271,9 @@ In practice:
   themselves, start over. If the name matches a real person in that town, pick
   another.
 - **Real public figures never become residents.** Candidates and officials enter
-  a scenario only as sourced scenario data, with positions quoted from cited
-  public sources — never as agents, never in invented conversations.
+  a scenario only as sourced scenario data, summarized where necessary from
+  public material whose source list readers can independently verify — never as
+  agents, never in invented conversations.
 - **Portraits, not caricatures.** You are writing someone else's neighbor.
   Composite from public demographic data (the shipped towns' `demographics`
   blocks are the pattern), write with empathy, and give the resident the same

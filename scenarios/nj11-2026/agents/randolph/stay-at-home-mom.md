@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:30", location: "Residential Cul-de-sacs", activity: "Coffee, lunches, school forms — runs the household like a Fortune 500" }
   - { time: "08:00", location: "High School", activity: "School drop-off circuit; Sophia, Luca, then Gia at preschool" }

@@ -9,8 +9,7 @@ interface PlayerHUDProps {
   compact?: boolean;
   worldClock?: { hour: number; minute: number };
   weather?: WeatherKind;
-  /** Total NPC count. Defaults to 26 for the NJ-11 demo roster; other
-   *  scenarios show just the raw met/persuaded counts until agents stream. */
+  /** Total resident count when an authoritative roster is available. */
   totalAgents?: number;
 }
 
@@ -75,9 +74,7 @@ export default function PlayerHUD({
   const persuadedCount = profile?.persuadedAgents?.length ?? 0;
   const decisionDay = scen.scenario.dates?.decision_day;
   const countdownLabel = scen.decisionKind === "election" ? "Election in" : "Decision in";
-  // NJ-11 ships a known 26-agent roster; other scenarios show raw counts
-  // unless the caller passes a live total.
-  const total = totalAgents ?? (scen.isNJ11 ? 26 : undefined);
+  const total = totalAgents;
 
   const [days, setDays] = useState<number | null>(daysUntil(decisionDay));
   useEffect(() => {

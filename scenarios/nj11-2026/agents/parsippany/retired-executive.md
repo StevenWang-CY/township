@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "07:00", location: "Residential Area", activity: "Coffee on the patio, reads the Wall Street Journal opinion page" }
   - { time: "09:00", location: "Community Center", activity: "Tennis with the Tuesday group — sharper than her opponents expect" }

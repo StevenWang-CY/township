@@ -1,186 +1,293 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Phaser from "phaser";
-import { OnboardingScene } from "../game/OnboardingScene";
-import type { OnboardingTownInfo } from "../game/OnboardingScene";
+import {
+  OnboardingScene,
+  type OnboardingStanceInfo,
+  type OnboardingTownInfo,
+} from "../game/OnboardingScene";
 import { GAME_CONFIG } from "../game/config";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useScenario } from "../hooks/useScenario";
 import type { TownId } from "../types/messages";
 
-/* ── Progress Dots ────────────────────────────────────────── */
+const AVATARS = [1, 2, 3, 4, 5, 6] as const;
+const OUTFITS = [
+  { id: "casual", label: "Everyday" },
+  { id: "business", label: "Professional" },
+  { id: "labor", label: "Workwear" },
+  { id: "parent", label: "Weekend" },
+] as const;
 
-const STEPS = ["name", "avatar", "outfit", "town", "leaning", "concerns", "personality"];
-
-function ProgressDots({ currentIndex }: { currentIndex: number }) {
-  return (
-    <div className="onboarding-progress">
-      {STEPS.map((_, i) => (
-        <div
-          key={i}
-          className={`onboarding-dot ${
-            i < currentIndex ? "onboarding-dot--done" : i === currentIndex ? "onboarding-dot--active" : ""
-          }`}
-        />
-      ))}
-    </div>
-  );
+function initialsFor(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join("")
+    .toUpperCase() || "TR";
 }
 
-/* ── OnboardingView ───────────────────────────────────────── */
+function idFor(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 32);
+  return `player-${slug || "resident"}`;
+}
 
+/**
+ * A semantic onboarding form backed by the active scenario package.
+ *
+ * Phaser remains as atmospheric art, while every required choice lives in
+ * native HTML controls so keyboard and assistive-technology users can finish
+ * the same flow without interacting with a canvas.
+ */
 export default function OnboardingView() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { setProfile } = useUserProfile();
-
+  const scen = useScenario();
   const gameContainerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
-  const sceneRef = useRef<OnboardingScene | null>(null);
 
-  const [overlay, setOverlay] = useState<{
-    visible: boolean;
-    step: string;
-    prompt: string;
-  }>({ visible: false, step: "", prompt: "" });
+  const requestedTown = searchParams.get("town");
+  const initialTown = scen.scenario.towns.some((town) => town.id === requestedTown)
+    ? requestedTown as TownId
+    : scen.scenario.towns[0].id;
 
-  const [inputValue, setInputValue] = useState("");
-  const [stepIndex, setStepIndex] = useState(0);
+  const [name, setName] = useState("");
+  const [town, setTown] = useState<TownId>(initialTown);
+  const [stance, setStance] = useState(scen.undecidedId);
+  const [concerns, setConcerns] = useState("");
+  const [perspective, setPerspective] = useState("");
+  const [avatar, setAvatar] = useState<(typeof AVATARS)[number]>(1);
+  const [outfit, setOutfit] = useState<(typeof OUTFITS)[number]["id"]>("casual");
 
-  const preselectedTown = searchParams.get("town") as TownId | null;
-  const scen = useScenario();
+  const towns = useMemo<OnboardingTownInfo[]>(() => (
+    scen.scenario.towns.map((item) => {
+      const meta = scen.townMeta(item.id);
+      return {
+        id: item.id,
+        name: meta.name,
+        tagline: meta.tagline,
+        color: meta.color,
+        population: meta.population,
+        mapPath: meta.map?.path,
+      };
+    })
+  ), [scen]);
 
-  /* ── Initialize Phaser ───────────────────────────────────── */
+  const stances = useMemo<OnboardingStanceInfo[]>(() => ([
+    ...scen.scenario.options.map((option) => ({
+      id: option.id,
+      label: option.name || option.label,
+      color: option.color,
+    })),
+    {
+      id: scen.scenario.undecided.id,
+      label: scen.scenario.undecided.label,
+      color: scen.scenario.undecided.color,
+    },
+  ]), [scen]);
 
   useEffect(() => {
-    // Wait for the scenario bootstrap (resolves fast; falls back to NJ-11
-    // offline) so the town-selection step shows the right roster.
-    if (scen.loading) return;
     if (!gameContainerRef.current || gameRef.current) return;
 
     const scene = new OnboardingScene();
-    sceneRef.current = scene;
-
     const game = new Phaser.Game({
       ...GAME_CONFIG,
       parent: gameContainerRef.current,
       scene,
     });
-
-    const towns: OnboardingTownInfo[] = scen.scenario.towns.map((t) => {
-      const m = scen.townMeta(t.id);
-      return { id: t.id, name: m.name, tagline: m.tagline, color: m.color, population: m.population };
+    game.scene.start("OnboardingScene", {
+      preselectedTown: initialTown,
+      towns,
+      stances,
+      decorative: true,
     });
-    game.scene.start("OnboardingScene", { preselectedTown, towns });
     gameRef.current = game;
 
-    // Listen for scene events
-    const checkScene = setInterval(() => {
-      const activeScene = game.scene.getScene("OnboardingScene") as OnboardingScene | undefined;
-      if (activeScene && activeScene.scene.isActive()) {
-        clearInterval(checkScene);
-
-        activeScene.events.on("onboarding-need-input", (data: { step: string; prompt: string }) => {
-          setOverlay({ visible: true, step: data.step, prompt: data.prompt });
-          setInputValue("");
-          setStepIndex(STEPS.indexOf(data.step));
-        });
-
-        activeScene.events.on("onboarding-complete", (profileData: any) => {
-          setProfile(profileData);
-          navigate(`/town/${profileData.town}`);
-        });
-      }
-    }, 200);
-
     return () => {
-      clearInterval(checkScene);
-      game.destroy(true);
       gameRef.current = null;
-      sceneRef.current = null;
+      game.destroy(true);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- init once, after scenario bootstrap
-  }, [scen.loading]);
+  }, [initialTown, stances, towns]);
 
-  /* ── Handle input submission ─────────────────────────────── */
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const cleanName = name.trim();
+    if (!cleanName) return;
 
-  const handleSubmit = useCallback(() => {
-    if (!inputValue.trim()) return;
-    const scene = gameRef.current?.scene.getScene("OnboardingScene") as OnboardingScene | undefined;
-    if (!scene) return;
+    const topConcerns = concerns
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const townMeta = scen.townMeta(town);
 
-    scene.receiveInput(overlay.step, inputValue.trim());
-    setOverlay({ visible: false, step: "", prompt: "" });
-    setInputValue("");
-    setStepIndex((prev) => prev + 1);
-  }, [inputValue, overlay.step]);
-
-  // The Phaser scene handles "avatar" and "outfit" steps in-canvas, so the
-  // React overlay should remain hidden for those — and we still want to advance
-  // the progress dots when those steps complete.  The scene currently emits
-  // onboarding-need-input for the text-only steps, so for avatar/outfit the
-  // overlay never appears.  If the scene starts emitting those steps to React,
-  // we hide the overlay so the canvas UI is visible.
-  const isCanvasOnlyStep = overlay.step === "avatar" || overlay.step === "outfit";
+    await setProfile({
+      name: cleanName,
+      town,
+      politicalLeaning: stance,
+      topConcerns,
+      personality: perspective.trim(),
+      initials: initialsFor(cleanName),
+      color: townMeta.color,
+      agentId: idFor(cleanName),
+      spriteKey: `char-player-${avatar}`,
+      outfitKey: outfit,
+    });
+    navigate(`/town/${town}`);
+  };
 
   return (
-    <div className="onboarding-layout">
-      {/* Phaser canvas */}
-      <div className="onboarding-canvas" style={{ background: "#e8dcc8" }}>
-        <div ref={gameContainerRef} className="absolute inset-0" />
-      </div>
-
-      {/* Frosted glass input overlay (hidden for canvas-only avatar/outfit steps) */}
-      {overlay.visible && !isCanvasOnlyStep && (
-        <div className="onboarding-overlay-backdrop">
-          <div className="onboarding-overlay">
-            <ProgressDots currentIndex={stepIndex} />
-
-            <h3 className="onboarding-overlay-title">{overlay.prompt}</h3>
-
-            {overlay.step === "personality" ? (
-              <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value.slice(0, 200))}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit();
-                  }
-                }}
-                placeholder="e.g., I'm a teacher worried about property taxes..."
-                className="onboarding-textarea"
-                rows={3}
-                maxLength={200}
-                autoFocus
-              />
-            ) : (
-              <input
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                placeholder={overlay.step === "name" ? "Type your name..." : ""}
-                className="onboarding-input"
-                autoFocus
-              />
-            )}
-
-            <div className="onboarding-overlay-actions">
-              {overlay.step === "personality" && (
-                <span className="onboarding-char-count">{inputValue.length}/200</span>
-              )}
-              <button
-                onClick={handleSubmit}
-                disabled={!inputValue.trim()}
-                className="onboarding-submit"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
+    <main className="onboarding-layout">
+      <section className="onboarding-art" aria-hidden="true">
+        <div ref={gameContainerRef} className="onboarding-canvas" />
+        <div className="onboarding-art-caption">
+          <span className="onboarding-art-kicker">A living civic simulation</span>
+          <strong>Arrive as yourself. Listen as a neighbor.</strong>
         </div>
-      )}
-    </div>
+      </section>
+
+      <section className="onboarding-form-panel" aria-labelledby="onboarding-title">
+        <form className="onboarding-form" onSubmit={submit}>
+          <div className="onboarding-form-heading">
+            <span className="onboarding-eyebrow">Create a local resident</span>
+            <h1 id="onboarding-title">Join the town square</h1>
+            <p>
+              Choose how you enter this scenario. You can revise your perspective as
+              you hear from residents; no answer is treated as a real-world poll response.
+            </p>
+          </div>
+
+          <label className="onboarding-field" htmlFor="resident-name">
+            <span>Your name</span>
+            <input
+              id="resident-name"
+              name="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              autoComplete="name"
+              maxLength={80}
+              required
+            />
+          </label>
+
+          <fieldset className="onboarding-fieldset">
+            <legend>Choose your town</legend>
+            <div className="onboarding-choice-grid onboarding-choice-grid--towns">
+              {towns.map((item) => (
+                <label className="onboarding-choice" key={item.id}>
+                  <input
+                    type="radio"
+                    name="town"
+                    value={item.id}
+                    checked={town === item.id}
+                    onChange={() => setTown(item.id)}
+                  />
+                  <span className="onboarding-choice-card">
+                    <i style={{ background: item.color }} aria-hidden="true" />
+                    <strong>{item.name}</strong>
+                    {item.tagline && <small>{item.tagline}</small>}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="onboarding-fieldset">
+            <legend>Where are you starting?</legend>
+            <p className="onboarding-field-hint">
+              This uses the choices defined by “{scen.question}” — it is not party registration.
+            </p>
+            <div className="onboarding-choice-grid">
+              {stances.map((item) => (
+                <label className="onboarding-choice" key={item.id}>
+                  <input
+                    type="radio"
+                    name="stance"
+                    value={item.id}
+                    checked={stance === item.id}
+                    onChange={() => setStance(item.id)}
+                  />
+                  <span className="onboarding-choice-card onboarding-choice-card--compact">
+                    <i style={{ background: item.color }} aria-hidden="true" />
+                    <strong>{item.label}</strong>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <div className="onboarding-personalize-grid">
+            <fieldset className="onboarding-fieldset">
+              <legend>Portrait</legend>
+              <div className="onboarding-avatar-grid">
+                {AVATARS.map((item) => (
+                  <label className="onboarding-avatar-choice" key={item}>
+                    <input
+                      type="radio"
+                      name="avatar"
+                      value={item}
+                      checked={avatar === item}
+                      onChange={() => setAvatar(item)}
+                    />
+                    <span aria-hidden="true">{item}</span>
+                    <b>Portrait {item}</b>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="onboarding-field" htmlFor="resident-outfit">
+              <span>Outfit</span>
+              <select
+                id="resident-outfit"
+                value={outfit}
+                onChange={(event) => setOutfit(event.target.value as typeof outfit)}
+              >
+                {OUTFITS.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="onboarding-field" htmlFor="resident-concerns">
+            <span>What do you care about?</span>
+            <small>Optional · separate up to six topics with commas</small>
+            <input
+              id="resident-concerns"
+              value={concerns}
+              onChange={(event) => setConcerns(event.target.value)}
+              placeholder="Transit, schools, small businesses"
+              maxLength={180}
+            />
+          </label>
+
+          <label className="onboarding-field" htmlFor="resident-perspective">
+            <span>Add a little context</span>
+            <small>Optional · this shapes your local in-app profile only</small>
+            <textarea
+              id="resident-perspective"
+              value={perspective}
+              onChange={(event) => setPerspective(event.target.value)}
+              placeholder="I work nearby and want to understand the tradeoffs…"
+              rows={3}
+              maxLength={240}
+            />
+          </label>
+
+          <button className="onboarding-submit onboarding-submit--primary" type="submit">
+            Enter {scen.townMeta(town).name}
+          </button>
+        </form>
+      </section>
+    </main>
   );
 }

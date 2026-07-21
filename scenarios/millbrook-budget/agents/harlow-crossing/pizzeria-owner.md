@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "08:00", location: "Rocco's Slice House", activity: "Dough first, always; radio on the oven shelf, flour on everything" }
   - { time: "11:30", location: "Rocco's Slice House", activity: "Lunch rush — the Route 9 crowd, the plaza regulars, Marcus's slice-and-soda" }

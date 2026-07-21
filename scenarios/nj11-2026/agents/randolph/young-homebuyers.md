@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:30", location: "Residential Cul-de-sacs", activity: "Coffee, Tyler checks the mortgage portal compulsively, swears" }
   - { time: "08:00", location: "Commercial Strip", activity: "Tyler drives to Morris Plains construction office; Megan to her PT practice" }

@@ -13,6 +13,12 @@ The default is `nj11-2026`. Two complete packages ship with the repo and double 
 - `scenarios/nj11-2026/` — a retrospective congressional special election (`kind: "election"`, 4 towns, 26 agents)
 - `scenarios/millbrook-budget/` — a fictional town-meeting budget vote (`kind: "vote"`, 2 towns, 8 agents)
 
+`township new-scenario my-town-vote` creates a validated package. In a source
+checkout it writes to that checkout's `scenarios/`; from an installed wheel it
+writes to `./scenarios/` in the current working directory. Both the CLI and server
+search the launch directory before bundled examples. Set `TOWNSHIP_SCENARIOS_DIR`
+to use a different authoring and runtime root.
+
 ## Directory layout
 
 ```
@@ -48,6 +54,7 @@ The manifest schema is `ScenarioConfig` in `backend/core/scenario.py`. Every fie
 | `options` | `list[ScenarioOption]` | yes (≥ 1, unique ids) | The stance roster. Ids become the `FormOpinion` tool's `candidate` enum (`backend/tools/schemas.py::build_tools`); colors/labels drive every chart |
 | `undecided` | `UndecidedSpec` | no | The "no stance yet" bucket: `id` (default `"undecided"`), `label`, `color`. Always appended to the stance roster |
 | `dates` | `DatesSpec` | yes | `decision_day` (ISO date) + `prose` (human framing). The prose goes into the seed briefing; both are served to the UI |
+| `responsible_use` | `ResponsibleUseSpec` | yes | The mandatory canonical `core_notice` plus three non-empty scenario-specific disclosures (`residents_notice`, `subjects_notice`, `outputs_notice`), shown persistently in the UI and embedded in run artifacts |
 | `context_md` | `str` | yes | The per-agent framing block — appended to **every** agent system prompt as `--- CONTEXT ---` (`RoundManager._build_agent_system_prompt`) |
 | `context_short_md` | `str` | yes | Compact context for chat and God's View prompts (`orchestrator._build_god_view_prompt`, `routes/chat.py`) |
 | `round_plan` | `list[RoundSpec]` | yes (≥ 1) | THE simulation script — see [Round plan and phases](#round-plan-and-phases) |
@@ -74,6 +81,30 @@ Each entry in `options`:
 ```
 
 When `data_file` is omitted the loader falls back to `options/<id>.json`; when neither exists the option simply has no rich data (fine for authoring, thin for agents).
+
+### Responsible-use metadata
+
+Every package describes its own subjects accurately instead of inheriting an
+election-specific disclaimer. All four strings are required and travel through
+`GET /api/scenario`, the persistent product disclosure, persisted run summaries,
+and JSON exports:
+
+```json
+"responsible_use": {
+  "core_notice": "Township is a simulation, not a poll. Its outputs do not measure real public opinion and must never be presented as if they do.",
+  "residents_notice": "The residents are fictional composites. No real resident is depicted.",
+  "subjects_notice": "The places and policy choices in this scenario are fictional.",
+  "outputs_notice": "Every output is an LLM artifact shaped by authored personas, scenario framing, and model biases."
+}
+```
+
+The `core_notice` must match that sentence exactly; both the backend loader and
+static-demo staging reject replacements or appended qualifications. Rewrite the
+other three for the package: distinguish fictional and real places, identify real
+public figures, describe whether material is quoted or summarized, and name the
+limits of the source coverage. A source list is not claim-level verification;
+never use quotation marks unless the package preserves exact wording from a cited
+primary source.
 
 ### Round plan and phases
 
@@ -114,7 +145,10 @@ At each round in `gossip_rounds`, the orchestrator matches these pairs across to
 
 ## Town JSON (`towns/<town-id>.json`)
 
-One file per town; the filename stem is the town id and must match the agent directory name under `agents/`. The whole file is served verbatim by `GET /api/towns`, so the frontend and backend can never disagree about coordinates. From `scenarios/millbrook-budget/towns/millbrook-village.json`:
+One file per town; the filename stem is the town id and must match the agent directory
+name under `agents/`. `GET /api/towns` serves the loader-validated payload (including
+additional authored fields), so the frontend and backend share one coordinate/map
+source. From `scenarios/millbrook-budget/towns/millbrook-village.json`:
 
 ```json
 {
@@ -122,6 +156,11 @@ One file per town; the filename stem is the town id and must match the agent dir
   "county": "Ashford County",
   "tagline": "The Mill Village",
   "accent_color": "#7A9E7E",
+  "map": {
+    "kind": "tiled",
+    "path": "assets/maps/millbrook-budget/millbrook-village.tmj",
+    "preview_path": "assets/maps/millbrook-budget/millbrook-village-preview.png"
+  },
   "ambient_sound": "millbrook_village_ambient.ogg",
   "demographics": { "population": 3850, "median_age": 51.2, "...": "..." },
   "character": "The old center: brick storefronts on Main Street...",
@@ -144,8 +183,27 @@ What the engine actually reads:
 - **`landmarks[].name`** — conversation locations. The engine picks a random landmark for each conversation and writes it into memories ("Talked with Cass Malone at The Wheelhouse Diner...").
 - **`landmarks[].x/y`** — coordinates for `agent_moved` events, which the Phaser scene animates.
 - **`demographics.population`** — surfaced by `GET /api/scenario` town cards.
+- **`map`** — optional authored-map metadata. It must be exactly `kind: "tiled"`
+  plus `assets/maps/<scenario-id>/<town-id>.tmj` and
+  `assets/maps/<scenario-id>/<town-id>-preview.png`; the scenario loader rejects a
+  mismatched scenario namespace or filename.
 
-Everything else (`character`, `ambient_sound`, `color_theme`, landmark `width`/`height`/`color`/`type`/`description`) is consumed by the frontend. The Phaser scene (`frontend/src/game/TownScene.ts`) styles landmarks by `type`; the types used across the shipped scenarios are `building`, `church`, `housing`, `park`, `road`, `transport`, and `water` (rivers and lakes — Millbrook's Stillwater River is a full-width `water` strip). Parks get ambient animations, churches get sparkle effects, roads are excluded from agent wander points.
+The frontend consumes landmark `width`/`height`/`color`/`type` in its procedural
+fallback scene and uses `type` to choose walk/listen behavior; roads are excluded
+from agent wander points. When `map` is present, `TownScene` loads the namespaced
+`.tmj` and district/town cards use `preview_path`; when it is absent, the landmark
+renderer is the intended first-run path. Generate both assets with:
+
+```bash
+python3 -m scripts.mapgen.build_maps --scenario <scenario-id> --town <town-id> --preview
+```
+
+Hand-tuned layouts live at
+`scripts/mapgen/layouts/<scenario_id_with_underscores>/<town_id_with_underscores>.py`.
+See the [map-generation guide](../scripts/mapgen/README.md) for the layer contract.
+`character`, `ambient_sound`, `color_theme`, and landmark `description` are
+descriptive/reserved metadata today: preserve them if useful to scenario authors,
+but do not rely on the runtime rendering or playing them yet.
 
 ## Option JSON (`options/<option-id>.json`)
 
@@ -166,10 +224,13 @@ Anything else in the file (`estimated_cost`, `tradeoffs`, `label`) is currently 
 
 Every JSON file in `context/` loads into `Scenario.extras` keyed by file stem. Two stems get special rendering in the seed briefing:
 
-- **`debate-excerpts.json`** — `{debate: {date}, exchanges: [{topic, tension_level, <speaker>_position, key_quote}]}`. Any key ending in `_position` is rendered as that speaker's line; `key_quote` becomes a "Key moment". See `scenarios/nj11-2026/context/debate-excerpts.json`.
+- **`debate-excerpts.json`** — `{debate: {date}, exchanges: [{topic, tension_level, <speaker>_position, summary}]}`. Any key ending in `_position` is rendered as that speaker's reported position; `summary` becomes an explicitly labeled debate summary, without invented quotation marks. See `scenarios/nj11-2026/context/debate-excerpts.json`.
 - **`logistics.json`** — `{race, election_day: {date, day_of_week}, early_voting: {dates}}` rendered as a LOGISTICS bullet list.
 
-Other stems load without error and sit in `extras` for custom use. Invalid JSON is skipped with a warning, not a crash.
+Other stems may contain any JSON object and sit in `extras` for custom use. A parse
+error, a non-object root, or an invalid known shape is a load-time error; malformed
+context is never silently skipped. `debate-excerpts` and `logistics` receive their
+own Pydantic validation before the server can start.
 
 ## God's View presets (`god-scenarios.json`) — optional
 
@@ -192,6 +253,18 @@ A JSON array of curated injections served by `GET /api/gods-view/scenarios` and 
 
 A recorded event log that lets anyone *watch* your scenario without running a simulation (or holding an API key). When present, it is the default source for `POST /api/simulation/replay`, appears in `GET /api/simulation/replay/available`, and plays in the terminal via `township replay --demo --scenario <id>`.
 
+Every current cache must carry the public-artifact envelope alongside `events`:
+
+```json
+{ "schema_version": 1, "privacy_version": 1, "events": [] }
+```
+
+Generate those fields with Township rather than copying them onto an old file. An
+unversioned artifact may contain ordinary-looking speech, opinion reasoning, or
+recap prose influenced by pre-boundary player chat; event-type filtering cannot
+prove it safe. The API and CLI therefore refuse it, and the static-demo build fails
+instead of publishing it. Regenerate legacy caches with the current version.
+
 Generate it with the script rather than by hand:
 
 ```bash
@@ -199,7 +272,14 @@ python scripts/generate_demo_cache.py --scenario millbrook-budget --provider moc
 python scripts/generate_demo_cache.py --scenario <your-id> --provider anthropic   # a real deliberation
 ```
 
-The script runs a full headless simulation, minifies the event log, and warns when the result exceeds the 3 MB budget — pass `--trim` to bring an oversized cache back under it (high-volume `agent_moved` / `relationship_update` events are dropped first, then long prose is truncated). It refuses the mock provider unless you pass `--allow-mock` — mock caches are fine for CI and quick demos, but a flagship cache should be a real deliberation. Both shipped scenarios include one (`scenarios/nj11-2026/demo/`, `scenarios/millbrook-budget/demo/`).
+The script runs a full headless simulation, stamps the current artifact schema and
+privacy versions, minifies the public event log, and warns when the result exceeds
+the 3 MB budget — pass `--trim` to bring an oversized cache back under it
+(high-volume `agent_moved` events are dropped first, then long prose is truncated).
+Private player state is never eligible for a demo cache. The script refuses the mock
+provider unless you pass `--allow-mock` — mock caches are fine for CI and quick demos,
+but a flagship cache should be a real deliberation. Both shipped scenarios include
+one (`scenarios/nj11-2026/demo/`, `scenarios/millbrook-budget/demo/`).
 
 ## Personas (`agents/<town-id>/*.md`)
 
@@ -214,9 +294,9 @@ Required frontmatter keys: `name`, `town`, `description`, `age`, `occupation`, `
 Optional keys:
 
 - `tools` (default `["Discuss", "FormOpinion", "ReactToNews"]`) — declarative; the engine selects the tool for each phase itself.
-- `model` (default `"claude-sonnet-4-5"`) — per-agent model pin, resolved through the active provider's model map.
+- `model` (default: the active provider's configured model) — optional per-agent model pin, resolved through the provider's model map. Omit it unless a resident intentionally needs a different model.
 - `routine` — `[{time, location, activity}]`; locations should name real landmarks in the agent's town (lint requires ≥ 80% to resolve).
-- `relationships` — `[{agent, type, strength, context}]`; targets may be display names (`"Gordon Tibbs"`) or slugs (`"gordon-tibbs"`) and must resolve to a real agent in the scenario. Agent ids are derived as `name.lower().replace(" ", "-").replace(".", "")`.
+- `relationships` — `[{agent, type, strength, context}]`; targets may be display names (`"Gordon Tibbs"`) or derived ids (`"gordon-tibbs"`) and must resolve to a real agent in the scenario. Agent ids retain the compatibility transform `name.lower().replace(" ", "-").replace(".", "")`; scenario loading rejects route-breaking delimiters/control characters and any duplicate derived id across towns.
 - `idle_thoughts` — lines the sprite mutters when nothing else is happening.
 - `goals` — `{"round_0": "...", "round_1": "..."}`; the matching entry is injected into the system prompt each round as `--- YOUR GOAL THIS ROUND ---`.
 
@@ -305,13 +385,13 @@ Two curated pairs across eight agents; the other four get random cross-town matc
    ```
 
    creates `scenarios/harbor-bridge/` with a two-option manifest, one town, and two personas (with a relationship between them) — a package that loads and lints out of the box; the command verifies the load before declaring success. Prefer copying `scenarios/millbrook-budget/` wholesale when you want a fuller starting point.
-2. **Rewrite the manifest.** Edit `id`, `title`, `question`, `options`, `dates`, and both context blocks first. Get the question right before writing anything else — every persona and news beat hangs off it. A scenario with an obviously correct answer produces five rounds of agreement.
-3. **Write the towns.** One `towns/<town-id>.json` each. The map is a 1200×800 canvas; place 8–10 landmarks with the fields shown above, including at least the places your personas' routines will name.
+2. **Rewrite the manifest.** Edit `id`, `title`, `question`, `options`, `dates`, `responsible_use`, and both context blocks first. Get the question right before writing anything else — every persona and news beat hangs off it. A scenario with an obviously correct answer produces five rounds of agreement.
+3. **Write the towns.** One `towns/<town-id>.json` each. The world is a 1200×800 canvas; place 8–10 landmarks with the fields shown above, including at least the places your personas' routines will name. Omit `map` for the procedural renderer, or generate namespaced art and add the exact metadata block described above.
 4. **Write the option files.** One `options/<id>.json` per option with `background`, `positions`, `endorsements`, and `tradeoffs`. If you can't write honest tradeoffs for an option, it isn't really an option.
 5. **Write the personas.** `agents/<town-id>/<slug>.md` — `township new-agent harbor-bridge <town> --name "Jane Doe"` drops a skeleton with valid frontmatter, its routine grounded in that town's real landmarks, and prints the valid `initial_lean` stances. Give every agent an `initial_lean` on your roster, concerns that overlap with *some* neighbors (that's what they'll talk about), and at least one reason to doubt their own lean.
 6. **Script the rounds.** Order phases per round; attach news ids; set `gossip_rounds` and `weather_schedule` (one entry per round).
 7. **Optionally** add `god-scenarios.json` presets, `context/` extras, and a `demo/` replay cache.
-8. **Run it — no API keys needed.** The mock provider runs the full pipeline deterministically:
+8. **Run it — no API keys needed.** The mock provider returns deterministic responses, while conversation pairing and other unseeded runtime choices can still vary between runs:
 
    ```bash
    township run --scenario harbor-bridge --provider mock     # headless: prints rounds, prediction, recap
@@ -351,5 +431,5 @@ Township ships a disclaimer with every scenario, and scenario authors are the fi
 
 > **Township is a simulation, not a poll.** Its outputs do not measure real public opinion and must never be presented as if they do.
 > **The residents are fictional composites**, informed by public demographic data. No real resident is depicted.
-> **The candidates are real public figures**; their positions are quoted from cited public sources, not invented.
+> **Real public figures are represented through public source material**, summarized where necessary; verify the scenario's cited sources before relying on any claim.
 > **Every output is an LLM artifact**, shaped by who wrote the personas and by the model's own biases.

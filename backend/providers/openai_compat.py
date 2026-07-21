@@ -75,7 +75,9 @@ class OpenAICompatProvider:
         self._usage = UsageTracker()
         logger.info(
             "%s provider initialised: base_url=%s model=%s",
-            provider_name, base_url, default_model,
+            provider_name,
+            base_url,
+            default_model,
         )
 
     # ── Presets ────────────────────────────────────────────────
@@ -93,13 +95,9 @@ class OpenAICompatProvider:
     @classmethod
     def openrouter(cls, max_concurrent: int = 10) -> "OpenAICompatProvider":
         return cls(
-            base_url=os.environ.get(
-                "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
-            ),
+            base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             api_key=os.environ.get("OPENROUTER_API_KEY"),
-            default_model=os.environ.get(
-                "OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5"
-            ),
+            default_model=os.environ.get("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5"),
             provider_name="openrouter",
             max_concurrent=max_concurrent,
         )
@@ -176,10 +174,9 @@ class OpenAICompatProvider:
                 # Cost: known models (the `openai` preset's gpt-* catalog)
                 # are priced; local / unknown models gracefully cost 0.0.
                 costs = lookup_costs(resolved_model)
-                call_cost = (
-                    (result["input_tokens"] / 1_000_000) * costs.get("input", 0.0)
-                    + (result["output_tokens"] / 1_000_000) * costs.get("output", 0.0)
-                )
+                call_cost = (result["input_tokens"] / 1_000_000) * costs.get("input", 0.0) + (
+                    result["output_tokens"] / 1_000_000
+                ) * costs.get("output", 0.0)
                 result["cost"] = call_cost
 
                 self._usage.record(
@@ -202,9 +199,7 @@ class OpenAICompatProvider:
                 }
 
     def get_usage_report(self) -> dict:
-        return self._usage.report(
-            provider=self.provider_name, default_model=self._default_model
-        )
+        return self._usage.report(provider=self.provider_name, default_model=self._default_model)
 
     def reset_usage(self) -> None:
         self._usage.reset()

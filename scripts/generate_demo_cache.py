@@ -14,6 +14,7 @@ Usage:
     python scripts/generate_demo_cache.py --scenario nj11-2026 --provider bedrock
     python scripts/generate_demo_cache.py --scenario millbrook-budget --provider mock --allow-mock
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,10 +37,11 @@ def _mb(n: int) -> str:
 def _trim_events(events: list[dict]) -> list[dict]:
     """Shrink an oversized cache while keeping the replay watchable.
 
-    Drops the highest-volume/lowest-signal events first (agent_moved,
-    relationship_update), then truncates long prose fields.
+    Drops the highest-volume/lowest-signal movement events first, then
+    truncates long prose fields. Private events are already excluded by the
+    orchestrator's serialization boundary.
     """
-    slimmed = [e for e in events if e.get("type") not in ("agent_moved", "relationship_update")]
+    slimmed = [e for e in events if e.get("type") != "agent_moved"]
     for event in slimmed:
         for key in ("text", "description"):
             value = event.get(key)
@@ -55,22 +57,38 @@ def _trim_events(events: list[dict]) -> list[dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
-    parser.add_argument("--scenario", default=os.environ.get("SCENARIO", "nj11-2026"),
-                        help="Scenario id under scenarios/ (default: nj11-2026)")
-    parser.add_argument("--provider", default=None,
-                        help="LLM provider (sets LLM_PROVIDER: bedrock|anthropic|openai|mock|...)")
-    parser.add_argument("--out", default=None,
-                        help="Output path (default: scenarios/<id>/demo/simulation_cache.json)")
-    parser.add_argument("--allow-mock", action="store_true",
-                        help="Permit generating the cache with the deterministic mock provider")
-    parser.add_argument("--trim", action="store_true",
-                        help="If the cache exceeds 3MB, drop low-signal events and truncate prose")
+    parser.add_argument(
+        "--scenario",
+        default=os.environ.get("SCENARIO", "nj11-2026"),
+        help="Scenario id under scenarios/ (default: nj11-2026)",
+    )
+    parser.add_argument(
+        "--provider",
+        default=None,
+        help="LLM provider (sets LLM_PROVIDER: bedrock|anthropic|openai|mock|...)",
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="Output path (default: scenarios/<id>/demo/simulation_cache.json)",
+    )
+    parser.add_argument(
+        "--allow-mock",
+        action="store_true",
+        help="Permit generating the cache with the deterministic mock provider",
+    )
+    parser.add_argument(
+        "--trim",
+        action="store_true",
+        help="If the cache exceeds 3MB, drop low-signal events and truncate prose",
+    )
     args = parser.parse_args()
 
     if args.provider:
         os.environ["LLM_PROVIDER"] = args.provider
     os.environ.setdefault("MOCK_DELAY_S", "0")
 
+    from backend.core.artifacts import artifact_version_fields
     from backend.core.event_bus import EventBus
     from backend.core.scenario import load_scenario_with_fallback
     from backend.core.storage import save_json_atomic
@@ -102,16 +120,17 @@ def main() -> int:
     events = orchestrator._serialized_events()
     usage = provider.get_usage_report()
     cache = {
+        **artifact_version_fields(),
         "events": events,
         "district_summary": district.model_dump() if district else None,
         "usage": usage,
+        "responsible_use": scenario.responsible_use.model_dump(),
     }
 
     out = Path(args.out) if args.out else scenario.scenario_dir / "demo" / "simulation_cache.json"
     save_json_atomic(out, cache, minify=True)
     size = out.stat().st_size
-    print(f"Wrote {out} — {_mb(size)}, {len(events)} events "
-          f"({len(bus.get_event_log())} in log)")
+    print(f"Wrote {out} — {_mb(size)}, {len(events)} events ({len(bus.get_event_log())} in log)")
     print(f"Cost: ${usage.get('total_cost', 0):.4f} across {usage.get('total_calls', 0)} calls")
 
     if size > SIZE_BUDGET_BYTES:
@@ -121,11 +140,15 @@ def main() -> int:
             size = out.stat().st_size
             print(f"Trimmed to {_mb(size)}, {len(cache['events'])} events")
             if size > SIZE_BUDGET_BYTES:
-                print(f"WARNING: still over the {_mb(SIZE_BUDGET_BYTES)} budget after trim",
-                      file=sys.stderr)
+                print(
+                    f"WARNING: still over the {_mb(SIZE_BUDGET_BYTES)} budget after trim",
+                    file=sys.stderr,
+                )
         else:
-            print(f"WARNING: cache exceeds the {_mb(SIZE_BUDGET_BYTES)} budget — "
-                  "re-run with --trim", file=sys.stderr)
+            print(
+                f"WARNING: cache exceeds the {_mb(SIZE_BUDGET_BYTES)} budget — re-run with --trim",
+                file=sys.stderr,
+            )
 
     return 0
 

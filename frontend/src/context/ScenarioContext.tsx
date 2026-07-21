@@ -5,49 +5,16 @@
  * count. Every component resolves scenario vocabulary through the helpers
  * here instead of importing the NJ-11 constant tables.
  *
- * Offline story: when the backend is unreachable (GitHub Pages demo, dev
- * with no server, 5s timeout) we synthesize the flagship NJ-11 scenario
- * from the fallback tables in types/messages.ts, so every consumer works
- * identically with zero configuration.
+ * The static demo loads the same payload shape from its staged manifest. If
+ * either source is unavailable, the provider renders an explicit neutral
+ * error state; it never substitutes facts from another scenario.
  * ─────────────────────────────────────────────────────────── */
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { ScenarioData, ScenarioOption, ScenarioTownInfo } from "../types/messages";
-import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
+import type { ScenarioData, ScenarioOption, ScenarioTownInfo, TownMapInfo } from "../types/messages";
 import { DEMO_MODE, demoUrl, resolveDemoScenarioId } from "../demo/demoMode";
 import type { DemoManifest } from "../demo/demoMode";
-
-/* ── NJ-11 synthetic fallback (mirrors backend scenarios/nj11-2026) ── */
-
-const NJ11_ID = "nj11-2026";
-
-export const NJ11_FALLBACK_SCENARIO: ScenarioData = {
-  id: NJ11_ID,
-  title: "The NJ-11 Special Election",
-  question:
-    "Who should represent New Jersey's 11th Congressional District — Analilia Mejia (D), Joe Hathaway (R), or Alan B. Bond (I)?",
-  decision_kind: "election",
-  options: [
-    { id: "mejia", name: "Analilia Mejia", label: CANDIDATE_NAMES.mejia, color: CANDIDATE_COLORS.mejia, group: "Democrat" },
-    { id: "hathaway", name: "Joe Hathaway", label: CANDIDATE_NAMES.hathaway, color: CANDIDATE_COLORS.hathaway, group: "Republican" },
-    { id: "bond", name: "Alan B. Bond", label: CANDIDATE_NAMES.bond, color: CANDIDATE_COLORS.bond, group: "Independent" },
-  ],
-  undecided: { id: "undecided", label: CANDIDATE_NAMES.undecided, color: CANDIDATE_COLORS.undecided },
-  towns: Object.entries(TOWN_META).map(([id, m]) => ({
-    id,
-    name: m.name,
-    tagline: m.tagline,
-    color: m.color,
-    county: `${m.county} County`,
-    population: m.population,
-  })),
-  total_rounds: 5,
-  dates: {
-    decision_day: "2026-04-16",
-    prose: "Early voting happening now (April 6 – 14). 26 AI residents across 4 towns are deliberating.",
-  },
-};
 
 /* ── Context shape ─────────────────────────────────────────── */
 
@@ -59,16 +26,13 @@ export interface ResolvedTownMeta {
   county?: string;
   /** Pre-formatted for display (e.g. "18,435"). */
   population?: string;
+  map?: TownMapInfo;
 }
 
 export interface ScenarioContextValue {
   scenario: ScenarioData;
-  /** True while the initial /api/scenario fetch is in flight. */
+  /** Retained for consumers that coordinate secondary staged payloads. */
   loading: boolean;
-  /** True when the fetch failed and we synthesized the NJ-11 fallback. */
-  offline: boolean;
-  /** True when the ACTIVE scenario is flagship NJ-11 (live or fallback). */
-  isNJ11: boolean;
   decisionKind: "election" | "vote";
   title: string;
   question: string;
@@ -101,11 +65,12 @@ function formatPopulation(p: number | string | undefined): string | undefined {
 
 /** Neutral warm-ink color for unknown ids — sits quietly in the parchment UI. */
 const UNKNOWN_INK = "#8A7E6E";
+const CANONICAL_CORE_NOTICE =
+  "Township is a simulation, not a poll. Its outputs do not measure real public opinion and must never be presented as if they do.";
 
 export function buildScenarioValue(
   scenario: ScenarioData,
-  loading: boolean,
-  offline: boolean,
+  loading = false,
 ): ScenarioContextValue {
   const optionById = new Map<string, ScenarioOption>();
   for (const o of scenario.options) optionById.set(o.id, o);
@@ -151,6 +116,7 @@ export function buildScenarioValue(
       color: t.color || UNKNOWN_INK,
       county: t.county || undefined,
       population: formatPopulation(t.population),
+      map: t.map ?? undefined,
     };
   };
 
@@ -162,12 +128,10 @@ export function buildScenarioValue(
   return {
     scenario,
     loading,
-    offline,
-    isNJ11: scenario.id === NJ11_ID,
     decisionKind,
     title: scenario.title,
     question: scenario.question,
-    totalRounds: scenario.total_rounds || 5,
+    totalRounds: scenario.total_rounds,
     stanceIds,
     optionIds,
     undecidedId,
@@ -181,29 +145,84 @@ export function buildScenarioValue(
 
 /* ── Context + Provider ────────────────────────────────────── */
 
-// Default value = offline NJ-11 so any consumer outside the provider (tests,
-// storybook-style isolation) still renders sensibly.
-export const ScenarioContext = createContext<ScenarioContextValue>(
-  buildScenarioValue(NJ11_FALLBACK_SCENARIO, false, true),
-);
+export const ScenarioContext = createContext<ScenarioContextValue | null>(null);
 
-/** Minimal shape check — reject payloads that would crash consumers. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/** Runtime boundary for API and hand-staged demo payloads. */
 function looksLikeScenario(d: unknown): d is ScenarioData {
-  if (!d || typeof d !== "object") return false;
-  const s = d as Record<string, unknown>;
+  if (!isRecord(d)) return false;
+  const s = d;
+  const options = Array.isArray(s.options) ? s.options : [];
+  const towns = Array.isArray(s.towns) ? s.towns : [];
+  const undecided = isRecord(s.undecided) ? s.undecided : null;
+  const dates = isRecord(s.dates) ? s.dates : null;
+  const responsible = isRecord(s.responsible_use) ? s.responsible_use : null;
+
+  const optionIds = options.map((value) => isRecord(value) ? value.id : undefined);
+  const townIds = towns.map((value) => isRecord(value) ? value.id : undefined);
+  const optionsValid = options.length > 0 && options.every((value) => (
+    isRecord(value) &&
+    hasText(value.id) &&
+    hasText(value.name) &&
+    hasText(value.label) &&
+    hasText(value.color)
+  )) && new Set(optionIds).size === optionIds.length;
+  const townsValid = towns.length > 0 && towns.every((value) => (
+    isRecord(value) &&
+    hasText(value.id) &&
+    hasText(value.name) &&
+    typeof value.tagline === "string" &&
+    hasText(value.color) &&
+    (
+      value.map == null ||
+      (
+        isRecord(value.map) &&
+        value.map.kind === "tiled" &&
+        hasText(value.map.path) &&
+        value.map.path.startsWith("assets/maps/") &&
+        hasText(value.map.preview_path) &&
+        value.map.preview_path.startsWith("assets/maps/")
+      )
+    )
+  )) && new Set(townIds).size === townIds.length;
+
   return (
-    typeof s.id === "string" &&
-    Array.isArray(s.options) &&
-    Array.isArray(s.towns) &&
-    s.options.length > 0 &&
-    s.towns.length > 0
+    hasText(s.id) &&
+    hasText(s.title) &&
+    hasText(s.question) &&
+    (s.decision_kind === "election" || s.decision_kind === "vote") &&
+    optionsValid &&
+    townsValid &&
+    Boolean(undecided) &&
+    hasText(undecided?.id) &&
+    hasText(undecided?.label) &&
+    hasText(undecided?.color) &&
+    typeof s.total_rounds === "number" &&
+    Number.isInteger(s.total_rounds) &&
+    s.total_rounds > 0 &&
+    Boolean(dates) &&
+    hasText(dates?.decision_day) &&
+    hasText(dates?.prose) &&
+    Boolean(responsible) &&
+    hasText(responsible?.core_notice) &&
+    responsible.core_notice.trim() === CANONICAL_CORE_NOTICE &&
+    hasText(responsible?.residents_notice) &&
+    hasText(responsible?.subjects_notice) &&
+    hasText(responsible?.outputs_notice)
   );
 }
 
 export function ScenarioProvider({ children }: { children: ReactNode }) {
-  const [scenario, setScenario] = useState<ScenarioData>(NJ11_FALLBACK_SCENARIO);
+  const [scenario, setScenario] = useState<ScenarioData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [offline, setOffline] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -227,13 +246,19 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (looksLikeScenario(d)) {
           setScenario(d);
-          setOffline(false);
         } else {
-          setOffline(true);
+          throw new Error("Scenario payload is incomplete");
         }
       })
       .catch(() => {
-        if (!cancelled) setOffline(true);
+        if (!cancelled) {
+          setScenario(null);
+          setError(
+            DEMO_MODE
+              ? "The recorded scenario could not be loaded."
+              : "The server did not provide a valid scenario package.",
+          );
+        }
       })
       .finally(() => {
         window.clearTimeout(timeout);
@@ -248,13 +273,43 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => buildScenarioValue(scenario, loading, offline),
-    [scenario, loading, offline],
+    () => (scenario ? buildScenarioValue(scenario, false) : null),
+    [scenario],
   );
+
+  if (loading) {
+    return (
+      <main className="scenario-bootstrap-state" aria-busy="true">
+        <div role="status" aria-live="polite">
+          <span className="route-loading-mark" aria-hidden="true" />
+          <h1>Opening Township</h1>
+          <p>Loading the active civic scenario…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (error || !value) {
+    return (
+      <main className="scenario-bootstrap-state">
+        <div role="alert">
+          <p className="scenario-bootstrap-eyebrow">Scenario unavailable</p>
+          <h1>Township could not open this civic world.</h1>
+          <p>{error ?? "The scenario package is incomplete."}</p>
+          <p>No candidate, town, or policy data has been substituted.</p>
+          <button type="button" onClick={() => window.location.reload()}>
+            Try again
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return <ScenarioContext.Provider value={value}>{children}</ScenarioContext.Provider>;
 }
 
 export function useScenarioContext(): ScenarioContextValue {
-  return useContext(ScenarioContext);
+  const value = useContext(ScenarioContext);
+  if (!value) throw new Error("useScenarioContext must be used within ScenarioProvider");
+  return value;
 }

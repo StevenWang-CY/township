@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:00", location: "Watchung Plaza", activity: "Coffee, lunches for three kids, scrubs nursing scrubs from yesterday" }
   - { time: "07:00", location: "Town Hall", activity: "Drops Diego, Isabella, Mateo at school on the way to her shift" }

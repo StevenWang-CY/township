@@ -42,6 +42,21 @@ export default function OpinionChart({ opinions, size = 140, showLegend = true }
   const cy = r;
 
   function arcPath(startAngle: number, endAngle: number, outerR: number, innerRadius: number): string {
+    // Full-circle segment (a town unanimous on one option): a single SVG arc
+    // whose end point equals its start point renders NOTHING. Draw the ring
+    // as two half-circle arcs per radius instead (outer clockwise, inner
+    // counter-clockwise → nonzero fill rule punches the donut hole).
+    if (endAngle - startAngle >= Math.PI * 2 - 1e-4) {
+      return [
+        `M ${cx + outerR} ${cy}`,
+        `A ${outerR} ${outerR} 0 1 1 ${cx - outerR} ${cy}`,
+        `A ${outerR} ${outerR} 0 1 1 ${cx + outerR} ${cy}`,
+        `M ${cx + innerRadius} ${cy}`,
+        `A ${innerRadius} ${innerRadius} 0 1 0 ${cx - innerRadius} ${cy}`,
+        `A ${innerRadius} ${innerRadius} 0 1 0 ${cx + innerRadius} ${cy}`,
+        "Z",
+      ].join(" ");
+    }
     const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
     const x1 = cx + outerR * Math.cos(startAngle);
     const y1 = cy + outerR * Math.sin(startAngle);
@@ -63,15 +78,22 @@ export default function OpinionChart({ opinions, size = 140, showLegend = true }
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label={total > 0 ? `Opinion distribution for ${total} residents` : "No resident opinions yet"}
+      >
         {total === 0 ? (
-          <circle cx={cx} cy={cy} r={r - 2} fill="none" stroke="#E5E7EB" strokeWidth="2" />
+          <circle cx={cx} cy={cy} r={r - 2} fill="none" stroke="var(--card-border)" strokeWidth="2" />
         ) : (
           segments.map((seg) => (
             <path
               key={seg.candidate}
               d={arcPath(seg.startAngle, seg.endAngle, r - 2, innerR)}
               fill={optionColor(seg.candidate)}
+              fillRule="evenodd"
               opacity={0.85}
               style={{
                 transition: "d 0.6s ease",

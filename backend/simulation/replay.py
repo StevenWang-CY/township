@@ -3,8 +3,14 @@ import json
 import logging
 from pathlib import Path
 
+from ..core.artifacts import (
+    ArtifactFormatError,
+    ArtifactPrivacyError,
+    require_replay_artifact,
+)
 from ..core.event_bus import EventBus
 from ..core.types import (
+    PRIVATE_EVENT_TYPES,
     AgentMovedEvent,
     AgentSpeechEvent,
     ConversationEndedEvent,
@@ -100,13 +106,16 @@ async def replay(event_bus: EventBus, cache_path: str, speed: float = 1.0):
 
     with open(path) as f:
         cache_data = json.load(f)
-
-    events = cache_data.get("events", [])
+    events = require_replay_artifact(cache_data)
     logger.info(f"Replaying {len(events)} events at {speed}x speed from {cache_path}")
 
     speed = max(0.1, speed)  # Minimum 0.1x to prevent division issues
 
     for event_data in events:
+        event_type = event_data.get("type", "unknown")
+        if event_type in PRIVATE_EVENT_TYPES:
+            logger.warning("Skipping private event type during replay: %s", event_type)
+            continue
         event = _deserialize_event(event_data)
         if event is None:
             continue
@@ -115,7 +124,6 @@ async def replay(event_bus: EventBus, cache_path: str, speed: float = 1.0):
         await event_bus.publish(event)
 
         # Wait based on event type and speed
-        event_type = event_data.get("type", "unknown")
         base_delay = EVENT_DELAYS.get(event_type, 0.5)
         actual_delay = base_delay / speed
 
@@ -129,13 +137,31 @@ async def load_cache_summary(cache_path: str) -> dict:
     """Load just the summary data from a cache file without replaying."""
     path = Path(cache_path)
     if not path.exists():
-        return {"error": f"Cache file not found: {cache_path}"}
+        logger.warning("Replay cache does not exist: %s", path)
+        return {"error": "cache_not_found"}
 
-    with open(path) as f:
-        cache_data = json.load(f)
+    try:
+        with open(path) as f:
+            cache_data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Replay cache could not be read: %s", exc)
+        return {"error": "cache_invalid"}
+
+    try:
+        events = require_replay_artifact(cache_data)
+    except ArtifactPrivacyError:
+        logger.warning("Refusing an unversioned replay artifact: %s", path)
+        return {"error": "legacy_artifact_restricted"}
+    except ArtifactFormatError as exc:
+        logger.warning("Replay cache has an invalid shape: %s", exc)
+        return {"error": "cache_invalid"}
 
     return {
-        "total_events": len(cache_data.get("events", [])),
+        "total_events": sum(
+            event.get("type") not in PRIVATE_EVENT_TYPES
+            for event in events
+            if isinstance(event, dict)
+        ),
         "district_summary": cache_data.get("district_summary"),
         "usage": cache_data.get("usage"),
     }

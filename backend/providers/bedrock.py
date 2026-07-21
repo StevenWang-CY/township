@@ -9,7 +9,7 @@ the standard AWS credential chain when the bearer token is absent.
 Env vars:
 - AWS_REGION / AWS_DEFAULT_REGION  (default us-east-2)
 - BEDROCK_MODEL_ID                 (default Claude Sonnet 4.5 inference profile)
-- BEDROCK_CACHE_SYSTEM             (default on; "0" disables prompt caching)
+- BEDROCK_CACHE_SYSTEM             (default off; "1" enables experimental caching)
 """
 
 import logging
@@ -63,21 +63,17 @@ class BedrockProvider(_AnthropicFamilyProvider):
     NATIVE_PREFIXES = ("us.anthropic.", "anthropic.", "global.anthropic.")
 
     def __init__(self, api_key: str | None = None, max_concurrent: int = 10):
-        region = (
-            os.environ.get("AWS_REGION")
-            or os.environ.get("AWS_DEFAULT_REGION")
-            or "us-east-2"
-        )
+        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-2"
         # Bearer-token API key auth (`AWS_BEARER_TOKEN_BEDROCK`) is auto-detected
         # by the Anthropic SDK; SigV4 via boto3's default credential chain is
         # the fallback. The `api_key` arg is preserved only so the legacy
         # caller signature still type-checks; it is ignored.
         max_retries = int(os.environ.get("BEDROCK_MAX_RETRIES", "2"))
-        client = AsyncAnthropicBedrock(
-            aws_region=region, timeout=60.0, max_retries=max_retries
-        )
-        default_model = os.environ.get("BEDROCK_MODEL_ID", DEFAULT_BEDROCK_MODEL)
-        cache_system = env_flag("BEDROCK_CACHE_SYSTEM", default=True)
+        client = AsyncAnthropicBedrock(aws_region=region, timeout=60.0, max_retries=max_retries)
+        # Treat an empty value like an unset value. Docker Compose and secret
+        # managers commonly materialize optional variables as empty strings.
+        default_model = os.environ.get("BEDROCK_MODEL_ID") or DEFAULT_BEDROCK_MODEL
+        cache_system = env_flag("BEDROCK_CACHE_SYSTEM", default=False)
         super().__init__(
             client,
             default_model=default_model,
@@ -86,5 +82,7 @@ class BedrockProvider(_AnthropicFamilyProvider):
         )
         logger.info(
             "Bedrock provider initialised: region=%s model=%s cache_system=%s",
-            region, default_model, cache_system,
+            region,
+            default_model,
+            cache_system,
         )

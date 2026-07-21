@@ -1,8 +1,10 @@
 # API reference
 
 Township's backend is a FastAPI app (`backend/main.py`) that exposes a REST API under
-`/api/*` and a WebSocket event stream at `/ws`. Every example below is a real response,
-captured from a live server running the deterministic mock provider:
+`/api/*` and a WebSocket event stream at `/ws`. The examples below are illustrative
+and often trimmed for readability; shapes reflect the current API, while ids, prose,
+counts, timestamps, and usage depend on the active scenario and provider. To inspect
+your deployment directly, start the deterministic mock provider:
 
 ```bash
 LLM_PROVIDER=mock python3 -m uvicorn backend.main:app --port 8093
@@ -11,18 +13,28 @@ LLM_PROVIDER=mock python3 -m uvicorn backend.main:app --port 8093
 FastAPI also serves interactive OpenAPI docs at `/docs` (and the raw schema at
 `/openapi.json`) on any running instance — the fastest way to poke at request shapes.
 
-## Auth model
+## Security and private-state model
 
-There is none. Township is a local tool: the API has no accounts, tokens, or sessions.
-The only browser-facing control is CORS — origins come from the `ALLOWED_ORIGINS`
-environment variable (comma-separated; default
-`http://localhost:5173,http://localhost:4173,http://localhost:3000`), with credentials
-disabled so the explicit origin list is honored. If you expose a Township instance
-beyond localhost, put your own auth in front of it (see
-[deployment.md](deployment.md)).
+Township has no account system or administrator login. Simulation, God's View, and
+voice routes are control APIs, so a deployment exposed beyond localhost still needs
+an authenticating reverse proxy (see [deployment.md](deployment.md)). Browser HTTP
+requests and WebSocket handshakes are restricted by the configured origin and host
+allow-lists; native clients may omit `Origin`.
 
-Fields like `user_id` on chat and journal endpoints are client-chosen labels for
-separating one player's state from another's, not authentication.
+Player relationships and journals have a narrower protection: a random browser-held
+capability sent as `X-Township-Player-Capability`. The server persists only its
+SHA-256 digest and returns the same `401` for a missing, malformed, unknown, or wrong
+secret. `user_id` locates a record; the capability authorizes it. Keep both values,
+especially the capability, private. This prevents one browser from guessing another
+player id and reading their state, but it is not a replacement for deployment auth.
+
+On first binding, the capability digest is atomically durable before any relationship
+or journal mutation can proceed. Private-state writes likewise reach disk before a
+successful response. If the capability, relationship, or journal store is corrupt—or
+if a required migration/write fails—the process locks all private-state routes closed
+with a sanitized `503` instead of treating records as empty. Pre-capability rows have
+no trustworthy owner: startup removes them from the active store and preserves them
+only in a server-local `*.legacy-unbound.json` quarantine that the API never serves.
 
 ## Health
 
@@ -60,8 +72,10 @@ health check.
 ### `GET /api/scenario`
 
 The bootstrap payload the frontend fetches at startup: the question, the options
-(ids, labels, colors), the towns, and the round count. Everything the UI knows about
-the active scenario comes from here — nothing is hardcoded.
+(ids, labels, colors), the towns, and the round count. All domain vocabulary and
+content comes from the active scenario. Shipped packages may also opt into
+scenario-qualified art direction in the frontend and map generator; every other
+package receives the generic procedural presentation.
 
 ```json
 {
@@ -76,12 +90,26 @@ the active scenario comes from here — nothing is hardcoded.
   ],
   "undecided": { "id": "undecided", "label": "Undecided", "color": "#D1D5DB" },
   "towns": [
-    { "id": "dover", "name": "Dover", "tagline": "The Working-Class Heart", "color": "#E8763B", "county": "Morris County", "population": 18435 }
+    {
+      "id": "dover", "name": "Dover", "tagline": "The Working-Class Heart",
+      "color": "#E8763B", "county": "Morris County", "population": 18435,
+      "map": {
+        "kind": "tiled",
+        "path": "assets/maps/nj11-2026/dover.tmj",
+        "preview_path": "assets/maps/nj11-2026/dover-preview.png"
+      }
+    }
   ],
   "total_rounds": 5,
   "dates": {
     "decision_day": "2026-04-16",
     "prose": "Early voting runs April 6-14. Election Day is Thursday, April 16, 2026, with polls open 6:00 AM to 8:00 PM."
+  },
+  "responsible_use": {
+    "core_notice": "Township is a simulation, not a poll. Its outputs do not measure real public opinion and must never be presented as if they do.",
+    "residents_notice": "The residents are fictional composites informed by public demographic data. No real resident is depicted.",
+    "subjects_notice": "The candidates are real public figures. Their documented positions are summarized from public sources; source coverage is incomplete and should be independently verified.",
+    "outputs_notice": "Every output is an LLM artifact, shaped by authored personas, scenario framing, and model biases."
   }
 }
 ```
@@ -92,10 +120,11 @@ the active scenario comes from here — nothing is hardcoded.
 
 ### `GET /api/towns`
 
-Full content of every town's JSON file from the active scenario, keyed by town id:
+The validated content of every town JSON file from the active scenario, keyed by town id:
 `{"towns": {"dover": {...}, "montclair": {...}, ...}}`. This is the single source of
-truth for landmark coordinates, accent colors, weather schedules, and ambient sound —
-the Phaser scene renders whatever this returns.
+truth for landmark coordinates, accent colors, and optional authored-map metadata.
+District weather comes from the top-level
+`weather_schedule` in `scenario.json`, which the orchestrator publishes each round.
 
 ### `GET /api/towns/{town_id}`
 
@@ -107,8 +136,12 @@ One town's JSON, or `404 {"detail": "Unknown town 'nowhere'"}`.
   "county": "Morris County",
   "tagline": "The Working-Class Heart",
   "accent_color": "#E8763B",
+  "map": {
+    "kind": "tiled",
+    "path": "assets/maps/nj11-2026/dover.tmj",
+    "preview_path": "assets/maps/nj11-2026/dover-preview.png"
+  },
   "ambient_sound": "dover_ambient.ogg",
-  "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
   "demographics": { "population": 18435, "median_hh_income": 70519 },
   "landmarks": [
     { "name": "Blackwell Street", "x": 200, "y": 380, "width": 800, "height": 30,
@@ -118,6 +151,10 @@ One town's JSON, or `404 {"detail": "Unknown town 'nowhere'"}`.
 ```
 
 (Trimmed — Dover ships 9 landmarks plus `character`, `color_theme`, and `sources`.)
+Authored map paths are scenario-qualified and must exactly match
+`assets/maps/<scenario-id>/<town-id>.tmj` plus the corresponding `-preview.png`;
+omitting `map` selects the landmark-driven procedural scene. `ambient_sound` is
+reserved authoring metadata today and is not fetched or played by the frontend.
 
 ## Simulation — `/api/simulation`
 
@@ -140,8 +177,9 @@ curl -X POST http://localhost:8093/api/simulation/start \
 { "status": "started", "towns": ["dover", "montclair", "parsippany", "randolph"], "num_rounds": 3, "total_agents": 26 }
 ```
 
-Errors: `409 {"status": "error", "message": "Simulation already running"}` if a run is
-in flight; `404` with the list of valid towns for an unknown `town`:
+Errors: `409 {"status": "error", "message": "Simulation or replay already running"}`
+when the shared mutation slot is occupied by a simulation, replay, or God's View
+injection; `404` with the list of valid towns for an unknown `town`:
 
 ```json
 { "status": "error", "message": "Unknown town: gotham. Available: ['dover', 'montclair', 'parsippany', 'randolph']" }
@@ -165,7 +203,7 @@ Poll-friendly snapshot: run state, per-agent summaries, and live usage/cost.
   "has_results": true,
   "usage": { "total_input_tokens": 430378, "total_output_tokens": 16668, "total_cost": 0.0, "total_calls": 251, "provider": "mock" },
   "status": "completed",
-  "current_round": 0,
+  "current_round": 3,
   "total_rounds": 3,
   "agents_loaded": 26
 }
@@ -192,7 +230,11 @@ the summary, no envelope. `404 {"error": "no_results", ...}` before any run comp
   "cross_town_themes": [],
   "consensus_zones": ["taxes", "rent", "property taxes", "healthcare"],
   "fault_lines": ["healthcare", "rent", "schools", "immigration", "property taxes"],
-  "prediction": "..."
+  "prediction": { "mejia": 19.2, "hathaway": 19.2, "bond": 30.8, "undecided": 30.8 },
+  "total_agents": 26,
+  "total_conversations": 24,
+  "total_cost": 0.0,
+  "failed_agents": 0
 }
 ```
 
@@ -247,25 +289,31 @@ paths escaping it are rejected with a 400) → `run_id` (a persisted `runs/` dir
 ```bash
 curl -X POST http://localhost:8093/api/simulation/replay \
   -H 'Content-Type: application/json' \
-  -d '{"run_id": "20260721-051945-nj11-2026", "speed": 10}'
+  -d '{"run_id": "20260721-051945-nj11-2026-a1b2c3d4", "speed": 10}'
 ```
 
 ```json
 { "status": "replaying", "total_events": 576, "speed": 10.0 }
 ```
 
-`speed` is a playback multiplier (default `1.0`). Unknown sources return
-`404 {"status": "error", "message": ...}`.
+`speed` is a playback multiplier (default `1.0`). Replay accepts only artifacts with
+the current `schema_version` and `privacy_version` and a valid event array. This is a
+privacy boundary, not just format bookkeeping: unversioned artifacts may contain
+ordinary public-looking prose influenced by old private chat behavior, so Township
+will not infer that they are safe. Unknown/invalid sources return a sanitized `404`;
+an unversioned or obsolete artifact returns `409` with a message to regenerate it.
 
 ### `GET /api/simulation/replay/available`
 
-Every replay source this deployment can serve right now — the scenario's demo cache
-(if shipped) plus every persisted run that still has its event log.
+Every current-version replay source this deployment can serve right now — the
+scenario's demo cache (if shipped) plus persisted runs with a valid event log. Legacy
+or malformed sources are omitted, and filesystem paths are never exposed.
 
 ```json
 {
   "sources": [
-    { "kind": "run", "run_id": "20260721-051945-nj11-2026", "scenario_id": "nj11-2026",
+    { "kind": "demo", "scenario_id": "nj11-2026" },
+    { "kind": "run", "run_id": "20260721-051945-nj11-2026-a1b2c3d4", "scenario_id": "nj11-2026",
       "ended_at": "2026-07-21T05:19:53.376377+00:00", "events": 576 }
   ]
 }
@@ -281,15 +329,25 @@ when none exists.
 {
   "recap_markdown": "# Bond Leads at 30.8% as The NJ-11 Special Election Comes to a Head\n\n26 residents across 4 towns spent the simulation wrestling with one question: ...",
   "headline": "Bond Leads at 30.8% as The NJ-11 Special Election Comes to a Head",
-  "run_id": "20260721-051945-nj11-2026"
+  "run_id": "20260721-051945-nj11-2026-a1b2c3d4"
 }
 ```
 
 ## Runs — `/api/runs`
 
-Every completed simulation persists a `runs/<run_id>/` directory (`summary.json` +
-`events.json` + `recap.md`). Run ids are strictly `YYYYMMDD-HHMMSS-<scenario-slug>`;
-anything else is rejected before touching the filesystem.
+Run persistence is deliberately best-effort: completion of the deliberation is not
+rolled back because final paperwork fails. When persistence succeeds, Township
+atomically publishes one complete `runs/<run_id>/` directory containing
+current-version `summary.json` and `events.json`; `recap.md` is present only when
+recap generation succeeds. New ids use
+`YYYYMMDD-HHMMSS-<scenario-slug>-<8-hex-random>`, and every request id is validated
+before touching the filesystem.
+
+`summary.json`, `events.json`, demo caches, and exported bundles carry
+`{"schema_version": 1, "privacy_version": 1}`. Older/unversioned runs are not assumed
+public: list endpoints hide them, inspection/export return HTTP 409 with
+`legacy_artifact_restricted`, and replay refuses them. Regenerate or privately
+review legacy material; do not add version fields by hand.
 
 ### `GET /api/runs`
 
@@ -298,22 +356,29 @@ List persisted runs, newest first — metadata only.
 ```json
 {
   "runs": [
-    { "run_id": "20260721-051945-nj11-2026", "scenario_id": "nj11-2026",
+    { "run_id": "20260721-051945-nj11-2026-a1b2c3d4", "scenario_id": "nj11-2026",
       "scenario_title": "The NJ-11 Special Election",
       "started_at": "2026-07-21T05:19:45.319511+00:00",
       "ended_at": "2026-07-21T05:19:53.376377+00:00",
       "counts": { "events": 576, "towns": 4, "agents": 26, "conversations": 24 },
       "headline": "Bond Leads at 30.8% as The NJ-11 Special Election Comes to a Head",
       "has_events": true }
-  ]
+  ],
+  "restricted_legacy_runs": 0
 }
 ```
 
+`restricted_legacy_runs` reports how many otherwise recognizable run directories
+were omitted because their summary lacked the current public-artifact markers.
+
 ### `GET /api/runs/{run_id}`
 
-One run's full `summary.json` — the district summary, the usage report, the counts,
-and the complete `recap_markdown`. `404 {"error": "run_not_found", "run_id": ...}`
-for bad ids, `404 {"error": "summary_missing", ...}` if the directory lost its summary.
+One run's full `summary.json` — artifact versions, district summary, usage, counts,
+responsible-use notices, and `recap_markdown` (which may be `null`). HTTP 404 with
+`{"error": "run_not_found", "run_id": ...}` covers bad/missing ids; HTTP 404 with
+`{"error": "summary_missing", ...}` covers an incomplete external directory. An
+unversioned summary returns HTTP 409 with `legacy_artifact_restricted` and
+`Cache-Control: no-store`.
 
 ### `GET /api/runs/{run_id}/export`
 
@@ -321,29 +386,48 @@ The whole run as one self-contained JSON download
 (`Content-Disposition: attachment; filename="<run_id>.json"`):
 
 ```json
-{ "run_id": "20260721-051945-nj11-2026", "summary": { "...": "..." }, "events": ["576 events"], "recap_markdown": "# Bond Leads..." }
+{
+  "schema_version": 1,
+  "privacy_version": 1,
+  "run_id": "20260721-051945-nj11-2026-a1b2c3d4",
+  "summary": { "...": "..." },
+  "events": [
+    { "type": "simulation_started", "agents": [], "towns": ["dover"] }
+  ],
+  "recap_markdown": "# Bond Leads..."
+}
 ```
 
 The `events` array is the same shape `POST /api/simulation/replay` consumes, so an
 exported run is directly shareable and replayable on another Township instance via
-`cache_path`.
+`cache_path` after copying it somewhere inside that instance's application root.
 
 ## Chat — `/api/chat`
 
 ### `POST /api/chat/{agent_id}`
 
 Talk to an agent in character. The agent answers from its full persona, current
-opinion, and recent memories; each exchange also triggers two best-effort follow-up
-LLM calls — a trust classification (which can publish a `relationship_update` WS
-event) and an opinion re-evaluation (which can publish `opinion_changed`).
+shared-simulation opinion, and recent simulation memories. A best-effort private
+trust classification follows the reply. Player chat never enters the agent's shared
+memory, changes its shared opinion, or publishes a player-state WebSocket event.
 
 Request: `{"message": "...", "user_id": "...", "user_profile": {...}}` — only
-`message` is required. `user_profile` (name, town, top_concerns, political_leaning)
-enriches the prompt and is remembered on the relationship.
+`message` is required and is limited to 4,000 characters. Omitting `user_id` gives
+request-local trust with no persistence. Supplying it requires the capability header
+and atomically binds a new id on first mutation. `user_profile` (name, town,
+top_concerns, political_leaning) enriches the prompt and, for an authorized id, the
+private relationship; its prompt-bearing fields and concern list are bounded.
 
 ```bash
+PLAYER_CAPABILITY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+curl -X POST http://localhost:8093/api/chat/relationships/register \
+  -H 'Content-Type: application/json' \
+  -H "X-Township-Player-Capability: $PLAYER_CAPABILITY" \
+  -d '{"user_id": "docs-demo"}'
+
 curl -X POST http://localhost:8093/api/chat/carlos-restrepo \
   -H 'Content-Type: application/json' \
+  -H "X-Township-Player-Capability: $PLAYER_CAPABILITY" \
   -d '{"message": "What matters most to you in this election?", "user_id": "docs-demo",
        "user_profile": {"name": "Sam", "town": "dover", "top_concerns": ["property taxes"]}}'
 ```
@@ -356,20 +440,25 @@ curl -X POST http://localhost:8093/api/chat/carlos-restrepo \
   "opinion": { "candidate": "undecided", "confidence": 55, "reasoning": "...", "top_issues": ["property taxes", "taxes", "college"], "dealbreaker": null, "round_number": 2 },
   "opinion_changed": false,
   "trust": -10,
-  "trust_band": "guarded"
+  "trust_band": "guarded",
+  "relationship": { "trust": -10, "encounters": 1, "topics_discussed": ["What matters most to you in this election?"] }
 }
 ```
 
-`trust` runs −100…100; `trust_band` is `distrust` / `guarded` / `warming` / `friend`
-and changes how open the agent is with you. Errors: `404 {"error": "agent_not_found"}`,
-`503 {"error": "llm_unavailable"}` when the provider call fails.
+`trust` runs −100…100; `trust_band` is `hostile` / `guarded` / `warming` / `friend`
+and changes how open the agent is with this authorized player. `relationship` is the
+full private record for local UI synchronization. Errors include `401` for a bad
+capability, `404 {"error": "agent_not_found"}`, and a sanitized
+`503 {"error": "llm_unavailable"}` when a provider call fails.
 
 ### `POST /api/chat/auto/{agent_id}`
 
 Auto-agent mode: the server generates *both* sides of the exchange — an AI persona
 built from `user_profile` speaks for the player, then the agent replies. Request:
 `{"user_profile": {...}, "conversation_history": [{"role": "user"|"agent", "content": "..."}], "user_id": "..."}`
-(`user_profile` required).
+(`user_profile` required). A supplied `user_id` has the same capability requirement
+as direct chat. History accepts at most 12 messages, each with at most 4,000
+characters; unknown roles are rejected.
 
 ```json
 {
@@ -381,16 +470,27 @@ built from `user_profile` speaks for the player, then the agent replies. Request
   "opinion": { "candidate": "undecided", "confidence": 55, "...": "..." },
   "opinion_changed": false,
   "trust": -7,
-  "trust_band": "guarded"
+  "trust_band": "guarded",
+  "relationship": { "trust": -7, "encounters": 2, "topics_discussed": ["property taxes"] }
 }
 ```
 
 `should_end` flips true after four exchanges so the UI can wind the conversation down.
 
+### `POST /api/chat/relationships/register`
+
+Body `{"user_id": "..."}` plus `X-Township-Player-Capability`. Binds a new or
+already-bound player id to that secret, or verifies an existing binding, without
+returning private state. Returns `{"status": "ok"}`. The browser calls this
+idempotently before its first read; chat and journal writes can also perform first
+binding atomically. Pre-capability records are quarantined at startup and cannot be
+claimed by registering their old `user_id`.
+
 ### `GET /api/chat/relationships/{user_id}`
 
 Everything each agent remembers about this player — persisted to
-`data/state/relationships.json` across restarts.
+`data/state/relationships.json` across restarts. Requires the capability header and
+returns `Cache-Control: no-store`.
 
 ```json
 {
@@ -411,8 +511,10 @@ Everything each agent remembers about this player — persisted to
 
 ### `POST /api/chat/relationships/reset`
 
-Body `{"user_id": "...", "agent_id": "..."}` — omit `agent_id` to clear every
-relationship for that user. Returns `{"status": "ok", "cleared": 1}`.
+Body `{"user_id": "...", "agent_id": "..."}` plus the capability header — omit
+`agent_id` to clear every relationship for that user. Returns
+`{"status": "ok", "cleared": 1}`. A relationship mutation is atomically persisted
+before its success response; a storage failure locks private state and returns 503.
 
 ## God's View — `/api/gods-view`
 
@@ -436,8 +538,17 @@ The curated injection presets shipped with the active scenario
 ### `POST /api/gods-view`
 
 Inject a free-text event into the simulation and collect every agent's reaction.
-This is a live call — all 26 agents react, so on a real provider it costs real money.
-Body: `{"description": "..."}`.
+This is a live call — every loaded agent reacts, so on a real provider it costs real
+money. Body: `{"description": "..."}`. The trimmed description must contain 1–4,000
+characters. Simulation, replay, and God's View share one mutation reservation; while
+any one is active this endpoint returns HTTP 409:
+
+```json
+{
+  "status": "error",
+  "message": "Another simulation, replay, or injection is already running"
+}
+```
 
 ```bash
 curl -X POST http://localhost:8093/api/gods-view \
@@ -463,12 +574,26 @@ curl -X POST http://localhost:8093/api/gods-view \
 }
 ```
 
-The same reaction set is also broadcast as a `gods_view_result` WebSocket event, so
-open clients see it without polling.
+The same wire-format reaction array is also broadcast so open clients see it without
+polling. The `gods_view_result` event is intentionally smaller than the HTTP response:
+
+```json
+{
+  "type": "gods_view_result",
+  "prompt": "A major local employer announces a shutdown, displacing hundreds of workers",
+  "reactions": [{ "agent_id": "carlos-restrepo", "agent_name": "Carlos Restrepo", "town": "dover", "headline": "...", "emotional_response": "hopeful", "impact_on_vote": "changes_mind", "reasoning": "..." }]
+}
+```
+
+Impact totals, opinion distributions, shifts, usage, and HTTP `status` remain
+request-response fields; they are not duplicated in the event.
 
 ## Journal — `/api/journal`
 
-Per-player conversation log, persisted to `data/state/journal.json`.
+Per-player conversation log, persisted to `data/state/journal.json`. Every endpoint
+requires `X-Township-Player-Capability`; the first authorized journal write may bind
+a new id, while reads and deletes require an existing binding. Private responses use
+`Cache-Control: no-store`.
 
 ### `POST /api/journal/entry`
 
@@ -476,6 +601,9 @@ Append an entry. Required: `user_id`, `agent_id`. Optional: `agent_name`, `town`
 (back-filled from the live agent when omitted), `transcript`
 (`[{role, content, ts?}]`), `opinion_before/after`, `trust_before/after`.
 Returns `{"status": "ok", "total_entries": 1}`.
+The capability binding and journal mutation are atomically persisted before this
+success response. A persistence failure returns 503 and locks all private-state
+routes closed until the operator repairs storage and restarts the process.
 
 ### `GET /api/journal/{user_id}`
 
@@ -497,7 +625,8 @@ Returns `{"status": "ok", "total_entries": 1}`.
 
 ### `DELETE /api/journal/{user_id}`
 
-Clear a user's journal: `{"status": "ok", "cleared": 1}`.
+Clear a user's journal: `{"status": "ok", "cleared": 1}`. Deleting an unknown,
+authorized journal is an idempotent no-op and does not allocate a record.
 
 ## Voice — `/api/transcribe` and `/api/tts`
 
@@ -508,7 +637,9 @@ and the frontend simply hides the voice features.
 ### `POST /api/transcribe`
 
 Multipart upload (`audio` file field) → OpenAI Whisper (`whisper-1`) via the
-server's `OPENAI_API_KEY`. Success: `{"transcript": "..."}`. Without a key:
+server's `OPENAI_API_KEY`. Uploads are read incrementally and capped at 25 MiB;
+larger files return `413` with `error: "audio_too_large"`. Success:
+`{"transcript": "..."}`. Without a key:
 
 ```json
 { "transcript": "", "error": "transcription_unavailable", "message": "OPENAI_API_KEY is not configured on the server." }
@@ -520,7 +651,9 @@ The same `503` shape covers missing/empty uploads and upstream Whisper failures.
 
 Body `{"text": "...", "voice_id": "..."}` (`voice_id` optional; defaults to
 ElevenLabs' "Rachel") → streams back `audio/mpeg` using the server's
-`ELEVENLABS_API_KEY`. Without a key:
+`ELEVENLABS_API_KEY`. Text is limited to 5,000 characters; custom voice IDs must be
+a single 1–100 character URL-safe segment (`A–Z`, `a–z`, digits, `_`, or `-`).
+Without a key:
 
 ```json
 { "error": "tts_unavailable", "message": "ELEVENLABS_API_KEY is not configured on the server." }
@@ -529,8 +662,9 @@ ElevenLabs' "Rachel") → streams back `audio/mpeg` using the server's
 ## WebSocket — `/ws`
 
 Connect to `ws://<host>/ws` (the Vite dev server proxies it to the backend). The
-server accepts the connection, registers it with the event bus, and pushes every
-simulation event as one JSON message. Send the literal text `ping` to receive
+server accepts browser connections whose `Origin` matches `ALLOWED_ORIGINS`,
+registers them with the event bus, and pushes every simulation event as one JSON
+message. Non-browser clients may omit `Origin`. Send the literal text `ping` to receive
 `{"type":"pong"}` as a keepalive.
 
 Every message is a discriminated union on `type` — the authoritative definitions live
@@ -545,17 +679,18 @@ in `frontend/src/types/messages.ts` (`SimulationEvent`), mirrored by
 | `weather_changed` | The scenario's per-round `weather_schedule` advances (`clear`/`cloudy`/`rain`/`snow`/`fog`) |
 | `agent_moved` | An agent heads to a landmark during the converse phase (optional exact `x`/`y` target) |
 | `conversation_started` | Two agents begin talking — full `Conversation` object (participants, location, topic) |
-| `agent_speech` | A dialogue line within a conversation, plus idle chatter; includes an optional `gesture` |
+| `agent_speech` | A dialogue line within a simulation conversation; includes an optional `gesture` |
 | `conversation_ended` | The conversation wraps with its `summary` |
 | `news_injected` | The news phase publishes a scenario news beat (`headline`, `description`, `round`) |
 | `news_reaction` | One agent's `NewsReaction` to that beat (emotional response, impact on vote, reasoning) |
-| `opinion_changed` | An agent's stance or confidence moved — after opinion phases, news, gossip, chats, or God's View (old vs. new `Opinion`) |
+| `opinion_changed` | An agent's shared stance or confidence moved — after simulation opinion phases, news, gossip, or God's View (old vs. new `Opinion`) |
 | `cross_town_gossip` | A gossip round relays a message between agents in different towns |
 | `round_ended` | The round closes with per-town `TownSummary[]` |
 | `simulation_ended` | The run completes — carries the final `DistrictSummary` |
 | `god_view_injection` | A God's View injection lands in the world (the narrative moment) |
-| `gods_view_result` | The full reaction set from `POST /api/gods-view` (same wire shape as the HTTP body) |
-| `relationship_update` | A chat exchange changed the player's trust with an agent (`trust`, `delta`, `classification`) |
+| `gods_view_result` | `{prompt, reactions}` after a God's View injection; summaries and usage remain in the HTTP response |
+| `relationship_update` (legacy) | Never emitted. The old shape remains parseable for compatibility, but is denied at EventBus, persistence, export, and replay boundaries |
 
-Replays (`POST /api/simulation/replay`) push the identical event stream, so a client
-can't — and needn't — tell a cached run from a live one.
+Replays (`POST /api/simulation/replay`) push the same public simulation event stream,
+so a client can't — and needn't — tell a cached run from a live one. Browser-private
+relationship and journal state is neither recorded nor replayed.

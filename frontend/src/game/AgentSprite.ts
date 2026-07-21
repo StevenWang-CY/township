@@ -1,5 +1,12 @@
 import Phaser from "phaser";
 import { playEmote, type EmoteKey } from "./EmoteRegistry";
+import {
+  ensureBallotTexture,
+  ensureRingTextures,
+  ensureShadowTexture,
+  ensureSquareTexture,
+  reducedMotion,
+} from "./pixelTextures";
 
 /**
  * Spritesheet layout: 96 × 128 px → 3 cols × 4 rows → 12 frames (32×32 each)
@@ -47,15 +54,21 @@ export interface AgentConfig {
   opinionColor?: string;
   spriteKey?: string;
   /**
+   * Baked palette-swap sheet (scripts/mapgen/outfits.py). Preferred over
+   * `tint` when the texture exists.
+   */
+  customKey?: string;
+  /**
    * @deprecated Outfit overlays were removed (flat-rect chest patches read as
-   * floating shapes besides the figure). Use `tint` to differentiate agents.
+   * floating shapes besides the figure). Use `customKey`/`tint` instead.
    * Kept on the type for back-compat with existing callers; ignored at runtime.
    */
   outfitKey?: string;
+  /** Pixel accessory overlay sheet key (scripts/mapgen/accessories.py). */
   accessoryKey?: string;
   tint?: number;
-  /** Couple-indicator ring metadata. No second body sprite is rendered. */
-  partner?: { name: string; tint?: number };
+  /** Couple partner — rendered as a real trailing second body. */
+  partner?: { name: string; spriteKey?: string; tint?: number };
   /** Ambient background NPC — no opinion ring, no interaction, no nameplate. */
   ambient?: boolean;
 }
@@ -77,8 +90,11 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   private fallbackBody?: Phaser.GameObjects.Graphics;
   private initialsText?: Phaser.GameObjects.Text;
-  protected groundShadow: Phaser.GameObjects.Ellipse;
-  private opinionRing: Phaser.GameObjects.Graphics;
+  protected groundShadow: Phaser.GameObjects.Image;
+  /** 2-frame chunky pixel opinion ring (A visible, B = shimmer frame). */
+  private ringA: Phaser.GameObjects.Image;
+  private ringB: Phaser.GameObjects.Image;
+  private ringShimmerTimer?: Phaser.Time.TimerEvent;
   protected nameLabel: Phaser.GameObjects.Text;
 
   // Bubble stacking
@@ -110,10 +126,13 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   private currentActivity: AgentActivity = "idle";
   private currentGesture: GestureKind = "none";
   private partnerInfo?: { name: string; tint: number };
-  /** Companion body sprite for couple agents — walks alongside the lead. */
+  /** Companion body sprite for couple agents — a real second body that
+   *  trails the lead with a delayed follow + offset walk phase. */
   private companionSprite?: Phaser.GameObjects.Sprite;
   /** Companion ground shadow. */
-  private companionShadow?: Phaser.GameObjects.Ellipse;
+  private companionShadow?: Phaser.GameObjects.Image;
+  /** Delayed-follow tween moving the companion to its next local offset. */
+  private companionTween?: Phaser.Tweens.Tween;
   protected ambient = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, cfg: AgentConfig) {
@@ -127,28 +146,43 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.homeY = y;
     this.ambient = !!cfg.ambient;
 
-    // ── Ground shadow ellipse ────────────────────────────────
-    this.groundShadow = scene.add.ellipse(0, SHADOW_Y, 36, 12, 0x000000, 0.2);
+    // ── Opinion ring — chunky pixel ground ellipse at the feet,
+    //    2-frame shimmer. Sits UNDER the shadow like a native tile marker.
+    this.ringA = scene.add.image(0, SHADOW_Y + 1, "__WHITE").setVisible(false);
+    this.ringB = scene.add.image(0, SHADOW_Y + 1, "__WHITE").setVisible(false);
+    this.add(this.ringA);
+    this.add(this.ringB);
+
+    // ── Ground shadow — dithered 3-tone pixel texture ────────
+    this.groundShadow = scene.add.image(0, SHADOW_Y, ensureShadowTexture(scene));
     this.add(this.groundShadow);
 
-    // ── Opinion ring ─────────────────────────────────────────
-    this.opinionRing = scene.add.graphics();
-    if (!this.ambient) this.redrawRing();
-    this.add(this.opinionRing);
+    if (!this.ambient) this.applyRing();
 
     // ── Layered character sprite stack ───────────────────────
-    if (cfg.spriteKey && scene.textures.exists(cfg.spriteKey)) {
-      this.bodySprite = scene.add.sprite(0, 0, cfg.spriteKey, IDLE_FRAMES.down);
+    // Prefer the baked palette-swap sheet; fall back to base sheet + tint.
+    const bodyKey =
+      cfg.customKey && scene.textures.exists(cfg.customKey)
+        ? cfg.customKey
+        : cfg.spriteKey && scene.textures.exists(cfg.spriteKey)
+          ? cfg.spriteKey
+          : undefined;
+    if (bodyKey) {
+      this.bodySprite = scene.add.sprite(0, 0, bodyKey, IDLE_FRAMES.down);
       this.bodySprite.setScale(SPRITE_SCALE);
       this.bodySprite.setOrigin(0.5, 1);
-      if (cfg.tint !== undefined) this.bodySprite.setTint(cfg.tint);
+      // Runtime tint only when no custom sheet took over.
+      if (bodyKey === cfg.spriteKey && cfg.tint !== undefined) {
+        this.bodySprite.setTint(cfg.tint);
+      }
       this.add(this.bodySprite);
       this.charSprite = this.bodySprite;
       this.usingSpritesheet = true;
 
-      // Accessory overlay — head-only shapes (kippah/hijab/cap) that hug the
-      // silhouette. We skip silently if the texture wasn't generated rather
-      // than creating an empty sprite that would draw as a stray rectangle.
+      // Accessory overlay — real pixel sheet (kippah/hijab/cap/hardhat/
+      // glasses) generated per base sheet and played frame-locked with the
+      // body. Skip silently if the texture wasn't generated rather than
+      // creating an empty sprite that would draw as a stray rectangle.
       if (cfg.accessoryKey) {
         if (scene.textures.exists(cfg.accessoryKey)) {
           this.accessorySprite = scene.add.sprite(0, 0, cfg.accessoryKey, IDLE_FRAMES.down);
@@ -160,33 +194,33 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         }
       }
 
-      // Couple agents — render a SECOND companion body sprite walking alongside
-      // the lead, offset perpendicular to the facing direction. We still keep
-      // the small companion-ring (redrawRing) as a secondary cue. Robust: if the
-      // body texture is missing we silently skip the companion (handled above by
-      // the spriteKey-exists guard wrapping this block).
+      // Couple agents — a real second body (its own spritesheet, never a
+      // tinted clone) that trails the lead ~12px behind with a delayed
+      // follow and an offset walk phase. Falls back to the lead sheet +
+      // tint only if the partner texture failed to load.
       if (cfg.partner) {
         this.partnerInfo = {
           name: cfg.partner.name,
           tint: cfg.partner.tint ?? 0xc8b89c,
         };
+        const partnerKey =
+          cfg.partner.spriteKey && scene.textures.exists(cfg.partner.spriteKey)
+            ? cfg.partner.spriteKey
+            : bodyKey;
 
         // Companion ground shadow (slightly smaller than the lead's).
-        this.companionShadow = scene.add.ellipse(COMPANION_OFFSET, SHADOW_Y, 30, 10, 0x000000, 0.18);
+        this.companionShadow = scene.add.image(COMPANION_OFFSET, SHADOW_Y, ensureShadowTexture(scene));
+        this.companionShadow.setScale(0.85).setAlpha(0.9);
         this.addAt(this.companionShadow, 0); // behind everything
 
-        // Companion body — same spritesheet, partner tint, mounted just before
-        // the lead body so the lead renders on top when they overlap.
-        this.companionSprite = scene.add.sprite(COMPANION_OFFSET, 0, cfg.spriteKey, IDLE_FRAMES.down);
+        this.companionSprite = scene.add.sprite(COMPANION_OFFSET, 0, partnerKey, IDLE_FRAMES.down);
         this.companionSprite.setScale(SPRITE_SCALE * 0.96);
         this.companionSprite.setOrigin(0.5, 1);
-        this.companionSprite.setTint(this.partnerInfo.tint);
+        if (partnerKey === bodyKey) this.companionSprite.setTint(this.partnerInfo.tint);
         // Insert directly beneath the lead body sprite.
         const leadIdx = this.getIndex(this.bodySprite);
         if (leadIdx >= 0) this.addAt(this.companionSprite, leadIdx);
         else this.add(this.companionSprite);
-
-        if (!this.ambient) this.redrawRing();
       }
 
       // Sync accessory frame whenever the body anim advances.
@@ -229,7 +263,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     if (this.ambient) {
       // Ambient NPCs: no interaction, no nameplate, no opinion ring.
       this.nameLabel.setVisible(false);
-      this.opinionRing.setVisible(false);
+      this.ringA.setVisible(false);
+      this.ringB.setVisible(false);
     } else {
       this.setInteractive({ cursor: "pointer" });
 
@@ -288,10 +323,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
     this.isMoving = true;
     this.currentActivity = "walking";
-    this.idleTween?.stop();
-    this.bodySprite?.setScale(this.spriteBaseScale); // reset breathing scaleY
-    this.shadowTween?.stop();
-    this.groundShadow.setScale(1); // reset shadow scale
+    this.stopIdleMotion();
     this.moveTween?.stop();
 
     // Walk animation — frameRate scales with stride length so long sprints
@@ -300,20 +332,23 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     const frameRate = Phaser.Math.Clamp(6 + dist / 220, 5, 14);
     if (this.bodySprite?.anims) this.bodySprite.anims.timeScale = frameRate / WALK_FPS;
     if (this.accessorySprite?.anims) this.accessorySprite.anims.timeScale = frameRate / WALK_FPS;
+    if (this.companionSprite?.anims) this.companionSprite.anims.timeScale = frameRate / WALK_FPS;
 
     // Shadow stride — hint of weight shift, not a trampoline hop.
     // Duration roughly matches the 9 fps × 3-frame walk cycle (~333 ms).
     const squishDur = Phaser.Math.Clamp(320 + dist * 0.15, 360, 460);
-    this.shadowTween = this.scene.tweens.add({
-      targets: this.groundShadow,
-      scaleX: 1.18,
-      scaleY: 0.88,
-      duration: squishDur,
-      yoyo: true,
-      repeat: -1,
-      ease: "Sine.easeInOut",
-      delay: 30,
-    });
+    if (!reducedMotion()) {
+      this.shadowTween = this.scene.tweens.add({
+        targets: this.groundShadow,
+        scaleX: 1.18,
+        scaleY: 0.88,
+        duration: squishDur,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+        delay: 30,
+      });
+    }
 
     // Duration: short hops feel responsive (280 ms min), long walks remain
     // leisurely. The previous 600 ms floor made 8 px steps look like sliding.
@@ -337,6 +372,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         // Reset animation timeScale to default after a walk.
         if (this.bodySprite?.anims) this.bodySprite.anims.timeScale = 1;
         if (this.accessorySprite?.anims) this.accessorySprite.anims.timeScale = 1;
+        if (this.companionSprite?.anims) this.companionSprite.anims.timeScale = 1;
         this.playIdle(this.currentDirection);
         this.currentActivity = "idle";
         this.beginIdle();
@@ -356,7 +392,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.playIdle(this.currentDirection);
   }
 
-  /** Show a Smallville-style speech bubble with stacking + sentiment-tinted border. */
+  /** Pixel 9-slice speech bubble: parchment fill, 2px ink border, square
+   *  corners (2px notch), stepped tail. Keeps stacking + auto-flip. */
   showSpeechBubble(text: string, duration?: number, sentiment: BubbleSentiment = "neutral") {
     const t = text.length > 140 ? text.slice(0, 137) + "…" : text;
     const dur = duration ?? Math.min(8000, Math.max(2000, t.length * 50));
@@ -366,58 +403,97 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     const txt = this.scene.add.text(0, 0, t, {
       fontFamily: "Inter, 'Helvetica Neue', sans-serif",
       fontSize: "9px",
-      color: "#1a1a1a",
+      color: "#2c2416",
       align: "center",
       wordWrap: { width: 135, useAdvancedWrap: true },
-      lineSpacing: 1,
-      resolution: 2,
+      lineSpacing: 2,
+      resolution: 3,
     });
     txt.setOrigin(0.5, 1);
 
-    const pad = 10;
-    const bw = Math.max(txt.width + pad * 2, 55);
-    const bh = txt.height + pad * 2;
-    const bx = -bw / 2;
-    // Auto-flip if the body would clip above the canvas top.
+    const pad = 9;
+    const bw = Math.ceil(Math.max(txt.width + pad * 2, 55));
+    const bh = Math.ceil(txt.height + pad * 2);
+    const camera = this.scene.cameras.main;
+    const view = camera.worldView;
+
+    // Stable three-lane placement keeps nearby residents from laying every
+    // bubble on the same horizontal band during dense replay moments.
+    let laneHash = 0;
+    for (const ch of this.agentId) laneHash = (laneHash * 31 + ch.charCodeAt(0)) >>> 0;
+    let laneOffset = (laneHash % 3) * (Math.min(bh, 36) + 6);
+
+    // Auto-flip against the camera's visible world (not the full map), then
+    // fall back to the base lane if neither stacked side has enough room.
     const headY = this.y + BUBBLE_TIP_Y;
-    const flip = headY - bh - 14 < 8;
-    const bodyTop = flip
-      ? BUBBLE_TIP_Y + 22       // below head
-      : BUBBLE_TIP_Y - bh - 8;  // above head
+    let flip = headY - bh - 8 - laneOffset < view.top + 8;
+    if (flip && headY + 22 + laneOffset + bh > view.bottom - 8) laneOffset = 0;
+    if (headY - bh - 8 - laneOffset >= view.top + 8) flip = false;
+    const bodyTop = Math.round(flip
+      ? BUBBLE_TIP_Y + 22 + laneOffset       // below head
+      : BUBBLE_TIP_Y - bh - 8 - laneOffset); // above head
     const tailBase = flip ? bodyTop : bodyTop + bh;
     const tailTip = flip ? BUBBLE_TIP_Y + 8 : BUBBLE_TIP_Y;
 
-    // Sentiment color
-    let borderColor = 0xbbbbbb;
-    if (sentiment === "positive") borderColor = 0xb8d8a8;
-    else if (sentiment === "negative") borderColor = 0xe5b6b2;
+    // Keep the parchment body inside the current camera while leaving the
+    // pixel tail anchored to the resident. The tail stays at x=0; only the
+    // body and text slide, like a typeset callout near a page margin.
+    const nominalLeft = this.x - bw / 2;
+    let bodyOffsetX = 0;
+    if (nominalLeft < view.left + 8) bodyOffsetX = view.left + 8 - nominalLeft;
+    else if (nominalLeft + bw > view.right - 8) bodyOffsetX = view.right - 8 - (nominalLeft + bw);
+    bodyOffsetX = Phaser.Math.Clamp(bodyOffsetX, -bw / 2 + 12, bw / 2 - 12);
+    const bx = Math.round(-bw / 2 + bodyOffsetX);
+
+    // Ink color carries the sentiment; fill stays parchment.
+    const PARCH = 0xf6eedd;
+    let ink = 0x3a3226;
+    if (sentiment === "positive") ink = 0x50663e;
+    else if (sentiment === "negative") ink = 0x8a4a42;
 
     bg.clear();
-    // Drop shadow
-    bg.fillStyle(0x000000, 0.13);
-    bg.fillRoundedRect(bx + 3, bodyTop + 3, bw, bh, 9);
-    // White body
-    bg.fillStyle(0xffffff, 0.97);
-    bg.fillRoundedRect(bx, bodyTop, bw, bh, 9);
-    // Sentiment border
-    bg.lineStyle(1.5, borderColor, 0.9);
-    bg.strokeRoundedRect(bx, bodyTop, bw, bh, 9);
-    // Tail
-    bg.fillStyle(0xffffff, 0.97);
-    bg.fillTriangle(-7, tailBase, 7, tailBase, 0, tailTip);
-    bg.lineStyle(2, 0xffffff, 1);
-    bg.lineBetween(-6, tailBase, 6, tailBase);
-    bg.lineStyle(1.5, borderColor, 0.8);
-    bg.strokeTriangle(-7, tailBase, 7, tailBase, 0, tailTip + (flip ? -2 : 2));
+    // Hard drop shadow, offset one "pixel" (2px) down-right.
+    bg.fillStyle(0x2c2416, 0.16);
+    bg.fillRect(bx + 2, bodyTop + 3, bw, bh);
+    // Parchment body as a cross so the 2px corners stay notched.
+    bg.fillStyle(PARCH, 0.98);
+    bg.fillRect(bx + 2, bodyTop, bw - 4, bh);
+    bg.fillRect(bx, bodyTop + 2, bw, bh - 4);
+    // 2px ink border, skipping the notched corners.
+    bg.fillStyle(ink, 1);
+    bg.fillRect(bx + 2, bodyTop, bw - 4, 2);            // top
+    bg.fillRect(bx + 2, bodyTop + bh - 2, bw - 4, 2);   // bottom
+    bg.fillRect(bx, bodyTop + 2, 2, bh - 4);            // left
+    bg.fillRect(bx + bw - 2, bodyTop + 2, 2, bh - 4);   // right
+    // Stepped pixel tail. Its length is derived from the actual flipped /
+    // unflipped gap so it always reaches the head instead of floating a few
+    // pixels away near the top edge of the map.
+    const tailDir = Math.sign(tailTip - tailBase) || 1;
+    const tailSteps = Math.max(1, Math.ceil(Math.abs(tailTip - tailBase) / 2));
+    for (let i = 0; i < tailSteps; i++) {
+      const y = tailBase + tailDir * (i + (flip ? 1 : 0)) * 2;
+      const inkHalf = Math.max(1, 7 - i * 2);
+      const parchHalf = Math.max(0, inkHalf - 2);
+      bg.fillStyle(ink, 1);
+      bg.fillRect(-inkHalf, y, inkHalf * 2, 2);
+      if (parchHalf > 0) {
+        bg.fillStyle(PARCH, 0.98);
+        bg.fillRect(-parchHalf, y, parchHalf * 2, 2);
+      }
+    }
+    // Open the border where the tail meets the body.
+    bg.fillStyle(PARCH, 0.98);
+    bg.fillRect(-5, flip ? bodyTop : bodyTop + bh - 2, 10, 2);
 
     // Position the text inside the body
     txt.setY(bodyTop + bh - pad);
-    txt.setX(0);
+    txt.setX(bodyOffsetX);
 
     group.add([bg, txt]);
     group.setDepth(400);
-    group.setScale(0.55);
-    group.setAlpha(0);
+    const limitMotion = reducedMotion();
+    group.setScale(limitMotion ? 1 : 0.55);
+    group.setAlpha(limitMotion ? 1 : 0);
     this.add(group);
 
     // Stack: push older bubbles up & dim them
@@ -430,16 +506,24 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     const entry: BubbleEntry = { group, bg, text: txt, height: bh };
     this.bubbleQueue.push(entry);
 
-    this.scene.tweens.add({
-      targets: group,
-      alpha: 1,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 230,
-      ease: "Back.easeOut",
-    });
+    if (!limitMotion) {
+      this.scene.tweens.add({
+        targets: group,
+        alpha: 1,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 230,
+        ease: "Stepped",
+        easeParams: [5],
+      });
+    }
 
     entry.timer = this.scene.time.delayedCall(dur, () => {
+      if (limitMotion) {
+        group.destroy();
+        this.bubbleQueue = this.bubbleQueue.filter((e) => e !== entry);
+        return;
+      }
       this.scene.tweens.add({
         targets: group,
         alpha: 0,
@@ -455,31 +539,160 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     });
   }
 
-  setOpinionColor(color: string) {
+  setOpinionColor(color: string, emphasize = false) {
+    const changed = color !== this.opinionColor;
     this.opinionColor = color;
-    this.redrawRing();
+    this.applyRing();
+    if ((!changed && !emphasize) || this.ambient || color === "#FFFFFF") return;
 
-    // Ripple burst from agent
-    const c = Phaser.Display.Color.HexStringToColor(color).color;
-    const ripple = this.scene.add.graphics();
-    ripple.lineStyle(4, c, 0.75);
-    ripple.strokeCircle(this.x, this.y - FRAME_H * 0.5, 22);
+    if (reducedMotion()) return;
+
+    // Ring color-morph pulse: the fresh ring lands with a chunky, stepped
+    // settle instead of a smooth vector ripple.
     this.scene.tweens.add({
-      targets: ripple,
-      scaleX: 3,
-      scaleY: 3,
-      alpha: 0,
-      duration: 550,
-      ease: "Quad.easeOut",
-      onComplete: () => ripple.destroy(),
+      targets: [this.ringA, this.ringB],
+      scaleX: { from: 1.45, to: 1 },
+      scaleY: { from: 1.45, to: 1 },
+      alpha: { from: 0.4, to: 1 },
+      duration: 420,
+      ease: "Stepped",
+      easeParams: [5],
+    });
+
+    const c = Phaser.Display.Color.HexStringToColor(color).color;
+    this.burstConfetti(c);
+    this.dropBallot(c);
+  }
+
+  /** Snap an existing resident to an authoritative replay snapshot.
+   *
+   * Unlike the normal event methods, this deliberately has no celebratory or
+   * conversational side-effects: seeking is navigation through recorded
+   * state, not a request to replay every transient animation between cursors.
+   */
+  syncReplayState(
+    x: number,
+    y: number,
+    opinionColor: string,
+    activity: AgentActivity,
+  ) {
+    this.moveTween?.stop();
+    this.moveTween = undefined;
+    this.shadowTween?.stop();
+    this.shadowTween = undefined;
+    this.isMoving = false;
+    this.scene.tweens.killTweensOf(this.leadLayers());
+    this.stopIdleMotion();
+    this.clearActivityFx();
+
+    for (const bubble of this.bubbleQueue) {
+      bubble.timer?.remove(false);
+      this.scene.tweens.killTweensOf(bubble.group);
+      bubble.group.destroy();
+    }
+    this.bubbleQueue = [];
+    this.currentGesture = "none";
+
+    this.setPosition(x, y);
+    this.homeY = y;
+    this.groundShadow.setScale(1);
+    this.syncDepth();
+    this.setOpinionColor(opinionColor, false);
+    this.setActivity(activity, true);
+  }
+
+  getOpinionColor(): string { return this.opinionColor; }
+  getSpeechBubbleCount(): number { return this.bubbleQueue.length; }
+
+  clearSpeechBubbles() {
+    for (const bubble of this.bubbleQueue) {
+      bubble.timer?.remove(false);
+      this.scene.tweens.killTweensOf(bubble.group);
+      bubble.group.destroy();
+    }
+    this.bubbleQueue = [];
+  }
+
+  /** Six square confetti chips in the new opinion color. */
+  private burstConfetti(color: number) {
+    const squareKey = ensureSquareTexture(this.scene);
+    const x0 = this.x, y0 = this.y - FRAME_H * 0.55;
+    const parts: Array<{ img: Phaser.GameObjects.Image; vx: number; vy: number }> = [];
+    for (let i = 0; i < 6; i++) {
+      const img = this.scene.add.image(x0, y0, squareKey);
+      img.setTint(color).setDepth(500);
+      const a = -Math.PI / 2 + (i - 2.5) * 0.42;
+      const sp = 70 + (i % 3) * 26;
+      parts.push({ img, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp });
+    }
+    this.scene.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 620,
+      ease: "Linear",
+      onUpdate: (tw) => {
+        const t = tw.getValue() ?? 0;
+        for (const p of parts) {
+          p.img.setPosition(x0 + p.vx * t, y0 + p.vy * t + 160 * t * t);
+          p.img.setAlpha(1 - t * t);
+        }
+      },
+      onComplete: () => parts.forEach((p) => p.img.destroy()),
+    });
+  }
+
+  /** Tiny pixel ballot arcing into the sprite. */
+  private dropBallot(color: number) {
+    const key = ensureBallotTexture(this.scene);
+    const ballot = this.scene.add.image(this.x - 26, this.y - FRAME_H - 26, key);
+    // Pale mix of the option color so the paper stays papery.
+    const c = Phaser.Display.Color.IntegerToColor(color);
+    const pale = Phaser.Display.Color.GetColor(
+      Math.round(c.red + (255 - c.red) * 0.45),
+      Math.round(c.green + (255 - c.green) * 0.45),
+      Math.round(c.blue + (255 - c.blue) * 0.45),
+    );
+    ballot.setTint(pale).setScale(2).setDepth(505);
+    const p0 = { x: this.x - 26, y: this.y - FRAME_H - 26 };
+    const p1 = { x: this.x + 6, y: this.y - FRAME_H - 46 };
+    const p2 = { x: this.x, y: this.y - FRAME_H * 0.45 };
+    this.scene.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 520,
+      ease: "Sine.easeIn",
+      onUpdate: (tw) => {
+        const t = tw.getValue() ?? 0;
+        const u = 1 - t;
+        ballot.setPosition(
+          u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+          u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
+        );
+      },
+      onComplete: () => {
+        ballot.destroy();
+        // A soft square poof where it lands.
+        const poof = this.scene.add.image(p2.x, p2.y, ensureSquareTexture(this.scene));
+        poof.setTint(0xffffff).setAlpha(0.9).setScale(2).setDepth(505);
+        this.scene.tweens.add({
+          targets: poof,
+          scaleX: 4,
+          scaleY: 4,
+          alpha: 0,
+          duration: 240,
+          ease: "Quad.easeOut",
+          onComplete: () => poof.destroy(),
+        });
+      },
     });
   }
 
   /* ── Activity state machine ───────────────────────────── */
 
-  setActivity(activity: AgentActivity) {
-    if (activity === this.currentActivity) return;
+  setActivity(activity: AgentActivity, force = false) {
+    if (!force && activity === this.currentActivity) return;
     this.clearActivityFx();
+    this.stopIdleMotion();
     this.currentActivity = activity;
 
     switch (activity) {
@@ -487,12 +700,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         this.playWalk(this.currentDirection);
         break;
       case "idle":
-        this.playIdle(this.currentDirection);
         this.beginIdle();
         break;
       case "working":
-        // gentle bob already in beginIdle()
-        this.playIdle(this.currentDirection);
+        this.beginIdle();
         break;
       case "talking":
         this.playIdle(this.currentDirection);
@@ -518,7 +729,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         break;
       case "sleeping":
         this.playIdle(this.currentDirection);
-        if (this.bodySprite) this.bodySprite.setRotation(0.12);
+        for (const layer of this.leadLayers()) layer.setRotation(0.12);
         this.activityTimer = this.scene.time.addEvent({
           delay: 1100, loop: true,
           callback: () => this.spawnFloatGlyph("Z", "#6b7d8c"),
@@ -560,10 +771,11 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       (this.activityFx as Phaser.GameObjects.GameObject).destroy();
       this.activityFx = undefined;
     }
-    if (this.bodySprite) this.bodySprite.setRotation(0);
+    for (const layer of this.leadLayers()) layer.setRotation(0);
   }
 
   private spawnFloatGlyph(glyph: string, color: string) {
+    if (reducedMotion()) return;
     const tx = this.scene.add.text(this.x, this.y - FRAME_H * 0.7, glyph, {
       fontFamily: "Inter, monospace",
       fontSize: "11px",
@@ -584,14 +796,16 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   playGesture(kind: GestureKind) {
     if (kind === "none" || !this.bodySprite) return;
+    if (reducedMotion()) return;
     this.currentGesture = kind;
     const sprite = this.bodySprite;
+    const layers = this.leadLayers();
     const base = this.spriteBaseScale;
 
     switch (kind) {
       case "nod":
         this.scene.tweens.add({
-          targets: sprite,
+          targets: layers,
           scaleY: { from: base, to: base * 0.92 },
           duration: 140,
           yoyo: true, repeat: 1, ease: "Sine.easeInOut",
@@ -600,7 +814,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         break;
       case "shake_head":
         this.scene.tweens.add({
-          targets: sprite,
+          targets: layers,
           scaleX: { from: base, to: base * 1.08 },
           duration: 110, yoyo: true, repeat: 2, ease: "Sine.easeInOut",
         });
@@ -608,16 +822,16 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         break;
       case "shrug":
         this.scene.tweens.add({
-          targets: sprite,
+          targets: layers,
           rotation: { from: -0.08, to: 0.08 },
           duration: 170, yoyo: true, repeat: 1, ease: "Sine.easeInOut",
-          onComplete: () => sprite.setRotation(0),
+          onComplete: () => layers.forEach((layer) => layer.setRotation(0)),
         });
         playEmote(this.scene, "confusion", this.x, this.y - FRAME_H * 0.5);
         break;
       case "laugh":
         this.scene.tweens.add({
-          targets: sprite,
+          targets: layers,
           scaleX: base * 1.05, scaleY: base * 1.08,
           duration: 100, yoyo: true, repeat: 2, ease: "Sine.easeInOut",
         });
@@ -649,27 +863,63 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   // Private helpers
   // ────────────────────────────────────────────────────────────
 
-  /** Place the companion perpendicular to the facing direction + sync its anim. */
+  /** Trailing follow: while walking the companion drifts to ~12px behind
+   *  the lead (delayed target via a short tween); at rest the pair settles
+   *  side-by-side. The companion's walk cycle runs a half-phase behind so
+   *  the two bodies never stride in lockstep. */
   private updateCompanion(dir: Direction, mode: "walk" | "idle") {
     const sprite = this.companionSprite;
     if (!sprite) return;
-    // Perpendicular placement: when facing up/down the partner stands to the
-    // side (x offset); when facing left/right they stand fore/aft (small x
-    // offset toward the back) so the pair always reads as two figures.
-    let ox = COMPANION_OFFSET;
-    let oy = 0;
-    switch (dir) {
-      case "down":  ox = COMPANION_OFFSET;  oy = 0; break;
-      case "up":    ox = -COMPANION_OFFSET; oy = 0; break;
-      case "left":  ox = COMPANION_OFFSET;  oy = -2; break;
-      case "right": ox = -COMPANION_OFFSET; oy = -2; break;
+    let ox: number;
+    let oy: number;
+    if (mode === "walk") {
+      // Behind = opposite the travel direction (slight lateral offset so the
+      // trailing body never hides fully behind the lead).
+      switch (dir) {
+        case "down":  ox = 9;   oy = -12; break;
+        case "up":    ox = -9;  oy = 12;  break;
+        case "left":  ox = 13;  oy = -3;  break;
+        case "right": ox = -13; oy = -3;  break;
+      }
+    } else {
+      // Side-by-side at rest, perpendicular to facing.
+      switch (dir) {
+        case "down":  ox = COMPANION_OFFSET + 2;    oy = 0;  break;
+        case "up":    ox = -(COMPANION_OFFSET + 2); oy = 0;  break;
+        case "left":  ox = COMPANION_OFFSET - 2;    oy = -2; break;
+        case "right": ox = -(COMPANION_OFFSET - 2); oy = -2; break;
+      }
     }
-    sprite.setPosition(ox, oy);
-    if (this.companionShadow) this.companionShadow.setPosition(ox, SHADOW_Y + oy);
+    // Delayed target: ease the companion toward the new offset instead of
+    // snapping — this is what makes the second body read as *following*.
+    this.companionTween?.stop();
+    if (reducedMotion()) {
+      sprite.setPosition(ox, oy);
+      this.companionShadow?.setPosition(ox, SHADOW_Y + oy);
+    } else {
+      this.companionTween = this.scene.tweens.add({
+        targets: sprite,
+        x: ox,
+        y: oy,
+        duration: 340,
+        ease: "Sine.easeOut",
+        onUpdate: () => {
+          this.companionShadow?.setPosition(sprite.x, SHADOW_Y + sprite.y);
+        },
+      });
+    }
 
     const base = `${sprite.texture.key}-${mode}-${dir}`;
+    if (mode === "idle" && reducedMotion()) {
+      sprite.stop();
+      sprite.setFrame(IDLE_FRAMES[dir]);
+      return;
+    }
     if (this.scene.anims.exists(base)) {
+      const wasPlaying = sprite.anims.isPlaying && sprite.anims.currentAnim?.key === base;
       sprite.play(base, true);
+      // Offset walk phase — half a cycle behind the lead.
+      if (mode === "walk" && !wasPlaying) sprite.anims.setProgress(0.5);
     } else {
       sprite.stop();
       sprite.setFrame(IDLE_FRAMES[dir]);
@@ -701,6 +951,12 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   protected playIdle(dir: Direction) {
     this.updateCompanion(dir, "idle");
     if (!this.usingSpritesheet || !this.bodySprite) return;
+    if (reducedMotion()) {
+      this.bodySprite.stop();
+      this.bodySprite.setFrame(IDLE_FRAMES[dir]);
+      this.accessorySprite?.setFrame(IDLE_FRAMES[dir]);
+      return;
+    }
     // Prefer the per-direction idle anim (registered in TownScene) for a
     // gentle weight-shift; fall back to a static frame if the anim was never
     // registered (covers fallback / legacy sprite sheets).
@@ -721,9 +977,34 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.accessorySprite?.setFrame(frame);
   }
 
+  /** Lead body + accessory are a single visual rig. Every transform tween
+   *  must target both or the overlay visibly swims off the head. */
+  private leadLayers(): Phaser.GameObjects.Sprite[] {
+    return [this.bodySprite, this.accessorySprite]
+      .filter((layer): layer is Phaser.GameObjects.Sprite => !!layer);
+  }
+
+  /** Stop decorative idle motion and restore exact shared transforms. */
+  private stopIdleMotion() {
+    this.idleTween?.stop();
+    this.idleTween = undefined;
+    this.shadowTween?.stop();
+    this.shadowTween = undefined;
+    for (const layer of this.leadLayers()) {
+      layer.setScale(this.spriteBaseScale);
+      layer.setRotation(0);
+    }
+    this.groundShadow.setScale(1);
+  }
+
   /** Breathing idle: legible scaleY pulse + shadow that breathes with the body. */
   protected beginIdle() {
+    this.stopIdleMotion();
     this.playIdle(this.currentDirection);
+
+    // A static, frame-perfect pose is preferable to decorative breathing
+    // when the user asks the interface to reduce motion.
+    if (reducedMotion()) return;
 
     // Calmer, more visible breath. Period is held long enough to read at
     // gameplay distance; phase is capped so the village's agents share a
@@ -731,9 +1012,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     const period = 1900;
     const phase = Math.random() * 600;
 
-    if (this.bodySprite) {
+    const layers = this.leadLayers();
+    if (layers.length > 0) {
       this.idleTween = this.scene.tweens.add({
-        targets: this.bodySprite,
+        targets: layers,
         scaleY: this.spriteBaseScale * 1.06,
         duration: period,
         yoyo: true,
@@ -757,32 +1039,40 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     });
   }
 
-  private redrawRing() {
-    this.opinionRing.clear();
-    const cy = -FRAME_H * 0.55; // vertically centered on sprite body
+  /** Point the two ring images at the pixel-ring textures for the current
+   *  opinion color and (re)start the subtle 2-frame shimmer. */
+  private applyRing() {
+    this.ringShimmerTimer?.remove(false);
+    this.ringShimmerTimer = undefined;
 
-    // Couple indicator: a small companion ring nested at the upper-right of
-    // the main ring. Drawn whether or not the agent has formed an opinion,
-    // so couples are always visually distinguished.
-    if (this.partnerInfo) {
-      const pc = this.partnerInfo.tint;
-      this.opinionRing.lineStyle(1.4, pc, 0.85);
-      this.opinionRing.strokeCircle(14, cy - 14, 6);
-      this.opinionRing.fillStyle(pc, 0.22);
-      this.opinionRing.fillCircle(14, cy - 14, 5.5);
+    if (this.opinionColor === "#FFFFFF") { // undecided → no opinion ring
+      this.ringA.setVisible(false);
+      this.ringB.setVisible(false);
+      return;
     }
-
-    if (this.opinionColor === "#FFFFFF") return; // undecided → no opinion ring
-    const c = Phaser.Display.Color.HexStringToColor(this.opinionColor).color;
-    // Soft halo
-    this.opinionRing.lineStyle(6, c, 0.15);
-    this.opinionRing.strokeCircle(0, cy, 30);
-    // Mid ring
-    this.opinionRing.lineStyle(3, c, 0.45);
-    this.opinionRing.strokeCircle(0, cy, 25);
-    // Sharp inner ring
-    this.opinionRing.lineStyle(1.5, c, 0.92);
-    this.opinionRing.strokeCircle(0, cy, 20);
+    const [keyA, keyB] = ensureRingTextures(this.scene, this.opinionColor);
+    this.ringA.setTexture(keyA).setVisible(true);
+    this.ringB.setTexture(keyB).setVisible(false);
+    if (!reducedMotion()) {
+      this.ringShimmerTimer = this.scene.time.addEvent({
+        delay: 480,
+        loop: true,
+        callback: () => {
+          // Settings can change while the scene is running. Stop an existing
+          // shimmer immediately instead of requiring an agent re-render.
+          if (reducedMotion()) {
+            this.ringA.setVisible(true);
+            this.ringB.setVisible(false);
+            this.ringShimmerTimer?.remove(false);
+            this.ringShimmerTimer = undefined;
+            return;
+          }
+          const showB = !this.ringB.visible;
+          this.ringB.setVisible(showB);
+          this.ringA.setVisible(!showB);
+        },
+      });
+    }
   }
 
   private drawFallback() {
@@ -921,6 +1211,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.idleTween?.stop();
     this.shadowTween?.stop();
     this.moveTween?.stop();
+    this.companionTween?.stop();
+    this.ringShimmerTimer?.remove(false);
     for (const b of this.bubbleQueue) {
       b.timer?.remove();
       b.group.destroy();

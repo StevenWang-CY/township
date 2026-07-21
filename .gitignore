@@ -4,6 +4,15 @@ keys.md
 .env.*
 !.env.example
 *.pem
+*.key
+*.p12
+*.pfx
+.secrets/
+.aws/
+.npmrc
+.pypirc
+.netrc
+credentials*.json
 
 # Python
 __pycache__/
@@ -20,6 +29,7 @@ build/
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/public/legal/
 dist/
 
 # Local state & tooling

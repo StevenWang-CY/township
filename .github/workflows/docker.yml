@@ -1,0 +1,47 @@
+name: docker
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build --tag township-ci .
+
+      - name: Start zero-key container
+        run: docker run --detach --name township-ci --publish 127.0.0.1:18000:8000 --env LLM_PROVIDER=mock township-ci
+
+      - name: Verify health, scenario, and frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs township-ci || true' ERR
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18000/api/health >/dev/null; then
+              break
+            fi
+            if [[ "$attempt" == 30 ]]; then
+              exit 1
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:18000/api/scenario | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["id"] and d["towns"]'
+          curl --fail --silent http://127.0.0.1:18000/ | grep --quiet '<div id="root">'
+
+      - name: Container logs
+        if: always()
+        run: docker logs township-ci || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm --force township-ci || true

@@ -4,6 +4,7 @@ to learn what this deployment is deliberating: the question, the options
 (ids, labels, colors), the towns, and the round count. Everything the UI
 used to hardcode about NJ-11 comes from here now.
 """
+
 import logging
 
 from fastapi import APIRouter, Request
@@ -28,6 +29,7 @@ async def get_scenario(request: Request):
             "tagline": town.get("tagline", ""),
             "color": scenario.town_color(town_id),
             "county": town.get("county", ""),
+            "map": town.get("map"),
         }
         population = (town.get("demographics") or {}).get("population")
         if population is not None:
@@ -54,4 +56,5 @@ async def get_scenario(request: Request):
             "decision_day": config.dates.decision_day,
             "prose": config.dates.prose,
         },
+        "responsible_use": config.responsible_use.model_dump(),
     }

@@ -1,10 +1,13 @@
 # ───────────────────────────────────────────────────────────────────────────
 # Township — packaging + tool configuration
 #
-# This is an application repo, not a PyPI library: no custom [build-system]
-# is configured (the setuptools default applies), but the file is fully valid
-# for `pip install -e ".[dev]"`.
+# This is an application repository. Its Python wheel intentionally contains
+# the API, CLI, and scenarios only; Docker/source builds provide the web UI.
 # ───────────────────────────────────────────────────────────────────────────
+
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "township"
@@ -49,6 +52,7 @@ dependencies = [
     "aiofiles>=25.1",
     "httpx>=0.28",
     "python-multipart>=0.0.26",
+    "python-dotenv>=1.2",
     "typer>=0.12",
 ]
 
@@ -59,17 +63,27 @@ township = "backend.cli:app"
 # OpenAI-compatible provider backends (OpenAI, Ollama, LM Studio, OpenRouter).
 openai = ["openai>=1.40"]
 dev = [
+    # CI exercises every provider adapter; keep the optional client present
+    # in contributor environments so those tests never silently skip.
+    "openai>=1.40",
     "ruff>=0.6",
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "httpx",
+    # Starlette 1.x TestClient uses the successor client package.
+    "httpx2>=2.7",
+    # Map generation and automated README GIF assembly.
+    "pillow>=11",
 ]
 
 [project.urls]
 Repository = "https://github.com/StevenWang-CY/township"
 
 [tool.setuptools.packages.find]
-include = ["backend*"]
+include = ["backend*", "scenarios"]
+
+[tool.setuptools.package-data]
+scenarios = ["**/*"]
 
 [tool.ruff]
 line-length = 100

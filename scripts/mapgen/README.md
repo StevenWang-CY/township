@@ -9,16 +9,18 @@ plus a generated modern extension sheet (`township-modern.png`). Maps are
 ## Pipeline
 
 ```
-python3 -m scripts.mapgen.moderntiles          # regenerate township-modern.png
+python3 -m scripts.mapgen.moderntiles
 python3 -m scripts.mapgen.build_maps --scenario nj11-2026 --town dover --preview
-python3 -m scripts.mapgen.render_preview dover --labels   # preview only
-python3 scripts/mapgen/validate_registry.py    # registry acceptance sheet
+python3 -m scripts.mapgen.render_preview --scenario nj11-2026 dover --labels
+python3 scripts/mapgen/validate_registry.py
 ```
 
-Outputs land in `frontend/public/assets/maps/`:
+The first command regenerates the shared `township-modern.png` extension sheet; the
+last produces the registry acceptance sheet. Town outputs are always isolated under
+`frontend/public/assets/maps/<scenario-id>/`:
 
-- `<town>.tmj` — the map TownScene loads
-- `<town>-preview.png` / `<town>-preview@2x.png` — full-fidelity render
+- `<scenario-id>/<town-id>.tmj` — the map `TownScene` loads
+- `<scenario-id>/<town-id>-preview.png` — full-fidelity 1200×800 render
   (all tile layers + anchor approximations + optional faint labels)
 
 ## Modules
@@ -29,7 +31,7 @@ Outputs land in `frontend/public/assets/maps/`:
 | `moderntiles.py` | Draws + quantizes the `township-modern` sheet (asphalt, sidewalk, road markings, street props) and exports `ASPHALT` / `SIDEWALK` blobs and prop GIDs with `firstgid` 10001. Contact sheet: `_inspect/modern_sheet.png`. |
 | `build_maps.py` | `MapCanvas` (layers, blob autotiler, stamps, road network, collision + anchor emitters), building recipes (`storefront`, `grand`, `cottage`), generic landmark interpreter, `.tmj` writer. |
 | `render_preview.py` | Compositor for generated maps; approximates anchors with registry stamps so previews match the in-game look. |
-| `layouts/<town>.py` | Optional hand-tuned layout per town (see `layouts/dover.py`). |
+| `layouts/<scenario>/<town>.py` | Optional hand-tuned layout per town; hyphens in both ids become underscores (for example `layouts/nj11_2026/dover.py`). |
 | `validate_registry.py`, `inspect_tiles.py` | Registry acceptance sheet and raw tileset inspection tools. |
 
 ## Layer contract (TownScene binds to these names)
@@ -59,13 +61,34 @@ convention (`tiles.FLIP_H/V/D`, mask with `GID_MASK`).
 
 1. Make sure `scenarios/<id>/towns/<town>.json` exists — landmarks are the
    source of truth (px in a 1200x800 space; never edit them from here).
-2. Run `python3 -m scripts.mapgen.build_maps --scenario <id> --town <town>
-   --preview`. Without a layout module the generic interpreter builds roads
+2. Run:
+
+   ```bash
+   python3 -m scripts.mapgen.build_maps --scenario <id> --town <town> --preview
+   ```
+
+   Without a layout module the generic interpreter builds roads
    from `road` landmarks and default recipes per landmark `type`
    (`commercial/building`, `church`, `civic`, `transport`, `housing`,
    `park`, `water`, `road`).
-3. For a shippable map, add `scripts/mapgen/layouts/<town>.py` exporting
-   `compose(m: MapCanvas)` and hand-tune. Follow `layouts/dover.py`:
+3. Point the town payload at the generated assets with the exact
+   scenario-qualified metadata contract:
+
+   ```json
+   {
+     "map": {
+       "kind": "tiled",
+       "path": "assets/maps/<id>/<town>.tmj",
+       "preview_path": "assets/maps/<id>/<town>-preview.png"
+     }
+   }
+   ```
+
+   The scenario loader rejects a different scenario namespace or filename. Omit
+   `map` entirely when the town should use the landmark-driven procedural renderer.
+4. For a hand-tuned map, add
+   `scripts/mapgen/layouts/<id_with_underscores>/<town_with_underscores>.py`
+   exporting `compose(m: MapCanvas)`. Follow `layouts/nj11_2026/dover.py`:
    - order matters: ground tone → large ground features → `road_h/road_v` +
      `pave()` → buildings (they `reserve()` their cells) → `paint_roads()`
      → dressing, trees (anchors), lamps, flowers, collision extras
@@ -73,15 +96,22 @@ convention (`tiles.FLIP_H/V/D`, mask with `GID_MASK`).
      every building door faces a road/path with a small apron; props go in
      CLUSTERS; keep >= 30% open grass; give the town one memorable
      set-piece.
-4. Iterate: re-render the preview after every change and actually look at
-   it (1x and the @2x crops). Compare against
+5. Iterate: re-render the preview after every change and actually look at
+   it at native size and a crisp 2× browser zoom. Compare against
    `_inspect/example_map_render.png` for cohesion.
 
 ## Adding a scenario
 
-Nothing map-specific to do beyond the towns: `build_maps.py --scenario <id>
---all` walks `scenarios/<id>/towns/*.json`. Ship hand-tuned layout modules
-for towns that appear in the product.
+Nothing map-specific is registered in code. Run:
+
+```bash
+python3 -m scripts.mapgen.build_maps --scenario <id> --all --preview
+```
+
+The command walks `scenarios/<id>/towns/*.json`, validates lowercase
+hyphen-separated scenario/town ids, and writes only inside that scenario's asset
+namespace. Add the exact `map` block above to each town that should load authored
+art; towns without it retain the procedural renderer.
 
 ## Capability limits (do not fight the tileset)
 

@@ -228,7 +228,7 @@ def _template_recap(scenario, district_summary, swings: list[dict], takeaways: l
     if takeaways:
         paragraphs.append(
             f"The conversations kept circling the same ground. One exchange summed it up: "
-            f"\"{takeaways[0].rstrip('.')}.\""
+            f'"{takeaways[0].rstrip(".")}."'
         )
         paragraphs.append("")
 
@@ -273,22 +273,21 @@ async def generate_recap(scenario, district_summary, event_log: list, provider) 
         result = await provider.call_agent(
             system_prompt=_RECAP_SYSTEM,
             messages=[
-                {"role": "user", "content": _build_prompt(scenario, district_summary, swings, takeaways)}
+                {
+                    "role": "user",
+                    "content": _build_prompt(scenario, district_summary, swings, takeaways),
+                }
             ],
             tools=None,
             max_tokens=RECAP_MAX_TOKENS,
         )
         if result.get("stop_reason") == "error":
-            logger.warning(
-                "Recap provider call errored (%s) — using template", result.get("error")
-            )
+            logger.warning("Recap provider call errored (%s) — using template", result.get("error"))
             return _template_recap(scenario, district_summary, swings, takeaways)
 
         text = (result.get("text") or "").strip()
         if len(text) < _MIN_ACCEPTABLE_CHARS:
-            logger.warning(
-                "Recap response too short (%d chars) — using template", len(text)
-            )
+            logger.warning("Recap response too short (%d chars) — using template", len(text))
             return _template_recap(scenario, district_summary, swings, takeaways)
 
         if not text.lstrip().startswith("#"):

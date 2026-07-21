@@ -1,15 +1,24 @@
 import logging
+import re
 from datetime import UTC, datetime
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 
-from ..core.scenario import validate_stance
-from ..core.storage import STATE_DIR, DebouncedSaver, load_json
-from ..core.types import Opinion, OpinionChangedEvent, RelationshipUpdateEvent
+from ..core.storage import STATE_DIR, DebouncedSaver, load_json_strict
 from ..core.wire import opinion_to_wire
 from ..tools.schemas import get_tools
+from .player_state import (
+    PLAYER_CAPABILITY_MAX_USERS,
+    capability_state_is_valid,
+    flush_player_capability_state,
+    load_player_capability_state,
+    lock_private_state,
+    purge_unbound_private_records,
+    require_player_capability,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +35,52 @@ _rel_saver = DebouncedSaver(_REL_PATH, lambda: _RELATIONSHIPS)
 
 def load_relationship_state() -> None:
     """Hydrate the in-memory store from disk (app startup)."""
-    saved = load_json(_REL_PATH, {})
-    if isinstance(saved, dict) and saved:
-        _RELATIONSHIPS.clear()
-        _RELATIONSHIPS.update(saved)
-        logger.info(f"Loaded relationships for {len(_RELATIONSHIPS)} user(s) from {_REL_PATH}")
+    _RELATIONSHIPS.clear()
+    load_player_capability_state()
+    if not capability_state_is_valid() or not _REL_PATH.exists():
+        return
+    try:
+        saved = load_json_strict(_REL_PATH)
+    except Exception as exc:
+        lock_private_state(f"relationship store could not be read: {exc}")
+        return
+    if not _valid_relationship_store(saved):
+        lock_private_state("relationship store has an invalid schema")
+        return
+    saved = purge_unbound_private_records(
+        saved,
+        path=_REL_PATH,
+        label="relationship",
+    )
+    if not capability_state_is_valid():
+        return
+    _RELATIONSHIPS.update(saved)
+    if saved:
+        logger.info(
+            "Loaded relationships for %s user(s) from %s",
+            len(_RELATIONSHIPS),
+            _REL_PATH,
+        )
 
 
 async def flush_relationship_state() -> None:
     """Persist any pending relationship changes (app shutdown)."""
     await _rel_saver.aflush()
+    await flush_player_capability_state()
+
+
+async def _persist_relationship_state() -> None:
+    """Durably write a mutation before an endpoint acknowledges it."""
+    _rel_saver.mark_dirty()
+    try:
+        await _rel_saver.aflush()
+    except Exception as exc:
+        lock_private_state(f"relationship persistence failed: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Private player state is temporarily unavailable",
+            headers={"Cache-Control": "no-store"},
+        ) from exc
 
 
 def _default_rel() -> dict:
@@ -47,6 +92,78 @@ def _default_rel() -> dict:
         "last_message_at": None,
         "last_classification": None,
     }
+
+
+def _valid_relationship_store(value) -> bool:
+    """Validate persisted values before any private record reaches memory."""
+    if not isinstance(value, dict) or len(value) > PLAYER_CAPABILITY_MAX_USERS:
+        return False
+    user_id_re = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+    allowed = {
+        "trust",
+        "encounters",
+        "topics_discussed",
+        "last_chat_at",
+        "last_message_at",
+        "last_classification",
+        "player_revealed_to_them",
+    }
+    required = set(_default_rel())
+    for user_id, agent_map in value.items():
+        if not isinstance(user_id, str) or user_id_re.fullmatch(user_id) is None:
+            return False
+        if not isinstance(agent_map, dict) or len(agent_map) > 1_000:
+            return False
+        for agent_id, rel in agent_map.items():
+            if not isinstance(agent_id, str) or not (1 <= len(agent_id) <= 128):
+                return False
+            if not isinstance(rel, dict) or not required.issubset(rel) or not set(rel) <= allowed:
+                return False
+            trust = rel.get("trust")
+            encounters = rel.get("encounters")
+            topics = rel.get("topics_discussed")
+            if (
+                isinstance(trust, bool)
+                or not isinstance(trust, int)
+                or not -100 <= trust <= 100
+                or isinstance(encounters, bool)
+                or not isinstance(encounters, int)
+                or not 0 <= encounters <= 1_000_000
+                or not isinstance(topics, list)
+                or len(topics) > 25
+                or any(not isinstance(topic, str) or len(topic) > 60 for topic in topics)
+            ):
+                return False
+            for field in ("last_chat_at", "last_message_at", "last_classification"):
+                item = rel.get(field)
+                if item is not None and (not isinstance(item, str) or len(item) > 128):
+                    return False
+            revealed = rel.get("player_revealed_to_them")
+            if revealed is not None:
+                if not isinstance(revealed, dict) or not set(revealed) <= {
+                    "name",
+                    "town",
+                    "leaning",
+                    "concerns",
+                }:
+                    return False
+                if any(
+                    not isinstance(item, str) or len(item) > PROFILE_TEXT_MAX_CHARS
+                    for key, item in revealed.items()
+                    if key != "concerns"
+                ):
+                    return False
+                concerns = revealed.get("concerns", [])
+                if (
+                    not isinstance(concerns, list)
+                    or len(concerns) > PROFILE_CONCERNS_MAX_ITEMS
+                    or any(
+                        not isinstance(item, str) or len(item) > PROFILE_TEXT_MAX_CHARS
+                        for item in concerns
+                    )
+                ):
+                    return False
+    return True
 
 
 def _get_rel(user_id: str, agent_id: str) -> dict:
@@ -67,7 +184,7 @@ def _trust_band(trust: int) -> str:
         return "warming"
     if -30 <= trust < 0:
         return "guarded"
-    return "distrust"
+    return "hostile"
 
 
 def _trust_block(trust: int) -> str:
@@ -98,10 +215,66 @@ def _trust_block(trust: int) -> str:
 
 # ─── Request / response models ────────────────────────────────
 
+CHAT_MESSAGE_MAX_CHARS = 4_000
+CHAT_HISTORY_MAX_ITEMS = 12
+PROFILE_TEXT_MAX_CHARS = 200
+PROFILE_CONCERNS_MAX_ITEMS = 10
+
+ChatText = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=CHAT_MESSAGE_MAX_CHARS,
+    ),
+]
+ProfileText = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=PROFILE_TEXT_MAX_CHARS,
+    ),
+]
+UserId = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
+]
+
+
+class ChatUserProfile(BaseModel):
+    """The bounded subset of player details that can enter an LLM prompt."""
+
+    name: ProfileText | None = None
+    town: ProfileText | None = None
+    political_leaning: ProfileText | None = None
+    leaning: ProfileText | None = None
+    personality: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, max_length=1_000),
+        ]
+        | None
+    ) = None
+    top_concerns: Annotated[list[ProfileText], Field(max_length=PROFILE_CONCERNS_MAX_ITEMS)] = (
+        Field(default_factory=list)
+    )
+
+
+class ConversationMessage(BaseModel):
+    role: Literal["user", "agent"]
+    content: ChatText
+
+
 class ChatRequest(BaseModel):
-    message: str
-    user_profile: dict | None = None
-    user_id: str | None = None
+    message: ChatText
+    user_profile: ChatUserProfile | None = None
+    user_id: UserId | None = None
 
 
 class ChatResponse(BaseModel):
@@ -112,12 +285,15 @@ class ChatResponse(BaseModel):
     opinion_changed: bool = False
     trust: int = 0
     trust_band: str = "warming"
+    relationship: dict | None = None
 
 
 class AutoChatRequest(BaseModel):
-    user_profile: dict
-    conversation_history: list[dict] = []
-    user_id: str | None = None
+    user_profile: ChatUserProfile
+    conversation_history: Annotated[
+        list[ConversationMessage], Field(max_length=CHAT_HISTORY_MAX_ITEMS)
+    ] = Field(default_factory=list)
+    user_id: UserId | None = None
 
 
 class AutoChatResponse(BaseModel):
@@ -130,50 +306,82 @@ class AutoChatResponse(BaseModel):
     opinion_changed: bool = False
     trust: int = 0
     trust_band: str = "warming"
+    relationship: dict | None = None
 
 
 # ─── Relationship endpoints ───────────────────────────────────
 
+
+class PlayerCapabilityRegistration(BaseModel):
+    user_id: UserId
+
+
+@router.post("/relationships/register")
+async def register_player_capability(
+    req: PlayerCapabilityRegistration,
+    request: Request,
+):
+    """Bind or verify the browser capability without returning private data."""
+    require_player_capability(request, req.user_id, register=True)
+    return JSONResponse(
+        content={"status": "ok"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/relationships/{user_id}")
-async def get_relationships(user_id: str):
-    """Return the entire relationships dict for a single user."""
-    return {
-        "user_id": user_id,
-        "relationships": _RELATIONSHIPS.get(user_id, {}),
-    }
+async def get_relationships(user_id: UserId, request: Request):
+    """Return a player's relationships after capability authentication."""
+    require_player_capability(request, user_id)
+    return JSONResponse(
+        content={
+            "user_id": user_id,
+            "relationships": _RELATIONSHIPS.get(user_id, {}),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 class ResetRequest(BaseModel):
-    user_id: str
+    user_id: UserId
     agent_id: str | None = None
 
 
 @router.post("/relationships/reset")
-async def reset_relationships(req: ResetRequest):
+async def reset_relationships(req: ResetRequest, request: Request):
     """Reset a single agent's relationship for a user, or all if agent_id omitted."""
+    require_player_capability(request, req.user_id)
     if req.user_id not in _RELATIONSHIPS:
         return {"status": "ok", "cleared": 0}
+    removed_empty_user = False
     if req.agent_id:
         cleared = 1 if _RELATIONSHIPS[req.user_id].pop(req.agent_id, None) else 0
+        if not _RELATIONSHIPS[req.user_id]:
+            _RELATIONSHIPS.pop(req.user_id, None)
+            removed_empty_user = True
     else:
         cleared = len(_RELATIONSHIPS[req.user_id])
-        _RELATIONSHIPS[req.user_id] = {}
-    if cleared:
-        _rel_saver.mark_dirty()
+        _RELATIONSHIPS.pop(req.user_id, None)
+        removed_empty_user = True
+    if cleared or removed_empty_user:
+        await _persist_relationship_state()
     return {"status": "ok", "cleared": cleared}
 
 
 # ─── Chat endpoints ───────────────────────────────────────────
 
+
 @router.post("/{agent_id}")
-async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> ChatResponse:
+async def chat_with_agent(
+    agent_id: str,
+    req: ChatRequest,
+    request: Request,
+    response: Response,
+) -> ChatResponse:
     """Chat with a specific agent in character. The agent responds based on their full persona and memories."""
     orchestrator = request.app.state.orchestrator
     anthropic_client = request.app.state.anthropic_client
-    event_bus = request.app.state.event_bus
     scenario = request.app.state.scenario
-
-    user_id = req.user_id or "local"
 
     # Find the agent
     agent_state = orchestrator.get_agent_state(agent_id)
@@ -183,26 +391,35 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
             content={"error": "agent_not_found", "agent_id": agent_id},
         )
 
-    rel = _get_rel(user_id, agent_id)
+    persistent_relationship = req.user_id is not None
+    if req.user_id is not None:
+        require_player_capability(request, req.user_id, register=True)
+        rel = _get_rel(req.user_id, agent_id)
+    else:
+        # API clients that omit browser identity retain the legacy chat UX, but
+        # their trust state is request-local rather than shared under "local".
+        rel = _default_rel()
 
     # Persist what the player has revealed about themselves so future turns and
     # other systems can reference it (§5.2).
-    if req.user_profile:
-        _record_player_reveal(rel, req.user_profile)
-
+    profile = (
+        req.user_profile.model_dump(exclude_none=True, exclude_defaults=True)
+        if req.user_profile
+        else None
+    )
     # Build system prompt with full context (including trust)
     system_prompt = _build_chat_system_prompt(agent_state, scenario, trust=rel["trust"])
 
     # Enrich the user message with profile context if available
-    if req.user_profile:
-        p = req.user_profile
+    if profile:
+        p = profile
         user_intro = (
             f"A person named {p.get('name', 'someone')} from {p.get('town', 'the area')}, "
             f"who cares about {', '.join(p.get('top_concerns', ['local issues']))}, "
-            f"approaches you and says: \"{req.message}\""
+            f'approaches you and says: "{req.message}"'
         )
     else:
-        user_intro = f"A person approaches you and says: \"{req.message}\""
+        user_intro = f'A person approaches you and says: "{req.message}"'
 
     messages = [
         {
@@ -236,54 +453,49 @@ async def chat_with_agent(agent_id: str, req: ChatRequest, request: Request) -> 
 
     response_text = result.get("text") or "..."
 
-    # Add this chat to agent's memory
-    agent_state.add_memory(
-        f"Chat: Someone asked me '{req.message[:80]}'. I said: '{response_text[:80]}...'"
-    )
+    if profile:
+        _record_player_reveal(rel, profile, persist=False)
 
     # Update relationship (best-effort classify call)
     await _classify_and_update_trust(
         anthropic_client=anthropic_client,
-        event_bus=event_bus,
         agent_state=agent_state,
         scenario=scenario,
         agent_id=agent_id,
-        user_id=user_id,
         rel=rel,
         user_message=req.message,
         agent_response=response_text,
+        persist=False,
     )
+    if persistent_relationship:
+        await _persist_relationship_state()
 
-    # Re-evaluate the agent's opinion in light of this exchange.
-    opinion_changed = await _reevaluate_opinion(
-        anthropic_client=anthropic_client,
-        event_bus=event_bus,
-        agent_state=agent_state,
-        scenario=scenario,
-        user_message=req.message,
-        agent_response=response_text,
-    )
-
+    response.headers["Cache-Control"] = "no-store"
     return ChatResponse(
         response=response_text,
         agent_id=agent_id,
         agent_name=agent_state.definition.name,
         opinion=opinion_to_wire(agent_state.current_opinion),
-        opinion_changed=opinion_changed,
+        # A one-viewer conversation must not mutate or publish the shared
+        # simulation opinion. The private trust relationship still evolves.
+        opinion_changed=False,
         trust=rel["trust"],
         trust_band=_trust_band(rel["trust"]),
+        relationship=dict(rel) if persistent_relationship else None,
     )
 
 
 @router.post("/auto/{agent_id}")
-async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> AutoChatResponse:
+async def auto_chat(
+    agent_id: str,
+    req: AutoChatRequest,
+    request: Request,
+    response: Response,
+) -> AutoChatResponse:
     """Auto-agent mode: generate both user and agent messages for a natural conversation."""
     orchestrator = request.app.state.orchestrator
     anthropic_client = request.app.state.anthropic_client
-    event_bus = request.app.state.event_bus
     scenario = request.app.state.scenario
-
-    user_id = req.user_id or "local"
 
     agent_state = orchestrator.get_agent_state(agent_id)
     if agent_state is None:
@@ -292,11 +504,14 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
             content={"error": "agent_not_found", "agent_id": agent_id},
         )
 
-    rel = _get_rel(user_id, agent_id)
+    persistent_relationship = req.user_id is not None
+    if req.user_id is not None:
+        require_player_capability(request, req.user_id, register=True)
+        rel = _get_rel(req.user_id, agent_id)
+    else:
+        rel = _default_rel()
 
-    p = req.user_profile
-    if p:
-        _record_player_reveal(rel, p)
+    p = req.user_profile.model_dump(exclude_none=True, exclude_defaults=True)
     turn_num = len(req.conversation_history) // 2
 
     # ── Step 1: Generate user's message ──────────────────────
@@ -306,8 +521,8 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
     if req.conversation_history:
         user_context = "\n\nConversation so far:\n"
         for msg in req.conversation_history[-6:]:
-            role = "You" if msg.get("role") == "user" else agent_state.definition.name
-            user_context += f"{role}: {msg.get('content', '')}\n"
+            role = "You" if msg.role == "user" else agent_state.definition.name
+            user_context += f"{role}: {msg.content}\n"
 
     opening_line = (
         f"Start a conversation about {scenario.title} or local issues."
@@ -334,6 +549,16 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         max_tokens=1200,
     )
 
+    if user_result.get("stop_reason") == "error":
+        logger.error("Auto-chat user-persona call errored for %s", agent_id)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "llm_unavailable",
+                "message": "Could not continue this conversation right now.",
+            },
+        )
+
     user_message = user_result.get("text") or f"What do you think about {scenario.title}?"
 
     # ── Step 2: Generate agent's response ────────────────────
@@ -343,18 +568,18 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         user_intro = (
             f"A person named {p.get('name', 'someone')} from {p.get('town', 'the area')}, "
             f"who cares about {', '.join(p.get('top_concerns', ['local issues']))}, "
-            f"says: \"{user_message}\""
+            f'says: "{user_message}"'
         )
     else:
-        user_intro = f"Someone says: \"{user_message}\""
+        user_intro = f'Someone says: "{user_message}"'
 
     # Include conversation history for context
     history_ctx = ""
     if req.conversation_history:
         history_ctx = "\n\nEarlier in this conversation:\n"
         for msg in req.conversation_history[-6:]:
-            role = p.get("name", "Them") if msg.get("role") == "user" else "You"
-            history_ctx += f"{role}: {msg.get('content', '')}\n"
+            role = p.get("name", "Them") if msg.role == "user" else "You"
+            history_ctx += f"{role}: {msg.content}\n"
 
     agent_messages = [
         {
@@ -386,37 +611,27 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
 
     agent_response = agent_result.get("text") or "..."
 
-    # Record in memory
-    agent_state.add_memory(
-        f"Chat: {p.get('name', 'Someone')} said '{user_message[:60]}'. I said: '{agent_response[:60]}...'"
-    )
+    if p:
+        _record_player_reveal(rel, p, persist=False)
 
     # Update relationship (best-effort classify call)
     await _classify_and_update_trust(
         anthropic_client=anthropic_client,
-        event_bus=event_bus,
         agent_state=agent_state,
         scenario=scenario,
         agent_id=agent_id,
-        user_id=user_id,
         rel=rel,
         user_message=user_message,
         agent_response=agent_response,
+        persist=False,
     )
-
-    # Re-evaluate the agent's opinion in light of this exchange.
-    opinion_changed = await _reevaluate_opinion(
-        anthropic_client=anthropic_client,
-        event_bus=event_bus,
-        agent_state=agent_state,
-        scenario=scenario,
-        user_message=user_message,
-        agent_response=agent_response,
-    )
+    if persistent_relationship:
+        await _persist_relationship_state()
 
     # Determine if conversation should end
     should_end = turn_num >= 3
 
+    response.headers["Cache-Control"] = "no-store"
     return AutoChatResponse(
         user_message=user_message,
         agent_response=agent_response,
@@ -424,15 +639,17 @@ async def auto_chat(agent_id: str, req: AutoChatRequest, request: Request) -> Au
         agent_name=agent_state.definition.name,
         should_end=should_end,
         opinion=opinion_to_wire(agent_state.current_opinion),
-        opinion_changed=opinion_changed,
+        opinion_changed=False,
         trust=rel["trust"],
         trust_band=_trust_band(rel["trust"]),
+        relationship=dict(rel) if persistent_relationship else None,
     )
 
 
 # ─── Helpers ──────────────────────────────────────────────────
 
-def _record_player_reveal(rel: dict, profile: dict) -> None:
+
+def _record_player_reveal(rel: dict, profile: dict, *, persist: bool = True) -> None:
     """Persist what the player has told this agent about themselves (§5.2).
 
     Stored on the relationship dict under `player_revealed_to_them` so the agent
@@ -448,131 +665,26 @@ def _record_player_reveal(rel: dict, profile: dict) -> None:
         revealed["leaning"] = leaning
     if profile.get("top_concerns"):
         revealed["concerns"] = list(profile.get("top_concerns"))
-    _rel_saver.mark_dirty()
-
-
-async def _reevaluate_opinion(
-    *,
-    anthropic_client,
-    event_bus,
-    agent_state,
-    scenario,
-    user_message: str,
-    agent_response: str,
-) -> bool:
-    """Re-run FormOpinion after a chat exchange.
-
-    Appends a new Opinion and publishes an OpinionChangedEvent only when the
-    agent's candidate changed OR confidence moved by >= 10 vs the current
-    opinion. Best-effort — any error here is logged and treated as no change.
-    Returns True when the opinion actually changed.
-    """
-    prev = agent_state.current_opinion
-    try:
-        system_prompt = (
-            _build_chat_system_prompt(agent_state, scenario)
-            + "\n\n--- OPINION CHECK ---\n"
-            "Reflect on the exchange below. If it changed how you feel about your stance, "
-            "update it honestly; if it didn't, restate your current stance. "
-            "Call the FormOpinion tool."
-        )
-        result = await anthropic_client.call_agent(
-            system_prompt=system_prompt,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"They said: \"{user_message}\"\n"
-                        f"You replied: \"{agent_response}\"\n\n"
-                        f"Now call FormOpinion with your current stance on the question: "
-                        f"{scenario.question}"
-                    ),
-                }
-            ],
-            tools=get_tools(["FormOpinion"], scenario),
-            max_tokens=600,
-            model=agent_state.definition.model,
-        )
-
-        if result.get("stop_reason") == "error":
-            logger.warning(
-                f"Opinion re-eval errored for {agent_state.agent_id}: {result.get('error')}"
-            )
-            return False
-
-        tool_use = result.get("tool_use")
-        if not (tool_use and tool_use.get("name") == "FormOpinion"):
-            return False
-
-        tool_input = tool_use.get("input", {})
-        new_candidate = validate_stance(
-            tool_input.get(
-                "candidate", prev.candidate if prev else scenario.undecided_id
-            ),
-            scenario,
-        )
-        try:
-            new_confidence = int(tool_input.get("confidence", prev.confidence if prev else 50))
-        except (TypeError, ValueError):
-            new_confidence = prev.confidence if prev else 50
-
-        candidate_changed = prev is None or new_candidate != prev.candidate
-        confidence_jump = prev is not None and abs(new_confidence - prev.confidence) >= 10
-
-        if not (candidate_changed or confidence_jump):
-            return False
-
-        new_opinion = Opinion(
-            candidate=new_candidate,
-            confidence=max(0, min(100, new_confidence)),
-            reasoning=tool_input.get("reasoning", "Reconsidered after this conversation."),
-            top_issues=tool_input.get(
-                "top_issues",
-                list(prev.top_issues) if prev else list(agent_state.definition.top_concerns[:3]),
-            ),
-            dealbreaker=tool_input.get("dealbreaker"),
-            round_number=(((prev.round_number or 0) + 1) if prev else 99),
-        )
-        agent_state.opinions.append(new_opinion)
-        agent_state.add_memory(
-            f"Chat shifted my view: now leaning {new_opinion.candidate} "
-            f"(confidence: {new_opinion.confidence}%)."
-        )
-
-        try:
-            await event_bus.publish(OpinionChangedEvent(
-                agent_id=agent_state.agent_id,
-                agent_name=agent_state.definition.name,
-                town=agent_state.definition.town,
-                old_opinion=prev,
-                new_opinion=new_opinion,
-            ))
-        except Exception as pub_err:  # pragma: no cover — defensive
-            logger.warning(f"Failed to publish OpinionChangedEvent: {pub_err}")
-
-        return True
-
-    except Exception as e:
-        logger.warning(f"Opinion re-eval failed for {agent_state.agent_id}: {e}")
-        return False
+    if persist:
+        _rel_saver.mark_dirty()
 
 
 async def _classify_and_update_trust(
     *,
     anthropic_client,
-    event_bus,
     agent_state,
     scenario,
     agent_id: str,
-    user_id: str,
     rel: dict,
     user_message: str,
     agent_response: str,
+    persist: bool = True,
 ) -> None:
     """
     Make a SMALL ClassifyInteraction call, apply the trust delta, persist to the
-    in-memory store, and publish a RelationshipUpdateEvent so the frontend can
-    update live. Best-effort: any error here is logged but doesn't fail the chat.
+    in-memory store.  The caller returns the private relationship directly in
+    its HTTP response; it must never enter the global simulation event bus.
+    Best-effort: any error here is logged but doesn't fail the chat.
     """
     try:
         classify_system = (
@@ -588,8 +700,8 @@ async def _classify_and_update_trust(
                 {
                     "role": "user",
                     "content": (
-                        f"They said: \"{user_message}\"\n"
-                        f"You replied: \"{agent_response}\"\n\n"
+                        f'They said: "{user_message}"\n'
+                        f'You replied: "{agent_response}"\n\n'
                         f"Now call ClassifyInteraction with how that person made you feel."
                     ),
                 }
@@ -604,9 +716,15 @@ async def _classify_and_update_trust(
 
         if result.get("tool_use") and result["tool_use"].get("name") == "ClassifyInteraction":
             tool_input = result["tool_use"].get("input", {})
-            classification = tool_input.get("tone", "curious")
+            raw_classification = tool_input.get("tone", "curious")
+            classification = (
+                raw_classification
+                if isinstance(raw_classification, str)
+                and raw_classification in {"agreeable", "challenging", "curious", "hostile"}
+                else "curious"
+            )
             try:
-                trust_delta = int(tool_input.get("trust_delta", 0))
+                trust_delta = max(-15, min(15, int(tool_input.get("trust_delta", 0))))
             except (TypeError, ValueError):
                 trust_delta = 0
 
@@ -625,24 +743,11 @@ async def _classify_and_update_trust(
             # Cap topic list to most-recent 25
             rel["topics_discussed"] = rel["topics_discussed"][-25:]
 
-        _rel_saver.mark_dirty()
-
-        # Publish a relationship update event for live frontend feedback
-        try:
-            await event_bus.publish(
-                RelationshipUpdateEvent(
-                    agent_id=agent_id,
-                    player_id=user_id,
-                    trust=new_trust,
-                    delta=trust_delta,
-                    classification=classification,
-                )
-            )
-        except Exception as pub_err:  # pragma: no cover — defensive
-            logger.warning(f"Failed to publish RelationshipUpdateEvent: {pub_err}")
+        if persist:
+            _rel_saver.mark_dirty()
 
     except Exception as e:
-        logger.warning(f"ClassifyInteraction failed for {agent_id} / user={user_id}: {e}")
+        logger.warning("ClassifyInteraction failed for %s: %s", agent_id, e)
 
 
 def _build_user_persona_prompt(profile: dict, scenario) -> str:
@@ -702,8 +807,7 @@ def _build_chat_system_prompt(agent_state, scenario, trust: int = 0) -> str:
     recent = agent_state.get_recent_memories(10)
     if recent:
         parts.append(
-            "\n\n--- WHAT YOU'VE BEEN UP TO LATELY ---\n"
-            + "\n".join(f"- {m}" for m in recent)
+            "\n\n--- WHAT YOU'VE BEEN UP TO LATELY ---\n" + "\n".join(f"- {m}" for m in recent)
         )
 
     # Chat instructions

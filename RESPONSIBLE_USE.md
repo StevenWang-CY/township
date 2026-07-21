@@ -32,13 +32,15 @@ Township is **not**:
 
 ## The disclaimer
 
-This block ships with Township — in the UI, in exported outputs, and in every
-scenario. Other documents embed it verbatim; if you fork or deploy Township,
-keep it visible.
+Every scenario supplies this four-part disclosure contract. The core notice is
+fixed; the resident, subject, and output notices must describe that package
+accurately. Township keeps the active package's notices visible in the UI and
+embeds them in persisted summaries and exported outputs. The baseline below is
+quoted in general project documents; individual packages use more precise copy.
 
 > **Township is a simulation, not a poll.** Its outputs do not measure real public opinion and must never be presented as if they do.
 > **The residents are fictional composites**, informed by public demographic data. No real resident is depicted.
-> **The candidates are real public figures**; their positions are quoted from cited public sources, not invented.
+> **Real public figures are represented through public source material**, summarized where necessary; verify the scenario's cited sources before relying on any claim.
 > **Every output is an LLM artifact**, shaped by who wrote the personas and by the model's own biases.
 
 ## Intended uses
@@ -80,11 +82,14 @@ These are decisions built into the project, not aspirations:
    by public demographic data. Contributions depicting real private
    individuals are rejected in review, full stop.
 2. **Real people appear only as sourced public figures.** Candidates and
-   officials enter a scenario with their positions quoted from cited public
-   sources — never invented, never put in fabricated conversations with
-   "constituents" presented as real.
-3. **Disclaimers ship in the product.** The disclaimer block above appears in
-   the UI and accompanies simulation outputs. It is not buried in a README.
+   officials enter a scenario through public source material — summarized
+   where necessary, with a source list that readers should independently
+   verify — never as fictional residents or fabricated constituent voices.
+   The flagship package primarily contains authored summaries and file-level
+   source lists; it is not a transcript or a claim-level quotation archive.
+3. **Disclaimers ship in the product.** The fixed core notice and the active
+   package's resident, subject, and output notices appear in the UI and
+   accompany simulation outputs. They are not buried in a README.
 4. **The flagship real-election scenario is retrospective.** The NJ-11 special
    election scenario was published only after the April 2026 results were
    certified, alongside an honest error analysis of where the simulation

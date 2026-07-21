@@ -3,12 +3,13 @@
 ### Is this a poll?
 
 No. This is the one answer that matters most, so here is the disclaimer that ships
-with Township — in the UI, in exported outputs, and in every scenario — quoted
-verbatim from [RESPONSIBLE_USE.md](../RESPONSIBLE_USE.md):
+with Township, quoted from [RESPONSIBLE_USE.md](../RESPONSIBLE_USE.md). The core
+notice is fixed; each package supplies more precise resident, subject, and output
+lines that remain visible in the UI and travel with its exported runs:
 
 > **Township is a simulation, not a poll.** Its outputs do not measure real public opinion and must never be presented as if they do.
 > **The residents are fictional composites**, informed by public demographic data. No real resident is depicted.
-> **The candidates are real public figures**; their positions are quoted from cited public sources, not invented.
+> **Real public figures are represented through public source material**, summarized where necessary; verify the scenario's cited sources before relying on any claim.
 > **Every output is an LLM artifact**, shaped by who wrote the personas and by the model's own biases.
 
 If you fork or deploy Township, keep it visible. Read the rest of
@@ -17,36 +18,51 @@ the project's design commitments.
 
 ### How much does a simulation cost?
 
-With the default setup (Claude Sonnet 4.5 — $3/M input, $15/M output tokens, the
-same pricing in the `MODEL_COSTS` catalog in `backend/providers/base.py`), the
-README's estimates:
+It depends on cast size, round plan, provider, model, output length, retries, and
+whether the provider accepts a prompt-cache read. Treat a pre-run estimate as a
+budget ceiling, not a quote.
 
-| Activity | Est. cost |
-|---|---|
-| Dev testing (Dover only, 3 rounds) | ~$0.50 |
-| Full simulation (26 agents, 5 rounds) | ~$3.50 |
-| Demo chat (~20 exchanges) | ~$0.50 |
-| God's View (3 injections) | ~$1.00 |
-| **Full demo session** | **~$7.50** |
+There is one concrete reference point in the repository. The shipped NJ-11
+retrospective ran 26 fictional residents through five rounds and produced 883
+events with zero failed agents. The committed cache reports:
 
-Prompt caching on the persona system block is on by default and cuts repeated-call
-input cost by roughly 85% — the full-simulation figure assumes it. You never have to
-guess: `GET /api/simulation/status` reports live token counts and dollars mid-run,
-and `township run` prints the final cost when it finishes.
+| Meter | Recorded value |
+|---|---:|
+| Model calls | 405 |
+| Metered token units | 1,501,405 |
+| Cache reads / writes | 0 / 1,016,470 tokens |
+| Cost when the district summary finalized | $7.3192 |
+| Final provider usage, after the narrative recap call | **$7.3298** |
+
+That is the cost of one specific July 21, 2026 Bedrock/Claude run, not a promise
+about what another model or provider will charge. The exact artifact is
+[`scenarios/nj11-2026/demo/simulation_cache.json`](../scenarios/nj11-2026/demo/simulation_cache.json),
+and its interpretation and limitations are documented in the
+[NJ-11 retrospective](nj11-retrospective.md).
+
+That run is also why whole-system-block prompt caching is **off by default**. The
+system prompt carries changing memories, stance, and round goals; this artifact paid
+for cache writes and received no cache reads. `BEDROCK_CACHE_SYSTEM=1` or
+`ANTHROPIC_CACHE_SYSTEM=1` is an experimental opt-in for workloads that prove a
+different pattern. `GET /api/simulation/status` reports cache reads, writes, tokens,
+and dollars, while `township run` prints final usage. Use the mock, replay, or a
+local model while iterating, then run a single town or fewer rounds before paying
+for a full scenario.
 
 ### Can I run it completely free?
 
 Yes, three ways:
 
-1. **Mock provider** — `make demo` (or `LLM_PROVIDER=mock` anywhere) runs the whole
-   pipeline on a deterministic zero-key mock. Conversations are canned but every
-   phase, event, and chart works. All backend tests run this way.
+1. **Mock provider** — `township run --provider mock` runs the whole pipeline on a
+   deterministic zero-key mock. `LLM_PROVIDER=mock make dev` does the same through
+   the visual app. Conversations are template-generated, but every phase, event,
+   and chart works. All backend tests run this way.
 2. **Replay** — `POST /api/simulation/replay` (or `township replay --run-id ...`)
    streams a cached run through the WebSocket. Zero LLM calls, identical UI.
 3. **Local models** — `LLM_PROVIDER=ollama` (default model `llama3.1`, base URL
    `http://localhost:11434/v1`) or `LLM_PROVIDER=lmstudio` run against your own
-   hardware. Local models are priced at $0.00 in the cost catalog because that's
-   what they cost.
+   hardware. Township reports $0.00 in API charges for these providers; that does
+   not account for hardware, electricity, or hosted local-model infrastructure.
 
 ### Does it need AWS?
 
@@ -65,34 +81,52 @@ by CI (`.github/workflows/smoke.yml`).
 
 ### What models work?
 
-Anything your chosen provider serves. The cost catalog knows Claude Sonnet 4.5,
-Opus 4.1, and Haiku 4.5, plus the GPT-4.1 and GPT-4o families; unknown models simply
-cost $0.00 in the report (that's how local models are handled). Each provider has a
-model env override (`BEDROCK_MODEL_ID`, `ANTHROPIC_MODEL`, `OPENAI_MODEL`,
-`OPENROUTER_MODEL`, `OLLAMA_MODEL`, `LMSTUDIO_MODEL`), and each persona can pin its
-own model with a `model:` key in its frontmatter (default `claude-sonnet-4-5`) — so
-one town could deliberate on Haiku while another runs Sonnet.
+Anything your chosen provider serves through the adapter's API shape. The cost
+catalog knows selected Claude and OpenAI model families. Unknown OpenAI-compatible
+and local models report $0.00; unknown Anthropic-family ids use Township's Sonnet
+catalog rate as an estimate. Neither result is a provider quote. Verify current
+provider pricing before a paid run. Each
+provider has a model env override (`BEDROCK_MODEL_ID`, `ANTHROPIC_MODEL`, `OPENAI_MODEL`,
+`OPENROUTER_MODEL`, `OLLAMA_MODEL`, `LMSTUDIO_MODEL`). A persona may optionally pin
+its own model with a `model:` key in frontmatter, but shipped personas leave that
+unset so provider configuration behaves predictably. A custom scenario can still
+run one town on Haiku and another on Sonnet by pinning selected residents.
+
+The source development install and Docker image include the optional OpenAI client.
+If you installed only the Python wheel, run `pip install 'township[openai]'` before
+selecting OpenAI, OpenRouter, Ollama, or LM Studio.
 
 ### How long does a simulation take?
 
 On the mock provider: seconds. A full 26-agent district run capped at 3 rounds
 completed in about 8 seconds and made 251 LLM calls — which is the number that
 matters, because on a real provider wall time is just call count × model latency ÷
-concurrency (calls are capped at 10 in flight by the provider semaphore). With a
+concurrency (calls are capped at 10 in flight by default, configurable with
+`LLM_MAX_CONCURRENT`). With a
 hosted Claude model expect a full 5-round NJ-11 run to take on the order of tens of
 minutes. Demos should replay a cached run instead — instant start, zero cost.
 
 ### Do agents remember talking to me?
 
-Yes, in three layers. Chats are appended to the agent's in-memory stream, so later
-conversations and opinion checks can reference them (this layer resets on server
-restart). The *relationship* — a trust score from −100 to 100, encounter count,
-topics discussed, and whatever you've revealed about yourself — persists to
-`data/state/relationships.json` across restarts, and trust changes how the agent
-treats you, from terse and guarded to warm and personal. Finally, the journal
-(`/api/journal`) keeps full transcripts per player. Chats can genuinely move an
-agent's opinion: each exchange triggers a re-evaluation, and a changed stance is
-published as an `opinion_changed` event for every connected client to see.
+Yes, privately. The *relationship* — a trust score from −100 to 100, encounter count,
+topics discussed, and the bounded profile details you supplied — persists to
+`data/state/relationships.json` and changes how the agent treats your next authorized
+chat, from terse and guarded to warm and personal. The journal (`/api/journal`) keeps
+the transcript you choose to save. Both stores require a random browser-held
+capability; only its SHA-256 digest reaches disk.
+
+The digest binding is durable before the first private record is written, and each
+private mutation reaches disk before its endpoint returns success. Corrupt capability,
+relationship, or journal state locks these routes closed instead of exposing an empty
+store. On upgrade, rows created before capabilities existed cannot be securely
+assigned to a browser: Township removes them from the active files and keeps a local,
+API-inaccessible `*.legacy-unbound.json` quarantine for operator review.
+
+Private chat text is deliberately not appended to shared agent memory, persisted in
+run artifacts, broadcast over WebSocket, or used to change the shared simulation
+opinion. `opinion_changed` comes from public simulation phases and transparent God's
+View interventions. This avoids letting one viewer silently alter every other
+viewer's world.
 
 ### How accurate was the NJ-11 simulation?
 
@@ -118,9 +152,10 @@ person is. The richer the file, the better the deliberation.
 
 ### How do I add a town or a whole new scenario?
 
-Everything domain-specific lives in a scenario package under `scenarios/<id>/` —
-towns, personas, options, news beats, God's View presets. Never in code. Scaffold
-one:
+All deliberation content lives in a scenario package under `scenarios/<id>/` —
+towns, personas, options, news beats, God's View presets. Every town gets the
+scenario-neutral procedural renderer; authored pixel art is an explicit town-level
+adapter. Scaffold one:
 
 ```bash
 township new-scenario my-town-vote      # loadable package with 1 town, 2 residents
@@ -135,6 +170,19 @@ town id in `scenario.json`'s `town_order`. The full format — round plans, news
 beats, option files, context extras — is specified in
 [scenario-format.md](scenario-format.md).
 
+For authored art, run the scenario-aware builder:
+
+```bash
+python3 -m scripts.mapgen.build_maps --scenario <scenario> --town <town> --preview
+```
+
+Then declare the exact scenario-qualified paths
+`assets/maps/<scenario>/<town>.tmj` and
+`assets/maps/<scenario>/<town>-preview.png` in the town's `map` block. Hand-tuned
+Python layouts use underscore-normalized ids under
+`scripts/mapgen/layouts/<scenario_with_underscores>/<town_with_underscores>.py`; see the
+[map-generation guide](../scripts/mapgen/README.md).
+
 ### Do I have to simulate elections?
 
 No. The engine deliberates any civic question. The repo ships `millbrook-budget` — a
@@ -145,12 +193,18 @@ argue about.
 
 ### Can I save and share a run?
 
-Every completed simulation persists to `runs/<run_id>/` (summary, full event log,
-narrative recap). `GET /api/runs/{run_id}/export` downloads the whole thing as one
-self-contained JSON bundle, and the receiving side can replay it with
-`POST /api/simulation/replay` — the full pixel-town playback, no LLM calls. The
-recap (`GET /api/simulation/recap`) is a Markdown story of the run, headline
-included.
+Persistence is best-effort so a storage failure cannot retroactively fail a completed
+deliberation. On success, one complete `runs/<run_id>/` appears atomically with a
+summary and full public event log; the narrative recap is optional.
+`GET /api/runs/{run_id}/export` downloads a self-contained JSON bundle, and the receiving
+side can replay it with `POST /api/simulation/replay` — the full pixel-town playback,
+no LLM calls.
+
+Current artifacts carry explicit schema and privacy versions. Township hides/refuses
+unversioned runs and caches because old player chat can be embedded in ordinary-looking
+public prose that event-type filtering cannot identify. Regenerate old artifacts;
+never make them shareable by adding version fields manually. When a recap exists,
+`GET /api/simulation/recap` returns its Markdown story and headline.
 
 ### Can I run just one town?
 
@@ -160,11 +214,14 @@ Yes — cheaper and faster for iteration. `TOWN=dover make sim`,
 
 ### What's the license, and whose art is this?
 
-Township's code is MIT-licensed (see [LICENSE](../LICENSE)). The pixel art is not
-ours: character spritesheets come from Stanford's Generative Agents ("Smallville")
-project and the tileset from a16z's ai-town, vendored under their original licenses.
-[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) lists exactly which files came
-from where, verified against the upstream repositories.
+Township's code and original visual additions are MIT-licensed (see
+[LICENSE](../LICENSE)). Third-party character sheets come from Stanford's
+Generative Agents ("Smallville"); the RPG tilesheet comes through AI Town from
+hilau, George Bailey, bluecarrot16, and earlier LPC contributors; and the player
+sprite is credited to ansimuz. These assets keep their Apache-2.0, CC BY-SA 3.0,
+CC0, or MIT terms as applicable. [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)
+contains the file-by-file inventory, source links, attribution chain,
+modification notices, and known provenance qualifications.
 
 ### I saw Township being misused. Where do I report it?
 

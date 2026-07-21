@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useRef } from "react";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
 import { UserProfileProvider, useUserProfile } from "./context/UserProfileContext";
 import { WebSocketProvider, useWebSocketContext } from "./context/WebSocketContext";
@@ -6,14 +6,29 @@ import { ScenarioProvider } from "./context/ScenarioContext";
 import { useScenario } from "./hooks/useScenario";
 import { useAudio } from "./hooks/useAudio";
 import DistrictMap from "./components/DistrictMap";
-import TownView from "./components/TownView";
-import OnboardingView from "./components/OnboardingView";
 import Dashboard from "./components/Dashboard";
 import GodsView from "./components/GodsView";
 import Journal from "./components/Journal";
 import DemoBanner from "./components/DemoBanner";
 import DemoTimeline from "./components/DemoTimeline";
+import ResponsibleUseNotice from "./components/ResponsibleUseNotice";
 import { DEMO_MODE } from "./demo/demoMode";
+import { eventsSince } from "./hooks/useWebSocket";
+import { appUrl } from "./lib/assetUrl";
+
+// Phaser is the largest dependency in the app. Keep it off the district map,
+// dashboard, and documentation-style surfaces until somebody enters a town.
+const TownView = lazy(() => import("./components/TownView"));
+const OnboardingView = lazy(() => import("./components/OnboardingView"));
+
+function RouteLoading() {
+  return (
+    <div className="route-loading" role="status" aria-live="polite">
+      <span className="route-loading-mark" aria-hidden="true" />
+      <span>Opening the town…</span>
+    </div>
+  );
+}
 
 function AppShell() {
   const ws = useWebSocketContext();
@@ -31,6 +46,8 @@ function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsWrapperRef = useRef<HTMLDivElement>(null);
 
   // Wire global audio cues to user-profile preferences + WebSocket events.
   // NOTE: `audio` is intentionally NOT in this effect's deps — its setters
@@ -45,12 +62,17 @@ function AppShell() {
 
   // Play a SFX when interesting simulation events arrive.
   // Same dep-array discipline as above: only the event count drives this.
-  const lastEventIdxRef = useRef(0);
+  const lastEventCursorRef = useRef(0);
   useEffect(() => {
-    if (ws.events.length <= lastEventIdxRef.current) return;
-    const fresh = ws.events.slice(lastEventIdxRef.current);
-    lastEventIdxRef.current = ws.events.length;
-    for (const evt of fresh) {
+    const delta = eventsSince(ws, lastEventCursorRef.current);
+    lastEventCursorRef.current = ws.eventCursor;
+
+    // A backward seek is state navigation, not a burst of new activity. A
+    // large forward jump (or a live-history gap after a suspended tab) is
+    // reconciled by state consumers without playing hundreds of stale sounds.
+    if (delta.direction !== "forward" || delta.historyGap || delta.events.length > 24) return;
+
+    for (const evt of delta.events) {
       switch (evt.type) {
         case "opinion_changed":
           audio.play("opinion_change");
@@ -60,11 +82,15 @@ function AppShell() {
           break;
         case "agent_speech":
           audio.play("speech_pop");
+          // Mirror only newly-arrived speech. Re-reducing a replay prefix must
+          // never announce historical/future dialogue to a screen reader.
+          document.getElementById("aria-live-speech")!.textContent =
+            `Agent ${evt.agent_name}: ${evt.text}`;
           break;
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws.events.length]);
+  }, [ws.eventCursor]);
 
   // Apply reduced-motion attribute on <html>
   useEffect(() => {
@@ -81,15 +107,42 @@ function AppShell() {
     document.documentElement.classList.toggle("high-contrast", !!profile?.highContrast);
   }, [profile?.highContrast]);
 
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const close = (restoreFocus: boolean) => {
+      setSettingsOpen(false);
+      if (restoreFocus) requestAnimationFrame(() => settingsButtonRef.current?.focus());
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close(true);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (!settingsWrapperRef.current?.contains(event.target as Node)) close(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [settingsOpen]);
+
   const onResetProfile = () => {
-    if (!confirm("Reset your profile? This clears your name, town, and progress.")) return;
+    const message = DEMO_MODE
+      ? "Reset this session's demo preferences?"
+      : "Reset your profile? This clears your name, town, and progress.";
+    if (!confirm(message)) return;
     clearProfile();
     setSettingsOpen(false);
-    navigate("/onboarding");
+    if (!DEMO_MODE) navigate("/onboarding");
   };
 
+  const demoTimelineVisible = DEMO_MODE && (
+    location.pathname.startsWith("/town/") || location.pathname === "/dashboard"
+  );
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className={`min-h-screen flex flex-col${DEMO_MODE ? " demo-mode" : ""}`}>
       {/* ── Header ───────────────────────────────────────── */}
       <header
         className="flex items-center justify-between px-6 py-3 relative"
@@ -109,10 +162,10 @@ function AppShell() {
           </span>
           <span
             className="text-xs font-medium px-2.5 py-0.5 rounded-full"
-            style={{ background: "var(--gold-accent)", color: "#fff", letterSpacing: "0.06em", fontFamily: "var(--font-body)" }}
+            style={{ background: "var(--gold-accent)", color: "var(--text-on-gold)", letterSpacing: "0.06em", fontFamily: "var(--font-body)" }}
             title={scen.title}
           >
-            {scen.isNJ11 ? "NJ-11" : scen.title}
+            {scen.title}
           </span>
         </Link>
 
@@ -121,6 +174,8 @@ function AppShell() {
           className="mobile-menu-btn"
           onClick={() => setMenuOpen(!menuOpen)}
           aria-label="Toggle menu"
+          aria-expanded={menuOpen}
+          aria-controls="primary-navigation"
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             {menuOpen ? (
@@ -138,7 +193,7 @@ function AppShell() {
           </svg>
         </button>
 
-        <nav className={`nav-links ${menuOpen ? "nav-links--open" : ""}`}>
+        <nav id="primary-navigation" className={`nav-links ${menuOpen ? "nav-links--open" : ""}`}>
           {[
             { to: "/", label: "Map" },
             { to: "/dashboard", label: "Dashboard" },
@@ -171,6 +226,20 @@ function AppShell() {
             );
           })}
 
+          <a
+            href={appUrl("legal/THIRD_PARTY_NOTICES.md")}
+            target="_blank"
+            rel="noreferrer"
+            className="relative px-3 py-1.5 text-sm font-medium"
+            style={{
+              fontFamily: "var(--font-body)",
+              fontSize: "13px",
+              color: "var(--text-secondary)",
+            }}
+          >
+            Credits
+          </a>
+
           {/* Journal */}
           {isOnboarded && (
             <button
@@ -178,6 +247,9 @@ function AppShell() {
               title="Open your journal"
               onClick={() => setJournalOpen(true)}
               aria-label="Open journal"
+              aria-haspopup="dialog"
+              aria-expanded={journalOpen}
+              aria-controls="journal-panel"
             >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 3v12a1 1 0 0 0 1 1h11" />
@@ -190,12 +262,16 @@ function AppShell() {
           )}
 
           {/* Settings */}
-          <div className="header-settings-wrapper">
+          <div className="header-settings-wrapper" ref={settingsWrapperRef}>
             <button
+              ref={settingsButtonRef}
               className="header-icon-btn"
               title="Settings"
               onClick={() => setSettingsOpen((b) => !b)}
               aria-label="Settings"
+              aria-expanded={settingsOpen}
+              aria-controls="header-settings-menu"
+              aria-haspopup="dialog"
             >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="9" cy="9" r="2.5" />
@@ -203,7 +279,7 @@ function AppShell() {
               </svg>
             </button>
             {settingsOpen && profile && (
-              <div className="header-settings-menu">
+              <div id="header-settings-menu" className="header-settings-menu" role="dialog" aria-label="Display and audio settings">
                 <h4 className="header-settings-title">Settings</h4>
                 <label className="header-settings-row">
                   <span>Audio</span>
@@ -238,7 +314,7 @@ function AppShell() {
                   />
                 </label>
                 <button className="header-settings-reset" onClick={onResetProfile}>
-                  Reset profile
+                  {DEMO_MODE ? "Reset demo preferences" : "Reset profile"}
                 </button>
               </div>
             )}
@@ -260,25 +336,26 @@ function AppShell() {
         </nav>
       </header>
 
+      <ResponsibleUseNotice />
+
       {/* Demo-mode ribbon: recorded deliberation + star link */}
       {DEMO_MODE && <DemoBanner />}
 
       {/* ── Content ──────────────────────────────────────── */}
-      <main className="flex-1">
-        <Routes>
-          <Route path="/" element={<DistrictMap />} />
-          <Route path="/onboarding" element={<OnboardingView />} />
-          <Route path="/town/:townId" element={<TownView ws={ws} />} />
-          <Route path="/dashboard" element={<Dashboard ws={ws} />} />
-          <Route path="/gods-view" element={<GodsView ws={ws} />} />
-        </Routes>
+      <main className={`flex-1${demoTimelineVisible ? " demo-timeline-space" : ""}`}>
+        <Suspense fallback={<RouteLoading />}>
+          <Routes>
+            <Route path="/" element={<DistrictMap />} />
+            <Route path="/onboarding" element={<OnboardingView />} />
+            <Route path="/town/:townId" element={<TownView ws={ws} />} />
+            <Route path="/dashboard" element={<Dashboard ws={ws} />} />
+            <Route path="/gods-view" element={<GodsView ws={ws} />} />
+          </Routes>
+        </Suspense>
       </main>
 
       {/* Demo replay media bar — on the town + dashboard surfaces */}
-      {DEMO_MODE &&
-        (location.pathname.startsWith("/town/") || location.pathname === "/dashboard") && (
-          <DemoTimeline />
-        )}
+      {demoTimelineVisible && <DemoTimeline />}
 
       {/* Journal panel */}
       <Journal open={journalOpen} onClose={() => setJournalOpen(false)} />

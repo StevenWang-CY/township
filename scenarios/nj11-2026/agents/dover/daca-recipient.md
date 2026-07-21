@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "07:30", location: "Public Housing", activity: "Wakes up, makes coffee, helps Diego with breakfast" }
   - { time: "09:00", location: "Public Library", activity: "Opens the teen homework help station, shelves returns" }

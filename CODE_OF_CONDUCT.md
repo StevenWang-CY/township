@@ -19,8 +19,8 @@ keeps it workable:
   depicting were reading over your shoulder, they should recognize
   themselves — not feel mocked.
 
-The remainder of this document is the Contributor Covenant, version 2.1,
-adopted verbatim.
+The remainder of this document is adapted from the Contributor Covenant,
+version 2.1, with the project-specific note above.
 
 ---
 

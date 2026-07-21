@@ -9,6 +9,8 @@ import { useSimulation } from "../hooks/useSimulation";
 import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, SimulationEndedEvent, OpinionChangedEvent, Relationship, NewsReaction } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
 import { DEMO_MODE } from "../demo/demoMode";
+import { appUrl } from "../lib/assetUrl";
+import { readableInk } from "../lib/color";
 
 interface DashboardProps {
   ws: {
@@ -19,6 +21,7 @@ interface DashboardProps {
     totalRounds?: number;
     simulationRunning: boolean;
     events?: SimulationEvent[];
+    eventCursor?: number;
     relationships?: Record<string, Relationship>;
     newsReactions?: NewsReaction[];
   };
@@ -31,14 +34,13 @@ export default function Dashboard({ ws }: DashboardProps) {
   const [filter, setFilter] = useState<"all" | TownId | LeanId>("all");
   const [results, setResults] = useState<DistrictSummary | null>(null);
   const { profile } = useUserProfile();
-  const { trustFor } = useRelationships(profile?.playerId, {
-    liveRelationships: ws.relationships,
-  });
+  const { trustFor } = useRelationships(profile?.playerId);
   const { startSimulation, loading: simStartLoading, error: simStartError } = useSimulation();
   const [replayLoading, setReplayLoading] = useState(false);
 
   // Fetch results — backend now returns a flat DistrictSummary (no envelope).
   const refetchResults = useCallback(() => {
+    if (DEMO_MODE) return;
     fetch("/api/simulation/results")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -90,7 +92,7 @@ export default function Dashboard({ ws }: DashboardProps) {
     }
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws.events?.length]);
+  }, [ws.eventCursor, ws.events]);
 
   const summaryData = results ?? streamedSummary;
 
@@ -113,16 +115,27 @@ export default function Dashboard({ ws }: DashboardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stanceIds.join("|")]);
 
-  // Compute opinions per town — all-zero until a simulation supplies agents.
+  // Compute opinions per town. Live AgentState wins; before a new run starts,
+  // keep the latest persisted summary visible instead of pairing old insight
+  // prose with an empty donut.
   const townOpinions = useMemo(() => {
     const result: Record<TownId, Record<LeanId, number>> = {};
     for (const t of towns) result[t] = emptyOpinions();
-    for (const a of allAgents) {
-      const lean = (a.opinion?.candidate as LeanId) || undecidedId;
-      if (result[a.town]) result[a.town][lean] = (result[a.town][lean] || 0) + 1;
+    if (allAgents.length > 0) {
+      for (const a of allAgents) {
+        const lean = (a.opinion?.candidate as LeanId) || undecidedId;
+        if (result[a.town]) result[a.town][lean] = (result[a.town][lean] || 0) + 1;
+      }
+    } else {
+      for (const summary of summaryData?.town_summaries ?? []) {
+        if (!result[summary.town]) result[summary.town] = emptyOpinions();
+        for (const [lean, count] of Object.entries(summary.opinions ?? {})) {
+          result[summary.town][lean] = count;
+        }
+      }
     }
     return result;
-  }, [allAgents, towns, emptyOpinions, undecidedId]);
+  }, [allAgents, towns, emptyOpinions, undecidedId, summaryData]);
 
   const overallOpinions = useMemo(() => {
     const total = emptyOpinions();
@@ -134,6 +147,12 @@ export default function Dashboard({ ws }: DashboardProps) {
     return total;
   }, [townOpinions, towns, emptyOpinions]);
 
+  const opinionTotal = useMemo(
+    () => Object.values(overallOpinions).reduce((sum, count) => sum + count, 0),
+    [overallOpinions],
+  );
+  const hasOpinionData = opinionTotal > 0;
+
   // Filtered agents
   const filteredAgents = useMemo(() => {
     if (allAgents.length === 0) return [];
@@ -144,24 +163,13 @@ export default function Dashboard({ ws }: DashboardProps) {
     return allAgents.filter((a) => (a.opinion?.candidate || undecidedId) === filter);
   }, [allAgents, filter, towns, undecidedId]);
 
-  // The canned consensus / fault-line prose is NJ-11 offline furniture only.
-  const consensusZones = summaryData?.consensus_zones || (scen.isNJ11 && !DEMO_MODE ? [
-    "Gateway Tunnel is critical infrastructure",
-    "Property taxes are too high across the district",
-    "Healthcare affordability affects all demographics",
-  ] : []);
-
-  const faultLines = summaryData?.fault_lines || (scen.isNJ11 && !DEMO_MODE ? [
-    "Immigration: Dover fears ICE; Randolph wants enforcement",
-    "Taxes: Randolph wants cuts; Montclair wants progressive revenue",
-    "Israel/Gaza: Deep divide between progressive and conservative blocs",
-  ] : []);
+  const consensusZones = summaryData?.consensus_zones || [];
+  const faultLines = summaryData?.fault_lines || [];
 
   return (
     <div
       className="max-w-7xl mx-auto px-6 py-6"
-      // Demo build: leave room for the fixed replay timeline bar.
-      style={{ background: "var(--bg-cream)", paddingBottom: DEMO_MODE ? 88 : undefined }}
+      style={{ background: "var(--bg-cream)" }}
     >
       {/* Header */}
       <div className="mb-6" style={{ animation: "stagger-in 0.5s var(--ease-genshin) backwards" }}>
@@ -186,9 +194,7 @@ export default function Dashboard({ ws }: DashboardProps) {
           <rect x="64" y="1.5" width="7" height="7" rx="1" transform="rotate(45 67.5 5)" fill="var(--gold-accent)" opacity="0.45" />
         </svg>
         <p className="text-sm" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
-          {scen.isNJ11
-            ? "Cross-town comparison of NJ-11 agent deliberation"
-            : `Cross-town comparison — ${scen.title}`}
+          {`Cross-town comparison — ${scen.title}`}
           {ws.simulationRunning && ` | Round ${ws.currentRound}`}
         </p>
       </div>
@@ -207,7 +213,7 @@ export default function Dashboard({ ws }: DashboardProps) {
               <div key={t} className="dashboard-scoreboard-town" style={{ borderLeft: `3px solid ${meta.color}` }}>
                 <strong>{meta.name}</strong>
                 <span>Met {metInTown}{total > 0 ? ` / ${total}` : ""}</span>
-                <span style={{ color: "#C4A35A" }}>★ {persuadedInTown}</span>
+                <span style={{ color: "var(--gold-ink)" }}>★ {persuadedInTown}</span>
               </div>
             );
           })}
@@ -230,13 +236,18 @@ export default function Dashboard({ ws }: DashboardProps) {
         </div>
         <div className="flex-1">
           <h3 className="font-semibold text-sm mb-2" style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", letterSpacing: "0.5px" }}>
-            District-Wide Sentiment {hasLiveAgents ? `(${allAgents.length} agents)` : ""}
+            District-Wide Sentiment {hasOpinionData ? `(${opinionTotal} agents)` : ""}
           </h3>
-          {hasLiveAgents ? (
+          {hasOpinionData ? (
             <div className="flex gap-6 mb-3 flex-wrap">
               {stanceIds.map((k) => (
                 <div key={k} className="text-center">
-                  <div className="text-2xl font-bold" style={{ color: optionColor(k) }}>
+                  <div
+                    className="text-2xl font-bold"
+                    data-stance-id={k}
+                    data-stance-count={overallOpinions[k] || 0}
+                    style={{ color: readableInk(optionColor(k)) }}
+                  >
                     {overallOpinions[k] || 0}
                   </div>
                   <div className="text-xs" style={{ color: "var(--township-ink-muted)" }}>
@@ -250,6 +261,9 @@ export default function Dashboard({ ws }: DashboardProps) {
               Run a simulation to see live district sentiment.
             </p>
           )}
+          {!hasLiveAgents && hasOpinionData && (
+            <p className="dashboard-data-note">Latest completed run</p>
+          )}
 
           {/* Simulation controls — hidden in the demo build; the replay
               timeline (bottom of the screen) is the transport there. */}
@@ -262,9 +276,10 @@ export default function Dashboard({ ws }: DashboardProps) {
             <button
               onClick={handleStart}
               disabled={ws.simulationRunning || simStartLoading}
-              className="px-4 py-2 rounded-lg text-sm text-white disabled:opacity-60"
+              className="px-4 py-2 rounded-lg text-sm disabled:opacity-60"
               style={{
                 background: ws.simulationRunning ? "var(--civic-blue)" : "var(--gold-accent)",
+                color: ws.simulationRunning ? "var(--text-on-accent)" : "var(--text-on-gold)",
                 fontFamily: "var(--font-display)",
                 fontWeight: 600,
                 letterSpacing: "0.5px",
@@ -296,7 +311,7 @@ export default function Dashboard({ ws }: DashboardProps) {
               {replayLoading ? "Replaying…" : "Replay last run"}
             </button>
             {simStartError && (
-              <span className="text-xs" style={{ color: "#EF4444" }}>
+              <span className="dashboard-inline-error text-xs" role="alert">
                 {simStartError}
               </span>
             )}
@@ -317,12 +332,16 @@ export default function Dashboard({ ws }: DashboardProps) {
           return (
             <div
               key={t}
-              className="rounded-xl p-4 cursor-pointer"
+              className="dashboard-town-card rounded-xl px-4 py-3 cursor-pointer"
+              role="button"
+              tabIndex={0}
+              aria-label={`Visit ${meta.name}`}
               style={{
                 background: "var(--bg-card)",
-                border: "1.5px solid var(--card-border)",
+                borderWidth: "3px 1.5px 1.5px",
+                borderStyle: "solid",
+                borderColor: `${meta.color} var(--card-border) var(--card-border)`,
                 boxShadow: "var(--shadow-soft)",
-                borderTop: `3px solid ${meta.color}`,
                 transition: "all 250ms cubic-bezier(0.22, 1, 0.36, 1)",
                 animation: "stagger-in 0.4s var(--ease-genshin) backwards",
                 animationDelay: `${160 + towns.indexOf(t) * 80}ms`,
@@ -330,34 +349,40 @@ export default function Dashboard({ ws }: DashboardProps) {
               onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "var(--shadow-hover)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "var(--shadow-soft)"; }}
               onClick={() => navigate(`/town/${t}`)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  navigate(`/town/${t}`);
+                }
+              }}
             >
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2">
                 <span className="w-3 h-3 rounded-full" style={{ background: meta.color }} />
-                <h3 className="font-semibold text-sm" style={{ fontFamily: "var(--font-display)", color: meta.color, fontWeight: 600 }}>
+                <h3 className="font-semibold text-sm" style={{ fontFamily: "var(--font-display)", color: readableInk(meta.color), fontWeight: 600 }}>
                   {meta.name}
                 </h3>
-                <span className="text-xs ml-auto font-semibold" style={{ color: meta.color }}>
+                <span className="text-xs ml-auto font-semibold" style={{ color: readableInk(meta.color) }}>
                   {meta.population}
                 </span>
               </div>
 
-              <div className="flex justify-center mb-3">
-                <OpinionChart opinions={townOpinions[t]} size={100} showLegend={false} />
+              <div className="flex justify-center mb-2">
+                <OpinionChart opinions={townOpinions[t]} size={80} showLegend={false} />
               </div>
 
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "1.5px", fontSize: "10px" }}>
+                <h4 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ fontFamily: "var(--font-display)", color: "var(--gold-ink)", letterSpacing: "1.5px", fontSize: "10px" }}>
                   Top Issues
                 </h4>
                 {issues.length > 0 ? (
-                  issues.slice(0, 3).map((issue: string, i: number) => (
+                  issues.slice(0, 2).map((issue: string, i: number) => (
                     <div
                       key={i}
-                      className="flex items-center gap-1.5 text-xs py-0.5"
+                      className="dashboard-town-issue flex items-start gap-1.5 text-xs"
                       style={{ color: "var(--township-ink)" }}
                     >
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color, opacity: 0.5 }} />
-                      {issue}
+                      <span className="dashboard-town-issue-text">{issue}</span>
                     </div>
                   ))
                 ) : (
@@ -377,14 +402,14 @@ export default function Dashboard({ ws }: DashboardProps) {
         <div
           className="warm-glass rounded-xl p-5"
           style={{
-            background: "rgba(255,252,245,0.8)",
-            borderLeft: "3px solid #5D9E4F",
+            background: "var(--warm-glass-strong)",
+            borderLeft: "3px solid var(--color-success)",
           }}
         >
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "#5D9E4F", letterSpacing: "0.5px" }}>
+          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "var(--color-success)", letterSpacing: "0.5px" }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="7" stroke="#5D9E4F" strokeWidth="1.5" />
-              <path d="M5 8l2 2 4-4" stroke="#5D9E4F" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M5 8l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             Consensus Zones
           </h3>
@@ -405,14 +430,14 @@ export default function Dashboard({ ws }: DashboardProps) {
         <div
           className="warm-glass rounded-xl p-5"
           style={{
-            background: "rgba(255,252,245,0.8)",
-            borderLeft: "3px solid #C0792A",
+            background: "var(--warm-glass-strong)",
+            borderLeft: "3px solid var(--color-warning)",
           }}
         >
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "#C0792A", letterSpacing: "0.5px" }}>
+          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "var(--color-warning)", letterSpacing: "0.5px" }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v6M8 11.5v1" stroke="#C0792A" strokeWidth="1.5" strokeLinecap="round" />
-              <circle cx="8" cy="8" r="7" stroke="#C0792A" strokeWidth="1.5" />
+              <path d="M8 3v6M8 11.5v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
             </svg>
             Fault Lines
           </h3>
@@ -440,7 +465,11 @@ export default function Dashboard({ ws }: DashboardProps) {
         return (
           <div className="dashboard-timeline">
             <h3 className="dashboard-timeline-title">Opinion Timeline</h3>
-            <ol className="dashboard-timeline-list">
+            <ol
+              className="dashboard-timeline-list"
+              tabIndex={0}
+              aria-label="Recent opinion changes"
+            >
               {shifts.map((evt, i) => {
                 const oldC = (evt.old_opinion?.candidate as LeanId) ?? undecidedId;
                 const newC = (evt.new_opinion?.candidate as LeanId) ?? undecidedId;
@@ -453,9 +482,9 @@ export default function Dashboard({ ws }: DashboardProps) {
                     <div className="dashboard-timeline-content">
                       <strong>{evt.agent_name}</strong>
                       <span>
-                        <span style={{ color: optionColor(oldC) }}>{optionLabel(oldC)}</span>
+                        <span style={{ color: readableInk(optionColor(oldC)) }}>{optionLabel(oldC)}</span>
                         {" → "}
-                        <span style={{ color: optionColor(newC), fontWeight: 600 }}>{optionLabel(newC)}</span>
+                        <span style={{ color: readableInk(optionColor(newC)), fontWeight: 600 }}>{optionLabel(newC)}</span>
                       </span>
                       <span className="dashboard-timeline-meta">{townMeta(evt.town).name}</span>
                     </div>
@@ -477,8 +506,8 @@ export default function Dashboard({ ws }: DashboardProps) {
             boxShadow: "var(--shadow-soft)",
           }}
         >
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "0.5px" }}>
-            <span className="w-2 h-2 rounded-full" style={{ background: "#EF4444", animation: "pulse-glow 2s ease-in-out infinite" }} />
+          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-ink)", letterSpacing: "0.5px" }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: "var(--color-live)", animation: "pulse-glow 2s ease-in-out infinite" }} />
             Latest Reactions
           </h3>
           <div className="flex flex-col gap-2">
@@ -490,7 +519,7 @@ export default function Dashboard({ ws }: DashboardProps) {
                   className="flex items-start gap-2 rounded-lg px-3 py-2"
                   style={{ background: "var(--township-paper)", borderLeft: `3px solid ${meta?.color ?? "var(--card-border)"}` }}
                 >
-                  <span className="font-medium text-xs shrink-0" style={{ color: meta?.color ?? "var(--township-ink)" }}>
+                  <span className="font-medium text-xs shrink-0" style={{ color: meta?.color ? readableInk(meta.color) : "var(--township-ink)" }}>
                     {r.agent_name}
                   </span>
                   <span className="text-xs" style={{ color: "var(--township-ink-muted)" }}>
@@ -506,7 +535,7 @@ export default function Dashboard({ ws }: DashboardProps) {
 
       {/* Agent Grid */}
       <div className="mb-4 flex items-center gap-2 flex-wrap">
-        <h3 className="font-semibold text-sm mr-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "1px" }}>
+        <h3 className="font-semibold text-sm mr-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-ink)", letterSpacing: "1px" }}>
           All Agents
         </h3>
         {[
@@ -521,7 +550,7 @@ export default function Dashboard({ ws }: DashboardProps) {
             className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
             style={{
               background: filter === f.value ? "var(--civic-blue)" : "var(--card-bg)",
-              color: filter === f.value ? "#fff" : "var(--township-ink-muted)",
+              color: filter === f.value ? "var(--text-on-accent)" : "var(--township-ink-muted)",
               border: `1px solid ${filter === f.value ? "var(--civic-blue)" : "var(--card-border)"}`,
             }}
           >
@@ -544,14 +573,38 @@ export default function Dashboard({ ws }: DashboardProps) {
         </div>
       ) : (
         <div
-          className="rounded-xl p-8 text-center"
+          className="dashboard-empty-state rounded-xl p-8 text-center"
           style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
         >
+          {allAgents.length === 0 && scen.scenario.towns[0]?.map?.preview_path && (
+            <img
+              className="dashboard-empty-illustration pixel-frame"
+              src={appUrl(scen.scenario.towns[0].map.preview_path)}
+              alt=""
+              aria-hidden="true"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            />
+          )}
           <p className="text-sm" style={{ color: "var(--township-ink-muted)" }}>
             {allAgents.length === 0
-              ? "Start a simulation to see agents here. Visit a town to meet demo residents."
+              ? DEMO_MODE
+                ? "The town square is quiet. Press play below, or visit a town while the replay gathers its residents."
+                : "The town square is quiet. Start a simulation, or visit a town to meet its residents."
               : "No agents match this filter."}
           </p>
+          <div className="dashboard-empty-actions">
+            {allAgents.length > 0 && filter !== "all" && (
+              <button type="button" onClick={() => setFilter("all")}>Clear filter</button>
+            )}
+            {allAgents.length === 0 && scen.scenario.towns[0] && (
+              <button
+                type="button"
+                onClick={() => navigate(`/town/${scen.scenario.towns[0].id}`)}
+              >
+                Visit {scen.scenario.towns[0].name}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

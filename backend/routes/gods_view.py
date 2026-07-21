@@ -1,8 +1,9 @@
-import json
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, StringConstraints
 
 from ..core.types import GodsViewResultEvent
 from ..core.wire import news_reaction_to_wire
@@ -11,46 +12,53 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/gods-view", tags=["gods-view"])
 
+GOD_VIEW_PROMPT_MAX_CHARS = 4_000
+
 
 @router.get("/scenarios")
 async def get_scenarios(request: Request):
     """Return the curated God's View injections for the active scenario."""
-    # The Scenario owns this path: scenarios/<id>/god-scenarios.json normally,
-    # data/god_view_scenarios.json when the deprecated legacy layout loaded.
-    scenarios_path = request.app.state.scenario.god_scenarios_path
-    try:
-        with open(scenarios_path) as f:
-            scenarios = json.load(f)
-        return {"scenarios": scenarios}
-    except FileNotFoundError:
-        logger.warning(f"God's View scenarios file not found at {scenarios_path}")
-        return {"scenarios": [], "error": "Scenarios file not found"}
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in scenarios file: {e}")
-        return {"scenarios": [], "error": "Invalid scenarios file"}
+    # Package loading already validates structure, ids, town references, and
+    # symlink containment. Routes never reopen an unchecked scenario path.
+    return {"scenarios": request.app.state.scenario.god_scenarios}
 
 
 class GodViewRequest(BaseModel):
-    description: str
+    description: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=GOD_VIEW_PROMPT_MAX_CHARS,
+        ),
+    ]
 
 
-@router.post("")
-async def inject_god_view(req: GodViewRequest, request: Request):
-    """
-    Inject a variable into the simulation and collect all agent reactions.
-
-    Example descriptions (adapt to the active scenario):
-    - "A leading option's champion is caught on video contradicting a core promise"
-    - "A major local employer announces a shutdown, displacing hundreds of workers"
-    - "One option's backers reverse a signature position days before the decision"
-    """
+async def _run_reserved_injection(
+    req: GodViewRequest,
+    request: Request,
+    operation_token: str,
+) -> dict:
+    """Execute and summarize one already-reserved injection."""
     orchestrator = request.app.state.orchestrator
     event_bus = request.app.state.event_bus
+    scenario = request.app.state.scenario
+    before_by_agent = {}
+    opinion_distribution_before = {stance: 0 for stance in scenario.valid_stance_ids}
+    for town_agents in orchestrator.agent_states.values():
+        for agent in town_agents:
+            opinion = agent.current_opinion
+            candidate = opinion.candidate if opinion else scenario.undecided_id
+            confidence = opinion.confidence if opinion else 0
+            before_by_agent[agent.agent_id] = (candidate, confidence)
+            opinion_distribution_before[candidate] = (
+                opinion_distribution_before.get(candidate, 0) + 1
+            )
 
-    if not req.description.strip():
-        return {"status": "error", "message": "Description cannot be empty"}
-
-    reactions = await orchestrator.inject_god_view(req.description)
+    reactions = await orchestrator.inject_god_view(
+        req.description,
+        _operation_token=operation_token,
+    )
 
     # Convert to wire-format dicts (frontend NewsReaction shape).
     wire_reactions = [
@@ -91,21 +99,30 @@ async def inject_god_view(req: GodViewRequest, request: Request):
         impact_summary[r.impact_on_vote] = impact_summary.get(r.impact_on_vote, 0) + 1
         emotional_summary[r.emotional_response] = emotional_summary.get(r.emotional_response, 0) + 1
 
-    # Get before/after opinions for agents whose minds changed
+    # Compare against the exact pre-injection snapshot. Looking at the last
+    # two lifetime opinions would falsely attribute an older simulation shift
+    # to a new injection that had no effect.
     opinion_shifts = []
+    opinion_distribution_after = {stance: 0 for stance in scenario.valid_stance_ids}
     for town_agents in orchestrator.agent_states.values():
         for agent in town_agents:
-            if len(agent.opinions) >= 2:
-                prev = agent.opinions[-2]
-                curr = agent.opinions[-1]
-                if prev.candidate != curr.candidate:
-                    opinion_shifts.append({
+            current = agent.current_opinion
+            after_candidate = current.candidate if current else scenario.undecided_id
+            after_confidence = current.confidence if current else 0
+            opinion_distribution_after[after_candidate] = (
+                opinion_distribution_after.get(after_candidate, 0) + 1
+            )
+            before_candidate, before_confidence = before_by_agent[agent.agent_id]
+            if before_candidate != after_candidate:
+                opinion_shifts.append(
+                    {
                         "agent": agent.definition.name,
                         "town": agent.definition.town,
-                        "before": prev.candidate,
-                        "after": curr.candidate,
-                        "confidence_change": curr.confidence - prev.confidence,
-                    })
+                        "before": before_candidate,
+                        "after": after_candidate,
+                        "confidence_change": after_confidence - before_confidence,
+                    }
+                )
 
     return {
         "status": "complete",
@@ -115,5 +132,31 @@ async def inject_god_view(req: GodViewRequest, request: Request):
         "impact_summary": impact_summary,
         "emotional_summary": emotional_summary,
         "opinion_shifts": opinion_shifts,
+        "opinion_distribution_before": opinion_distribution_before,
+        "opinion_distribution_after": opinion_distribution_after,
         "usage": request.app.state.anthropic_client.get_usage_report(),
     }
+
+
+@router.post("")
+async def inject_god_view(req: GodViewRequest, request: Request):
+    """Inject a hypothetical development and collect every resident reaction.
+
+    The shared mutation reservation remains held through reaction conversion,
+    result publication, and summary construction. A new simulation or replay
+    therefore cannot capture the tail of this injection as its own history.
+    """
+    orchestrator = request.app.state.orchestrator
+    operation_token = orchestrator.try_reserve_operation("god_view")
+    if operation_token is None:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": "Another simulation, replay, or injection is already running",
+            },
+            status_code=409,
+        )
+    try:
+        return await _run_reserved_injection(req, request, operation_token)
+    finally:
+        orchestrator.release_operation(operation_token)

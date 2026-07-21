@@ -1,0 +1,46 @@
+{
+  "_generated": "scripts/mapgen/export_window_gids.py \u2014 do not edit",
+  "tileSize": 16,
+  "windows": [
+    {
+      "name": "window_modern",
+      "topLeftGid": 10051,
+      "w": 2,
+      "h": 2,
+      "panes": [
+        {
+          "x": 3,
+          "y": 3,
+          "w": 10,
+          "h": 26
+        },
+        {
+          "x": 19,
+          "y": 3,
+          "w": 10,
+          "h": 26
+        }
+      ]
+    },
+    {
+      "name": "window_teal",
+      "topLeftGid": 4951,
+      "w": 2,
+      "h": 2,
+      "panes": [
+        {
+          "x": 6,
+          "y": 4,
+          "w": 8,
+          "h": 5
+        },
+        {
+          "x": 19,
+          "y": 4,
+          "w": 8,
+          "h": 5
+        }
+      ]
+    }
+  ]
+}

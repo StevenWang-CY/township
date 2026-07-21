@@ -2,6 +2,8 @@ import { useNavigate } from "react-router-dom";
 import type { AgentState, LeanId } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
 import TrustBadge from "./TrustBadge";
+import SpritePortrait from "./SpritePortrait";
+import { readableInk } from "../lib/color";
 
 /** 8-digit hex alpha suffix helper: "#RRGGBB" + pct → rgba-ish hex. */
 function withAlpha(hex: string, alphaHex: string): string {
@@ -33,8 +35,10 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
   const isUndecided = candidateId === undecidedId;
   const baseColor = optionColor(candidateId);
   const opinionStyle = isUndecided
-    ? { border: "rgba(154,142,128,0.4)", badgeBg: "rgba(154,142,128,0.1)", badgeText: "var(--text-muted)" }
-    : { border: baseColor, badgeBg: withAlpha(baseColor, "1F"), badgeText: baseColor };
+    ? { border: "rgba(154,142,128,0.4)", badgeBg: "rgba(154,142,128,0.1)", badgeText: "var(--text-secondary)" }
+    // The badge tint is darker than a white card, so leave extra contrast
+    // headroom instead of targeting the bare 4.5:1 threshold against white.
+    : { border: baseColor, badgeBg: withAlpha(baseColor, "1F"), badgeText: readableInk(baseColor, 5.5) };
 
   const initials =
     agent.initials ||
@@ -57,10 +61,11 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
     return (
       <button
         onClick={handleClick}
-        className="flex items-center gap-2 px-2 py-1.5 w-full text-left"
+        className="resident-card resident-card--compact flex items-center gap-2 px-2 py-1.5 w-full text-left"
         style={{
-          border: "none",
-          borderBottom: "1px solid rgba(180,160,120,0.08)",
+          borderWidth: "0 0 1px",
+          borderStyle: "solid",
+          borderColor: "rgba(180,160,120,0.08)",
           borderRadius: 0,
           transition: "background 200ms ease",
           background: "transparent",
@@ -68,17 +73,15 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
         onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(196,163,90,0.04)"; }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
       >
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
-          style={{
-            background: agent.color || meta.color,
-            border: "2px solid",
-            borderColor: opinionStyle.border,
-            transition: "border-color 600ms ease",
-          }}
-        >
-          {initials}
-        </div>
+        <SpritePortrait
+          agentId={agent.id}
+          spriteKey={agent.sprite_key}
+          accessoryKey={agent.accessory_key}
+          fallbackInitials={initials}
+          color={agent.color || meta.color}
+          size={28}
+          ringColor={opinionStyle.border}
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate flex items-center gap-1" style={{
             fontFamily: "var(--font-body)",
@@ -87,8 +90,8 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
             fontSize: "13px",
           }}>
             {agent.name}
-            {met && <span title="You've met" style={{ color: "#4A9B5C", fontSize: 11 }}>✓</span>}
-            {persuaded && <span title="Persuaded" style={{ color: "#C4A35A", fontSize: 11 }}>★</span>}
+            {met && <span title="You've met" style={{ color: "var(--color-success)", fontSize: 11 }}>✓</span>}
+            {persuaded && <span title="Persuaded" style={{ color: "var(--gold-ink)", fontSize: 11 }}>★</span>}
           </p>
           <p className="truncate" style={{
             fontFamily: "var(--font-body)",
@@ -119,7 +122,7 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
   return (
     <button
       onClick={handleClick}
-      className="rounded-xl p-4 text-left hover:scale-[1.02] active:scale-[0.99] w-full"
+      className="resident-card rounded-xl p-4 text-left hover:scale-[1.02] active:scale-[0.99] w-full"
       style={{
         background: "var(--card-bg)",
         border: "1px solid var(--card-border)",
@@ -129,26 +132,33 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
     >
       <div className="flex items-start gap-3">
         {/* Avatar */}
-        <div
-          className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-          style={{
-            background: agent.color || meta.color,
-            border: "2px solid",
-            borderColor: opinionStyle.border,
-            transition: "border-color 600ms ease",
-          }}
-        >
-          {initials}
-        </div>
+        <SpritePortrait
+          agentId={agent.id}
+          spriteKey={agent.sprite_key}
+          accessoryKey={agent.accessory_key}
+          fallbackInitials={initials}
+          color={agent.color || meta.color}
+          size={40}
+          ringColor={opinionStyle.border}
+        />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="font-semibold text-sm" style={{ fontFamily: "var(--font-body)", color: "var(--text-primary)" }}>
               {agent.name}
             </span>
-            <span className={`town-badge town-badge--${agent.town}`} style={{ fontFamily: "var(--font-display)" }}>{meta.name}</span>
-            {met && <span title="You've met" style={{ color: "#4A9B5C", fontSize: 12 }}>✓</span>}
-            {persuaded && <span title="Persuaded" style={{ color: "#C4A35A", fontSize: 12 }}>★</span>}
+            <span
+              className={`town-badge town-badge--${agent.town}`}
+              style={{
+                fontFamily: "var(--font-display)",
+                color: readableInk(meta.color),
+                background: withAlpha(meta.color, "26"),
+              }}
+            >
+              {meta.name}
+            </span>
+            {met && <span title="You've met" style={{ color: "var(--color-success)", fontSize: 12 }}>✓</span>}
+            {persuaded && <span title="Persuaded" style={{ color: "var(--gold-ink)", fontSize: 12 }}>★</span>}
           </div>
           <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-muted)" }}>
             {agent.occupation}

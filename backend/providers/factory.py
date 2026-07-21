@@ -50,9 +50,7 @@ def _create_named(name: str, max_concurrent: int) -> LLMProvider:
         return OpenAICompatProvider.lmstudio(max_concurrent=max_concurrent)
     if name == "mock":
         return MockProvider(max_concurrent=max_concurrent)
-    raise ValueError(
-        f"Unknown LLM_PROVIDER {name!r} — valid values: {', '.join(PROVIDER_NAMES)}"
-    )
+    raise ValueError(f"Unknown LLM_PROVIDER {name!r} — valid values: {', '.join(PROVIDER_NAMES)}")
 
 
 def create_provider(max_concurrent: int = 10) -> LLMProvider:
@@ -76,9 +74,7 @@ def create_provider(max_concurrent: int = 10) -> LLMProvider:
         logger.info("Auto-detected ANTHROPIC_API_KEY — using the anthropic provider")
         return AnthropicProvider(max_concurrent=max_concurrent)
     if os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
-        logger.info(
-            "Auto-detected AWS_BEARER_TOKEN_BEDROCK — using the bedrock provider"
-        )
+        logger.info("Auto-detected AWS_BEARER_TOKEN_BEDROCK — using the bedrock provider")
         return BedrockProvider(max_concurrent=max_concurrent)
     if os.environ.get("OPENAI_API_KEY"):
         logger.info("Auto-detected OPENAI_API_KEY — using the openai provider")

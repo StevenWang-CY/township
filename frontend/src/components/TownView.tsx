@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import Phaser from "phaser";
-import { TownScene } from "../game/TownScene";
+import { TownScene, hasAuthoredTownMap } from "../game/TownScene";
 import { GAME_CONFIG } from "../game/config";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useTownData } from "../hooks/useTownData";
@@ -13,70 +13,16 @@ import PlayerHUD from "./PlayerHUD";
 import MiniMap from "./MiniMap";
 import Tutorial from "./Tutorial";
 import DebugOverlay from "./DebugOverlay";
-import type { AgentState, TownId, SimulationEvent, Opinion, ChatMessage, Relationship } from "../types/messages";
+import { rosterAgentsFromPayload } from "./residentRoster";
+import type { AgentState, TownId, SimulationEvent, Opinion, ChatMessage } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
+import { DEMO_MODE } from "../demo/demoMode";
+import { eventsSince, type WsState } from "../hooks/useWebSocket";
+import { playerCapabilityHeaders, registerPlayerCapability } from "../lib/playerCapability";
 
 interface TownViewProps {
-  ws: {
-    agents: Record<string, AgentState>;
-    events: SimulationEvent[];
-    conversations: any[];
-    connected: boolean;
-    currentRound: number;
-    totalRounds: number;
-    simulationRunning: boolean;
-    worldClock: { hour: number; minute: number };
-    weather: import("../types/messages").WeatherKind;
-    relationships: Record<string, Relationship>;
-  };
+  ws: WsState;
 }
-
-/* ── Demo agents matching real backend agent IDs ──────────── */
-
-const DEMO_AGENTS: Record<TownId, AgentState[]> = {
-  dover: [
-    { id: "carlos-restrepo", name: "Carlos Restrepo", town: "dover", occupation: "Restaurant Owner", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issues: ["healthcare"] }, location: "La Finca Restaurant", current_activity: "Preparing lunch", initials: "CR", color: "#D48050" },
-    { id: "miguel-hernandez", name: "Miguel Hernandez", town: "dover", occupation: "Construction Worker", opinion: { candidate: "undecided", confidence: 30, reasoning: "", top_issues: ["immigration"] }, location: "Public Housing", current_activity: "Worrying about ICE", initials: "MH", color: "#B07040" },
-    { id: "maria-santos", name: "Maria Santos", town: "dover", occupation: "Nursing Assistant", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issues: ["healthcare"] }, location: "Dover Station", current_activity: "Commuting to work", initials: "MS", color: "#C06060" },
-    { id: "esperanza-guzman", name: "Esperanza Guzman", town: "dover", occupation: "Retired", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issues: ["social security"] }, location: "St. Mary's Church", current_activity: "After mass", initials: "EG", color: "#908070" },
-    { id: "sofia-ramirez", name: "Sofia Ramirez", town: "dover", occupation: "College Student (DACA)", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issues: ["immigration"] }, location: "Public Library", current_activity: "Studying", initials: "SR", color: "#A06888" },
-    { id: "tom-kowalski", name: "Tom Kowalski", town: "dover", occupation: "Retired Machinist", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issues: ["taxes"] }, location: "Bodega Row", current_activity: "Getting coffee", initials: "TK", color: "#707888" },
-  ],
-  montclair: [
-    { id: "sarah-&-david-chen", name: "Sarah & David Chen", town: "montclair", occupation: "Nonprofit Dir / Tech Mgr", opinion: { candidate: "mejia", confidence: 65, reasoning: "", top_issues: ["education"] }, location: "Bloomfield Ave", current_activity: "Working from home", initials: "SC", color: "#7868C0" },
-    { id: "rosa-chen", name: "Rosa Chen", town: "montclair", occupation: "Retired Teacher", opinion: { candidate: "mejia", confidence: 70, reasoning: "", top_issues: ["education"] }, location: "Bay Street Station", current_activity: "Walking", initials: "RC", color: "#906888" },
-    { id: "jordan-williams", name: "Jordan Williams", town: "montclair", occupation: "Painter / Barista", opinion: { candidate: "undecided", confidence: 30, reasoning: "", top_issues: ["housing"] }, location: "Art Museum", current_activity: "Sketching", initials: "JW", color: "#8878B0" },
-    { id: "carmen-&-alejandro-vargas", name: "Carmen & Alejandro Vargas", town: "montclair", occupation: "Nurse / Restaurant Mgr", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issues: ["immigration"] }, location: "Bloomfield Ave", current_activity: "At work", initials: "CV", color: "#C07060" },
-    { id: "rabbi-daniel-goldstein", name: "Rabbi Daniel Goldstein", town: "montclair", occupation: "Rabbi", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issues: ["israel"] }, location: "Anderson Park", current_activity: "Walking", initials: "DG", color: "#A08868" },
-    { id: "priya-patel", name: "Priya Patel", town: "montclair", occupation: "Boutique Owner", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issues: ["taxes"] }, location: "Boutique Row", current_activity: "Opening shop", initials: "PP", color: "#60A090" },
-    { id: "margaret-\"peggy\"-o'brien", name: "Margaret O'Brien", town: "montclair", occupation: "Retired Librarian", opinion: { candidate: "mejia", confidence: 60, reasoning: "", top_issues: ["social security"] }, location: "Public Library", current_activity: "Reading", initials: "MO", color: "#8070A0" },
-  ],
-  parsippany: [
-    { id: "raj-&-sunita-krishnamurthy", name: "Raj & Sunita Krishnamurthy", town: "parsippany", occupation: "Software Engineer / Accountant", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issues: ["taxes"] }, location: "Corporate Park", current_activity: "Working", initials: "RK", color: "#30A0A0" },
-    { id: "kantibhai-\"kanti\"-desai", name: "Kantibhai Desai", town: "parsippany", occupation: "Retired", opinion: { candidate: "undecided", confidence: 25, reasoning: "", top_issues: ["family"] }, location: "Hindu Temple", current_activity: "Morning prayers", initials: "KD", color: "#D0A050" },
-    { id: "brian-mccarthy", name: "Brian McCarthy", town: "parsippany", occupation: "Pharma Manager", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issues: ["taxes"] }, location: "NJ Transit Stop", current_activity: "Commuting", initials: "BM", color: "#708890" },
-    { id: "aisha-&-omar-khan", name: "Aisha & Omar Khan", town: "parsippany", occupation: "Marketing / Finance", opinion: { candidate: "mejia", confidence: 50, reasoning: "", top_issues: ["housing"] }, location: "Residential Area", current_activity: "Apartment hunting", initials: "AK", color: "#50B8A0" },
-    { id: "pawan-sharma", name: "Pawan Sharma", town: "parsippany", occupation: "Restaurant Owner", opinion: { candidate: "hathaway", confidence: 50, reasoning: "", top_issues: ["business"] }, location: "Indian Grocery", current_activity: "At restaurant", initials: "PS", color: "#B09060" },
-    { id: "linda-morrison", name: "Linda Morrison", town: "parsippany", occupation: "Retired VP", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issues: ["healthcare"] }, location: "Community Center", current_activity: "Morning walk", initials: "LM", color: "#808890" },
-    { id: "grace-reyes", name: "Grace Reyes", town: "parsippany", occupation: "Nurse", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issues: ["healthcare"] }, location: "Community Center", current_activity: "Volunteering", initials: "GR", color: "#6098C0" },
-  ],
-  randolph: [
-    { id: "michael-\"mike\"-brennan", name: "Mike Brennan", town: "randolph", occupation: "Finance Director", opinion: { candidate: "hathaway", confidence: 70, reasoning: "", top_issues: ["taxes"] }, location: "Commercial Strip", current_activity: "Lunch break", initials: "MB", color: "#508858" },
-    { id: "jennifer-\"jen\"-russo", name: "Jen Russo", town: "randolph", occupation: "Stay-at-home Mom", opinion: { candidate: "hathaway", confidence: 55, reasoning: "", top_issues: ["schools"] }, location: "High School", current_activity: "PTA meeting", initials: "JR", color: "#68A060" },
-    { id: "frank-deluca", name: "Frank DeLuca", town: "randolph", occupation: "Retired Colonel", opinion: { candidate: "hathaway", confidence: 75, reasoning: "", top_issues: ["security"] }, location: "Randolph Diner", current_activity: "Morning coffee", initials: "FD", color: "#607860" },
-    { id: "tyler-&-megan-hart", name: "Tyler & Megan Hart", town: "randolph", occupation: "Project Mgr / PT", opinion: { candidate: "undecided", confidence: 35, reasoning: "", top_issues: ["housing"] }, location: "Residential Cul-de-sacs", current_activity: "Reviewing mortgage", initials: "TH", color: "#80A868" },
-    { id: "vikram-iyer", name: "Vikram Iyer", town: "randolph", occupation: "Software Engineer", opinion: { candidate: "undecided", confidence: 40, reasoning: "", top_issues: ["schools"] }, location: "Town Hall", current_activity: "Researching candidates", initials: "VI", color: "#409870" },
-    { id: "tony-mancini", name: "Tony Mancini", town: "randolph", occupation: "Landscaping Owner", opinion: { candidate: "mejia", confidence: 55, reasoning: "", top_issues: ["workers rights"] }, location: "Commercial Strip", current_activity: "At work", initials: "TM", color: "#88A050" },
-  ],
-};
-
-export { DEMO_AGENTS };
-
-/* Muted avatar tones for roster-fetched agents (non-NJ-11 scenarios). */
-const ROSTER_COLORS = [
-  "#B07040", "#6098C0", "#508858", "#A06888", "#D0A050",
-  "#707888", "#C06060", "#60A090", "#8070A0", "#88A050",
-];
 
 /* ── Keyboard Hint Overlay ────────────────────────────────── */
 
@@ -121,13 +67,11 @@ function KeyboardHint({ onDismiss }: { onDismiss: () => void }) {
 export default function TownView({ ws }: TownViewProps) {
   const { townId } = useParams<{ townId: string }>();
   const scen = useScenario();
-  const town = (townId as TownId) || scen.scenario.towns[0]?.id || "dover";
+  const town = (townId as TownId) || scen.scenario.towns[0].id;
   const meta = scen.townMeta(town);
   const { profile, isOnboarded, markAgentMet, markAgentPersuaded } = useUserProfile();
   const { data: townData } = useTownData();
-  const { trustFor } = useRelationships(profile?.playerId, {
-    liveRelationships: ws.relationships,
-  });
+  const { trustFor } = useRelationships(profile?.playerId);
 
   const gameContainerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
@@ -139,13 +83,16 @@ export default function TownView({ ws }: TownViewProps) {
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [sceneReady, setSceneReady] = useState(false);
+  const [sceneError, setSceneError] = useState<string | null>(null);
+  const [sceneBootAttempt, setSceneBootAttempt] = useState(0);
   const [showKeyboardHint, setShowKeyboardHint] = useState(true);
   const [debugOpen, setDebugOpen] = useState(false);
   const [listenOpen, setListenOpen] = useState(false);
   const [listenNearbyLandmark, setListenNearbyLandmark] = useState<string | null>(null);
   const [gossipToast, setGossipToast] = useState<string | null>(null);
   const gossipTimerRef = useRef<number | undefined>(undefined);
-  const lastProcessedEvent = useRef(0);
+  const lastProcessedCursor = useRef(0);
   // Stable ref to openChat so Phaser event handlers (registered once in
   // the init effect) always call the latest implementation — and therefore
   // capture preChatRef, snapshot opinion, and markAgentMet for in-canvas
@@ -160,50 +107,62 @@ export default function TownView({ ws }: TownViewProps) {
   } | null>(null);
   const lastChatTranscriptRef = useRef<Record<string, ChatMessage[]>>({});
 
-  // Roster fallback for non-NJ-11 scenarios: before a simulation streams
-  // agent state over the WS, resolve the town's real roster from the backend
-  // so the sidebar isn't empty. NJ-11 keeps its offline DEMO_AGENTS furniture.
+  // Before a live simulation streams, resolve the scenario's real roster from
+  // the backend. Static replay mode receives the same authoritative roster as
+  // transport metadata derived from simulation_started in the staged feed.
   const [rosterAgents, setRosterAgents] = useState<AgentState[]>([]);
   useEffect(() => {
     setRosterAgents([]);
-    if (scen.isNJ11) return;
+    if (DEMO_MODE) return;
     const ctrl = new AbortController();
     fetch(`/api/simulation/agents?town=${encodeURIComponent(town)}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        const list = d?.agents?.[town];
-        if (!Array.isArray(list)) return;
-        setRosterAgents(list.map((a: any, i: number): AgentState => ({
-          id: a.agent_id,
-          name: a.name,
-          town: town as TownId,
-          occupation: a.occupation || "",
-          opinion: {
-            candidate: a.initial_lean || scen.undecidedId,
-            confidence: 35,
-            reasoning: "",
-            top_issues: Array.isArray(a.top_concerns) ? a.top_concerns.slice(0, 2) : [],
-          },
-          location: "",
-          current_activity: "Going about the day",
-          initials: String(a.name || "?").split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2),
-          color: ROSTER_COLORS[i % ROSTER_COLORS.length],
-        })));
+        setRosterAgents(rosterAgentsFromPayload(d, [town], scen.undecidedId));
       })
       .catch(() => { /* offline — sidebar stays empty, canvas still renders */ });
     return () => ctrl.abort();
-  }, [town, scen.isNJ11, scen.undecidedId]);
+  }, [town, scen.undecidedId]);
 
-  // Get agents for this town. The DEMO_AGENTS roster is NJ-11-only offline
-  // furniture — never leak it into other scenarios' towns.
+  // Applied agent state wins; before the first event, use the transport roster
+  // (finite replay) or API roster (live). No scenario identity is special.
   const townAgents: AgentState[] = (() => {
     const fromWs = Object.values(ws.agents).filter((a) => a.town === town);
     if (fromWs.length > 0) return fromWs;
-    if (scen.isNJ11) return DEMO_AGENTS[town] || [];
+    const fromTransport = Object.values(ws.agentRoster).filter((a) => a.town === town);
+    if (fromTransport.length > 0) return fromTransport;
     return rosterAgents;
   })();
+  const streamedTotalAgents =
+    Object.keys(ws.agents).length || Object.keys(ws.agentRoster).length || undefined;
 
   const selectedAgent = townAgents.find((a) => a.id === selectedAgentId) || null;
+
+  // Event effects consume an absolute cursor, while discontinuous navigation
+  // reconciles against this latest reducer snapshot. Keeping the snapshot in
+  // a ref avoids turning every agent object update into a second scene pass.
+  const replayStateRef = useRef({
+    agents: townAgents,
+    positions: ws.agentPositions,
+    clock: ws.worldClock,
+    weather: ws.weather,
+  });
+  replayStateRef.current = {
+    agents: townAgents,
+    positions: ws.agentPositions,
+    clock: ws.worldClock,
+    weather: ws.weather,
+  };
+
+  const reconcileScene = useCallback((scene: TownScene) => {
+    const snapshot = replayStateRef.current;
+    scene.syncReplayState(
+      snapshot.agents,
+      snapshot.positions,
+      snapshot.clock,
+      snapshot.weather,
+    );
+  }, []);
 
   // Build a player AgentState for the sidebar
   const playerAgentState: AgentState | null = profile && profile.town === town ? {
@@ -216,6 +175,9 @@ export default function TownView({ ws }: TownViewProps) {
     current_activity: "Walking around",
     initials: profile.initials,
     color: profile.color,
+    sprite_key: profile.spriteKey,
+    outfit_key: profile.outfitKey,
+    accessory_key: profile.accessoryKey,
   } : null;
 
   // Lookup table for proximity card
@@ -229,26 +191,42 @@ export default function TownView({ ws }: TownViewProps) {
 
   useEffect(() => {
     if (!gameContainerRef.current || gameRef.current) return;
+    setSceneReady(false);
+    setSceneError(null);
 
-    const scene = new TownScene();
-    sceneRef.current = scene;
+    let game: Phaser.Game;
+    try {
+      const scene = new TownScene();
+      sceneRef.current = scene;
 
-    const game = new Phaser.Game({
-      ...GAME_CONFIG,
-      parent: gameContainerRef.current,
-      scene: scene,
-    });
+      game = new Phaser.Game({
+        ...GAME_CONFIG,
+        parent: gameContainerRef.current,
+        scene,
+      });
 
-    // Pass townId to scene
-    game.scene.start("TownScene", { townId: town });
+      // Pass townId to scene
+      game.scene.start("TownScene", {
+        scenarioId: scen.scenario.id,
+        townId: town,
+        mapPath: meta.map?.path,
+        reducedMotion: Boolean(profile?.reducedMotion),
+      });
+    } catch {
+      sceneRef.current = null;
+      setSceneError(`We couldn't open ${meta.name}'s map.`);
+      return;
+    }
 
     gameRef.current = game;
 
     // Listen for agent clicks and player events from Phaser
     const checkScene = setInterval(() => {
       const activeScene = game.scene.getScene("TownScene") as TownScene | undefined;
-      if (activeScene && activeScene.scene.isActive()) {
+      if (activeScene?.scene?.isActive()) {
         clearInterval(checkScene);
+        window.clearTimeout(bootTimeout);
+        setSceneReady(true);
 
         activeScene.events.on("agent-clicked", (agentId: string) => {
           openChatRef.current(agentId);
@@ -262,18 +240,11 @@ export default function TownView({ ws }: TownViewProps) {
           // Could show a UI indicator — for now proximity is handled in-game
         });
 
-        // Non-NJ-11 scenarios: seed option colors before any agents render.
-        if (!scenRef.current.isNJ11) {
-          const colors: Record<string, string> = {};
-          for (const id of scenRef.current.optionIds) colors[id] = scenRef.current.optionColor(id);
-          colors[scenRef.current.undecidedId] = scenRef.current.optionColor(scenRef.current.undecidedId);
-          try { activeScene.setOptionColors(colors); } catch { /* ignore */ }
-        }
-
-        // Add demo agents
-        for (const agent of townAgents) {
-          activeScene.addAgent(agent);
-        }
+        // Scenario data is authoritative for every opinion-ring color.
+        const colors: Record<string, string> = {};
+        for (const id of scenRef.current.optionIds) colors[id] = scenRef.current.optionColor(id);
+        colors[scenRef.current.undecidedId] = scenRef.current.optionColor(scenRef.current.undecidedId);
+        try { activeScene.setOptionColors(colors); } catch { /* ignore */ }
 
         // Spawn player if onboarded
         if (isOnboarded && profile && !playerSpawnedRef.current) {
@@ -283,22 +254,25 @@ export default function TownView({ ws }: TownViewProps) {
       }
     }, 200);
 
+    const bootTimeout = window.setTimeout(() => {
+      window.clearInterval(checkScene);
+      setSceneError(`${meta.name}'s map is taking longer than expected.`);
+    }, 12_000);
+
     return () => {
       clearInterval(checkScene);
-      game.destroy(true);
+      window.clearTimeout(bootTimeout);
       gameRef.current = null;
       sceneRef.current = null;
       playerSpawnedRef.current = false;
+      game.destroy(true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [town]);
+  }, [town, sceneBootAttempt, profile?.reducedMotion]);
 
-  /* ── Feed scenario option colors to Phaser (non-NJ-11) ────
-   * NJ-11 keeps its hand-tuned in-scene palette; other scenarios drive the
-   * opinion ring colors from their /api/scenario option colors. */
+  /* ── Feed authoritative scenario option colors to Phaser ── */
 
   useEffect(() => {
-    if (scen.isNJ11) return;
     const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
     if (!scene) return;
     const colors: Record<string, string> = {};
@@ -312,7 +286,7 @@ export default function TownView({ ws }: TownViewProps) {
   useEffect(() => {
     if (!isOnboarded || !profile || playerSpawnedRef.current) return;
     const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
-    if (!scene || !scene.scene.isActive()) return;
+    if (!scene?.scene?.isActive()) return;
     scene.addPlayer(profile);
     playerSpawnedRef.current = true;
   }, [isOnboarded, profile]);
@@ -321,7 +295,7 @@ export default function TownView({ ws }: TownViewProps) {
 
   useEffect(() => {
     const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
-    if (!scene || !scene.scene.isActive()) return;
+    if (!scene?.scene?.isActive()) return;
     scene.setPlayerInputEnabled(!chatOpen);
   }, [chatOpen]);
 
@@ -343,37 +317,50 @@ export default function TownView({ ws }: TownViewProps) {
     };
   }, []);
 
-  /* ── Sync agents to Phaser when WS data updates ──────────── */
+  /* ── Bootstrap/reconcile agents when the scene or roster changes ───── */
 
   useEffect(() => {
     const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
-    if (!scene || !scene.scene.isActive()) return;
+    if (!scene?.scene?.isActive()) return;
 
-    for (const agent of townAgents) {
-      scene.addAgent(agent);
-    }
-  }, [townAgents.length]);
-
-  /* ── Reset event cursor on town change ───────────────────── */
-  // A newly-mounted town scene needs to re-apply buffered events so agents land
-  // in their last-known positions. The per-event town filter (below) discards
-  // events for OTHER towns, so replaying the whole buffer is safe. This effect
-  // is declared BEFORE the process effect so the cursor is reset before that
-  // effect runs on the same `town` change.
-  useEffect(() => {
-    lastProcessedEvent.current = 0;
-  }, [town]);
+    // Landmark lookup drives initial resident placement. Apply authoritative
+    // staged/API town data first whenever it is already available; if it
+    // arrives after scene boot, this effect runs again and rebases positions
+    // once against the canonical landmark set.
+    const activeTownData = townData?.[town];
+    if (activeTownData) scene.setTownData(activeTownData);
+    reconcileScene(scene);
+    lastProcessedCursor.current = ws.eventCursor;
+    // eventCursor is sampled only when the scene/roster bootstrap changes; it
+    // must not make this effect consume normal incremental events.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [townAgents.length, sceneReady, town, townData, reconcileScene]);
 
   /* ── Process new events ──────────────────────────────────── */
 
   useEffect(() => {
     const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
-    if (!scene || !scene.scene.isActive()) return;
+    if (!scene?.scene?.isActive()) return;
 
-    const newEvents = ws.events.slice(lastProcessedEvent.current);
-    lastProcessedEvent.current = ws.events.length;
+    const delta = eventsSince(ws, lastProcessedCursor.current);
+    lastProcessedCursor.current = ws.eventCursor;
 
-    for (const evt of newEvents) {
+    // Seeking backward, jumping a long distance, or missing part of a bounded
+    // live window must undo future visuals and avoid firing an animation storm.
+    // Durable state (location/opinion/activity/clock/weather) is reconciled in
+    // one pass; normal paced playback still gets every event effect below.
+    if (
+      delta.direction === "backward" ||
+      delta.historyGap ||
+      delta.events.length > 48
+    ) {
+      reconcileScene(scene);
+      setGossipToast(null);
+      window.clearTimeout(gossipTimerRef.current);
+      return;
+    }
+
+    for (const evt of delta.events) {
       if ("town" in evt && (evt as any).town && (evt as any).town !== town) continue;
 
       switch (evt.type) {
@@ -431,28 +418,19 @@ export default function TownView({ ws }: TownViewProps) {
           break;
       }
     }
-  }, [ws.events.length, town]);
-
-  /* ── Sync town data to Phaser (landmark labels) ─────────── */
-
-  useEffect(() => {
-    // Town data is available in townData[town] — when Phaser ever supports it,
-    // this is the integration point. The scene currently builds its own
-    // landmarks from `data/towns/<id>.json` at preload time.
-    void townData;
-  }, [townData, town]);
+  }, [ws.eventCursor, town, sceneReady, reconcileScene]);
 
   /* ── Overlay data callback ─────────────────────────────────── */
 
   const getOverlayData = useCallback(() => {
     const scene = sceneRef.current;
-    if (!scene || !scene.scene.isActive()) return [];
+    if (!scene?.scene?.isActive()) return [];
     return scene.getOverlayData();
   }, []);
 
   const getPlayer = useCallback(() => {
     const scene = sceneRef.current;
-    if (!scene || !scene.scene.isActive()) return null;
+    if (!scene?.scene?.isActive()) return null;
     const ps = scene.getPlayerSprite();
     if (!ps) return null;
     return { x: ps.x, y: ps.y };
@@ -462,7 +440,7 @@ export default function TownView({ ws }: TownViewProps) {
 
   const getMiniMapData = useCallback(() => {
     const scene = sceneRef.current;
-    if (!scene || !scene.scene.isActive()) return null;
+    if (!scene?.scene?.isActive()) return null;
     try {
       return scene.getMiniMapData();
     } catch {
@@ -472,7 +450,7 @@ export default function TownView({ ws }: TownViewProps) {
 
   const handleMiniMapPin = useCallback((agentId: string) => {
     const scene = sceneRef.current;
-    if (!scene || !scene.scene.isActive()) return;
+    if (!scene?.scene?.isActive()) return;
     const sprite = (scene as any).agentSprites?.get?.(agentId);
     if (sprite && typeof sprite.x === "number") {
       try {
@@ -590,23 +568,29 @@ export default function TownView({ ws }: TownViewProps) {
     const trustAfter = trustFor(pre.agentId);
     const playerId = profile?.playerId;
     if (playerId && (transcript.length > 0 || candidateChanged || confidenceJumped)) {
-      fetch("/api/journal/entry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: playerId,
-          agent_id: pre.agentId,
-          agent_name: ag.name,
-          town: ag.town,
-          transcript: transcript
-            .filter((m) => m.role === "user" || m.role === "agent")
-            .map((m) => ({ role: m.role, content: m.content, ts: m.timestamp })),
-          opinion_before: beforeOp,
-          opinion_after: afterOp,
-          trust_before: pre.trust,
-          trust_after: trustAfter,
-        }),
-      }).catch((err) => {
+      void (async () => {
+        if (!DEMO_MODE && !await registerPlayerCapability(playerId)) return;
+        await fetch("/api/journal/entry", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...playerCapabilityHeaders(),
+          },
+          body: JSON.stringify({
+            user_id: playerId,
+            agent_id: pre.agentId,
+            agent_name: ag.name,
+            town: ag.town,
+            transcript: transcript
+              .filter((m) => m.role === "user" || m.role === "agent")
+              .map((m) => ({ role: m.role, content: m.content, ts: m.timestamp })),
+            opinion_before: beforeOp,
+            opinion_after: afterOp,
+            trust_before: pre.trust,
+            trust_after: trustAfter,
+          }),
+        });
+      })().catch((err) => {
         console.warn("[Township] journal POST failed:", err);
       });
     }
@@ -672,7 +656,10 @@ export default function TownView({ ws }: TownViewProps) {
           {ws.simulationRunning && (
             <div
               className="ml-auto px-3 py-1 rounded-full text-xs font-medium"
-              style={{ background: "rgba(74,155,92,0.1)", color: "#4A9B5C" }}
+              style={{
+                background: "color-mix(in srgb, var(--color-success) 10%, transparent)",
+                color: "var(--color-success)",
+              }}
             >
               Round {ws.currentRound} / {ws.totalRounds || scen.totalRounds}
             </div>
@@ -680,8 +667,28 @@ export default function TownView({ ws }: TownViewProps) {
         </div>
 
         {/* Phaser canvas */}
-        <div className="town-canvas-wrapper flex-1 relative" style={{ background: "#e8dcc8" }}>
+        <div
+          className="town-canvas-wrapper pixel-frame pixel-frame--inset flex-1 relative"
+          style={{ background: "var(--pixel-canvas-mat)" }}
+          aria-busy={!sceneReady && !sceneError}
+        >
           <div ref={gameContainerRef} className="absolute inset-0" />
+          {/* Parchment shimmer while the scene boots */}
+          {!sceneReady && !sceneError && (
+            <div className="town-canvas-skeleton" role="status" aria-live="polite">
+              <span className="town-canvas-skeleton-label">Entering {meta.name}…</span>
+            </div>
+          )}
+          {sceneError && (
+            <div className="town-canvas-error" role="alert">
+              <span className="town-canvas-error-mark" aria-hidden="true">!</span>
+              <strong>{sceneError}</strong>
+              <span>Your residents and replay are safe. Try loading the scene again.</span>
+              <button type="button" onClick={() => setSceneBootAttempt((attempt) => attempt + 1)}>
+                Try again
+              </button>
+            </div>
+          )}
           <div className="canvas-vignette" />
 
           {/* DOM overlay for agent/landmark labels + proximity card */}
@@ -691,11 +698,16 @@ export default function TownView({ ws }: TownViewProps) {
             getPlayer={getPlayer}
             getAgent={getAgent}
             getTrust={trustFor}
+            bottomInset={12}
           />
 
           {/* HUD top-left */}
           <div className="town-hud-top-left">
-            <PlayerHUD worldClock={ws.worldClock} weather={ws.weather} />
+            <PlayerHUD
+              worldClock={ws.worldClock}
+              weather={ws.weather}
+              totalAgents={streamedTotalAgents}
+            />
           </div>
 
           {/* Top-right clock chip (FIX 13) */}
@@ -710,7 +722,13 @@ export default function TownView({ ws }: TownViewProps) {
 
           {/* Mini-map top-right */}
           <div className="town-minimap-wrapper">
-            <MiniMap getData={getMiniMapData} townId={town} onPinClick={handleMiniMapPin} />
+            <MiniMap
+              getData={getMiniMapData}
+              townId={town}
+              previewPath={meta.map?.preview_path}
+              showAuthoredPreview={hasAuthoredTownMap(meta.map?.path)}
+              onPinClick={handleMiniMapPin}
+            />
           </div>
 
           {/* Cross-town gossip toast */}
@@ -722,11 +740,11 @@ export default function TownView({ ws }: TownViewProps) {
           )}
 
           {/* DOM title banner */}
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="town-canvas-title absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
             <div
               className="px-6 py-1.5 rounded-lg"
               style={{
-                background: "rgba(0, 0, 0, 0.28)",
+                background: "color-mix(in srgb, var(--overlay-ink) 52%, transparent)",
                 backdropFilter: "blur(4px)",
                 borderRadius: "9px",
               }}
@@ -735,7 +753,7 @@ export default function TownView({ ws }: TownViewProps) {
                 className="text-base font-bold"
                 style={{
                   fontFamily: "var(--font-display)",
-                  color: "#ffffff",
+                  color: "var(--text-on-accent)",
                   textShadow: "0 1px 3px rgba(0,0,0,0.4)",
                   letterSpacing: "0.5px",
                 }}
@@ -781,8 +799,9 @@ export default function TownView({ ws }: TownViewProps) {
             <KeyboardHint onDismiss={() => setShowKeyboardHint(false)} />
           )}
 
-          {/* First-visit tutorial */}
-          <Tutorial />
+          {/* The hosted replay is immediately explorable without a player;
+              movement onboarding belongs to the interactive local flow. */}
+          {isOnboarded && !DEMO_MODE && <Tutorial />}
 
           {/* Debug overlay (toggled with ~) */}
           {debugOpen && (
@@ -802,7 +821,7 @@ export default function TownView({ ws }: TownViewProps) {
         <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(180,160,120,0.12)" }}>
           <h3 className="text-xs font-semibold uppercase tracking-wider" style={{
             fontFamily: "var(--font-display)",
-            color: "var(--gold-accent)",
+            color: "var(--gold-ink)",
             letterSpacing: "2.5px",
             fontSize: "11px",
           }}>
@@ -840,7 +859,7 @@ export default function TownView({ ws }: TownViewProps) {
               onClick={() => openChat(agent.id)}
               met={profile?.metAgents?.includes(agent.id)}
               persuaded={profile?.persuadedAgents?.includes(agent.id)}
-              trust={ws.relationships[agent.id]?.trust ?? trustFor(agent.id)}
+              trust={trustFor(agent.id)}
             />
           ))}
         </div>
@@ -849,7 +868,7 @@ export default function TownView({ ws }: TownViewProps) {
         <div className="border-t px-3 py-2" style={{ borderColor: "rgba(180,160,120,0.12)" }}>
           <h3 className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{
             fontFamily: "var(--font-display)",
-            color: "var(--gold-accent)",
+            color: "var(--gold-ink)",
             letterSpacing: "2px",
             fontSize: "11px",
           }}>

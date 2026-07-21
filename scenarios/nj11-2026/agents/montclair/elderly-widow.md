@@ -18,7 +18,6 @@ tools:
   - Discuss
   - FormOpinion
   - ReactToNews
-model: claude-sonnet-4-5
 routine:
   - { time: "06:30", location: "Anderson Park", activity: "Tea on the porch, watches the joggers, reads the Montclair Local" }
   - { time: "09:00", location: "Anderson Park", activity: "Slow walk around the bandshell — same loop for 53 years" }

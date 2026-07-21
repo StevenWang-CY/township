@@ -1,16 +1,17 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import type { AgentState, ChatMessage, LeanId, Opinion } from "../types/messages";
+import type { AgentState, ChatMessage, LeanId, Opinion, Relationship } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
-import { AGENT_VOICES, AGENT_VOICE_MAP } from "../game/config";
+import { voiceIdForAgent } from "../game/config";
 import { resolveAgentSprite } from "../game/spriteCustomization";
 import { useUserProfile } from "../context/UserProfileContext";
-import { useRelationships } from "../hooks/useRelationships";
-import { useWebSocketContext } from "../context/WebSocketContext";
+import { publishPrivateRelationshipUpdate, useRelationships } from "../hooks/useRelationships";
 import { useAudio } from "../hooks/useAudio";
 import { DEMO_MODE, REPO_URL, INSTALL_HINT } from "../demo/demoMode";
 import SpritePortrait from "./SpritePortrait";
 import MoodIndicator from "./MoodIndicator";
 import TrustBadge from "./TrustBadge";
+import { readableInk } from "../lib/color";
+import { playerCapabilityHeaders, registerPlayerCapability } from "../lib/playerCapability";
 
 /* ── Persistent transcripts (one record per agent across panel reopens) ── */
 
@@ -51,12 +52,6 @@ function stripGesturesForSpeech(text: string): string {
 }
 
 /* ── Server-proxied TTS Helper (POST /api/tts) ───────────────── */
-
-function getVoiceId(agentId: string): string {
-  const voiceType = AGENT_VOICE_MAP[agentId] || "default";
-  const voice = AGENT_VOICES[voiceType] || AGENT_VOICES["default"];
-  return voice.voiceId;
-}
 
 async function speakWithTTS(
   text: string,
@@ -141,7 +136,7 @@ function ListenButton({ text, agentId }: { text: string; agentId: string }) {
 
   const handleClick = () => {
     if (state === "loading" || state === "playing") return;
-    const voiceId = getVoiceId(agentId);
+    const voiceId = voiceIdForAgent(agentId);
     speakWithTTS(
       text,
       voiceId,
@@ -237,7 +232,7 @@ function classifyMood(text: string): "positive" | "negative" | "neutral" {
 /* ── Topic suggestions ───────────────────────────────────────── */
 
 const TOPIC_FALLBACKS: Record<string, string[]> = {
-  default: ["healthcare", "immigration", "taxes", "schools", "housing"],
+  default: ["local services", "household costs", "community priorities", "implementation", "tradeoffs"],
 };
 
 function topicsForAgent(agent: AgentState): string[] {
@@ -245,16 +240,6 @@ function topicsForAgent(agent: AgentState): string[] {
   const tops = agent.opinion?.top_issues ?? [];
   for (const t of tops) if (t && !out.includes(t)) out.push(t);
 
-  // Town-specific defaults
-  const townTopics: Record<string, string[]> = {
-    dover: ["immigration", "healthcare", "small business"],
-    montclair: ["education", "social justice", "housing"],
-    parsippany: ["taxes", "schools", "community"],
-    randolph: ["taxes", "schools", "national security"],
-  };
-  for (const t of townTopics[agent.town] || []) {
-    if (!out.includes(t)) out.push(t);
-  }
   for (const t of TOPIC_FALLBACKS.default) {
     if (out.length >= 5) break;
     if (!out.includes(t)) out.push(t);
@@ -273,13 +258,9 @@ interface ChatPanelProps {
 
 export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPanelProps) {
   const { profile, chatMode, setChatMode } = useUserProfile();
-  const { townMeta, optionLabel, undecidedId } = useScenario();
-  // We also use WS so we can read live relationships into the chat header.
-  const ws = useWebSocketContext();
+  const { scenario, townMeta, optionColor, optionLabel, undecidedId } = useScenario();
   const audio = useAudio();
-  const { trustFor } = useRelationships(profile?.playerId, {
-    liveRelationships: ws.relationships,
-  });
+  const { trustFor } = useRelationships(profile?.playerId);
 
   const initialMessages = (): ChatMessage[] => {
     if (agent && TRANSCRIPT_CACHE[agent.id]) return TRANSCRIPT_CACHE[agent.id];
@@ -310,9 +291,51 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
   const autoAbortRef = useRef(false);
   const autoStartedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const lastAgentMsgIdRef = useRef<string | null>(null);
+  onCloseRef.current = onClose;
+
+  // The live chat is a modal side panel: move focus in, keep keyboard focus
+  // inside, close on Escape, and restore the invoking control on exit.
+  useEffect(() => {
+    if (!agent) return;
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
+    requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hasAttribute("hidden"));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      requestAnimationFrame(() => restoreFocusRef.current?.focus());
+    };
+  }, [agent?.id]);
 
   // Update transcript cache + parent
   useEffect(() => {
@@ -356,6 +379,10 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
   // and when the user expands the memory peek manually.
   const refetchMemories = useCallback(() => {
     if (!agent?.id) return;
+    if (DEMO_MODE) {
+      setMemories([]);
+      return;
+    }
     fetch(`/api/simulation/agent/${encodeURIComponent(agent.id)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -389,7 +416,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
       // Voice auto-play — strip *gestures* so TTS doesn't pronounce the asterisks
       // or read stage directions aloud.
       if (agent && profile?.audioAutoplay) {
-        const voiceId = getVoiceId(agent.id);
+        const voiceId = voiceIdForAgent(agent.id);
         speakWithTTS(
           stripGesturesForSpeech(latestAgent.content),
           voiceId,
@@ -453,9 +480,16 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         if (profile.playerId) body.user_id = profile.playerId;
       }
 
+      if (profile?.playerId && !DEMO_MODE && !await registerPlayerCapability(profile.playerId)) {
+        throw new Error("Private player access could not be established");
+      }
+
       const res = await fetch(`/api/chat/${encodeURIComponent(agent.id)}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...playerCapabilityHeaders(),
+        },
         body: JSON.stringify(body),
       });
 
@@ -493,13 +527,25 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
       };
       setMessages((prev) => [...prev, agentMsg]);
 
-      // Update the header opinion badge + trust immediately from the response,
-      // without waiting for the WS opinion_changed / relationship_update events.
+      // Update the header immediately from this browser-private response.
+      // Opinion shifts may also be public simulation events; trust never is.
       if (data.opinion && typeof data.opinion === "object") {
         setLiveOpinion(data.opinion as Opinion);
       }
       if (typeof data.trust === "number") {
         setLiveTrust(data.trust);
+      }
+      if (
+        profile?.playerId
+        && data.relationship
+        && typeof data.relationship === "object"
+        && typeof data.relationship.trust === "number"
+      ) {
+        publishPrivateRelationshipUpdate(
+          profile.playerId,
+          agent.id,
+          data.relationship as Relationship,
+        );
       }
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== typingId));
@@ -660,9 +706,15 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
 
       let data: any;
       try {
+        if (profile.playerId && !DEMO_MODE && !await registerPlayerCapability(profile.playerId)) {
+          throw new Error("Private player access could not be established");
+        }
         const res = await fetch(`/api/chat/auto/${encodeURIComponent(agent.id)}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...playerCapabilityHeaders(),
+          },
           body: JSON.stringify({
             user_profile: {
               name: profile.name,
@@ -697,7 +749,26 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
 
       if (autoAbortRef.current) { setMessages((prev) => prev.filter((m) => m.id !== turnTypingId)); break; }
 
-      const userText = data.user_message || `What do you think about the election?`;
+      if (data.opinion && typeof data.opinion === "object") {
+        setLiveOpinion(data.opinion as Opinion);
+      }
+      if (typeof data.trust === "number") {
+        setLiveTrust(data.trust);
+      }
+      if (
+        profile.playerId
+        && data.relationship
+        && typeof data.relationship === "object"
+        && typeof data.relationship.trust === "number"
+      ) {
+        publishPrivateRelationshipUpdate(
+          profile.playerId,
+          agent.id,
+          data.relationship as Relationship,
+        );
+      }
+
+      const userText = data.user_message || scenario.question;
       const agentText = data.agent_response || "…";
 
       // Replace the typing indicator with the actual user message.
@@ -754,7 +825,10 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
   }, [agent, profile, autoRunning]);
 
   const topics = useMemo(() => (agent ? topicsForAgent(agent) : []), [agent]);
-  const sprite = useMemo(() => (agent ? resolveAgentSprite(agent.id) : null), [agent]);
+  const sprite = useMemo(
+    () => (agent ? resolveAgentSprite(agent.id, scenario.id) : null),
+    [agent, scenario.id],
+  );
 
   if (!agent) return null;
 
@@ -784,7 +858,11 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         style={{ background: "rgba(0,0,0,0.12)" }}
       />
       <div
+        ref={panelRef}
         className={`chat-panel fixed top-0 right-0 h-full w-[400px] max-w-full flex flex-col z-50 slide-panel-enter ${mobileExpanded ? "chat-panel--expanded" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chat-panel-title"
         style={{
           background: "var(--bg-paper)",
           borderLeft: "1px solid var(--warm-glass-border)",
@@ -797,18 +875,18 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
           style={{ background: "var(--bg-warm)" }}
         >
           <div className="flex items-start gap-3">
-            <div style={{ border: `3px solid ${meta.color}`, borderRadius: "50%", padding: 1 }}>
-              <SpritePortrait
-                agentId={agent.id}
-                spriteKey={sprite?.spriteKey}
-                fallbackInitials={initials}
-                color={agent.color || meta.color}
-                size={56}
-              />
-            </div>
+            <SpritePortrait
+              agentId={agent.id}
+              spriteKey={agent.sprite_key ?? sprite?.spriteKey}
+              accessoryKey={agent.accessory_key ?? sprite?.accessoryKey}
+              fallbackInitials={initials}
+              color={agent.color || meta.color}
+              ringColor={optionColor(candidate)}
+              size={56}
+            />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
-                <h3 style={{ fontFamily: "var(--font-display)", fontSize: "17px", color: "var(--text-primary)", fontWeight: 600 }}>
+                <h3 id="chat-panel-title" style={{ fontFamily: "var(--font-display)", fontSize: "17px", color: "var(--text-primary)", fontWeight: 600 }}>
                   {agent.name}
                 </h3>
                 <MoodIndicator mood={mood} size={14} />
@@ -817,8 +895,19 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
                 {agent.occupation}
               </p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <span className={`town-badge town-badge--${agent.town}`}>{meta.name}</span>
-                <span className={`opinion-badge opinion-badge--${headerOpinion?.candidate || "undecided"}`}>
+                <span
+                  className="town-badge"
+                  style={{ color: readableInk(meta.color), background: `color-mix(in srgb, ${meta.color} 15%, white)` }}
+                >
+                  {meta.name}
+                </span>
+                <span
+                  className="opinion-badge"
+                  style={{
+                    color: readableInk(optionColor(candidate)),
+                    background: `color-mix(in srgb, ${optionColor(candidate)} 15%, white)`,
+                  }}
+                >
                   {opinionLabel}
                   {headerOpinion?.confidence ? ` ${headerOpinion.confidence}%` : ""}
                 </span>
@@ -827,6 +916,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
             </div>
             <div className="flex flex-col items-end gap-2">
               <button
+                ref={closeButtonRef}
                 onClick={onClose}
                 className="p-1.5 rounded-lg transition-colors"
                 style={{ color: "var(--text-muted)", transition: "color 150ms" }}
@@ -946,13 +1036,13 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         )}
 
         {/* Input — in the demo build there is no chat backend; a gentle
-            pointer at the 60-second local install replaces send/mic/TTS. */}
+            pointer at the zero-key local install replaces send/mic/TTS. */}
         {DEMO_MODE ? (
           <div className="px-4 py-3" style={{ borderTop: "1px solid var(--warm-glass-border)", background: "var(--bg-paper)" }}>
             <div className="demo-locked-note" title={INSTALL_HINT}>
               <span>
                 Live chat needs the local install —{" "}
-                <a href={REPO_URL} target="_blank" rel="noreferrer">60 seconds, zero keys</a>.
+                <a href={REPO_URL} target="_blank" rel="noreferrer">zero keys required</a>.
               </span>
             </div>
           </div>
@@ -960,6 +1050,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
         <div className="px-4 py-3" style={{ borderTop: "1px solid var(--warm-glass-border)", background: "var(--bg-paper)" }}>
           <div className="relative">
             <input
+              aria-label={`Message ${agent.name}`}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
@@ -1010,6 +1101,20 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
                   onTouchEnd={stopRecording}
                   disabled={sending}
                   title="Hold to record"
+                  aria-label={recording ? "Stop recording" : "Hold to record a voice message"}
+                  aria-pressed={recording}
+                  onKeyDown={(event) => {
+                    if ((event.key === "Enter" || event.key === " ") && !recording) {
+                      event.preventDefault();
+                      void startRecording();
+                    }
+                  }}
+                  onKeyUp={(event) => {
+                    if ((event.key === "Enter" || event.key === " ") && recording) {
+                      event.preventDefault();
+                      stopRecording();
+                    }
+                  }}
                   className="mic-btn w-9 h-9 rounded-full flex items-center justify-center"
                   style={{
                     background: recording ? "#EF4444" : "transparent",
@@ -1023,6 +1128,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
                 <button
                   onClick={() => sendMessage()}
                   disabled={sending || !input.trim()}
+                  aria-label={`Send message to ${agent.name}`}
                   className="w-9 h-9 rounded-full flex items-center justify-center text-white transition-all disabled:opacity-30"
                   style={{
                     background: meta?.color || "var(--civic-blue)",

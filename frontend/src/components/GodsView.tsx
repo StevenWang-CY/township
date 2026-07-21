@@ -1,10 +1,18 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import OpinionChart from "./OpinionChart";
-import type { NewsReaction, LeanId, TownId, AgentState, OpinionShift } from "../types/messages";
+import type {
+  NewsReaction,
+  LeanId,
+  TownId,
+  AgentState,
+  OpinionShift,
+  GodsViewResponse,
+} from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
-import { DEMO_MODE, REPO_URL } from "../demo/demoMode";
+import { DEMO_MODE, REPO_URL, demoUrl } from "../demo/demoMode";
+import { readableInk, textOnColor } from "../lib/color";
 
-const DEMO_INJECT_HINT = "Scenario injection needs the local install — 60 seconds, zero keys.";
+const DEMO_INJECT_HINT = "Scenario injection needs the local install — zero keys required.";
 
 /* ── Types ────────────────────────────────────────────────────── */
 
@@ -65,6 +73,11 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
   housing: { label: "Housing", color: "#10B981" },
   national_politics: { label: "National Politics", color: "#EF4444" },
   community: { label: "Community", color: "#EC4899" },
+  safety: { label: "Safety", color: "#B85050" },
+  development: { label: "Development", color: "#376F6A" },
+  civic_trust: { label: "Civic Trust", color: "#765A1F" },
+  fiscal: { label: "Fiscal", color: "#3B5998" },
+  weather: { label: "Weather", color: "#596D82" },
 };
 
 interface GodsViewProps {
@@ -83,6 +96,8 @@ export default function GodsView({ ws }: GodsViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [reactions, setReactions] = useState<NewsReaction[]>([]);
   const [opinionShifts, setOpinionShifts] = useState<OpinionShift[]>([]);
+  const [opinionBefore, setOpinionBefore] = useState<Record<LeanId, number> | null>(null);
+  const [opinionAfter, setOpinionAfter] = useState<Record<LeanId, number> | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
   // Scenario library state
@@ -90,25 +105,32 @@ export default function GodsView({ ws }: GodsViewProps) {
   const [scenariosLoading, setScenariosLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  // Fetch scenarios on mount
+  // Live mode reads the API. The hosted replay reads the same scenario-package
+  // JSON staged at build time, so this surface remains useful without implying
+  // that a backend exists.
   useEffect(() => {
+    let cancelled = false;
     setScenariosLoading(true);
-    fetch("/api/gods-view/scenarios")
+    const source = DEMO_MODE
+      ? demoUrl(`${scen.scenario.id}-god-scenarios.json`)
+      : "/api/gods-view/scenarios";
+    fetch(source)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
       .then((data) => {
-        setScenarios(data.scenarios || []);
+        if (cancelled) return;
+        setScenarios(Array.isArray(data) ? data : (data.scenarios || []));
       })
       .catch(() => {
-        // Fallback: show nothing if backend is unavailable
-        setScenarios([]);
+        if (!cancelled) setScenarios([]);
       })
       .finally(() => {
-        setScenariosLoading(false);
+        if (!cancelled) setScenariosLoading(false);
       });
-  }, []);
+    return () => { cancelled = true; };
+  }, [scen.scenario.id]);
 
   const submit = useCallback(async () => {
     if (DEMO_MODE || !prompt.trim()) return;
@@ -116,6 +138,8 @@ export default function GodsView({ ws }: GodsViewProps) {
     setError(null);
     setReactions([]);
     setOpinionShifts([]);
+    setOpinionBefore(null);
+    setOpinionAfter(null);
     setSubmitted(true);
 
     try {
@@ -126,14 +150,18 @@ export default function GodsView({ ws }: GodsViewProps) {
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data: GodsViewResponse = await res.json();
       setReactions(data.reactions || []);
       setOpinionShifts(data.opinion_shifts || []);
+      setOpinionBefore(data.opinion_distribution_before || null);
+      setOpinionAfter(data.opinion_distribution_after || null);
     } catch (e: any) {
       // Surface a visible error and leave results empty — no invented demo data.
       setError(e.message || "Could not reach the simulation.");
       setReactions([]);
       setOpinionShifts([]);
+      setOpinionBefore(null);
+      setOpinionAfter(null);
     } finally {
       setLoading(false);
     }
@@ -163,7 +191,7 @@ export default function GodsView({ ws }: GodsViewProps) {
     [allAgents],
   );
 
-  const currentOpinions = useMemo(() => {
+  const liveOpinions = useMemo(() => {
     const total: Record<LeanId, number> = {};
     for (const k of stanceIds) total[k] = 0;
     for (const a of allAgents) {
@@ -174,18 +202,8 @@ export default function GodsView({ ws }: GodsViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on opinionSignature
   }, [opinionSignature, stanceIds.join("|"), undecidedId]);
 
-  const projectedOpinions = useMemo(() => {
-    if (opinionShifts.length === 0) return null;
-    const next: Record<LeanId, number> = { ...currentOpinions };
-    for (const s of opinionShifts) {
-      const before = s.before as LeanId;
-      const after = s.after as LeanId;
-      if (before === after) continue;
-      next[before] = Math.max(0, (next[before] || 0) - 1);
-      next[after] = (next[after] || 0) + 1;
-    }
-    return next;
-  }, [opinionShifts, currentOpinions]);
+  const currentOpinions = opinionBefore ?? liveOpinions;
+  const projectedOpinions = opinionAfter;
 
   const predictionSummary = useMemo(() => {
     if (!projectedOpinions) return null;
@@ -245,7 +263,9 @@ export default function GodsView({ ws }: GodsViewProps) {
           <rect x="64" y="1.5" width="7" height="7" rx="1" transform="rotate(45 67.5 5)" fill="var(--gold-accent)" opacity="0.45" />
         </svg>
         <p className="text-sm" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
-          Inject a hypothetical scenario and see how every agent reacts in real time.
+          {DEMO_MODE
+            ? "Explore the scenario package's hypothetical events and their intended pressure points."
+            : "Inject a hypothetical scenario and see how every agent reacts in real time."}
         </p>
       </div>
 
@@ -253,10 +273,18 @@ export default function GodsView({ ws }: GodsViewProps) {
       <div className="mb-6">
         <h2
           className="text-lg mb-3"
-          style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", fontWeight: 600, letterSpacing: "1px" }}
+          style={{ fontFamily: "var(--font-display)", color: "var(--gold-ink)", fontWeight: 600, letterSpacing: "1px" }}
         >
           Scenario Library
         </h2>
+
+        {DEMO_MODE && (
+          <div className="demo-locked-note mb-4" role="note">
+            These hypotheses come directly from <strong>{scen.title}</strong>. Select one to inspect it;
+            running resident reactions needs the{" "}
+            <a href={REPO_URL} target="_blank" rel="noreferrer">local zero-key install</a>.
+          </div>
+        )}
 
         {scenariosLoading ? (
           <div className="flex items-center gap-3 py-8 justify-center">
@@ -274,6 +302,7 @@ export default function GodsView({ ws }: GodsViewProps) {
             <div className="flex flex-wrap gap-2 mb-4">
               <button
                 onClick={() => setSelectedCategory(null)}
+                aria-pressed={!selectedCategory}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                 style={{
                   background: !selectedCategory ? "var(--civic-blue)" : "var(--township-paper)",
@@ -290,10 +319,11 @@ export default function GodsView({ ws }: GodsViewProps) {
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(active ? null : cat)}
+                    aria-pressed={active}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                     style={{
                       background: active ? meta.color : "var(--township-paper)",
-                      color: active ? "#fff" : meta.color,
+                      color: active ? textOnColor(meta.color) : readableInk(meta.color),
                       border: `1px solid ${active ? meta.color : "var(--card-border)"}`,
                     }}
                   >
@@ -313,6 +343,7 @@ export default function GodsView({ ws }: GodsViewProps) {
                   <button
                     key={scenario.id}
                     onClick={() => setPrompt(scenario.description)}
+                    aria-pressed={isSelected}
                     className="rounded-xl p-4 text-left transition-all hover:scale-[1.01] active:scale-[0.99]"
                     style={{
                       background: isSelected ? `color-mix(in srgb, ${catMeta.color} 8%, white)` : "var(--card-bg)",
@@ -324,12 +355,12 @@ export default function GodsView({ ws }: GodsViewProps) {
                     <div className="flex items-center gap-2 mb-2">
                       <span
                         className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider"
-                        style={{ background: `${catMeta.color}18`, color: catMeta.color }}
+                        style={{ background: `${catMeta.color}18`, color: readableInk(catMeta.color) }}
                       >
                         {catMeta.label}
                       </span>
                       {isSelected && (
-                        <span className="text-[10px] font-medium ml-auto" style={{ color: catMeta.color }}>
+                        <span className="text-[10px] font-medium ml-auto" style={{ color: readableInk(catMeta.color) }}>
                           Selected
                         </span>
                       )}
@@ -359,7 +390,7 @@ export default function GodsView({ ws }: GodsViewProps) {
                             className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
                             style={{
                               background: `color-mix(in srgb, ${tm.color} 15%, white)`,
-                              color: tm.color,
+                              color: readableInk(tm.color),
                             }}
                           >
                             {tm.name}
@@ -390,12 +421,14 @@ export default function GodsView({ ws }: GodsViewProps) {
           <circle cx="20" cy="5" r="1.5" fill="var(--gold-accent)" />
         </svg>
 
-        <label className="block text-sm font-semibold mb-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "0.5px" }}>
+        <label htmlFor="gods-view-prompt" className="block text-sm font-semibold mb-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-ink)", letterSpacing: "0.5px" }}>
           What if...
         </label>
         <textarea
+          id="gods-view-prompt"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          readOnly={DEMO_MODE}
           placeholder="Select a scenario above or describe your own hypothetical event..."
           rows={3}
           className="w-full px-4 py-3 rounded-lg text-sm resize-none outline-none"
@@ -421,9 +454,10 @@ export default function GodsView({ ws }: GodsViewProps) {
             onClick={submit}
             disabled={DEMO_MODE || loading || !prompt.trim()}
             title={DEMO_MODE ? DEMO_INJECT_HINT : undefined}
-            className="px-6 py-2.5 rounded-lg text-sm text-white disabled:opacity-40 active:scale-[0.97]"
+            className="px-6 py-2.5 rounded-lg text-sm disabled:opacity-40 active:scale-[0.97]"
             style={{
               background: "var(--gold-accent)",
+              color: "var(--text-on-gold)",
               fontFamily: "var(--font-display)",
               fontWeight: 600,
               letterSpacing: "1px",
@@ -447,13 +481,13 @@ export default function GodsView({ ws }: GodsViewProps) {
           {DEMO_MODE && (
             <span className="text-xs" style={{ color: "var(--township-ink-muted)", fontStyle: "italic" }} title={DEMO_INJECT_HINT}>
               Injection needs the local install —{" "}
-              <a href={REPO_URL} target="_blank" rel="noreferrer" style={{ color: "var(--gold-accent)", fontWeight: 600 }}>
-                60 seconds, zero keys
+              <a href={REPO_URL} target="_blank" rel="noreferrer" style={{ color: "var(--gold-ink)", fontWeight: 600 }}>
+                zero keys required
               </a>.
             </span>
           )}
           {error && (
-            <span className="text-xs" style={{ color: "#EF4444" }}>
+            <span className="text-xs" style={{ color: "var(--color-danger)" }}>
               Could not reach the simulation. ({error})
             </span>
           )}
@@ -475,8 +509,8 @@ export default function GodsView({ ws }: GodsViewProps) {
             </div>
           ) : (
             <>
-              {/* Before/After prediction widget — only when a sim has produced
-                  live opinions AND the backend returned opinion shifts. */}
+              {/* Before/After prediction widget. The response snapshot is
+                  authoritative; live WS agents are only a legacy fallback. */}
               {!hasLiveAgents && reactions.length > 0 && (
                 <div
                   className="rounded-xl p-4 mb-6 text-center"
@@ -487,7 +521,7 @@ export default function GodsView({ ws }: GodsViewProps) {
                   </p>
                 </div>
               )}
-              {hasLiveAgents && projectedOpinions && (
+              {(hasLiveAgents || opinionBefore) && projectedOpinions && (
                 <div className="prediction-widget">
                   <div className="prediction-widget-pair">
                     <div className="prediction-widget-chart">
@@ -504,7 +538,7 @@ export default function GodsView({ ws }: GodsViewProps) {
                     <p className="prediction-widget-summary">
                       {predictionSummary
                         .map((d) => (
-                          <span key={d.lean} style={{ color: optionColor(d.lean), fontWeight: 600 }}>
+                          <span key={d.lean} style={{ color: readableInk(optionColor(d.lean)), fontWeight: 600 }}>
                             {optionLabel(d.lean)} {d.delta > 0 ? "+" : ""}{d.delta}
                           </span>
                         ))
@@ -531,14 +565,15 @@ export default function GodsView({ ws }: GodsViewProps) {
                       className="rounded-xl p-4"
                       style={{
                         background: "var(--bg-card)",
-                        border: "1px solid var(--card-border)",
-                        borderTop: `3px solid ${meta.color}`,
+                        borderWidth: "3px 1px 1px",
+                        borderStyle: "solid",
+                        borderColor: `${meta.color} var(--card-border) var(--card-border)`,
                         boxShadow: "var(--shadow-soft)",
                         animation: "stagger-in 0.4s var(--ease-genshin) backwards",
                         animationDelay: `${idx * 60}ms`,
                       }}
                     >
-                      <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: meta.color, letterSpacing: "0.5px" }}>
+                      <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: readableInk(meta.color), letterSpacing: "0.5px" }}>
                         <span className="w-2.5 h-2.5 rounded-full" style={{ background: meta.color }} />
                         {meta.name}
                       </h3>

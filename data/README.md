@@ -1,20 +1,26 @@
-# data/ — moved
+# `data/` — local runtime state
 
-All scenario content that used to live here (towns, candidates, debate
-excerpts, election logistics, God's View scenarios, and the `agents/`
-directory at the repo root) has moved into the scenario package:
+Scenario content never lives here. Towns, options, context, God's View presets,
+and personas belong in a complete package under `scenarios/<id>/`; the loader does
+not synthesize a scenario from the former root-level `data/` + `agents/` layout.
 
-    scenarios/nj11-2026/
-        scenario.json           # the manifest that used to be hardcoded
-        towns/                  # was data/towns/
-        options/                # was data/candidates/
-        context/debate-excerpts.json
-        context/logistics.json  # was data/election-logistics.json
-        god-scenarios.json      # was data/god_view_scenarios.json
-        agents/                 # was <repo>/agents/
+This directory instead holds gitignored, deployment-local state:
 
-This directory is retained only for backward-compatible runtime state
-(e.g. `simulation_cache.json` written by the orchestrator). The engine
-still falls back to the old `data/` + `agents/` layout — with a loud
-deprecation warning — for one release, so external scripts have time to
-migrate. New content belongs in `scenarios/<id>/`.
+```text
+data/
+├── simulation_cache.json            # latest replay cache, best-effort
+└── state/
+    ├── player_capabilities.json      # user id → SHA-256 capability digest
+    ├── relationships.json            # capability-protected player trust state
+    └── journal.json                  # capability-protected player journals
+```
+
+The two private stores are validated strictly at startup. Corruption locks all
+private-state endpoints closed until an operator repairs the files and restarts the
+process. On upgrade, records without a matching capability binding cannot be safely
+assigned to a browser; Township removes them from the active store and preserves a
+local `*.legacy-unbound.json` quarantine for operator review. That quarantine is
+never served by the API.
+
+Use `TOWNSHIP_STATE_DIR` and `TOWNSHIP_CACHE_PATH` to relocate these files. Durable
+run directories live separately under `runs/` (or `TOWNSHIP_RUNS_DIR`).

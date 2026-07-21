@@ -23,6 +23,8 @@ interface CanvasOverlayProps {
   getTrust?: (id: string) => number;
   /** Proximity threshold in world coordinates. */
   proximityRadius?: number;
+  /** Keep floating cards clear of fixed controls at the canvas bottom. */
+  bottomInset?: number;
 }
 
 /**
@@ -39,6 +41,7 @@ export function CanvasOverlay({
   getAgent,
   getTrust,
   proximityRadius = 120,
+  bottomInset = 12,
 }: CanvasOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const elementsMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -47,6 +50,7 @@ export function CanvasOverlay({
     agentId: string;
     screenX: number;
     screenY: number;
+    anchorOffsetX: number;
   } | null>(null);
   const lastProxIdRef = useRef<string | null>(null);
 
@@ -58,8 +62,8 @@ export function CanvasOverlay({
       return;
     }
 
-    const scene = game.scene.getScene("TownScene");
-    if (!scene || !scene.scene.isActive()) {
+    const scene = game.scene?.getScene("TownScene");
+    if (!scene?.scene?.isActive()) {
       rafRef.current = requestAnimationFrame(syncPositions);
       return;
     }
@@ -157,16 +161,44 @@ export function CanvasOverlay({
         }
         if (bestId) {
           const { sx, sy } = worldToScreen(bestX, bestY - 50);
+          // The card is 240px wide on desktop and narrows on phones. Clamp
+          // its center to the canvas—not the viewport—so it can never bleed
+          // into the resident rail or be cut off at either mobile edge.
+          const cardHalf = Math.min(120, Math.max(90, (containerRect.width - 20) / 2));
+          const safeX = Math.max(cardHalf + 10, Math.min(containerRect.width - cardHalf - 10, sx));
+          // On narrow canvases the HUD and mini-map occupy the top band. Keep
+          // the card below both instead of layering a third panel over them.
+          const topInset = containerRect.width <= 600
+            ? Math.min(210, containerRect.height - bottomInset)
+            : 112;
+          const safeY = Math.max(topInset, Math.min(containerRect.height - bottomInset, sy));
+          const anchorOffsetX = sx - safeX;
           if (bestId !== lastProxIdRef.current) {
             lastProxIdRef.current = bestId;
-            setProximity({ agentId: bestId, screenX: sx, screenY: sy });
+            setProximity({ agentId: bestId, screenX: safeX, screenY: safeY, anchorOffsetX });
           } else {
             // smooth-update without recreating
             setProximity((prev) => {
-              if (!prev) return { agentId: bestId!, screenX: sx, screenY: sy };
+              if (!prev) {
+                return {
+                  agentId: bestId!,
+                  screenX: safeX,
+                  screenY: safeY,
+                  anchorOffsetX,
+                };
+              }
               // Only update if moved meaningfully
-              if (Math.abs(prev.screenX - sx) > 1 || Math.abs(prev.screenY - sy) > 1) {
-                return { agentId: bestId!, screenX: sx, screenY: sy };
+              if (
+                Math.abs(prev.screenX - safeX) > 1
+                || Math.abs(prev.screenY - safeY) > 1
+                || Math.abs(prev.anchorOffsetX - anchorOffsetX) > 1
+              ) {
+                return {
+                  agentId: bestId!,
+                  screenX: safeX,
+                  screenY: safeY,
+                  anchorOffsetX,
+                };
               }
               return prev;
             });
@@ -179,7 +211,7 @@ export function CanvasOverlay({
     }
 
     rafRef.current = requestAnimationFrame(syncPositions);
-  }, [gameRef, getOverlayData, getPlayer, proximityRadius]);
+  }, [gameRef, getOverlayData, getPlayer, proximityRadius, bottomInset]);
 
   useEffect(() => {
     rafRef.current = requestAnimationFrame(syncPositions);
@@ -206,6 +238,7 @@ export function CanvasOverlay({
           trust={getTrust ? getTrust(proxAgent.id) : 0}
           x={proximity.screenX}
           y={proximity.screenY}
+          anchorOffsetX={proximity.anchorOffsetX}
         />
       )}
     </>

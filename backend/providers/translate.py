@@ -32,9 +32,7 @@ def anthropic_tool_to_openai(tool: dict) -> dict:
         "function": {
             "name": tool["name"],
             "description": tool.get("description", ""),
-            "parameters": tool.get(
-                "input_schema", {"type": "object", "properties": {}}
-            ),
+            "parameters": tool.get("input_schema", {"type": "object", "properties": {}}),
         },
     }
 
@@ -108,9 +106,7 @@ def openai_completion_to_result(completion: Any, cost: float = 0.0) -> dict:
             try:
                 parsed_input = json.loads(raw_args)
             except json.JSONDecodeError:
-                logger.warning(
-                    "Tool call arguments were not valid JSON: %.200s", raw_args
-                )
+                logger.warning("Tool call arguments were not valid JSON: %.200s", raw_args)
                 parsed_input = {}
         else:
             parsed_input = dict(raw_args)

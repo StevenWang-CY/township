@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 # USD per million tokens. Anthropic Claude pricing is identical on the
 # Anthropic API and AWS Bedrock; cache_write_5m / cache_read apply when
 # prompt caching kicks in. OpenAI entries feed the `openai` preset of
-# OpenAICompatProvider. Unknown models simply cost 0.0 (local providers).
+# OpenAICompatProvider. Unknown OpenAI-compatible/local models cost 0.0;
+# Anthropic-family providers use the configured fallback catalog rate.
 MODEL_COSTS: dict[str, dict[str, float]] = {
     # Anthropic Claude
     "claude-sonnet-4-5": {
@@ -82,7 +83,7 @@ def lookup_costs(model_id: str, fallback: str | None = None) -> dict[str, float]
     return costs or {}
 
 
-def env_flag(name: str, default: bool = True) -> bool:
+def env_flag(name: str, default: bool = False) -> bool:
     """Read a boolean env var; '0'/'false'/'' disable, anything else enables."""
     raw = os.environ.get(name)
     if raw is None:
@@ -196,14 +197,16 @@ class _AnthropicFamilyProvider:
         client,
         default_model: str,
         max_concurrent: int = 10,
-        cache_system: bool = True,
+        cache_system: bool = False,
     ) -> None:
         self._client = client
         self._default_model = default_model
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        # Optional prompt caching: cache the system block on every call.
-        # Saves ~80% of input cost when the same persona is hit many times
-        # per round.
+        # Optional prompt caching: attach an ephemeral cache marker to the
+        # complete system block. Township's system prompt includes memories,
+        # current stance, and round goals, so it usually changes between calls.
+        # Keep this experimental optimization opt-in unless a deployment has
+        # measured cache reads for its own prompt pattern.
         self._cache_system = cache_system
         self._usage = UsageTracker()
 
@@ -319,9 +322,7 @@ class _AnthropicFamilyProvider:
                 }
 
     def get_usage_report(self) -> dict:
-        return self._usage.report(
-            provider=self.provider_name, default_model=self._default_model
-        )
+        return self._usage.report(provider=self.provider_name, default_model=self._default_model)
 
     def reset_usage(self) -> None:
         self._usage.reset()

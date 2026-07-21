@@ -1,10 +1,14 @@
 import logging
 import os
+from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .core.event_bus import EventBus
 from .core.scenario import load_scenario_with_fallback
@@ -35,20 +39,69 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Load mutable local state on boot and flush it on clean shutdown."""
+    load_relationship_state()
+    load_journal_state()
+    agent_count = sum(len(v) for v in orchestrator.agent_states.values())
+    towns = list(orchestrator.agent_states.keys())
+    provider_name = llm_provider.get_usage_report().get("provider", "unknown")
+    logger.info(
+        "Township started: %s agents across %s towns: %s",
+        agent_count,
+        len(towns),
+        towns,
+    )
+    logger.info("LLM provider: %s", provider_name)
+    logger.info(
+        "Scenario: %s (%s) from %s",
+        scenario.id,
+        scenario.title,
+        scenario.scenario_dir,
+    )
+    logger.info(
+        "Registered routes: /api/scenario, /api/simulation, /api/chat, "
+        "/api/gods-view, /api/towns, /api/journal, /api/runs, "
+        "/api/transcribe, /api/tts, /api/health"
+    )
+    logger.info("CORS allowed origins: %s", ALLOWED_ORIGINS)
+    logger.info("Allowed Host headers: %s", ALLOWED_HOSTS)
+    if _SERVE_FRONTEND:
+        logger.info("Serving frontend build from %s at /", FRONTEND_DIST)
+
+    try:
+        yield
+    finally:
+        logger.info("Township shutting down")
+        await flush_relationship_state()
+        await flush_journal_state()
+        logger.info("Final usage: %s", llm_provider.get_usage_report())
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Township — Civic AI Simulation",
-    description="26 AI agents across 4 NJ towns deliberate about a real election",
+    description=(
+        "A scenario-driven civic deliberation engine where AI residents discuss "
+        "elections and policy questions in a living pixel town."
+    ),
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # CORS — origins come from ALLOWED_ORIGINS (comma-separated). Credentials are
 # disabled so an explicit origin list is honored by browsers.
 _DEFAULT_ORIGINS = "http://localhost:5173,http://localhost:4173,http://localhost:3000"
 ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
-    if o.strip()
+    o.strip() for o in os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()
+]
+_DEFAULT_HOSTS = "localhost,127.0.0.1,testserver"
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("ALLOWED_HOSTS", _DEFAULT_HOSTS).split(",")
+    if host.strip()
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -57,6 +110,91 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=ALLOWED_HOSTS,
+    www_redirect=False,
+)
+
+
+def _hostname_from_header(host_header: str) -> str | None:
+    """Extract a normalized hostname from an HTTP Host header."""
+    try:
+        return urlsplit(f"//{host_header}").hostname
+    except ValueError:
+        return None
+
+
+def _host_allowed(host_header: str) -> bool:
+    """Mirror TrustedHost matching for same-origin validation."""
+    hostname = _hostname_from_header(host_header)
+    if not hostname:
+        return False
+    normalized = hostname.casefold()
+    for pattern in ALLOWED_HOSTS:
+        candidate = pattern.casefold()
+        if candidate == "*" or normalized == candidate:
+            return True
+        if candidate.startswith("*.") and normalized.endswith(candidate[1:]):
+            return True
+    return False
+
+
+def _browser_origin_allowed(origin: str | None, request_host: str) -> bool:
+    """Accept configured browser origins or a trusted, exact same origin."""
+    if not origin:
+        return True  # Native/CLI clients do not normally send Origin.
+    if "*" in ALLOWED_ORIGINS:
+        return True
+    normalized = origin.rstrip("/")
+    if normalized in {allowed.rstrip("/") for allowed in ALLOWED_ORIGINS}:
+        return True
+
+    try:
+        parsed = urlsplit(origin)
+        return (
+            parsed.scheme in {"http", "https"}
+            and not parsed.username
+            and not parsed.password
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+            and _host_allowed(request_host)
+            and parsed.netloc.casefold() == request_host.casefold()
+        )
+    except ValueError:
+        return False
+
+
+@app.middleware("http")
+async def reject_cross_origin_mutations(request: Request, call_next):
+    """Block browser CSRF, including safelisted forms and multipart uploads."""
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and not _browser_origin_allowed(
+        request.headers.get("origin"), request.headers.get("host", "")
+    ):
+        logger.warning(
+            "Rejected %s %s from disallowed origin %r",
+            request.method,
+            request.url.path,
+            request.headers.get("origin"),
+        )
+        return JSONResponse(
+            {"error": "origin_not_allowed"},
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+        )
+    return await call_next(request)
+
+
+def _websocket_origin_allowed(ws: WebSocket) -> bool:
+    """Apply the CORS list while also accepting the server's own origin.
+
+    Same-origin acceptance is essential for the single-container deployment,
+    where the built frontend and ``/ws`` are both served by port 8000 even
+    though that origin need not be repeated in ``ALLOWED_ORIGINS``.
+    """
+    return _browser_origin_allowed(ws.headers.get("origin"), ws.headers.get("host", ""))
+
 
 # Global state
 event_bus = EventBus()
@@ -106,10 +244,7 @@ app.include_router(tts_router)
 
 def _status_payload() -> dict:
     """Health/status info shared by GET /api/health (and GET / without a build)."""
-    agent_counts = {
-        town: len(agents)
-        for town, agents in orchestrator.agent_states.items()
-    }
+    agent_counts = {town: len(agents) for town, agents in orchestrator.agent_states.items()}
     return {
         "name": "Township",
         "status": "running" if orchestrator.is_running else "idle",
@@ -138,8 +273,21 @@ if not _SERVE_FRONTEND:
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     """WebSocket endpoint for real-time simulation events."""
+    origin = ws.headers.get("origin")
+    # Browsers always send Origin during the WebSocket handshake. Enforce the
+    # same allow-list used by HTTP CORS before accepting the socket so a page
+    # on an unrelated origin cannot drive a locally running Township server.
+    # CLI clients and test harnesses commonly omit Origin, so absence remains
+    # allowed; operators can still use a reverse proxy for stronger auth.
+    if not _websocket_origin_allowed(ws):
+        logger.warning("Rejected WebSocket connection from disallowed origin %r", origin)
+        await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await ws.accept()
-    event_bus.register_ws(ws)
+    if not await event_bus.subscribe_ws(ws):
+        logger.info("WebSocket client disconnected during run replay")
+        return
     logger.info("WebSocket client connected")
 
     try:
@@ -148,43 +296,14 @@ async def websocket_endpoint(ws: WebSocket):
             data = await ws.receive_text()
             # Echo back pings
             if data == "ping":
-                await ws.send_text('{"type":"pong"}')
+                if not await event_bus.send_ws_text(ws, '{"type":"pong"}'):
+                    return
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
         event_bus.unregister_ws(ws)
-
-
-@app.on_event("startup")
-async def startup():
-    """Load persisted player state and log startup info."""
-    load_relationship_state()
-    load_journal_state()
-    agent_count = sum(len(v) for v in orchestrator.agent_states.values())
-    towns = list(orchestrator.agent_states.keys())
-    provider_name = llm_provider.get_usage_report().get("provider", "unknown")
-    logger.info(f"Township started: {agent_count} agents across {len(towns)} towns: {towns}")
-    logger.info(f"LLM provider: {provider_name}")
-    logger.info(f"Scenario: {scenario.id} ({scenario.title}) from {scenario.scenario_dir}")
-    logger.info(
-        "Registered routes: /api/scenario, /api/simulation, /api/chat, /api/gods-view, "
-        "/api/towns, /api/journal, /api/transcribe, /api/tts, /api/health"
-    )
-    logger.info(f"CORS allowed origins: {ALLOWED_ORIGINS}")
-    if _SERVE_FRONTEND:
-        logger.info(f"Serving frontend build from {FRONTEND_DIST} at /")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Flush persisted player state and log shutdown."""
-    logger.info("Township shutting down")
-    await flush_relationship_state()
-    await flush_journal_state()
-    usage = llm_provider.get_usage_report()
-    logger.info(f"Final usage: {usage}")
 
 
 class SPAStaticFiles(StaticFiles):

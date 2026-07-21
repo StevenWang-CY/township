@@ -1,25 +1,31 @@
 # Third-Party Notices
 
-Township's own code is licensed under the MIT License (see [LICENSE](LICENSE)).
+Township's own code and original artwork are licensed under the MIT License (see
+[LICENSE](LICENSE)). That license does **not** replace the asset-specific terms
+below.
 
-The game art bundled under `frontend/public/assets/` is vendored from third-party
-open-source projects and remains under the original authors' licenses and
-copyrights, reproduced below. Provenance was verified against the upstream
-repository file trees on 2026-07-20; each section states exactly which vendored
-files it covers.
+This notice covers third-party visual assets, Township adaptations of those
+assets, bundled fonts, and production browser software. The inventory and source links were checked against
+the cited upstream revisions and primary license pages on 2026-07-21. Each
+section identifies the files it covers, the applicable license, attribution,
+and known modifications.
 
 ---
 
 ## 1. Stanford Generative Agents ("Smallville")
 
 - **Upstream:** <https://github.com/joonspk-research/generative_agents>
+- **Revision checked:**
+  [`fe05a71d3e4ed7d10bf68aa4eda6dd995ec070f4`](https://github.com/joonspk-research/generative_agents/tree/fe05a71d3e4ed7d10bf68aa4eda6dd995ec070f4)
 - **License:** Apache License, Version 2.0
+- **License file:**
+  <https://github.com/joonspk-research/generative_agents/blob/fe05a71d3e4ed7d10bf68aa4eda6dd995ec070f4/LICENSE>
 - **Copyright:** Copyright 2023 Joon Sung Park
 
 ### Vendored files covered by this section
 
-Copied from `environment/frontend_server/static_dirs/assets/` in the upstream
-repository:
+The following files are byte-for-byte copies of files under
+`environment/frontend_server/static_dirs/assets/` at the revision above:
 
 - `frontend/public/assets/characters/` — 25 character spritesheets:
   `Abigail_Chen.png`, `Adam_Smith.png`, `Arthur_Burton.png`, `Ayesha_Khan.png`,
@@ -31,6 +37,25 @@ repository:
   `Wolfgang_Schulz.png`, `Yuriko_Yamamoto.png`
 - `frontend/public/assets/speech_bubble/v2.png` — speech-bubble overlay
 
+### Township modification notice
+
+As required for modified Apache-2.0 files, Township records these changes
+prominently:
+
+- Every `*_custom.png` file under
+  `frontend/public/assets/characters/custom/`, except
+  `jennifer-jen-russo_custom.png`, is a palette-swapped derivative of a
+  Smallville character sheet. Township's generator changes selected garment
+  pixels while preserving the upstream silhouette and animation frames. The
+  `_custom` suffix identifies the modified files.
+- Documentation captures under `docs/media/` may reproduce these sheets after
+  scaling, cropping, scene lighting, and composition with Township UI and map
+  art.
+- The separately distributed accessory overlays under
+  `frontend/public/assets/characters/accessories/` were drawn by Township. When
+  an overlay is composited with a Smallville body, the body remains subject to
+  this section.
+
 ### Upstream artist credits
 
 The upstream README credits the following artists for the game assets and
@@ -40,10 +65,10 @@ encourages supporting them (credits reproduced from the upstream README):
 - Furniture/interior design: [LimeZu (@lime_px)](https://twitter.com/lime_px)
 - Character design: [ぴぽ (@pipohi)](https://twitter.com/pipohi)
 
-The character spritesheets vendored here are character art; per the upstream
-credits, character design is by ぴぽ (pipohi). The upstream repository is
-distributed under Apache-2.0 as a whole; it does not publish separate per-asset
-license terms beyond the artist credits above.
+The upstream repository's root Apache-2.0 license is the only license published
+alongside these particular character and speech-bubble files; no separate
+per-file art license or exclusion is present. Township redistributes them in
+reliance on that repository license and retains the upstream artist credits.
 
 ### Citation
 
@@ -57,7 +82,7 @@ arXiv: <https://arxiv.org/abs/2304.03442>
 ### License text
 
 <details>
-<summary>Apache License, Version 2.0 (full text)</summary>
+<summary>Apache License, Version 2.0 (terms and upstream notice)</summary>
 
 ```
                                  Apache License
@@ -256,54 +281,46 @@ arXiv: <https://arxiv.org/abs/2304.03442>
 
 ---
 
-## 2. AI Town (a16z-infra)
+## 2. AI Town folk and animation assets
 
 - **Upstream:** <https://github.com/a16z-infra/ai-town>
-- **License:** MIT License
+- **Revision checked:**
+  [`7b242334bfbfef02f7718bded120d431e8f307df`](https://github.com/a16z-infra/ai-town/tree/7b242334bfbfef02f7718bded120d431e8f307df)
+- **License for the files identified in this section:** MIT License
+- **License file:**
+  <https://github.com/a16z-infra/ai-town/blob/7b242334bfbfef02f7718bded120d431e8f307df/LICENSE>
 - **Copyright:** Copyright (c) 2023 a16z-infra
 
-### Vendored files covered by this section
+### Unmodified vendored files covered by this section
 
-Copied from `public/assets/` in the upstream repository:
+These are byte-for-byte copies of the matching AI Town files:
 
-- `frontend/public/assets/tilesets/rpg-tileset.png` — 16 px RPG tilesheet
-- `frontend/public/assets/tilesets/magecity.png` — city tileset
-- `frontend/public/assets/maps/tilemap.json` — Tiled tilemap (references
-  `rpg-tileset.png`)
-- `frontend/public/assets/spritesheets/campfire.png` — animated campfire
-- `frontend/public/assets/spritesheets/gentlesparkle32.png` — animated sparkle
-- `frontend/public/assets/spritesheets/gentlewaterfall32.png` — animated
-  waterfall
-- `frontend/public/assets/spritesheets/windmill.png` — animated windmill
-- `frontend/public/assets/characters/32x32folk.png` — folk character atlas
-- `frontend/public/assets/characters/player.png` — 16 px player spritesheet
+- `frontend/public/assets/characters/32x32folk.png`
+- `frontend/public/assets/spritesheets/campfire.png`
+- `frontend/public/assets/spritesheets/gentlesparkle32.png`
+- `frontend/public/assets/spritesheets/gentlewaterfall32.png`
+- `frontend/public/assets/spritesheets/windmill.png`
 
-Derived works created for Township from the files above:
+The OpenGameArt-derived `rpg-tileset.png` and the ansimuz-derived `player.png`
+are intentionally excluded from this MIT section; their asset-specific terms
+are documented in Sections 3 and 4.
 
-- `frontend/public/assets/characters/player-1.png` through `player-6.png` and
-  `frontend/public/assets/characters/Folk_Resident.png` are crops/derivatives
-  of the folk character atlas (`32x32folk.png`) and are covered by the same
-  upstream terms and artist credits.
+### Township modification notice
 
-### Upstream artist credits
+- `frontend/public/assets/characters/folk-0.png` through `folk-7.png`,
+  `player-1.png` through `player-6.png`, and `Folk_Resident.png` are exact
+  rectangular crops of `32x32folk.png`.
+- `frontend/public/assets/characters/custom/jennifer-jen-russo_custom.png` is a
+  garment-palette modification of `Folk_Resident.png`; the `_custom` suffix
+  identifies the modified file.
+- Documentation captures under `docs/media/` may show these assets after
+  scaling, cropping, lighting, and composition with other art and UI.
 
-Reproduced from the ai-town README:
-
-- Tilesheet:
-  - <https://opengameart.org/content/16x16-game-assets> by George Bailey
-  - <https://opengameart.org/content/16x16-rpg-tileset> by hilau
-- Original assets by [ansimuz](https://opengameart.org/content/tiny-rpg-forest)
-- "The UI is based on original assets by
-  [Mounir Tohami](https://mounirtohami.itch.io/pixel-art-gui-elements)"
-  (note: the ai-town UI SVGs based on Mounir Tohami's work are **not** shipped
-  with Township; the credit is retained here because ai-town documents its
-  asset credits collectively rather than per file)
-- ai-town also notes: "We used
-  <https://github.com/pierpo/phaser3-simple-rpg> for the original POC of this
-  project."
-
-The upstream README does not map credits to individual files, so all of the
-above attributions are retained for the vendored asset set as a whole.
+AI Town's README provides aggregate art credits but does not map a separate
+artist or license to these five source files. The root MIT license is the only
+license shipped alongside them, so Township redistributes these files in
+reliance on that license. The provenance limitation is recorded below rather
+than assigning an unsupported per-file attribution.
 
 ### License text
 
@@ -333,13 +350,177 @@ SOFTWARE.
 
 ---
 
-## Provenance note
+## 3. 16x16 RPG Tileset and its source works
 
-The Stanford Generative Agents repository is licensed under Apache-2.0 as a
-whole, but its README credits the game art to independent pixel artists
-(PixyMoon, LimeZu, and pipohi) and does not publish separate license terms for
-the art itself. Township retains those artist credits above. If stricter asset
-provenance is ever required, the character spritesheets can be replaced with
-public-domain (CC0) alternatives such as Kenney's character packs
-(<https://kenney.nl/assets>) or the Liberated Pixel Cup (LPC) sprite
-collection (<https://opengameart.org/content/lpc-collection>).
+- **Vendored file:** `frontend/public/assets/tilesets/rpg-tileset.png`
+- **Immediate source:**
+  [`public/assets/rpg-tileset.png`](https://github.com/a16z-infra/ai-town/blob/7b242334bfbfef02f7718bded120d431e8f307df/public/assets/rpg-tileset.png)
+  in AI Town
+- **License option used by Township:**
+  [Creative Commons Attribution-ShareAlike 3.0 Unported](https://creativecommons.org/licenses/by-sa/3.0/)
+
+AI Town's README identifies its tilesheet sources. The immediate source file is
+a compiled adaptation of the following works and retains their attribution
+chain:
+
+- **"16x16 RPG Tileset" by hilau** —
+  <https://opengameart.org/content/16x16-rpg-tileset>. The author offers the
+  work under CC BY-SA 3.0 or GPL 3.0. Township uses the CC BY-SA 3.0 option.
+- **"16x16 Game Assets" by George Bailey** —
+  <https://opengameart.org/content/16x16-game-assets>, licensed
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Hilau identifies
+  this as a principal source work.
+- **"LPC Thatched-roof Cottage" by bluecarrot16** —
+  <https://opengameart.org/content/lpc-thatched-roof-cottage>, licensed
+  CC BY-SA 3.0 or GPL 3.0+. That work in turn credits:
+  - **"LPC Base Assets" by Lanea Zimmerman (Sharm) and Daniel Armstrong
+    (HughSpectrum)** —
+    <https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles>
+  - **"LPC art entry" by Casper Nilsson** —
+    <https://opengameart.org/content/lpc-cnilsson>
+
+### Modification and ShareAlike notice
+
+- Hilau documents extensive recoloring, extensions, and new terrain,
+  buildings, roofs, interiors, and objects on the source page.
+- AI Town compiled the source art into a 1600×1600-pixel sheet. AI Town does
+  not publish a per-tile change log for that compilation.
+- Township copied AI Town's compiled `rpg-tileset.png` byte-for-byte without
+  changing the sheet.
+- Township's `frontend/public/assets/maps/*-preview.png` files are new rendered
+  arrangements of tiles from the sheet. Game-scene captures under
+  `docs/media/` may further scale, crop, light, or composite those arrangements
+  with Township art and UI.
+- The `.tmj` files under `frontend/public/assets/maps/` are Township-authored
+  layout data that reference tile identifiers; they do not embed the source
+  pixels.
+
+The adapted tile artwork in `rpg-tileset.png` and in rendered images that
+reproduce it is distributed under CC BY-SA 3.0. Township's separable code,
+layout data, UI, and original artwork retain their stated licenses. No source
+artist or project endorses Township.
+
+---
+
+## 4. Tiny RPG - Forest player sprite
+
+- **Vendored file:** `frontend/public/assets/characters/player.png`
+- **Creator:** Luis Zuno (`ansimuz`)
+- **Original asset page:**
+  <https://opengameart.org/content/tiny-rpg-forest>
+- **License:** [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+- **Intermediate source:**
+  [`pierpo/phaser3-simple-rpg/assets/player.png`](https://github.com/pierpo/phaser3-simple-rpg/blob/master/assets/player.png)
+
+Township's file is byte-for-byte identical to the `player.png` published by
+`phaser3-simple-rpg`, whose README credits its assets to ansimuz's Tiny RPG -
+Forest pack. AI Town republishes the same file, from which Township vendored
+it. The sprite is unmodified; runtime and documentation rendering may scale or
+composite it. CC0 does not require attribution, but the creator and source are
+retained here as a courtesy and provenance record.
+
+Despite their names, Township's `player-1.png` through `player-6.png` are crops
+of AI Town's folk atlas, not derivatives of this player sprite; Section 2
+governs those files.
+
+---
+
+## 5. Cinzel and Inter typefaces
+
+- **Cinzel upstream:**
+  <https://github.com/google/fonts/tree/main/ofl/cinzel>
+- **Inter upstream:**
+  <https://github.com/google/fonts/tree/main/ofl/inter>
+- **License:** SIL Open Font License, Version 1.1
+- **Cinzel copyright:** Copyright 2020 The Cinzel Project Authors
+- **Inter copyright:** Copyright 2020 The Inter Project Authors
+
+The self-hosted, Latin-subset webfonts at
+`frontend/src/assets/fonts/cinzel-latin.woff2` and
+`frontend/src/assets/fonts/inter-latin.woff2` are format-converted, Latin-subset
+versions of the upstream variable fonts; Township made no glyph-design
+changes. The corresponding complete OFL texts and copyright notices ship at
+`frontend/public/assets/fonts/Cinzel-OFL.txt` and
+`frontend/public/assets/fonts/Inter-OFL.txt`.
+
+---
+
+## 6. Production browser software
+
+The production frontend bundle includes the following MIT-licensed packages
+and their listed runtime dependencies. Versions are resolved by
+`frontend/package-lock.json`:
+
+| Package | Version | Copyright notice |
+|---|---:|---|
+| Phaser | 3.90.0 | Copyright (c) 2024 Richard Davey, Phaser Studio Inc. |
+| eventemitter3 | 5.0.4 | Copyright (c) 2014 Arnout Kazemier |
+| React | 19.2.8 | Copyright (c) Meta Platforms, Inc. and affiliates. |
+| React DOM | 19.2.8 | Copyright (c) Meta Platforms, Inc. and affiliates. |
+| Scheduler | 0.27.0 | Copyright (c) Meta Platforms, Inc. and affiliates. |
+| React Router | 7.18.1 | Copyright (c) React Training LLC 2015–2019; Remix Software Inc. 2020–2021; Shopify Inc. 2022–2023 |
+| React Router DOM | 7.18.1 | Copyright (c) React Training LLC 2015–2019; Remix Software Inc. 2020–2021; Shopify Inc. 2022–2023 |
+| cookie | 1.1.1 | Copyright (c) 2012–2014 Roman Shtylman; Copyright (c) 2015 Douglas Christopher Wilson |
+| set-cookie-parser | 2.7.2 | Copyright (c) 2015 Nathan Friedly |
+
+The following MIT text applies to every package in the table above:
+
+```
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+## 7. Township-created visual assets
+
+For clarity, the following are Township-authored and covered by Township's MIT
+license, not by the third-party licenses above:
+
+- `frontend/public/assets/tilesets/township-modern.png` — generated by
+  `scripts/mapgen/moderntiles.py`; its generator samples the vendored RPG
+  sheet's palette for visual cohesion but does not copy source tiles.
+- `frontend/public/assets/characters/accessories/*.png` — generated Township
+  accessory overlays.
+- `frontend/public/assets/maps/*.tmj` — original map layout and collision data.
+- Textures generated at runtime by `frontend/src/game/pixelTextures.ts`.
+
+When these assets are combined with third-party character or tile art in a
+rendered scene, the applicable third-party attribution and license remain in
+force for that art.
+
+---
+
+## Provenance qualifications
+
+- **Smallville:** the upstream repository places a root Apache-2.0 license
+  alongside the character sheets and speech bubble and credits the artists in
+  its README, but it provides no separate per-asset license document. Township
+  relies on the repository license; the absence of per-asset terms is an
+  upstream provenance limitation.
+- **AI Town folk and animation files:** AI Town's root MIT license is the only
+  license published alongside the five files in Section 2. Its README gives
+  aggregate art credits (including pixel-art generation via Replicate and
+  Fal.ai) but no file-to-creator mapping. Township therefore cannot provide a
+  more specific authorship chain for those files.
+
+Downstream distributors whose policy requires an independent, per-file asset
+license should treat those two qualifications as unresolved provenance risk
+and replace the affected assets before redistribution. The OpenGameArt tile
+sheet, ansimuz player, and Google Fonts files have the specific source and
+license chains documented above.

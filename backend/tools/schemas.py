@@ -1,14 +1,12 @@
 """
-Claude tool-use schemas for civic simulation tools.
+Provider-neutral tool-use schemas for civic simulation tools.
 
 These dicts follow the Anthropic SDK tool format for the `tools` parameter.
 
 Two layers:
 
-- **Static schemas** (`discuss_tool`, `form_opinion_tool`, ...): the raw
-  shapes, importable with no scenario — used by provider/translation tests
-  and as the fallback registry. `form_opinion_tool` carries the default
-  NJ-11 stance enum for backward compatibility.
+- **Static schemas** (`discuss_tool`, `form_opinion_tool`, ...): neutral raw
+  shapes, importable with no scenario for provider/translation tests.
 - **`build_tools(scenario)`**: a per-scenario registry where FormOpinion's
   `candidate` enum is the scenario's stance roster and descriptions are
   templated with the scenario's title/question. `get_tools(names, scenario)`
@@ -217,11 +215,12 @@ classify_interaction_tool = {
 }
 
 
-# ── Static (scenario-free) schemas — the NJ-11 defaults, kept importable so
-#    provider / translation tests can exercise the raw shapes with no scenario.
+# ── Static, scenario-free schemas. Provider/translation tests need raw tool
+#    shapes without loading civic content, so these deliberately use neutral
+#    placeholder language and ids.
 
-_DEFAULT_TOPIC_PHRASE = "the NJ-11 special election"
-_DEFAULT_STANCES = ["mejia", "hathaway", "bond", "undecided"]
+_DEFAULT_TOPIC_PHRASE = "the civic question at hand"
+_DEFAULT_STANCES = ["option-a", "option-b", "undecided"]
 
 discuss_tool = _base_discuss(_DEFAULT_TOPIC_PHRASE)
 form_opinion_tool = make_form_opinion(_DEFAULT_STANCES, _DEFAULT_TOPIC_PHRASE)
@@ -257,8 +256,8 @@ def get_tools(tool_names: list[str], scenario=None) -> list[dict]:
     Return tool schema dicts for the given tool names.
 
     With a scenario, tools come from `build_tools(scenario)` (dynamic stance
-    enum + templated wording); without one, the static NJ-11-default registry
-    is used so legacy callers and tests keep working.
+    enum + templated wording); without one, the neutral static registry is
+    used for provider-level operations and tests.
     """
     registry = build_tools(scenario) if scenario is not None else TOOL_REGISTRY
     return [registry[name] for name in tool_names if name in registry]

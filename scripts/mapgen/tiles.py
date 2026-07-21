@@ -157,11 +157,18 @@ class Blob:
 
     def edge_tiles(self) -> dict[str, object]:
         return {
-            "nw": self.nw, "n": self.n, "ne": self.ne,
-            "w": self.w, "e": self.e,
-            "sw": self.sw, "s": self.s, "se": self.se,
-            "hole_nw": self.hole_nw, "hole_ne": self.hole_ne,
-            "hole_sw": self.hole_sw, "hole_se": self.hole_se,
+            "nw": self.nw,
+            "n": self.n,
+            "ne": self.ne,
+            "w": self.w,
+            "e": self.e,
+            "sw": self.sw,
+            "s": self.s,
+            "se": self.se,
+            "hole_nw": self.hole_nw,
+            "hole_ne": self.hole_ne,
+            "hole_sw": self.hole_sw,
+            "hole_se": self.hole_se,
         }
 
 
@@ -174,24 +181,44 @@ class Blob:
 GRASS = Blob(
     name="grass",
     fill=(202, 203, 204, 205, 302, 303, 304, 305),
-    nw=102, n=(103, 104), ne=105,
-    w=(202, 302), e=(205, 305),
-    sw=402, s=(403, 404), se=405,
-    fringe_n=(3, 4), fringe_s=(503, 504),
-    fringe_w=(201, 301), fringe_e=(206, 306),
-    hole_nw=108, hole_ne=109, hole_sw=208, hole_se=209,
+    nw=102,
+    n=(103, 104),
+    ne=105,
+    w=(202, 302),
+    e=(205, 305),
+    sw=402,
+    s=(403, 404),
+    se=405,
+    fringe_n=(3, 4),
+    fringe_s=(503, 504),
+    fringe_w=(201, 301),
+    fringe_e=(206, 306),
+    hole_nw=108,
+    hole_ne=109,
+    hole_sw=208,
+    hole_se=209,
 )
 
 #: Lighter lime "spring meadow" grass patch (rows 18-22, cols 0-9).
 GRASS_LIGHT = Blob(
     name="grass_light",
     fill=(2003, 2004, 2103, 2104),
-    nw=1902, n=(1903, 1904), ne=1905,
-    w=(2002, 2102), e=(2005, 2105),
-    sw=2202, s=(2203, 2204), se=2205,
-    fringe_n=(1803, 1804), fringe_s=(2303, 2304),
-    fringe_w=(2001, 2101), fringe_e=(2006, 2106),
-    hole_nw=1908, hole_ne=1909, hole_sw=2008, hole_se=2009,
+    nw=1902,
+    n=(1903, 1904),
+    ne=1905,
+    w=(2002, 2102),
+    e=(2005, 2105),
+    sw=2202,
+    s=(2203, 2204),
+    se=2205,
+    fringe_n=(1803, 1804),
+    fringe_s=(2303, 2304),
+    fringe_w=(2001, 2101),
+    fringe_e=(2006, 2106),
+    hole_nw=1908,
+    hole_ne=1909,
+    hole_sw=2008,
+    hole_se=2009,
 )
 
 #: Bright saturated grass singles from the compact biome block (rows 60-64,
@@ -202,10 +229,18 @@ GRASS_BRIGHT_FILL = (6066, 6071, 6076, 6081, 6176, 6181, 6276, 6376, 6476)
 WATER_DEEP = Blob(
     name="water_deep",
     fill=(213, 214, 313, 314),
-    nw=112, n=(113, 114), ne=115,
-    w=(212, 312), e=(215, 315),
-    sw=412, s=(413, 414), se=415,
-    hole_nw=118, hole_ne=119, hole_sw=218, hole_se=219,
+    nw=112,
+    n=(113, 114),
+    ne=115,
+    w=(212, 312),
+    e=(215, 315),
+    sw=412,
+    s=(413, 414),
+    se=415,
+    hole_nw=118,
+    hole_ne=119,
+    hole_sw=218,
+    hole_se=219,
 )
 
 #: Lighter blue lake water used by the example map (fill only; shorelines
@@ -216,11 +251,19 @@ WATER_LAKE_FILL = (6268, 6269, 6368, 6369)
 WATER_SHALLOW = Blob(
     name="water_shallow",
     fill=(8744, 8745, 8844, 8845),
-    nw=8643, n=(8644, 8645), ne=8646,
-    w=(8743, 8843), e=(8746, 8846),
-    sw=8943, s=(8944, 8945), se=8946,
+    nw=8643,
+    n=(8644, 8645),
+    ne=8646,
+    w=(8743, 8843),
+    e=(8746, 8846),
+    sw=8943,
+    s=(8944, 8945),
+    se=8946,
     fringe_n=(8544, 8545),
-    hole_nw=8649, hole_ne=8650, hole_sw=8749, hole_se=8750,
+    hole_nw=8649,
+    hole_ne=8650,
+    hole_sw=8749,
+    hole_se=8750,
 )
 
 #: Red magma / crimson ground blob (rows 0-4, cols 21-29). Not town-useful,
@@ -228,11 +271,19 @@ WATER_SHALLOW = Blob(
 MAGMA = Blob(
     name="magma",
     fill=(223, 224, 323, 324),
-    nw=122, n=(123, 124), ne=125,
-    w=(222, 322), e=(225, 325),
-    sw=422, s=(423, 424), se=425,
+    nw=122,
+    n=(123, 124),
+    ne=125,
+    w=(222, 322),
+    e=(225, 325),
+    sw=422,
+    s=(423, 424),
+    se=425,
     fringe_e=(226, 326),
-    hole_nw=128, hole_ne=129, hole_sw=228, hole_se=229,
+    hole_nw=128,
+    hole_ne=129,
+    hole_sw=228,
+    hole_se=229,
 )
 
 #: Tan dirt path — THE road material of the example map (rows 18-22,
@@ -240,20 +291,35 @@ MAGMA = Blob(
 PATH_TAN = Blob(
     name="path_tan",
     fill=(2013, 2014, 2113, 2114),
-    nw=1912, n=(1913, 1914), ne=1915,
-    w=(2012, 2112), e=(2015, 2115),
-    sw=2212, s=(2213, 2214), se=2215,
-    fringe_n=(1813, 1814), fringe_w=(2111,), fringe_e=(2116,),
-    hole_nw=1918, hole_ne=1919, hole_sw=2018, hole_se=2019,
+    nw=1912,
+    n=(1913, 1914),
+    ne=1915,
+    w=(2012, 2112),
+    e=(2015, 2115),
+    sw=2212,
+    s=(2213, 2214),
+    se=2215,
+    fringe_n=(1813, 1814),
+    fringe_w=(2111,),
+    fringe_e=(2116,),
+    hole_nw=1918,
+    hole_ne=1919,
+    hole_sw=2018,
+    hole_se=2019,
 )
 
 #: Brown cobblestone pad with light-gray outline (rows 0-5, cols 31-37).
 COBBLE_PAD = Blob(
     name="cobble_pad",
     fill=(233, 234, 235, 236, 333, 334, 335, 336),
-    nw=32, n=(33, 34, 35, 36), ne=37,
-    w=(132, 232, 332, 432), e=(137, 237, 337, 437),
-    sw=532, s=(533, 534, 535, 536), se=537,
+    nw=32,
+    n=(33, 34, 35, 36),
+    ne=37,
+    w=(132, 232, 332, 432),
+    e=(137, 237, 337, 437),
+    sw=532,
+    s=(533, 534, 535, 536),
+    se=537,
 )
 
 #: Seamless brown cobblestone fill block (rows 0-3, cols 37-40).
@@ -261,62 +327,122 @@ COBBLE_FILL = (38, 39, 40, 41, 238, 239, 240, 241, 338, 339, 340, 341)
 
 #: Large tan cobble plaza fill (interior of the huge plaza shape at
 #: rows 6-15, cols 31-45).
-PLAZA_COBBLE_FILL = (1036, 1037, 1038, 1039, 1040,
-                     1136, 1137, 1138, 1139, 1140,
-                     1236, 1237, 1238, 1239, 1240)
+PLAZA_COBBLE_FILL = (
+    1036,
+    1037,
+    1038,
+    1039,
+    1040,
+    1136,
+    1137,
+    1138,
+    1139,
+    1140,
+    1236,
+    1237,
+    1238,
+    1239,
+    1240,
+)
 
 #: Gray stone / gravel blob (rows 24-28, cols 0-9).
 GRAVEL = Blob(
     name="gravel",
     fill=(2603, 2604, 2703, 2704),
-    nw=2502, n=(2503, 2504), ne=2505,
-    w=(2602, 2702), e=(2605, 2705),
-    sw=2802, s=(2803, 2804), se=2805,
-    hole_nw=2508, hole_ne=2509, hole_sw=2608, hole_se=2609,
+    nw=2502,
+    n=(2503, 2504),
+    ne=2505,
+    w=(2602, 2702),
+    e=(2605, 2705),
+    sw=2802,
+    s=(2803, 2804),
+    se=2805,
+    hole_nw=2508,
+    hole_ne=2509,
+    hole_sw=2608,
+    hole_se=2609,
 )
 
 #: Golden wheat / hay field blob (rows 23-27, cols 31-41).
 WHEAT = Blob(
     name="wheat",
     fill=(2534, 2535, 2634, 2635),
-    nw=2433, n=(2434, 2435), ne=2436,
-    w=(2533, 2633), e=(2536, 2636),
-    sw=2733, s=(2734, 2735), se=2736,
-    fringe_n=(2334, 2335), fringe_w=(2532, 2632), fringe_e=(2537, 2637),
-    hole_nw=2439, hole_ne=2440, hole_sw=2539, hole_se=2540,
+    nw=2433,
+    n=(2434, 2435),
+    ne=2436,
+    w=(2533, 2633),
+    e=(2536, 2636),
+    sw=2733,
+    s=(2734, 2735),
+    se=2736,
+    fringe_n=(2334, 2335),
+    fringe_w=(2532, 2632),
+    fringe_e=(2537, 2637),
+    hole_nw=2439,
+    hole_ne=2440,
+    hole_sw=2539,
+    hole_se=2540,
 )
 
 #: Tilled farm field (vertical furrows, rows 18-22, cols 20-30).
 FIELD_TILLED = Blob(
     name="field_tilled",
     fill=(2023, 2024, 2123, 2124),
-    nw=1922, n=(1923, 1924), ne=1925,
-    w=(2022, 2122), e=(2025, 2125),
-    sw=2222, s=(2223, 2224), se=2225,
-    fringe_n=(1823, 1824), fringe_e=(2026, 2126), fringe_s=(2323, 2324),
-    hole_nw=1928, hole_ne=1929, hole_sw=2028, hole_se=2029,
+    nw=1922,
+    n=(1923, 1924),
+    ne=1925,
+    w=(2022, 2122),
+    e=(2025, 2125),
+    sw=2222,
+    s=(2223, 2224),
+    se=2225,
+    fringe_n=(1823, 1824),
+    fringe_e=(2026, 2126),
+    fringe_s=(2323, 2324),
+    hole_nw=1928,
+    hole_ne=1929,
+    hole_sw=2028,
+    hole_se=2029,
 )
 
 #: Dark forest soil blob (rows 36-41, cols 0-9).
 SOIL_DARK = Blob(
     name="soil_dark",
     fill=(3803, 3804, 3903, 3904),
-    nw=3702, n=(3703, 3704), ne=3705,
-    w=(3802, 3902), e=(3805, 3905),
-    sw=4002, s=(4003, 4004), se=4005,
-    fringe_n=(3603, 3604), fringe_e=(3806, 3906), fringe_s=(4103, 4104),
-    hole_nw=3708, hole_ne=3709, hole_sw=3808, hole_se=3809,
+    nw=3702,
+    n=(3703, 3704),
+    ne=3705,
+    w=(3802, 3902),
+    e=(3805, 3905),
+    sw=4002,
+    s=(4003, 4004),
+    se=4005,
+    fringe_n=(3603, 3604),
+    fringe_e=(3806, 3906),
+    fringe_s=(4103, 4104),
+    hole_nw=3708,
+    hole_ne=3709,
+    hole_sw=3808,
+    hole_se=3809,
 )
 
 #: Dense dark-green canopy / hedge mass (rows 36-40, cols 19-30).
 CANOPY_DARK = Blob(
     name="canopy_dark",
     fill=(3823, 3824, 3923, 3924),
-    nw=3722, n=(3723, 3724), ne=3725,
-    w=(3822, 3922), e=(3825, 3925),
-    sw=4022, s=(4023, 4024), se=4025,
+    nw=3722,
+    n=(3723, 3724),
+    ne=3725,
+    w=(3822, 3922),
+    e=(3825, 3925),
+    sw=4022,
+    s=(4023, 4024),
+    se=4025,
     fringe_n=(3623, 3624),
-    hole_nw=3728, hole_ne=3729, hole_sw=3828, hole_se=3829,
+    hole_nw=3728,
+    hole_ne=3729,
+    hole_sw=3828,
+    hole_se=3829,
 )
 
 #: Plain tan-brown dirt fill (rows 24-27, cols 46-49); speckled variants on
@@ -357,13 +483,16 @@ POND_TERRACOTTA = TileStamp.rect("pond_terracotta", 12, 21, 5, 5)
 #: is swapped for the channel-exit row of the stream kit beside it (row 9,
 #: cols 6-9): a calm 2-wide stream leaves through the south rim between the
 #: curved rim tails. Continue the course with STREAM_V.
-POND_STONE_OUTLET_S = TileStamp("pond_stone_outlet_s", (
-    _rect(6, 21, 4, 1)[0],
-    _rect(7, 21, 4, 1)[0],
-    _rect(8, 21, 4, 1)[0],
-    _rect(9, 21, 4, 1)[0],
-    _rect(9, 6, 4, 1)[0],
-))
+POND_STONE_OUTLET_S = TileStamp(
+    "pond_stone_outlet_s",
+    (
+        _rect(6, 21, 4, 1)[0],
+        _rect(7, 21, 4, 1)[0],
+        _rect(8, 21, 4, 1)[0],
+        _rect(9, 21, 4, 1)[0],
+        _rect(9, 6, 4, 1)[0],
+    ),
+)
 
 #: Straight vertical stream, exactly 2 wide: (left, right) column tiles of
 #: calm pond-kit water with a white foam shoreline on the outer edge of
@@ -377,9 +506,7 @@ STREAM_V = (gid(9, 7), gid(9, 8))
 # =========================================================================
 
 #: Tall lime grass on the plateau top (example map floods these).
-CLIFF_PLATEAU_FILL = (8202, 8203, 8204, 8205,
-                      8302, 8303, 8304, 8305,
-                      8402, 8403, 8404, 8405)
+CLIFF_PLATEAU_FILL = (8202, 8203, 8204, 8205, 8302, 8303, 8304, 8305, 8402, 8403, 8404, 8405)
 
 #: Cliff kit rows, top to bottom, as used at the example map's top-left:
 #: organic plateau top edge, plateau fill rows, grass-to-rock lip, rock face,
@@ -388,7 +515,7 @@ CLIFF_GRASS = {
     "top_edge": (8101, 8102, 8103, 8104, 8105, 8106),
     "west_edge": (8201, 8301, 8401, 8501),
     "east_edge": (8206, 8306, 8406, 8506),
-    "lip": (8601, 8602, 8603, 8604, 8605, 8606),        # grass over rock
+    "lip": (8601, 8602, 8603, 8604, 8605, 8606),  # grass over rock
     "face_upper": (8701, 8702, 8703, 8704, 8705, 8706),  # bare rock
     "face_lower": (8801, 8802, 8803, 8804, 8805, 8806),
     "face_base": (8901, 8902, 8903, 8904, 8905, 8906),
@@ -473,8 +600,7 @@ BOULDER_GRAY_A = TileStamp.rect("boulder_gray_a", 83, 35, 2, 2)
 BOULDER_GRAY_B = TileStamp.rect("boulder_gray_b", 83, 37, 2, 2)
 #: Round pale-purple boulders, 1x2 each.
 BOULDER_PURPLE = tuple(
-    TileStamp.rect(f"boulder_purple_{i}", 83, c, 1, 2)
-    for i, c in enumerate((40, 42, 44, 46))
+    TileStamp.rect(f"boulder_purple_{i}", 83, c, 1, 2) for i, c in enumerate((40, 42, 44, 46))
 )
 
 #: Wide tree stump, 2x2 (example map, bottom right).
@@ -597,15 +723,29 @@ PLANKS_V_DARK = (289, 290, 291, 389, 390, 391, 489, 490, 491, 589, 590, 591)
 STONE_PAD_DARK = TileStamp.rect("stone_pad_dark", 1, 93, 5, 5)
 
 #: Light gray-green cobblestone floor fill (plaza / sidewalk), rows 57-59.
-STONE_FLOOR_FILL = (5707, 5708, 5709, 5710,
-                    5807, 5808, 5809, 5810,
-                    5907, 5908, 5909, 5910)
+STONE_FLOOR_FILL = (5707, 5708, 5709, 5710, 5807, 5808, 5809, 5810, 5907, 5908, 5909, 5910)
 #: Bordered stone-floor room pad, 6x3.
 STONE_FLOOR_PAD = TileStamp.rect("stone_floor_pad", 57, 0, 6, 3)
 
 #: Dark square slab floor (interior), 16 variants (rows 10-13, cols 81-84).
-SLAB_FLOOR = (1082, 1083, 1084, 1085, 1182, 1183, 1184, 1185,
-              1282, 1283, 1284, 1285, 1382, 1383, 1384, 1385)
+SLAB_FLOOR = (
+    1082,
+    1083,
+    1084,
+    1085,
+    1182,
+    1183,
+    1184,
+    1185,
+    1282,
+    1283,
+    1284,
+    1285,
+    1382,
+    1383,
+    1384,
+    1385,
+)
 
 #: Ornate red carpet, 4x4 (rows 10-13, cols 87-90).
 CARPET_RED = TileStamp.rect("carpet_red", 10, 87, 4, 4)
@@ -628,9 +768,7 @@ BRIDGE_STONE = TileStamp.rect("bridge_stone", 85, 35, 5, 3)
 LAMPPOST = TileStamp.rect("lamppost", 39, 64, 2, 5)
 
 #: Torch (flame on stick), three animation frames, 2x2 each.
-TORCH_FRAMES = tuple(
-    TileStamp.rect(f"torch_{i}", 49, c, 2, 2) for i, c in enumerate((52, 54, 56))
-)
+TORCH_FRAMES = tuple(TileStamp.rect(f"torch_{i}", 49, c, 2, 2) for i, c in enumerate((52, 54, 56)))
 
 #: Gray metal grate / vent block, 2x2.
 METAL_GRATE = TileStamp.rect("metal_grate", 49, 58, 2, 2)
@@ -643,18 +781,15 @@ MARKET_STALL = TileStamp.rect("market_stall", 35, 56, 6, 3)
 #: cols 46-55). Icons, left to right: plank sign, utensils, mug,
 #: tent/triangle, pretzel/bakery.
 SIGNS_STANDING = tuple(
-    TileStamp.rect(f"sign_standing_{i}", 29, c, 2, 2)
-    for i, c in enumerate((46, 48, 50, 52, 54))
+    TileStamp.rect(f"sign_standing_{i}", 29, c, 2, 2) for i, c in enumerate((46, 48, 50, 52, 54))
 )
 #: Same five boards, wall-mounted (1 row, rows 31, cols 46-55).
 SIGNS_WALL = tuple(
-    TileStamp.rect(f"sign_wall_{i}", 31, c, 2, 1)
-    for i, c in enumerate((46, 48, 50, 52, 54))
+    TileStamp.rect(f"sign_wall_{i}", 31, c, 2, 1) for i, c in enumerate((46, 48, 50, 52, 54))
 )
 #: Same boards on legged stall frames, 2x2 (rows 33-34).
 SIGNS_STALL = tuple(
-    TileStamp.rect(f"sign_stall_{i}", 33, c, 2, 2)
-    for i, c in enumerate((46, 48, 50, 52, 54))
+    TileStamp.rect(f"sign_stall_{i}", 33, c, 2, 2) for i, c in enumerate((46, 48, 50, 52, 54))
 )
 
 #: 2x2 container props.
@@ -701,9 +836,20 @@ STOOL = TileStamp.rect("stool", 45, 64, 2, 2)
 # =========================================================================
 
 BLOBS: dict[str, Blob] = {
-    b.name: b for b in (
-        GRASS, GRASS_LIGHT, WATER_DEEP, WATER_SHALLOW, MAGMA, PATH_TAN,
-        COBBLE_PAD, GRAVEL, WHEAT, FIELD_TILLED, SOIL_DARK, CANOPY_DARK,
+    b.name: b
+    for b in (
+        GRASS,
+        GRASS_LIGHT,
+        WATER_DEEP,
+        WATER_SHALLOW,
+        MAGMA,
+        PATH_TAN,
+        COBBLE_PAD,
+        GRAVEL,
+        WHEAT,
+        FIELD_TILLED,
+        SOIL_DARK,
+        CANOPY_DARK,
     )
 }
 
@@ -725,30 +871,89 @@ FILLS: dict[str, tuple[int, ...]] = {
 }
 
 STAMPS: dict[str, TileStamp] = {
-    s.name: s for s in (
-        POND_GRASS, PATH_PAD_TAN, POND_STONE, POND_TERRACOTTA,
+    s.name: s
+    for s in (
+        POND_GRASS,
+        PATH_PAD_TAN,
+        POND_STONE,
+        POND_TERRACOTTA,
         POND_STONE_OUTLET_S,
-        ROCK_OUTCROP_A, ROCK_OUTCROP_B,
-        TREE_LIGHT, TREE_DARK, TREE_SMALL, TREE_ROUND_SMALL, BUSH_ROUND,
-        TREE_FRUIT_A, TREE_FRUIT_B, TREE_FRUIT_C,
-        FERN, SNOWDROP, BEANPOLES, FLOWER_PATCH,
-        ROCK_BIG, ROCK_MED, ROCK_SMALL, STONES_SMALL,
-        BOULDER_GRAY_A, BOULDER_GRAY_B, *BOULDER_PURPLE,
-        STUMP_WIDE, STUMP_TALL, LOG, LOG_LARGE,
-        *FENCE_WOOD.values(), *FENCE_METAL.values(),
-        POST_WOOD_A, POST_WOOD_B,
-        FACADE_STONE_LARGE, FACADE_STONE_SMALL, FACADE_CREAM,
-        WALL_TIMBER_BAND, FACADE_BRICK, FACADE_STONE_GRAY,
-        WALL_BANDED_BLUE, WALL_BANDED_CREAM,
-        DOOR_WOOD, DOOR_METAL, DOORWAY_DARK, DOOR_RED, WINDOW_TEAL,
-        DECK_LIGHT, DECK_DARK, STONE_PAD_DARK, STONE_FLOOR_PAD, CARPET_RED,
-        BRIDGE_STONE, LAMPPOST, *TORCH_FRAMES, METAL_GRATE, MARKET_STALL,
-        *SIGNS_STANDING, *SIGNS_WALL, *SIGNS_STALL,
-        BUCKET, CRATE, BARREL, JUG, MENU_BOARD, STATUE,
-        PLANTER_EMPTY, PLANTER_YELLOW, PLANTER_PURPLE,
-        BANNER_RED_A, BANNER_RED_B,
-        PLATE_EMPTY, PLATE_BREAD, PLATE_SALAD, PLATE_BERRIES, PLATE_FISH,
-        HAYSTACK, WELL, WEB_SPIDER, WEB_PLAIN, STOOL,
+        ROCK_OUTCROP_A,
+        ROCK_OUTCROP_B,
+        TREE_LIGHT,
+        TREE_DARK,
+        TREE_SMALL,
+        TREE_ROUND_SMALL,
+        BUSH_ROUND,
+        TREE_FRUIT_A,
+        TREE_FRUIT_B,
+        TREE_FRUIT_C,
+        FERN,
+        SNOWDROP,
+        BEANPOLES,
+        FLOWER_PATCH,
+        ROCK_BIG,
+        ROCK_MED,
+        ROCK_SMALL,
+        STONES_SMALL,
+        BOULDER_GRAY_A,
+        BOULDER_GRAY_B,
+        *BOULDER_PURPLE,
+        STUMP_WIDE,
+        STUMP_TALL,
+        LOG,
+        LOG_LARGE,
+        *FENCE_WOOD.values(),
+        *FENCE_METAL.values(),
+        POST_WOOD_A,
+        POST_WOOD_B,
+        FACADE_STONE_LARGE,
+        FACADE_STONE_SMALL,
+        FACADE_CREAM,
+        WALL_TIMBER_BAND,
+        FACADE_BRICK,
+        FACADE_STONE_GRAY,
+        WALL_BANDED_BLUE,
+        WALL_BANDED_CREAM,
+        DOOR_WOOD,
+        DOOR_METAL,
+        DOORWAY_DARK,
+        DOOR_RED,
+        WINDOW_TEAL,
+        DECK_LIGHT,
+        DECK_DARK,
+        STONE_PAD_DARK,
+        STONE_FLOOR_PAD,
+        CARPET_RED,
+        BRIDGE_STONE,
+        LAMPPOST,
+        *TORCH_FRAMES,
+        METAL_GRATE,
+        MARKET_STALL,
+        *SIGNS_STANDING,
+        *SIGNS_WALL,
+        *SIGNS_STALL,
+        BUCKET,
+        CRATE,
+        BARREL,
+        JUG,
+        MENU_BOARD,
+        STATUE,
+        PLANTER_EMPTY,
+        PLANTER_YELLOW,
+        PLANTER_PURPLE,
+        BANNER_RED_A,
+        BANNER_RED_B,
+        PLATE_EMPTY,
+        PLATE_BREAD,
+        PLATE_SALAD,
+        PLATE_BERRIES,
+        PLATE_FISH,
+        HAYSTACK,
+        WELL,
+        WEB_SPIDER,
+        WEB_PLAIN,
+        STOOL,
     )
 }
 

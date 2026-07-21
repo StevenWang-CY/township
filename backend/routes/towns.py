@@ -7,6 +7,7 @@ frontend never disagree about coordinates.
 Town content comes from the active scenario (`app.state.scenario`), ordered
 by the scenario's `town_order`.
 """
+
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
