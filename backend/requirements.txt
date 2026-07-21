@@ -27,9 +27,9 @@ anyio==4.14.2 \
     #   openai
     #   starlette
     #   watchfiles
-boto3==1.43.52 \
-    --hash=sha256:1af1950c2b2400267c93d971d588367fc73554e02b4f435a50a5e930a7c93526 \
-    --hash=sha256:3da09a393c050906d407023bee5fb5b5fb333378513af1a1a51159db870b572f
+boto3==1.43.53 \
+    --hash=sha256:5383e705d8a976a14f23bb8c113c07a396931a019db98fce4cdc68650ec6e4d8 \
+    --hash=sha256:c80425acab314d7af09609562053f565139e1fe49108eacfcc1601ebfaee235b
     # via
     #   anthropic
     #   township
