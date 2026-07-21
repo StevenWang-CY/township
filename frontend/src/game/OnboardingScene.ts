@@ -114,7 +114,9 @@ export class OnboardingScene extends Phaser.Scene {
 
   preload() {
     this.load.image("rpg-tileset", appUrl("assets/tilesets/rpg-tileset.png"));
-    this.load.tilemapTiledJSON("town-map", appUrl("assets/maps/tilemap.json"));
+    this.load.image("township-modern", appUrl("assets/tilesets/township-modern.png"));
+    // Dover's generated map doubles as the onboarding backdrop.
+    this.load.tilemapTiledJSON("onboarding-map", appUrl("assets/maps/dover.tmj"));
     this.load.spritesheet("campfire", appUrl("assets/spritesheets/campfire.png"), { frameWidth: 32, frameHeight: 32 });
     this.load.spritesheet("sparkle", appUrl("assets/spritesheets/gentlesparkle32.png"), { frameWidth: 32, frameHeight: 32 });
 
@@ -981,17 +983,18 @@ export class OnboardingScene extends Phaser.Scene {
   /* ── Ambient Effects (reused patterns from TownScene) ──── */
 
   private buildTilemap(W: number, H: number) {
-    const map = this.make.tilemap({ key: "town-map" });
-    const tileset = map.addTilesetImage("rpg-tileset", "rpg-tileset");
-    if (tileset) {
-      const scale = Math.max(W / map.widthInPixels, H / map.heightInPixels);
-      const terrain = map.createLayer("terrain", tileset);
-      const bridge = map.createLayer("bridge", tileset);
-      const deco = map.createLayer("deco", tileset);
-      terrain?.setScale(scale).setAlpha(0.92);
-      bridge?.setScale(scale);
-      deco?.setScale(scale);
+    const map = this.make.tilemap({ key: "onboarding-map" });
+    const tilesets: Phaser.Tilemaps.Tileset[] = [];
+    for (const name of ["rpg-tileset", "township-modern"]) {
+      const ts = map.addTilesetImage(name, name);
+      if (ts) tilesets.push(ts);
     }
+    if (tilesets.length === 0) return;
+    const scale = Math.max(W / map.widthInPixels, H / map.heightInPixels);
+    const names = ["ground", "ground-detail", "deco-below", "buildings-base", "buildings-top"];
+    names.forEach((name, i) => {
+      map.createLayer(name, tilesets)?.setScale(scale).setDepth(i);
+    });
   }
 
   private buildAmbientFX(W: number, H: number) {

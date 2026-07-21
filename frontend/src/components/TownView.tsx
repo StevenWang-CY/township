@@ -325,6 +325,16 @@ export default function TownView({ ws }: TownViewProps) {
     scene.setPlayerInputEnabled(!chatOpen);
   }, [chatOpen]);
 
+  /* ── Safety: never leave an invisible chat open ───────────
+   * ChatPanel renders null when the selected agent can't be resolved from
+   * townAgents (e.g. the WS roster replaces the fallback agents after a
+   * dwell-to-talk fired). If that happens while chatOpen is true the player
+   * is silently locked out of movement — close the chat so the effect above
+   * re-enables input. */
+  useEffect(() => {
+    if (chatOpen && !selectedAgent) setChatOpen(false);
+  }, [chatOpen, selectedAgent]);
+
   /* ── Cleanup gossip toast timer on unmount ───────────────── */
 
   useEffect(() => {
@@ -700,7 +710,7 @@ export default function TownView({ ws }: TownViewProps) {
 
           {/* Mini-map top-right */}
           <div className="town-minimap-wrapper">
-            <MiniMap getData={getMiniMapData} onPinClick={handleMiniMapPin} />
+            <MiniMap getData={getMiniMapData} townId={town} onPinClick={handleMiniMapPin} />
           </div>
 
           {/* Cross-town gossip toast */}

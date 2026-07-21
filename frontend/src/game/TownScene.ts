@@ -6,8 +6,7 @@ import { townAccent, townMapKey } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
 import type { UserProfile } from "../context/UserProfileContext";
 import { AGENT_CUSTOMIZATION, ALL_CHARACTER_KEYS, resolveAgentSprite } from "./spriteCustomization";
-import { drawLandmarkBuilding } from "./LandmarkArt";
-import { composeTownAmbience, type AmbienceHandle } from "./SceneAmbience";
+import { composeTownAmbience, type AmbienceHandle, type MapAnchor } from "./SceneAmbience";
 import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange } from "./AmbientLines";
@@ -64,6 +63,12 @@ export class TownScene extends Phaser.Scene {
   private characterKeys: Set<string> = new Set();
   private wanderPoints: Array<{ x: number; y: number }> = [];
   private collisionGroup?: Phaser.Physics.Arcade.StaticGroup;
+  /** Blocked rectangles from the tilemap's "collision" object layer (px). */
+  private collisionRects: Array<{ x: number; y: number; w: number; h: number }> = [];
+  /** Live-detail anchors from the tilemap's "anchors" object layer. */
+  private mapAnchors: MapAnchor[] = [];
+  /** Landmark-name → grid-snapped label position from the map's label anchors. */
+  private mapLabels: Map<string, { x: number; y: number }> = new Map();
   private townDataResolved = false;
   private playerSpawnPending: UserProfile | null = null;
 
@@ -91,22 +96,15 @@ export class TownScene extends Phaser.Scene {
   /* ── Preload ─────────────────────────────────────────────── */
 
   preload() {
+    // Tileset images — shared by every generated town map. The rpg tileset
+    // also feeds SceneAmbience's stamp textures (trees, lampposts, flowers).
     this.load.image("rpg-tileset", appUrl("assets/tilesets/rpg-tileset.png"));
-    this.load.image("magecity-bg", appUrl("assets/tilesets/magecity.png"));
+    this.load.image("township-modern", appUrl("assets/tilesets/township-modern.png"));
     this.load.image("speech-bubble", appUrl("assets/speech_bubble/v2.png"));
 
-    // Town-aware tilemap. Until per-town files exist, fall back to shared tilemap.
-    const mapKey = townMapKey(this.townId);
-    const mapUrl = appUrl(`assets/maps/${this.townId}.tmj`);
-    this.load.tilemapTiledJSON(mapKey, mapUrl);
-    // If per-town .tmj is missing, fall back to the shared default.
-    this.load.once(`fileerror-tilemapJSON-${mapKey}`, () => {
-      this.load.tilemapTiledJSON(mapKey, appUrl("assets/maps/tilemap.json"));
-      this.load.start();
-    });
+    // Per-town generated tilemap (scripts/mapgen emits one per town).
+    this.load.tilemapTiledJSON(townMapKey(this.townId), appUrl(`assets/maps/${this.townId}.tmj`));
 
-    this.load.spritesheet("campfire", appUrl("assets/spritesheets/campfire.png"), { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet("sparkle", appUrl("assets/spritesheets/gentlesparkle32.png"), { frameWidth: 32, frameHeight: 32 });
     // Animated water-foam frames (bottom half of gentlewaterfall32.png is foam) — used as
     // lake surface shimmer. We treat the whole sheet as 32×32 cells; foam frames live in
     // the bottom rows.
@@ -149,15 +147,24 @@ export class TownScene extends Phaser.Scene {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
 
+    // Console/debug hook — e.g. `__townshipScene.setWorldTime(21, 0)` to
+    // preview the night pass without waiting on the world clock.
+    (window as unknown as { __townshipScene?: TownScene }).__townshipScene = this;
+
     // Generate outfit/accessory overlay textures programmatically (FIX 17).
     this.generateOverlayTextures();
 
-    // Tilemap
+    // Tilemap — the generated pixel world (layers, collision, anchors).
     this.buildTilemap(W, H);
 
-    // Sky overlay (depth 999) – starts at current hour tint.
-    this.skyOverlay = this.add.rectangle(0, 0, W, H, 0xffffff, 0).setOrigin(0, 0).setDepth(999);
+    // Sky overlay — ABOVE buildings-top (5000) so the night tint covers
+    // rooftops too; lamp glows sit above it at 6001 and pierce the dark.
+    this.skyOverlay = this.add.rectangle(0, 0, W, H, 0xffffff, 0).setOrigin(0, 0).setDepth(6000);
     this.refreshSkyOverlay();
+
+    // Fit the camera to the map and keep it fitted on container resize.
+    this.fitCamera();
+    this.scale.on("resize", () => this.fitCamera());
 
     // Try to fetch authoritative town data; build landmarks immediately with
     // current (fallback) data and re-render if the API supplies different
@@ -189,8 +196,8 @@ export class TownScene extends Phaser.Scene {
     // Per-town flavor effects (papel-picado, ducks, dogs, etc.)
     this.addTownFlavor(this.townId);
 
-    // ── Delicate Smallville-style scene composition (trees, flowers,
-    // lampposts with glow, smoke, water shimmer, windmill, particle drift).
+    // ── Living details driven by the map's anchor layer (trees, lamps,
+    // flowers, smoke, water shimmer, windmill, petal drift).
     // setHour() is called from the world-clock listener below.
     if (!this.anims.exists("windmill-spin") && this.textures.exists("windmill")) {
       this.anims.create({
@@ -200,7 +207,7 @@ export class TownScene extends Phaser.Scene {
         repeat: -1,
       });
     }
-    this.ambience = composeTownAmbience(this, this.townId, this.landmarks, W, H);
+    this.ambience = composeTownAmbience(this, this.townId, this.mapAnchors, W, H);
     this.ambience.setHour(this.worldClock.hour);
 
     // Register + launch the Weather scene in parallel
@@ -282,8 +289,12 @@ export class TownScene extends Phaser.Scene {
     const base = this.landmarkPositions.get(agent.location) ??
       this.wanderPoints[0] ?? { x: 400, y: 400 };
 
-    const sx = Phaser.Math.Clamp(base.x + Phaser.Math.Between(-55, 55), 40, 1160);
-    const sy = Phaser.Math.Clamp(base.y + Phaser.Math.Between(-35, 35), 40, 760);
+    const spawn = this.findFreeNear(
+      base.x + Phaser.Math.Between(-55, 55),
+      base.y + Phaser.Math.Between(-35, 35),
+    );
+    const sx = spawn.x;
+    const sy = spawn.y;
 
     const custom = resolveAgentSprite(agent.id);
 
@@ -327,15 +338,16 @@ export class TownScene extends Phaser.Scene {
     if (!sprite) return;
     // Prefer precise pixel coords when both are finite; else resolve by landmark.
     if (Number.isFinite(x) && Number.isFinite(y)) {
-      const tx = Phaser.Math.Clamp(x as number, 40, 1160);
-      const ty = Phaser.Math.Clamp(y as number, 40, 760);
-      sprite.moveToPosition(tx, ty);
+      const t = this.findFreeNear(x as number, y as number);
+      sprite.moveToPosition(t.x, t.y);
       return;
     }
     const base = this.landmarkPositions.get(toLocation) ?? this.wanderPoints[0] ?? { x: 400, y: 400 };
-    const tx = Phaser.Math.Clamp(base.x + Phaser.Math.Between(-50, 50), 40, 1160);
-    const ty = Phaser.Math.Clamp(base.y + Phaser.Math.Between(-35, 35), 40, 760);
-    sprite.moveToPosition(tx, ty);
+    const t = this.findFreeNear(
+      base.x + Phaser.Math.Between(-50, 50),
+      base.y + Phaser.Math.Between(-35, 35),
+    );
+    sprite.moveToPosition(t.x, t.y);
   }
 
   showAgentSpeech(agentId: string, text: string, duration?: number) {
@@ -449,14 +461,15 @@ export class TownScene extends Phaser.Scene {
       data.push({ ...info, type: "agent" });
     });
 
-    // Landmark labels — anchored to the TOP of the landmark (not the centre)
-    // so they don't stack on top of agents who happen to be standing inside.
-    // Additionally we hide the landmark label whenever the player or an agent
-    // is currently inside the landmark's bounds — that fixes the
-    // "Cnajorate Park" + "STEVEN" overlap in the bug report.
+    // Landmark labels — the generated map ships grid-snapped, centered label
+    // anchors; prefer those (they sit exactly on the building the tiles
+    // draw). Fall back to the town-JSON rect top for landmarks without one.
+    // Labels hide whenever an agent is standing inside the landmark's bounds
+    // so names never stack on top of characters.
     for (const lm of this.landmarks) {
-      const cx = lm.x + lm.width / 2;
-      const cyTop = lm.y - 8; // above the building roof
+      const anchor = this.mapLabels.get(lm.name);
+      const cx = anchor ? anchor.x : lm.x + lm.width / 2;
+      const cyTop = anchor ? anchor.y : lm.y - 8;
       let occupied = false;
       this.agentSprites.forEach((sprite) => {
         if (
@@ -523,8 +536,12 @@ export class TownScene extends Phaser.Scene {
     const base = firstLandmark
       ? { x: firstLandmark.x + firstLandmark.width / 2, y: firstLandmark.y + firstLandmark.height / 2 }
       : { x: 400, y: 400 };
-    const sx = Phaser.Math.Clamp(base.x + Phaser.Math.Between(-30, 30), 60, 1140);
-    const sy = Phaser.Math.Clamp(base.y + Phaser.Math.Between(-20, 20), 60, 740);
+    const spawn = this.findFreeNear(
+      base.x + Phaser.Math.Between(-30, 30),
+      base.y + Phaser.Math.Between(-20, 20),
+    );
+    const sx = spawn.x;
+    const sy = spawn.y;
 
     // Honor profile.spriteKey if it points to a loaded texture.
     let spriteKey: string | undefined;
@@ -633,22 +650,28 @@ export class TownScene extends Phaser.Scene {
   }
 
   private pickWanderTarget(): { x: number; y: number } {
-    if (this.wanderPoints.length === 0) return { x: 400, y: 400 };
+    if (this.wanderPoints.length === 0) return this.findFreeNear(400, 400);
+    // Rejection-sample so NPCs stop walking into (through) buildings.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
+      const x = Phaser.Math.Clamp(pt.x + Phaser.Math.Between(-70, 70), 40, 1160);
+      const y = Phaser.Math.Clamp(pt.y + Phaser.Math.Between(-45, 45), 40, 760);
+      if (!this.isBlocked(x, y)) return { x, y };
+    }
     const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
-    return {
-      x: Phaser.Math.Clamp(pt.x + Phaser.Math.Between(-70, 70), 40, 1160),
-      y: Phaser.Math.Clamp(pt.y + Phaser.Math.Between(-45, 45), 40, 760),
-    };
+    return this.findFreeNear(pt.x, pt.y);
   }
 
   private addScatteredWaypoints(W: number, H: number) {
     const cols = 5, rows = 4;
     for (let c = 0; c < cols; c++) {
       for (let r = 0; r < rows; r++) {
-        this.wanderPoints.push({
-          x: 120 + (c / (cols - 1)) * (W - 240),
-          y: 140 + (r / (rows - 1)) * (H - 280),
-        });
+        const x = 120 + (c / (cols - 1)) * (W - 240);
+        const y = 140 + (r / (rows - 1)) * (H - 280);
+        // Skip grid points buried inside buildings — findFreeNear would pile
+        // several waypoints onto the same door apron otherwise.
+        if (this.isBlocked(x, y, 10)) continue;
+        this.wanderPoints.push({ x, y });
       }
     }
   }
@@ -791,8 +814,12 @@ export class TownScene extends Phaser.Scene {
       const key = `char-${charName}`;
       if (!this.textures.exists(key)) continue;
 
-      const sx = Phaser.Math.Between(80, W - 80);
-      const sy = Phaser.Math.Between(120, H - 120);
+      const spawn = this.findFreeNear(
+        Phaser.Math.Between(80, W - 80),
+        Phaser.Math.Between(120, H - 120),
+      );
+      const sx = spawn.x;
+      const sy = spawn.y;
 
       const npc = new AgentSprite(this, sx, sy, {
         id: `ambient-${i}-${charName}`,
@@ -817,9 +844,11 @@ export class TownScene extends Phaser.Scene {
       const target = this.wanderPoints.length > 0
         ? this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)]
         : { x: Phaser.Math.Between(80, W - 80), y: Phaser.Math.Between(120, H - 120) };
-      const tx = Phaser.Math.Clamp(target.x + Phaser.Math.Between(-40, 40), 40, W - 40);
-      const ty = Phaser.Math.Clamp(target.y + Phaser.Math.Between(-30, 30), 40, H - 40);
-      npc.moveToPosition(tx, ty, () => this.scheduleAmbientWander(npc, W, H));
+      const t = this.findFreeNear(
+        target.x + Phaser.Math.Between(-40, 40),
+        target.y + Phaser.Math.Between(-30, 30),
+      );
+      npc.moveToPosition(t.x, t.y, () => this.scheduleAmbientWander(npc, W, H));
     });
   }
 
@@ -837,7 +866,8 @@ export class TownScene extends Phaser.Scene {
       bird.lineBetween(-5, 0, 0, -3);
       bird.lineBetween(0, -3, 5, 0);
       bird.setPosition(x0, y);
-      bird.setDepth(10);
+      // Birds fly over the rooftops (buildings-top is 5000), under the sky tint.
+      bird.setDepth(5450);
 
       const duration = Phaser.Math.Between(6000, 12000);
 
@@ -918,106 +948,105 @@ export class TownScene extends Phaser.Scene {
 
   /* ── Tilemap / Landmark layout ─────────────────────────── */
 
+  /**
+   * Build the generated per-town tilemap: five tile layers with the agreed
+   * depth scheme, plus the "collision" and "anchors" object layers.
+   *
+   * Depth scheme: ground 0 / ground-detail 1 / deco-below 2 /
+   * buildings-base 3 (below agents) / agents 100+y (syncDepth) /
+   * buildings-top 5000 (agents walk BEHIND roofs & awnings) /
+   * sky tint 6000 / lamp glow 6001.
+   */
   private buildTilemap(W: number, H: number) {
-    // The Smallville `the_ville` tilemap was previously rendered at alpha 0.92,
-    // which leaked Smallville's houses + roads through the scene as grey/navy
-    // rectangles that had nothing to do with our four NJ towns. We now paint a
-    // delicate town-specific ground programmatically and leave the tilemap as
-    // a faint texture pass only (or skip it entirely).
-    this.paintGround(W, H);
-
     const mapKey = townMapKey(this.townId);
-    if (this.cache.tilemap.has(mapKey)) {
-      const map = this.make.tilemap({ key: mapKey });
-      const tileset = map.addTilesetImage("rpg-tileset", "rpg-tileset");
-      if (tileset) {
-        const scaleX = W / map.widthInPixels;
-        const scaleY = H / map.heightInPixels;
-        const scale = Math.max(scaleX, scaleY);
-        const terrain = map.createLayer("terrain", tileset);
-        // The Smallville the_ville tilemap has GIDs that don't fully map to
-        // our local rpg-tileset.png (the original used Cute RPG World which
-        // we don't ship), so even at low opacity it surfaces as misaligned
-        // chunks. Disable rendering entirely — our painted ground covers it.
-        terrain?.setScale(scale).setAlpha(0).setDepth(0).setVisible(false);
+    if (!this.cache.tilemap.has(mapKey)) {
+      console.warn(`[TownScene] tilemap missing for town "${this.townId}"`);
+      return;
+    }
+
+    const map = this.make.tilemap({ key: mapKey });
+    const tilesets: Phaser.Tilemaps.Tileset[] = [];
+    for (const name of ["rpg-tileset", "township-modern"]) {
+      const ts = map.addTilesetImage(name, name);
+      if (ts) tilesets.push(ts);
+    }
+    if (tilesets.length === 0) return;
+
+    const layerDepths: Array<[string, number]> = [
+      ["ground", 0],
+      ["ground-detail", 1],
+      ["deco-below", 2],
+      ["buildings-base", 3],
+      ["buildings-top", 5000],
+    ];
+    // Maps are authored at exactly 75x50 @ 16px = 1200x800, matching the
+    // logical space. Guard with a scale factor anyway so a future map size
+    // change degrades gracefully instead of misaligning agents.
+    const scale = map.widthInPixels > 0 ? W / map.widthInPixels : 1;
+    for (const [name, depth] of layerDepths) {
+      const layer = map.createLayer(name, tilesets);
+      layer?.setDepth(depth).setScale(scale).setVisible(true);
+    }
+    void H;
+
+    // ── Collision: static physics rects from the "collision" object layer.
+    this.collisionRects = [];
+    this.collisionGroup = this.physics.add.staticGroup();
+    const collision = map.getObjectLayer("collision");
+    for (const o of collision?.objects ?? []) {
+      const w = (o.width ?? 0) * scale;
+      const h = (o.height ?? 0) * scale;
+      if (w <= 0 || h <= 0) continue;
+      const x = (o.x ?? 0) * scale;
+      const y = (o.y ?? 0) * scale;
+      this.collisionRects.push({ x, y, w, h });
+      const zone = this.add.zone(x + w / 2, y + h / 2, w, h);
+      this.physics.add.existing(zone, true);
+      this.collisionGroup.add(zone);
+    }
+
+    // ── Anchors: live-detail points for SceneAmbience + label positions.
+    this.mapAnchors = [];
+    this.mapLabels.clear();
+    const anchors = map.getObjectLayer("anchors");
+    for (const o of anchors?.objects ?? []) {
+      const props: Record<string, string> = {};
+      for (const p of (o.properties as Array<{ name: string; value: string }> | undefined) ?? []) {
+        props[p.name] = p.value;
       }
+      const kind = props.kind;
+      if (!kind) continue;
+      const x = (o.x ?? 0) * scale;
+      const y = (o.y ?? 0) * scale;
+      if (kind === "label") {
+        const name = o.name || props.text;
+        if (name) this.mapLabels.set(name, { x, y });
+        continue;
+      }
+      this.mapAnchors.push({ kind, x, y, stamp: props.stamp });
     }
   }
 
-  /** Paint a delicate, town-flavored base ground via Phaser Graphics. */
-  private paintGround(W: number, H: number) {
-    const accent = Phaser.Display.Color.HexStringToColor(townAccent(this.townId)).color;
-    const baseColors: Record<TownId, { soil: number; grass: number; path: number }> = {
-      dover:      { soil: 0xefe2cd, grass: 0xb6c97e, path: 0xd9c298 },
-      montclair:  { soil: 0xe9e7df, grass: 0xa6c4a0, path: 0xd0d4c5 },
-      parsippany: { soil: 0xe7e8d9, grass: 0xb0c9a0, path: 0xd4d6c2 },
-      randolph:   { soil: 0xe8e2cd, grass: 0xa9bf8c, path: 0xcfc8b0 },
-    };
-    // Unknown (non-NJ-11) towns get a warm neutral ground so any scenario
-    // renders a pleasant canvas without per-town tuning.
-    const pal = baseColors[this.townId] ?? { soil: 0xebe3d1, grass: 0xafc491, path: 0xd6cab0 };
-
-    // Base canvas wash — warm cream/sand
-    const ground = this.add.graphics().setDepth(0);
-    ground.fillStyle(pal.soil, 1);
-    ground.fillRect(0, 0, W, H);
-
-    // Random grass patches (soft organic shapes) — adds visual rhythm so
-    // empty cream areas stop reading as "pure grey."
-    const rng = mulberry32Local(0xa11ce + this.townId.length * 17);
-    for (let i = 0; i < 38; i++) {
-      const x = rng() * W;
-      const y = rng() * H;
-      const rx = 28 + rng() * 60;
-      const ry = 18 + rng() * 38;
-      ground.fillStyle(pal.grass, 0.18 + rng() * 0.18);
-      ground.fillEllipse(x, y, rx, ry);
-    }
-
-    // Subtle dirt/path circles
-    for (let i = 0; i < 22; i++) {
-      const x = rng() * W;
-      const y = rng() * H;
-      ground.fillStyle(pal.path, 0.16);
-      ground.fillCircle(x, y, 12 + rng() * 26);
-    }
-
-    // Scattered grass-tuft sprites (tiny dark green ticks) — micro-detail
-    const tufts = this.add.graphics().setDepth(1);
-    tufts.fillStyle(0x5e8a4a, 0.45);
-    for (let i = 0; i < 140; i++) {
-      const x = rng() * W;
-      const y = rng() * H;
-      // 3-blade tuft
-      tufts.fillTriangle(x, y, x + 1, y - 3, x + 2, y);
-      tufts.fillTriangle(x + 3, y, x + 4, y - 2, x + 5, y);
-    }
-
-    // Tiny flower flecks in the town accent — only a few, just for warmth
-    const flowers = this.add.graphics().setDepth(2);
-    for (let i = 0; i < 18; i++) {
-      const x = rng() * W;
-      const y = rng() * H;
-      flowers.fillStyle(accent, 0.45);
-      flowers.fillCircle(x, y, 1.6);
-      flowers.fillStyle(0xfff7e0, 0.6);
-      flowers.fillCircle(x, y, 0.6);
-    }
-
-    // Soft vignette at the canvas edges to focus the eye on the town center
-    const vignette = this.add.graphics().setDepth(3);
-    vignette.fillStyle(0x000000, 0.04);
-    vignette.fillRect(0, 0, W, 30);
-    vignette.fillRect(0, H - 30, W, 30);
-    vignette.fillRect(0, 0, 30, H);
-    vignette.fillRect(W - 30, 0, 30, H);
+  /**
+   * Keep the camera covering the 1200x800 map. When no player is spawned we
+   * zoom so the viewport is filled (no dead space outside the map); once the
+   * player exists the follow-camera (zoom 1.5) owns framing, bounds clamp it.
+   */
+  private fitCamera() {
+    const cam = this.cameras.main;
+    if (!cam) return;
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    cam.setBounds(0, 0, W, H);
+    if (this.playerSprite) return;
+    const zoom = Math.max(this.scale.width / W, this.scale.height / H);
+    cam.setZoom(zoom);
+    cam.centerOn(W / 2, H / 2);
   }
 
-  /** Wipes old landmark graphics + collision and re-creates from this.landmarks. */
+  /** Recompute landmark positions + wander waypoints from this.landmarks.
+   *  The visual world is the tilemap now — nothing is drawn here. */
   private rebuildLandmarks() {
-    // Clear the existing static group; rebuilding is cheap.
-    this.collisionGroup?.clear(true, true);
-    this.collisionGroup = undefined;
     this.landmarkPositions.clear();
     this.wanderPoints = [];
     this.layoutLandmarksAndDecor();
@@ -1026,116 +1055,52 @@ export class TownScene extends Phaser.Scene {
   private layoutLandmarksAndDecor() {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
-    const accent = townAccent(this.townId);
 
-    // Subtle landmark zone tint to ground each building visually.
     for (const lm of this.landmarks) {
       const cx = lm.x + lm.width / 2;
       const cy = lm.y + lm.height / 2;
-      this.landmarkPositions.set(lm.name, { x: cx, y: cy });
-      if (lm.type !== "road") this.wanderPoints.push({ x: cx, y: cy });
-
-      // Soft accent halo
-      const g = this.add.graphics();
-      g.fillStyle(Phaser.Display.Color.HexStringToColor(accent).color, 0.07);
-      g.fillRoundedRect(lm.x - 4, lm.y - 4, lm.width + 8, lm.height + 8, 5);
-      g.setDepth(43);
-
-      // Rich programmatic building art
-      drawLandmarkBuilding(this, lm, accent, this.townId);
+      // Landmark centers often sit inside a building's collision rect; nudge
+      // the walk-target out to open ground (the door apron faces the road).
+      const pos = this.findFreeNear(cx, cy);
+      this.landmarkPositions.set(lm.name, pos);
+      if (lm.type !== "road") this.wanderPoints.push(pos);
     }
 
-    // Programmatic collision rectangles for building landmarks.
-    this.collisionGroup = this.physics.add.staticGroup();
-    for (const lm of this.landmarks) {
-      if (lm.type === "road" || lm.type === "park" || lm.type === "commercial-strip") continue;
-      const cx = lm.x + lm.width / 2;
-      const cy = lm.y + lm.height * 0.7;
-      const zone = this.add.zone(cx, cy, lm.width, lm.height * 0.6);
-      this.physics.add.existing(zone, true);
-      this.collisionGroup.add(zone);
-    }
-
-    // Add a grid of "street corner" waypoints for richer wandering
+    // Add a grid of "street corner" waypoints for richer wandering.
     this.addScatteredWaypoints(W, H);
-
-    // Environment decorations (campfire, sparkles, lighting)
-    this.buildEnvironmentFX();
-
-    // NOTE: Streetlamps used to be placed here AND by SceneAmbience, which
-    // doubled them along every road and read as a wall of orbs. SceneAmbience
-    // is now the single source. Old in-scene streetlamps removed.
   }
 
+  /* ── Collision-aware point picking ───────────────────────── */
 
-  private buildEnvironmentFX() {
-    if (!this.anims.exists("campfire-burn")) {
-      this.anims.create({
-        key: "campfire-burn",
-        frames: this.anims.generateFrameNumbers("campfire", { start: 0, end: 3 }),
-        frameRate: 7,
-        repeat: -1,
-      });
-    }
-    if (!this.anims.exists("sparkle-anim")) {
-      this.anims.create({
-        key: "sparkle-anim",
-        frames: this.anims.generateFrameNumbers("sparkle", { start: 0, end: 3 }),
-        frameRate: 4,
-        repeat: -1,
-      });
-    }
-
-    const hasWebGL = this.game.renderer.type === Phaser.WEBGL;
-
-    for (const lm of this.landmarks) {
-      const cx = lm.x + lm.width / 2;
-      const cy = lm.y + lm.height / 2;
-
-      if (lm.type === "park" && this.textures.exists("campfire")) {
-        const fire = this.add.sprite(cx, cy, "campfire").setScale(1.4).setDepth(48).setAlpha(0.85);
-        fire.play("campfire-burn");
-
-        if (hasWebGL) {
-          const pl = this.add.pointlight(cx, cy, 0xff8800, 120, 0.4, 0.06);
-          pl.setDepth(48);
-          this.tweens.add({
-            targets: pl,
-            intensity: { from: 0.25, to: 0.55 },
-            radius: { from: 100, to: 140 },
-            duration: 800,
-            yoyo: true,
-            repeat: -1,
-            ease: "Sine.easeInOut",
-          });
-        }
-      }
-
-      if (lm.type === "church" && this.textures.exists("sparkle")) {
-        const sp = this.add.sprite(cx, lm.y + 8, "sparkle").setDepth(48).setAlpha(0.55);
-        sp.play("sparkle-anim");
-
-        if (hasWebGL) {
-          const pl = this.add.pointlight(cx, lm.y + 8, 0xffd700, 80, 0.2, 0.08);
-          pl.setDepth(48);
-          this.tweens.add({
-            targets: pl,
-            intensity: { from: 0.15, to: 0.3 },
-            duration: 1200,
-            yoyo: true,
-            repeat: -1,
-            ease: "Sine.easeInOut",
-          });
-        }
+  /** True when (x, y) falls inside any collision rect (with padding). */
+  private isBlocked(x: number, y: number, pad = 6): boolean {
+    for (const r of this.collisionRects) {
+      if (x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad) {
+        return true;
       }
     }
+    return false;
+  }
 
-    if (hasWebGL) {
-      const W = Number(this.game.config.width);
-      const H = Number(this.game.config.height);
-      const ambient = this.add.pointlight(W / 2, H / 2, 0xffe4b5, 600, 0.08, 0.01);
-      ambient.setDepth(1);
+  /** Nearest open point to (x, y) — ring-samples outward until unblocked. */
+  private findFreeNear(x: number, y: number): { x: number; y: number } {
+    const cx = Phaser.Math.Clamp(x, 40, 1160);
+    const cy = Phaser.Math.Clamp(y, 40, 760);
+    if (!this.isBlocked(cx, cy)) return { x: cx, y: cy };
+    for (let radius = 24; radius <= 168; radius += 24) {
+      // Try straight down first (doors face roads below buildings), then ring.
+      const candidates: Array<{ x: number; y: number }> = [{ x: cx, y: cy + radius }];
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        candidates.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
+      }
+      for (const c of candidates) {
+        const px = Phaser.Math.Clamp(c.x, 40, 1160);
+        const py = Phaser.Math.Clamp(c.y, 40, 760);
+        if (!this.isBlocked(px, py)) return { x: px, y: py };
+      }
     }
+    return { x: cx, y: cy };
   }
 
   /* ── Sky tint refresh ───────────────────────────────────── */
@@ -1160,27 +1125,9 @@ export class TownScene extends Phaser.Scene {
   }
 
   private addDoverFlavor(W: number, H: number) {
-    // Papel-picado bunting between two random landmarks.
-    const buildings = this.landmarks.filter((l) => l.type !== "road");
-    if (buildings.length >= 2) {
-      Phaser.Utils.Array.Shuffle(buildings);
-      const a = buildings[0], b = buildings[1];
-      const ax = a.x + a.width / 2, ay = a.y + 4;
-      const bx = b.x + b.width / 2, by = b.y + 4;
-      const colors = [0xff6f61, 0xffd166, 0x06d6a0, 0x118ab2, 0xef476f];
-      const flagCount = 12;
-      for (let i = 1; i < flagCount; i++) {
-        const t = i / flagCount;
-        // Catenary droop
-        const x = ax + (bx - ax) * t;
-        const y = ay + (by - ay) * t + Math.sin(t * Math.PI) * 14;
-        const flag = this.add.graphics();
-        flag.fillStyle(colors[i % colors.length], 0.85);
-        flag.fillTriangle(-4, 0, 4, 0, 0, 8);
-        flag.setPosition(x, y).setDepth(60);
-        this.tweens.add({ targets: flag, rotation: { from: -0.12, to: 0.12 }, duration: 1700 + i * 60, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-      }
-    }
+    // NOTE: the papel-picado bunting (strung between two random landmark
+    // roofs) was dropped with the move to real tilemaps — over baked pixel
+    // buildings the unstrung triangles read as floating confetti.
 
     // Salsa music notes ♪ near "Bodega Row"
     const bodega = this.landmarkPositions.get("Bodega Row") ?? this.landmarkPositions.get("La Finca Restaurant");
@@ -1241,7 +1188,8 @@ export class TownScene extends Phaser.Scene {
         duck.fillEllipse(0, 0, 12, 6);
         duck.fillEllipse(6, -3, 5, 4);
         duck.lineStyle(2, 0xb88a52, 1);
-        duck.setDepth(20).setPosition(-20, lake.y);
+        // Airborne — above the rooftops.
+        duck.setDepth(5450).setPosition(-20, lake.y);
         this.tweens.add({
           targets: duck, x: W + 20,
           duration: 8000, ease: "Sine.easeInOut",
@@ -1325,7 +1273,8 @@ export class TownScene extends Phaser.Scene {
     leaf.lineStyle(0.6, 0x000000, 0.18);
     leaf.strokeEllipse(0, 0, 6, 3);
     const startX = Phaser.Math.Between(-30, W * 0.3);
-    leaf.setPosition(startX, -10).setDepth(80);
+    // Falling from the sky — drifts over rooftops.
+    leaf.setPosition(startX, -10).setDepth(5440);
     const endX = startX + Phaser.Math.Between(120, 240);
     this.tweens.add({
       targets: leaf, x: endX, y: H + 12,
@@ -1365,16 +1314,6 @@ export class TownScene extends Phaser.Scene {
       default:         return "#FFFFFF";
     }
   }
-}
-
-/** Deterministic PRNG so the ground texture is stable across reloads. */
-function mulberry32Local(a: number): () => number {
-  return function () {
-    let t = (a += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 // Reference unused customization to keep tree-shaking honest.
