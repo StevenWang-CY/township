@@ -46,8 +46,8 @@ fern and flower tiles used here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Iterator
+from collections.abc import Iterator
+from dataclasses import dataclass
 
 TILESET_IMAGE = "frontend/public/assets/tilesets/rpg-tileset.png"
 TILE_SIZE = 16
@@ -120,7 +120,7 @@ class TileStamp:
                     yield r, c, g
 
     @classmethod
-    def rect(cls, name: str, row: int, col: int, w: int, h: int) -> "TileStamp":
+    def rect(cls, name: str, row: int, col: int, w: int, h: int) -> TileStamp:
         return cls(name, _rect(row, col, w, h))
 
 
@@ -353,6 +353,24 @@ POND_STONE = TileStamp.rect("pond_stone", 6, 1, 5, 5)
 #: Closed pond with terracotta rim (rows 12-16, cols 21-25).
 POND_TERRACOTTA = TileStamp.rect("pond_terracotta", 12, 21, 5, 5)
 
+#: Compact 4x5 gray-stone pond (rows 6-10, cols 21-24) whose bottom rim row
+#: is swapped for the channel-exit row of the stream kit beside it (row 9,
+#: cols 6-9): a calm 2-wide stream leaves through the south rim between the
+#: curved rim tails. Continue the course with STREAM_V.
+POND_STONE_OUTLET_S = TileStamp("pond_stone_outlet_s", (
+    _rect(6, 21, 4, 1)[0],
+    _rect(7, 21, 4, 1)[0],
+    _rect(8, 21, 4, 1)[0],
+    _rect(9, 21, 4, 1)[0],
+    _rect(9, 6, 4, 1)[0],
+))
+
+#: Straight vertical stream, exactly 2 wide: (left, right) column tiles of
+#: calm pond-kit water with a white foam shoreline on the outer edge of
+#: each. Repeat down the course; both tile seamlessly with themselves and
+#: with the POND_STONE_OUTLET_S exit row.
+STREAM_V = (gid(9, 7), gid(9, 8))
+
 
 # =========================================================================
 # CLIFFS (bright-grass plateau kit, rows 80-90, cols 0-6 — example map)
@@ -496,6 +514,15 @@ FENCE_METAL = {
     "gate": TileStamp.rect("metal_gate", 34, 87, 2, 6),
 }
 
+#: Thin horizontal metal bar riding the bottom ~6 px of the tile (metal
+#: railing kit, row 33; verified via zoom crop). 3388/3389 tile seamlessly
+#: left-right; RAIL_BAR_CAP_W closes a bar's west end, RAIL_BAR_CAP_E its
+#: east end. Two parallel courses over a PLANKS_V_DARK tie band read as
+#: railroad rails (this tileset has no dedicated rail tiles).
+RAIL_BAR_H = (3388, 3389)
+RAIL_BAR_CAP_W = 3386
+RAIL_BAR_CAP_E = 3387
+
 #: Freestanding bark posts (pergola / hitching posts), 1x2 each.
 POST_WOOD_A = TileStamp.rect("post_wood_a", 52, 28, 1, 2)
 POST_WOOD_B = TileStamp.rect("post_wood_b", 52, 29, 1, 2)
@@ -562,6 +589,10 @@ DECK_DARK = TileStamp.rect("deck_dark", 1, 87, 5, 6)
 #: Horizontal plank strips (boardwalk), light and dark.
 PLANKS_LIGHT = (782, 783, 784, 785, 882, 883, 884, 885)
 PLANKS_DARK = (788, 789, 790, 791, 888, 889, 890, 891)
+#: Interior fill of DECK_DARK (seamless VERTICAL planks with staggered
+#: joints). Flooded as a horizontal band it reads as railroad cross-ties;
+#: overlay RAIL_BAR_H courses on deco-below to complete a track.
+PLANKS_V_DARK = (289, 290, 291, 389, 390, 391, 489, 490, 491, 589, 590, 591)
 #: Dark slate stone pad w/ rounded top, 5 wide x 5 tall (rows 1-5, cols 93-97).
 STONE_PAD_DARK = TileStamp.rect("stone_pad_dark", 1, 93, 5, 5)
 
@@ -690,11 +721,13 @@ FILLS: dict[str, tuple[int, ...]] = {
     "slab_floor": SLAB_FLOOR,
     "planks_light": PLANKS_LIGHT,
     "planks_dark": PLANKS_DARK,
+    "planks_v_dark": PLANKS_V_DARK,
 }
 
 STAMPS: dict[str, TileStamp] = {
     s.name: s for s in (
         POND_GRASS, PATH_PAD_TAN, POND_STONE, POND_TERRACOTTA,
+        POND_STONE_OUTLET_S,
         ROCK_OUTCROP_A, ROCK_OUTCROP_B,
         TREE_LIGHT, TREE_DARK, TREE_SMALL, TREE_ROUND_SMALL, BUSH_ROUND,
         TREE_FRUIT_A, TREE_FRUIT_B, TREE_FRUIT_C,
@@ -723,6 +756,12 @@ SINGLES: dict[str, int] = {
     "rock_tiny_a": ROCK_TINY_A,
     "rock_tiny_b": ROCK_TINY_B,
     "pebble": PEBBLE,
+    "rail_bar_a": RAIL_BAR_H[0],
+    "rail_bar_b": RAIL_BAR_H[1],
+    "rail_bar_cap_w": RAIL_BAR_CAP_W,
+    "rail_bar_cap_e": RAIL_BAR_CAP_E,
+    "stream_v_left": STREAM_V[0],
+    "stream_v_right": STREAM_V[1],
 }
 SINGLES.update({f"flower_white_{i}": g for i, g in enumerate(FLOWERS_WHITE)})
 SINGLES.update({f"crop_{i}": g for i, g in enumerate(CROP_TILES)})
