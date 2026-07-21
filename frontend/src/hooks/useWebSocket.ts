@@ -4,7 +4,6 @@ import type {
   AgentState,
   Conversation,
   TownSummary,
-  TownId,
   WeatherKind,
   Relationship,
   NewsReaction,
@@ -17,7 +16,9 @@ interface WsState {
   agents: Record<string, AgentState>;
   conversations: Conversation[];
   events: SimulationEvent[];
-  townSummaries: Record<TownId, TownSummary | null>;
+  /** Keyed lazily by town id as round_ended events stream in — no scenario
+   *  town roster is assumed here. */
+  townSummaries: Record<string, TownSummary>;
   currentRound: number;
   totalRounds: number;
   simulationRunning: boolean;
@@ -32,7 +33,7 @@ const initialState: WsState = {
   agents: {},
   conversations: [],
   events: [],
-  townSummaries: { dover: null, montclair: null, parsippany: null, randolph: null },
+  townSummaries: {},
   currentRound: 0,
   totalRounds: 0,
   simulationRunning: false,

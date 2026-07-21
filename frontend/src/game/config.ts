@@ -36,12 +36,10 @@ export interface Landmark {
 
 /* ── Per-town tilemap keys ─────────────────────────────────── */
 
-export const TOWN_MAP_KEY: Record<TownId, string> = {
-  dover: "dover-map",
-  montclair: "montclair-map",
-  parsippany: "parsippany-map",
-  randolph: "randolph-map",
-};
+/** Tilemap cache key for a town — works for any scenario's town ids. */
+export function townMapKey(townId: TownId): string {
+  return `${townId}-map`;
+}
 
 /* ── ElevenLabs Voice Mapping ─────────────────────────────── */
 
@@ -96,20 +94,56 @@ export const AGENT_VOICE_MAP: Record<string, string> = {
   "tony-mancini": "middle-aged-male",
 };
 
-/* ── Town Background Colors ────────────────────────────────── */
+/* ── Town Background / Accent Colors ───────────────────────── */
+//
+// The NJ-11 towns keep their hand-curated palettes; towns from other
+// scenarios get a deterministic pick from a small curated palette (seeded by
+// town id) so every town still feels intentionally colored — never grey.
 
-export const TOWN_BG_COLORS: Record<string, string> = {
+const NJ11_BG_COLORS: Record<string, string> = {
   dover: "#EDE4D6",
   montclair: "#E8E4F0",
   parsippany: "#E0ECE8",
   randolph: "#E4ECE0",
 };
 
-/* ── Town Accent Colors ────────────────────────────────────── */
-
-export const TOWN_ACCENT: Record<string, string> = {
+const NJ11_ACCENT: Record<string, string> = {
   dover: "#E8763B",
   montclair: "#6B5CE7",
   parsippany: "#2DA8A8",
   randolph: "#4A9B5C",
 };
+
+/** Warm, parchment-compatible accent palette for unknown towns. */
+const GENERIC_ACCENTS = [
+  "#C08A4E", // amber oak
+  "#7A9E7E", // river sage
+  "#B0713A", // terracotta
+  "#5A6FA8", // dusk slate-blue
+  "#3E8E5A", // meadow green
+  "#A8687E", // rosewood
+];
+
+/** Matching soft ground washes (same order as GENERIC_ACCENTS). */
+const GENERIC_BGS = [
+  "#EDE6D6", "#E4EBE0", "#EDE2D2", "#E4E6EE", "#E2ECDF", "#ECE3E2",
+];
+
+function townHash(townId: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < townId.length; i++) {
+    h ^= townId.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h);
+}
+
+/** Accent color for a town — NJ-11 curated, otherwise seeded-but-stable. */
+export function townAccent(townId: TownId): string {
+  return NJ11_ACCENT[townId] ?? GENERIC_ACCENTS[townHash(townId) % GENERIC_ACCENTS.length];
+}
+
+/** Canvas background wash for a town. */
+export function townBgColor(townId: TownId): string {
+  return NJ11_BG_COLORS[townId] ?? GENERIC_BGS[townHash(townId) % GENERIC_BGS.length];
+}

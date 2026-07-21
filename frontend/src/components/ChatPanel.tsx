@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { AgentState, ChatMessage, LeanId, Opinion } from "../types/messages";
-import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
+import { useScenario } from "../hooks/useScenario";
 import { AGENT_VOICES, AGENT_VOICE_MAP } from "../game/config";
 import { resolveAgentSprite } from "../game/spriteCustomization";
 import { useUserProfile } from "../context/UserProfileContext";
@@ -272,6 +272,7 @@ interface ChatPanelProps {
 
 export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPanelProps) {
   const { profile, chatMode, setChatMode } = useUserProfile();
+  const { townMeta, optionLabel, undecidedId } = useScenario();
   // We also use WS so we can read live relationships into the chat header.
   const ws = useWebSocketContext();
   const audio = useAudio();
@@ -287,7 +288,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
       {
         id: "system-intro",
         role: "system",
-        content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${TOWN_META[agent.town].name}.`,
+        content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${townMeta(agent.town).name}.`,
         timestamp: new Date().toISOString(),
       },
     ];
@@ -329,7 +330,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
       const intro: ChatMessage = {
         id: "system-intro",
         role: "system",
-        content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${TOWN_META[agent.town].name}.`,
+        content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${townMeta(agent.town).name}.`,
         timestamp: new Date().toISOString(),
       };
       setMessages([intro]);
@@ -754,11 +755,11 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
 
   if (!agent) return null;
 
-  const meta = TOWN_META[agent.town];
+  const meta = townMeta(agent.town);
   // Prefer the live opinion from the most recent chat response over the WS state.
   const headerOpinion = liveOpinion ?? agent.opinion;
-  const candidate = (headerOpinion?.candidate as LeanId) || "undecided";
-  const opinionLabel = CANDIDATE_NAMES[candidate];
+  const candidate = (headerOpinion?.candidate as LeanId) || undecidedId;
+  const opinionLabel = optionLabel(candidate);
   const initials =
     agent.initials ||
     agent.name

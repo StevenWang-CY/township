@@ -3,8 +3,8 @@ import { useUserProfile } from "../context/UserProfileContext";
 import SpritePortrait from "./SpritePortrait";
 import TrustBadge from "./TrustBadge";
 import { resolveAgentSprite } from "../game/spriteCustomization";
-import type { LeanId, TownId, JournalEntry } from "../types/messages";
-import { CANDIDATE_NAMES, CANDIDATE_COLORS, TOWN_META } from "../types/messages";
+import type { LeanId, JournalEntry } from "../types/messages";
+import { useScenario } from "../hooks/useScenario";
 
 interface JournalProps {
   open: boolean;
@@ -13,6 +13,7 @@ interface JournalProps {
 
 export default function Journal({ open, onClose }: JournalProps) {
   const { profile } = useUserProfile();
+  const { townMeta, optionColor, optionLabel } = useScenario();
   const playerId = profile?.playerId;
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,12 +105,12 @@ export default function Journal({ open, onClose }: JournalProps) {
                       {entry.agent_name || entry.agent_id.replace(/-/g, " ")}
                     </strong>
                     <span className="journal-entry-ts">
-                      {entry.town && TOWN_META[entry.town] && (
+                      {entry.town && (
                         <span
                           className={`town-badge town-badge--${entry.town}`}
                           style={{ marginRight: 6 }}
                         >
-                          {TOWN_META[entry.town].name}
+                          {townMeta(entry.town).name}
                         </span>
                       )}
                       {dateStr}
@@ -139,11 +140,11 @@ export default function Journal({ open, onClose }: JournalProps) {
                   {opBefore && opAfter && (
                     <span className="journal-entry-meta-item">
                       Opinion:{" "}
-                      <span style={{ color: CANDIDATE_COLORS[opBefore] }}>
-                        {CANDIDATE_NAMES[opBefore]}
+                      <span style={{ color: optionColor(opBefore) }}>
+                        {optionLabel(opBefore)}
                       </span>{" "}
-                      → <span style={{ color: CANDIDATE_COLORS[opAfter] }}>
-                        {CANDIDATE_NAMES[opAfter]}
+                      → <span style={{ color: optionColor(opAfter) }}>
+                        {optionLabel(opAfter)}
                       </span>
                     </span>
                   )}

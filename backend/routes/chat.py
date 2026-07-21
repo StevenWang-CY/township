@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..core.scenario import validate_stance
+from ..core.storage import STATE_DIR, DebouncedSaver, load_json
 from ..core.types import Opinion, OpinionChangedEvent, RelationshipUpdateEvent
 from ..core.wire import opinion_to_wire
 from ..tools.schemas import get_tools
@@ -15,9 +16,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
-# ─── Relationship store (in-memory, per-process) ───────────────
+# ─── Relationship store (in-memory, file-persisted) ────────────
 # Layout: { user_id: { agent_id: { trust, encounters, topics_discussed, ... } } }
 _RELATIONSHIPS: dict[str, dict[str, dict]] = {}
+
+_REL_PATH = STATE_DIR / "relationships.json"
+_rel_saver = DebouncedSaver(_REL_PATH, lambda: _RELATIONSHIPS)
+
+
+def load_relationship_state() -> None:
+    """Hydrate the in-memory store from disk (app startup)."""
+    saved = load_json(_REL_PATH, {})
+    if isinstance(saved, dict) and saved:
+        _RELATIONSHIPS.clear()
+        _RELATIONSHIPS.update(saved)
+        logger.info(f"Loaded relationships for {len(_RELATIONSHIPS)} user(s) from {_REL_PATH}")
+
+
+async def flush_relationship_state() -> None:
+    """Persist any pending relationship changes (app shutdown)."""
+    await _rel_saver.aflush()
 
 
 def _default_rel() -> dict:
@@ -140,6 +158,8 @@ async def reset_relationships(req: ResetRequest):
     else:
         cleared = len(_RELATIONSHIPS[req.user_id])
         _RELATIONSHIPS[req.user_id] = {}
+    if cleared:
+        _rel_saver.mark_dirty()
     return {"status": "ok", "cleared": cleared}
 
 
@@ -428,6 +448,7 @@ def _record_player_reveal(rel: dict, profile: dict) -> None:
         revealed["leaning"] = leaning
     if profile.get("top_concerns"):
         revealed["concerns"] = list(profile.get("top_concerns"))
+    _rel_saver.mark_dirty()
 
 
 async def _reevaluate_opinion(
@@ -603,6 +624,8 @@ async def _classify_and_update_trust(
             rel["topics_discussed"].append(topic_hint)
             # Cap topic list to most-recent 25
             rel["topics_discussed"] = rel["topics_discussed"][-25:]
+
+        _rel_saver.mark_dirty()
 
         # Publish a relationship update event for live frontend feedback
         try:

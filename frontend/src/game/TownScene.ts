@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { AgentSprite, type AgentActivity, type GestureKind } from "./AgentSprite";
 import { PlayerSprite } from "./PlayerSprite";
-import { TOWN_ACCENT, TOWN_MAP_KEY } from "./config";
+import { townAccent, townMapKey } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
 import type { UserProfile } from "../context/UserProfileContext";
 import { AGENT_CUSTOMIZATION, ALL_CHARACTER_KEYS, resolveAgentSprite } from "./spriteCustomization";
@@ -10,7 +10,7 @@ import { composeTownAmbience, type AmbienceHandle } from "./SceneAmbience";
 import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange } from "./AmbientLines";
-import { FALLBACK_TOWN_DATA } from "../hooks/useTownData";
+import { landmarksFor } from "../hooks/useTownData";
 import { WeatherScene } from "./WeatherScene";
 
 /* ── Helper: fetch town data (single source of truth) ───────── */
@@ -82,8 +82,9 @@ export class TownScene extends Phaser.Scene {
 
   init(data: { townId: TownId }) {
     this.townId = data.townId;
-    // Inline fallback until /api/towns resolves; overridden in create().
-    this.landmarks = (FALLBACK_TOWN_DATA[this.townId]?.landmarks ?? []).slice();
+    // Inline fallback until /api/towns resolves — curated for NJ-11 towns,
+    // a serviceable generic village for any other scenario's towns.
+    this.landmarks = landmarksFor(this.townId).slice();
   }
 
   /* ── Preload ─────────────────────────────────────────────── */
@@ -94,7 +95,7 @@ export class TownScene extends Phaser.Scene {
     this.load.image("speech-bubble", "/assets/speech_bubble/v2.png");
 
     // Town-aware tilemap. Until per-town files exist, fall back to shared tilemap.
-    const mapKey = TOWN_MAP_KEY[this.townId];
+    const mapKey = townMapKey(this.townId);
     const mapUrl = `/assets/maps/${this.townId}.tmj`;
     this.load.tilemapTiledJSON(mapKey, mapUrl);
     // If per-town .tmj is missing, fall back to the shared default.
@@ -289,7 +290,7 @@ export class TownScene extends Phaser.Scene {
       id: agent.id,
       name: agent.name,
       initials: agent.initials ?? this.initials(agent.name),
-      color: agent.color ?? TOWN_ACCENT[this.townId] ?? "#888",
+      color: agent.color ?? townAccent(this.townId),
       town: agent.town,
       opinionColor: this.opinionColor(agent.opinion?.candidate),
       spriteKey: custom.spriteKey,
@@ -495,7 +496,7 @@ export class TownScene extends Phaser.Scene {
       })),
       agents: [...this.agentSprites.entries()]
         .filter(([_, s]) => s !== this.playerSprite)
-        .map(([id, s]) => ({ id, x: s.x, y: s.y, color: TOWN_ACCENT[this.townId] ?? "#888" })),
+        .map(([id, s]) => ({ id, x: s.x, y: s.y, color: townAccent(this.townId) })),
       player: this.playerSprite ? { x: this.playerSprite.x, y: this.playerSprite.y } : undefined,
     };
   }
@@ -924,7 +925,7 @@ export class TownScene extends Phaser.Scene {
     // a faint texture pass only (or skip it entirely).
     this.paintGround(W, H);
 
-    const mapKey = TOWN_MAP_KEY[this.townId];
+    const mapKey = townMapKey(this.townId);
     if (this.cache.tilemap.has(mapKey)) {
       const map = this.make.tilemap({ key: mapKey });
       const tileset = map.addTilesetImage("rpg-tileset", "rpg-tileset");
@@ -944,14 +945,16 @@ export class TownScene extends Phaser.Scene {
 
   /** Paint a delicate, town-flavored base ground via Phaser Graphics. */
   private paintGround(W: number, H: number) {
-    const accent = Phaser.Display.Color.HexStringToColor(TOWN_ACCENT[this.townId] || "#888").color;
+    const accent = Phaser.Display.Color.HexStringToColor(townAccent(this.townId)).color;
     const baseColors: Record<TownId, { soil: number; grass: number; path: number }> = {
       dover:      { soil: 0xefe2cd, grass: 0xb6c97e, path: 0xd9c298 },
       montclair:  { soil: 0xe9e7df, grass: 0xa6c4a0, path: 0xd0d4c5 },
       parsippany: { soil: 0xe7e8d9, grass: 0xb0c9a0, path: 0xd4d6c2 },
       randolph:   { soil: 0xe8e2cd, grass: 0xa9bf8c, path: 0xcfc8b0 },
     };
-    const pal = baseColors[this.townId];
+    // Unknown (non-NJ-11) towns get a warm neutral ground so any scenario
+    // renders a pleasant canvas without per-town tuning.
+    const pal = baseColors[this.townId] ?? { soil: 0xebe3d1, grass: 0xafc491, path: 0xd6cab0 };
 
     // Base canvas wash — warm cream/sand
     const ground = this.add.graphics().setDepth(0);
@@ -1022,7 +1025,7 @@ export class TownScene extends Phaser.Scene {
   private layoutLandmarksAndDecor() {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
-    const accent = TOWN_ACCENT[this.townId] || "#888";
+    const accent = townAccent(this.townId);
 
     // Subtle landmark zone tint to ground each building visually.
     for (const lm of this.landmarks) {
@@ -1344,7 +1347,16 @@ export class TownScene extends Phaser.Scene {
     return name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
   }
 
+  /** Scenario option colors injected from React (non-NJ-11 scenarios). */
+  private optionColors: Record<string, string> = {};
+
+  /** Inject the active scenario's option→color map (see TownView). */
+  setOptionColors(colors: Record<string, string>) {
+    this.optionColors = colors || {};
+  }
+
   private opinionColor(candidate?: string): string {
+    if (candidate && this.optionColors[candidate]) return this.optionColors[candidate];
     switch (candidate) {
       case "mejia":    return "#3B82F6";
       case "hathaway": return "#EF4444";

@@ -2,29 +2,28 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useWebSocketContext } from "../context/WebSocketContext";
+import { useScenario } from "../hooks/useScenario";
+import type { ResolvedTownMeta, ScenarioContextValue } from "../hooks/useScenario";
 import type { TownId, LeanId, AgentState } from "../types/messages";
-import { TOWN_META, CANDIDATE_COLORS } from "../types/messages";
 
-/** Compute leading candidate per town from a list of agent states. */
-function leadingCandidatePerTown(agents: AgentState[]): Record<TownId, LeanId | null> {
-  const counts: Record<TownId, Record<LeanId, number>> = {
-    dover: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
-    montclair: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
-    parsippany: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
-    randolph: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
-  };
+/** Compute leading (non-undecided) option per town from agent states. */
+function leadingOptionPerTown(
+  agents: AgentState[],
+  townIds: TownId[],
+  undecidedId: string,
+): Record<TownId, LeanId | null> {
+  const counts: Record<TownId, Record<LeanId, number>> = {};
+  for (const t of townIds) counts[t] = {};
   for (const a of agents) {
-    const lean = (a.opinion?.candidate as LeanId) || "undecided";
+    const lean = (a.opinion?.candidate as LeanId) || undecidedId;
     if (counts[a.town]) counts[a.town][lean] = (counts[a.town][lean] || 0) + 1;
   }
-  const out: Record<TownId, LeanId | null> = {
-    dover: null, montclair: null, parsippany: null, randolph: null,
-  };
-  for (const t of Object.keys(counts) as TownId[]) {
+  const out: Record<TownId, LeanId | null> = {};
+  for (const t of townIds) {
     let best: LeanId | null = null;
     let bestN = 0;
-    for (const k of Object.keys(counts[t]) as LeanId[]) {
-      if (k === "undecided") continue;
+    for (const k of Object.keys(counts[t])) {
+      if (k === undecidedId) continue;
       if (counts[t][k] > bestN) {
         best = k;
         bestN = counts[t][k];
@@ -36,21 +35,111 @@ function leadingCandidatePerTown(agents: AgentState[]): Record<TownId, LeanId | 
 }
 
 /* ───────────────────────────────────────────────────────────────
-   NJ-11 Illustrated District Map — Genshin / Anime style
-   Fully polished: waypoint markers, vibrant terrain, clear labels
+   Illustrated District Map — Genshin / Anime style atlas page.
+
+   The flagship NJ-11 scenario keeps its hand-drawn map (pins, rivers,
+   county labels) exactly as designed. Any other scenario gets a GENERIC
+   atlas page in the same visual language: parchment, watercolor terrain,
+   compass, clouds — with a seeded, pleasing waypoint layout derived from
+   the scenario's town roster.
    ─────────────────────────────────────────────────────────────── */
 
-const PINS: Array<{
+interface Pin {
   id: TownId;
   cx: number;
   cy: number;
   description: string;
-}> = [
+}
+
+const NJ11_PINS: Pin[] = [
   { id: "dover", cx: 250, cy: 240, description: "Majority-Hispanic working-class heart" },
   { id: "parsippany", cx: 490, cy: 300, description: "Largest town, Asian-American hub" },
   { id: "randolph", cx: 340, cy: 410, description: "Affluent suburban community" },
   { id: "montclair", cx: 730, cy: 230, description: "Progressive arts & culture center" },
 ];
+
+/* ── Seeded layout helpers (generic scenarios) ───────────────── */
+
+function hashString(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(a: number): () => number {
+  return function () {
+    let t = (a += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Seeded waypoint layout for a scenario's towns:
+ * - 1 town  → centered hero waypoint;
+ * - 2 towns → facing each other across a river;
+ * - N towns → a gentle arc across the parchment, organic jitter.
+ */
+function genericPins(
+  towns: Array<{ id: string; tagline?: string }>,
+  seedKey: string,
+): Pin[] {
+  const rng = mulberry32(hashString(seedKey));
+  const n = towns.length;
+  if (n === 0) return [];
+  if (n === 1) {
+    return [{ id: towns[0].id, cx: 500, cy: 290, description: towns[0].tagline ?? "" }];
+  }
+  if (n === 2) {
+    // Two communities across the river — the bridge between them is the story.
+    const j = () => (rng() - 0.5) * 30;
+    return [
+      { id: towns[0].id, cx: 330 + j(), cy: 265 + j(), description: towns[0].tagline ?? "" },
+      { id: towns[1].id, cx: 665 + j(), cy: 295 + j(), description: towns[1].tagline ?? "" },
+    ];
+  }
+  // Gentle arc, west to east, cresting mid-map.
+  return towns.map((t, i) => {
+    const f = i / (n - 1);
+    const cx = 220 + f * 560 + (rng() - 0.5) * 36;
+    const cy = 340 - Math.sin(f * Math.PI) * 130 + (rng() - 0.5) * 44;
+    return { id: t.id, cx, cy, description: t.tagline ?? "" };
+  });
+}
+
+type Pt = [number, number];
+
+/** Evaluate a cubic bezier at t. */
+function cubicAt(p0: Pt, c1: Pt, c2: Pt, p1: Pt, t: number): Pt {
+  const u = 1 - t;
+  return [
+    u * u * u * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * p1[0],
+    u * u * u * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * p1[1],
+  ];
+}
+
+/** Seeded scatter positions that keep clear of the waypoints. */
+function scatterPoints(
+  rng: () => number,
+  count: number,
+  pins: Pin[],
+  minDist = 78,
+): Array<{ x: number; y: number; r: number }> {
+  const out: Array<{ x: number; y: number; r: number }> = [];
+  let guard = 0;
+  while (out.length < count && guard < count * 30) {
+    guard++;
+    const x = 170 + rng() * 660;
+    const y = 100 + rng() * 370;
+    if (pins.some((p) => Math.hypot(p.cx - x, p.cy - y + 40) < minDist)) continue;
+    out.push({ x, y, r: rng() });
+  }
+  return out;
+}
 
 /* ── Decorative terrain elements ─────────────────────────────── */
 
@@ -192,27 +281,36 @@ function CompassRose({ x, y }: { x: number; y: number }) {
 
 function TownMarker({
   pin,
+  meta,
   isHovered,
   onHover,
   onLeave,
   onClick,
   leader,
+  leaderColor,
   metCount,
   totalCount,
 }: {
-  pin: typeof PINS[0];
+  pin: Pin;
+  meta: ResolvedTownMeta;
   isHovered: boolean;
   onHover: () => void;
   onLeave: () => void;
   onClick: () => void;
   leader: LeanId | null;
+  leaderColor: string | null;
   metCount: number;
   totalCount: number;
 }) {
-  const meta = TOWN_META[pin.id];
   const glowId = `town-glow-${pin.id}`;
   const gradId = `waypoint-grad-${pin.id}`;
   const r = isHovered ? 16 : 13;
+  const detailLine = [
+    meta.population ? `Pop. ${meta.population}` : "",
+    meta.county ?? "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <g
@@ -293,15 +391,15 @@ function TownMarker({
             x={pin.cx - 22} y={pin.cy + 14}
             width="44" height="14" rx="7" ry="7"
             fill="rgba(255,255,255,0.96)"
-            stroke={leader ? CANDIDATE_COLORS[leader] : "rgba(196,180,154,0.55)"}
+            stroke={leaderColor ?? "rgba(196,180,154,0.55)"}
             strokeWidth="0.8"
             filter="url(#labelShadow)"
           />
-          {leader && (
+          {leader && leaderColor && (
             <circle
               cx={pin.cx - 13} cy={pin.cy + 21}
               r="2.8"
-              fill={CANDIDATE_COLORS[leader]}
+              fill={leaderColor}
             >
               <title>Leading: {leader}</title>
             </circle>
@@ -345,28 +443,376 @@ function TownMarker({
         {/* Tagline + population (on hover) */}
         {isHovered && (
           <>
-            <text
-              x={pin.cx} y={pin.cy + 64}
-              textAnchor="middle" fontSize="8" fontWeight="500"
-              fill={meta.color}
-              fontFamily="Inter, sans-serif"
-              letterSpacing="0.2"
-            >
-              {meta.tagline}
-            </text>
-            <text
-              x={pin.cx} y={pin.cy + 76}
-              textAnchor="middle" fontSize="7" fontWeight="600"
-              fill="#8A7E6E"
-              fontFamily="Inter, sans-serif"
-            >
-              Pop. {meta.population} · {meta.county} County
-            </text>
+            {meta.tagline && (
+              <text
+                x={pin.cx} y={pin.cy + 64}
+                textAnchor="middle" fontSize="8" fontWeight="500"
+                fill={meta.color}
+                fontFamily="Inter, sans-serif"
+                letterSpacing="0.2"
+              >
+                {meta.tagline}
+              </text>
+            )}
+            {detailLine && (
+              <text
+                x={pin.cx} y={pin.cy + 76}
+                textAnchor="middle" fontSize="7" fontWeight="600"
+                fill="#8A7E6E"
+                fontFamily="Inter, sans-serif"
+              >
+                {detailLine}
+              </text>
+            )}
           </>
         )}
       </g>
     </g>
   );
+}
+
+/* ── NJ-11 hand-drawn terrain (flagship scenario, unchanged) ─── */
+
+function NJ11Terrain() {
+  return (
+    <>
+      {/* ─── Layer 2: District Terrain Base ────────────── */}
+      <path
+        d={`
+          M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
+          C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
+          C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
+          C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
+          C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
+        `}
+        fill="url(#terrainBase)"
+        filter="url(#watercolor)"
+        stroke="#A0906E"
+        strokeWidth="1"
+        opacity="0.95"
+      />
+
+      {/* Highlands tint (western) */}
+      <path
+        d={`
+          M 140,160 C 160,130 210,95 280,80 C 340,68 380,65 420,64
+          L 400,200 L 380,320 L 350,400
+          C 300,455 260,442 220,420 C 190,390 162,358 145,320
+          C 138,280 130,240 130,200 C 130,200 140,160 140,160 Z
+        `}
+        fill="url(#highlands)" opacity="0.35"
+      />
+
+      {/* Piedmont tint (eastern) */}
+      <path
+        d={`
+          M 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
+          C 875,235 880,270 870,310 C 862,345 840,375 810,400
+          C 780,425 740,445 700,458 C 660,468 640,470 620,472
+          L 600,350 L 590,250 L 600,160 Z
+        `}
+        fill="url(#piedmont)" opacity="0.3"
+      />
+
+      {/* Grass texture */}
+      <path
+        d={`
+          M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
+          C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
+          C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
+          C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
+          C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
+        `}
+        fill="url(#grassPattern)" opacity="0.4"
+      />
+
+      {/* ─── Layer 3: Terrain Features ─────────────────── */}
+      {/* Mountains — pushed far west, clear of Dover pin at 250,240 */}
+      <Mountain x={148} y={195} s={0.9} variant={0} />
+      <Mountain x={180} y={150} s={1.1} variant={1} />
+      <Mountain x={155} y={260} s={0.7} variant={2} />
+      <Mountain x={195} y={130} s={0.55} variant={0} />
+
+      {/* Rolling hills — spread across mid-terrain, away from pins */}
+      {[
+        [420, 370, 45, 11, "#A4C488"], [580, 400, 38, 9, "#B0CC98"],
+        [650, 360, 42, 10, "#9CBC80"], [460, 440, 32, 8, "#B0CC98"],
+        [770, 310, 35, 9, "#A4C488"],
+      ].map(([cx, cy, rx, ry, fill], i) => (
+        <ellipse key={`hill-${i}`} cx={cx as number} cy={cy as number}
+          rx={rx as number} ry={ry as number} fill={fill as string} opacity="0.35" />
+      ))}
+
+      {/* Forest clusters — deliberately placed AWAY from pin zones */}
+      {/* Far-west forest (near mountains) */}
+      <Tree x={165} y={320} s={0.85} shade={0} />
+      <PineTree x={178} y={310} s={0.75} />
+      <Tree x={190} y={328} s={0.9} shade={1} />
+      <PineTree x={155} y={335} s={0.65} />
+
+      {/* South-central forest (between Parsippany & Randolph, below both) */}
+      <Tree x={400} y={460} s={0.75} shade={0} />
+      <PineTree x={418} y={455} s={0.85} />
+      <Tree x={435} y={465} s={0.7} shade={1} />
+      <PineTree x={385} y={470} s={0.6} />
+
+      {/* Eastern forest (below Montclair) */}
+      <Tree x={690} y={340} s={0.7} shade={1} />
+      <Tree x={708} y={335} s={0.8} shade={2} />
+      <PineTree x={725} y={345} s={0.65} />
+
+      {/* Northeastern trees */}
+      <Tree x={780} y={180} s={0.6} shade={0} />
+      <PineTree x={800} y={170} s={0.55} />
+
+      {/* Scattered singles — far from pins */}
+      <Tree x={560} y={160} s={0.55} shade={0} />
+      <PineTree x={620} y={430} s={0.55} />
+      <Tree x={530} y={450} s={0.5} shade={1} />
+      <Tree x={310} y={180} s={0.5} shade={2} />
+      <PineTree x={850} y={280} s={0.45} />
+
+      {/* Houses — scattered away from pins */}
+      <House x={370} y={200} s={0.7} roofColor="#C8706E" />
+      <House x={580} y={190} s={0.65} roofColor="#B08060" />
+      <House x={440} y={350} s={0.6} roofColor="#C8706E" />
+      <House x={660} y={280} s={0.6} roofColor="#A07858" />
+      <House x={320} y={340} s={0.55} roofColor="#B08060" />
+
+      {/* ─── Layer 4: Water Features ───────────────────── */}
+      {/* Rockaway River — clear, visible stroke */}
+      <path
+        d="M 170,145 C 185,175 210,210 225,245 C 240,272 252,295 275,325 C 292,348 315,370 345,390"
+        fill="none" stroke="url(#waterGrad)" strokeWidth="4" strokeLinecap="round"
+        opacity="0.8"
+      />
+      {/* River shimmer */}
+      {[[192, 185], [220, 230], [248, 278], [280, 330], [325, 378]].map(([cx, cy], i) => (
+        <circle key={`shimmer-${i}`} cx={cx} cy={cy} r="1.3" fill="white" opacity="0.5">
+          <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
+        </circle>
+      ))}
+
+      {/* Passaic River */}
+      <path
+        d="M 640,175 C 655,210 668,250 676,285 C 684,315 686,345 680,380"
+        fill="none" stroke="url(#waterGrad)" strokeWidth="3.5" strokeLinecap="round"
+        opacity="0.7"
+      />
+
+      <Bridge x={230} y={250} s={0.75} />
+
+      {/* ─── Layer 5: Roads ────────────────────────────── */}
+      <path
+        d="M 155,220 C 250,215 400,230 500,240 C 600,250 700,220 850,215"
+        fill="none" stroke="#C4AE8C" strokeWidth="2.5" strokeLinecap="round"
+        opacity="0.5" strokeDasharray="8 4"
+      />
+      <rect x="490" y="222" width="30" height="13" rx="3" fill="rgba(180,160,130,0.65)" />
+      <text x="505" y="232" textAnchor="middle" fontSize="7.5" fontWeight="700"
+        fill="#6B5B45" fontFamily="Inter, sans-serif">I-80</text>
+
+      <path
+        d="M 300,280 C 400,285 500,290 620,275"
+        fill="none" stroke="#C4AE8C" strokeWidth="1.5" strokeLinecap="round"
+        opacity="0.35" strokeDasharray="5 3"
+      />
+
+      {/* ─── Layer 6: County Boundary ──────────────────── */}
+      <path
+        d="M 590,70 C 585,140 580,220 575,300 C 572,360 570,420 565,475"
+        fill="none" stroke="#A89888" strokeWidth="0.8"
+        strokeDasharray="3 3" opacity="0.45"
+      />
+      <text x="380" y={108} textAnchor="middle" fontSize="10" fontWeight="600"
+        fill="#A0907A" fontFamily="Inter, sans-serif" letterSpacing="0.2em" opacity="0.65">
+        MORRIS COUNTY
+      </text>
+      <text x="720" y={155} textAnchor="middle" fontSize="10" fontWeight="600"
+        fill="#A0907A" fontFamily="Inter, sans-serif" letterSpacing="0.2em" opacity="0.65">
+        ESSEX COUNTY
+      </text>
+
+      {/* ─── Layer 7: Clouds ───────────────────────────── */}
+      <Cloud x={150} y={85} s={0.85} driftDur="80s" />
+      <Cloud x={500} y={48} s={1.1} driftDur="100s" />
+      <Cloud x={830} y={95} s={0.75} driftDur="120s" />
+      <Cloud x={390} y={510} s={0.65} driftDur="90s" />
+      <Cloud x={750} y={490} s={0.55} driftDur="110s" />
+    </>
+  );
+}
+
+/* ── Generic seeded terrain (any other scenario) ─────────────── */
+
+function GenericTerrain({ pins, seedKey }: { pins: Pin[]; seedKey: string }) {
+  const layout = useMemo(() => {
+    const rng = mulberry32(hashString(`${seedKey}::terrain`));
+    const twoTowns = pins.length === 2;
+
+    // Mountain range hugs whichever top corner the seed favors.
+    const mountainsWest = rng() < 0.5;
+    const mx = mountainsWest ? 160 : 830;
+    const mSign = mountainsWest ? 1 : -1;
+
+    // River: for two towns it runs BETWEEN them; otherwise it wanders down
+    // from the mountains through open terrain. Built from two cubic bezier
+    // segments so we can sample exact points for the shimmer sparkles.
+    let seg1: [Pt, Pt, Pt, Pt];
+    let seg2: [Pt, Pt, Pt, Pt];
+    let bridge: { x: number; y: number } | null = null;
+    if (twoTowns) {
+      const midX = (pins[0].cx + pins[1].cx) / 2 + (rng() - 0.5) * 20;
+      const sway = 24 + rng() * 22;
+      seg1 = [[midX - sway, 78], [midX + sway, 170], [midX - sway, 250], [midX + sway * 0.6, 330]];
+      seg2 = [[midX + sway * 0.6, 330], [midX + sway, 410], [midX - sway * 0.5, 470], [midX + sway * 0.3, 515]];
+      bridge = { x: midX + sway * 0.1, y: (pins[0].cy + pins[1].cy) / 2 + 8 };
+    } else {
+      const startX = mountainsWest ? 210 : 780;
+      const d = mountainsWest ? 1 : -1;
+      seg1 = [[startX, 140], [startX + 40 * d, 210], [startX + 20 * d, 280], [startX + 70 * d, 340]];
+      seg2 = [[startX + 70 * d, 340], [startX + 110 * d, 395], [startX + 90 * d, 450], [startX + 140 * d, 495]];
+      bridge = null;
+    }
+    const river =
+      `M ${seg1[0][0]},${seg1[0][1]} C ${seg1[1][0]},${seg1[1][1]} ${seg1[2][0]},${seg1[2][1]} ${seg1[3][0]},${seg1[3][1]}` +
+      ` C ${seg2[1][0]},${seg2[1][1]} ${seg2[2][0]},${seg2[2][1]} ${seg2[3][0]},${seg2[3][1]}`;
+    const shimmers: Pt[] = [0.15, 0.4, 0.65, 0.85, 0.95].map((t) =>
+      t < 0.5
+        ? cubicAt(seg1[0], seg1[1], seg1[2], seg1[3], t * 2)
+        : cubicAt(seg2[0], seg2[1], seg2[2], seg2[3], (t - 0.5) * 2),
+    );
+
+    // Road: a dashed track linking the waypoints in order.
+    let road = "";
+    if (pins.length >= 2) {
+      road = `M ${pins[0].cx},${pins[0].cy + 8}`;
+      for (let i = 1; i < pins.length; i++) {
+        const a = pins[i - 1];
+        const b = pins[i];
+        const mx2 = (a.cx + b.cx) / 2 + (rng() - 0.5) * 50;
+        const my2 = (a.cy + b.cy) / 2 + 22 + (rng() - 0.5) * 30;
+        road += ` Q ${mx2},${my2} ${b.cx},${b.cy + 8}`;
+      }
+    }
+
+    const trees = scatterPoints(rng, 12, pins);
+    const houses = scatterPoints(rng, 5, pins, 90);
+    const hills = scatterPoints(rng, 5, pins, 70);
+
+    return { mountainsWest, mx, mSign, river, bridge, road, trees, houses, hills, shimmers };
+  }, [pins, seedKey]);
+
+  const roofs = ["#C8706E", "#B08060", "#A07858"];
+
+  return (
+    <>
+      {/* ─── Terrain base — same watercolor landmass language ── */}
+      <path
+        d={`
+          M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
+          C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
+          C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
+          C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
+          C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
+        `}
+        fill="url(#terrainBase)"
+        filter="url(#watercolor)"
+        stroke="#A0906E"
+        strokeWidth="1"
+        opacity="0.95"
+      />
+      {/* Highland tint on the mountain side */}
+      <path
+        d={layout.mountainsWest
+          ? `M 140,160 C 160,130 210,95 280,80 C 340,68 380,65 420,64 L 400,200 L 380,320 L 350,400 C 300,455 260,442 220,420 C 190,390 162,358 145,320 C 138,280 130,240 130,200 C 130,200 140,160 140,160 Z`
+          : `M 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200 C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458 C 660,468 640,470 620,472 L 600,350 L 590,250 L 600,160 Z`}
+        fill="url(#highlands)" opacity="0.35"
+      />
+      {/* Soft meadow tint on the far side */}
+      <path
+        d={layout.mountainsWest
+          ? `M 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200 C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458 C 660,468 640,470 620,472 L 600,350 L 590,250 L 600,160 Z`
+          : `M 140,160 C 160,130 210,95 280,80 C 340,68 380,65 420,64 L 400,200 L 380,320 L 350,400 C 300,455 260,442 220,420 C 190,390 162,358 145,320 C 138,280 130,240 130,200 C 130,200 140,160 140,160 Z`}
+        fill="url(#piedmont)" opacity="0.3"
+      />
+      {/* Grass texture */}
+      <path
+        d={`
+          M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
+          C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
+          C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
+          C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
+          C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
+        `}
+        fill="url(#grassPattern)" opacity="0.4"
+      />
+
+      {/* Mountain range in the seeded corner */}
+      <Mountain x={layout.mx} y={195} s={0.9} variant={0} />
+      <Mountain x={layout.mx + 32 * layout.mSign} y={150} s={1.1} variant={1} />
+      <Mountain x={layout.mx + 7 * layout.mSign} y={260} s={0.7} variant={2} />
+      <Mountain x={layout.mx + 47 * layout.mSign} y={130} s={0.55} variant={0} />
+
+      {/* Rolling hills */}
+      {layout.hills.map((h, i) => (
+        <ellipse key={`ghill-${i}`} cx={h.x} cy={h.y + 40}
+          rx={30 + h.r * 18} ry={8 + h.r * 4}
+          fill={["#A4C488", "#B0CC98", "#9CBC80"][i % 3]} opacity="0.35" />
+      ))}
+
+      {/* River + shimmer */}
+      <path
+        d={layout.river}
+        fill="none" stroke="url(#waterGrad)" strokeWidth="4" strokeLinecap="round"
+        opacity="0.8"
+      />
+      {layout.shimmers.map(([sx, sy], i) => (
+        <circle key={`gshimmer-${i}`} cx={sx} cy={sy} r="1.3" fill="white" opacity="0.5">
+          <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
+        </circle>
+      ))}
+      {layout.bridge && <Bridge x={layout.bridge.x} y={layout.bridge.y} s={0.75} />}
+
+      {/* Road linking the waypoints */}
+      {layout.road && (
+        <path
+          d={layout.road}
+          fill="none" stroke="#C4AE8C" strokeWidth="2.5" strokeLinecap="round"
+          opacity="0.5" strokeDasharray="8 4"
+        />
+      )}
+
+      {/* Forests + scattered homesteads */}
+      {layout.trees.map((t, i) =>
+        t.r < 0.45 ? (
+          <PineTree key={`gtree-${i}`} x={t.x} y={t.y} s={0.5 + t.r * 0.5} />
+        ) : (
+          <Tree key={`gtree-${i}`} x={t.x} y={t.y} s={0.5 + t.r * 0.45} shade={i % 4} />
+        ),
+      )}
+      {layout.houses.map((h, i) => (
+        <House key={`ghouse-${i}`} x={h.x} y={h.y} s={0.55 + h.r * 0.2} roofColor={roofs[i % roofs.length]} />
+      ))}
+
+      {/* Clouds */}
+      <Cloud x={150} y={85} s={0.85} driftDur="80s" />
+      <Cloud x={500} y={48} s={1.1} driftDur="100s" />
+      <Cloud x={830} y={95} s={0.75} driftDur="120s" />
+      <Cloud x={390} y={510} s={0.65} driftDur="90s" />
+      <Cloud x={750} y={490} s={0.55} driftDur="110s" />
+    </>
+  );
+}
+
+/* ── Banner copy helpers ─────────────────────────────────────── */
+
+function decisionDayLabel(scen: ScenarioContextValue): string {
+  const raw = scen.scenario.dates?.decision_day;
+  if (!raw) return "";
+  const d = new Date(`${raw}T00:00:00`);
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
 /* ── Main Component ──────────────────────────────────────────── */
@@ -375,32 +821,50 @@ export default function DistrictMap() {
   const navigate = useNavigate();
   const { isOnboarded, profile } = useUserProfile();
   const ws = useWebSocketContext();
+  const scen = useScenario();
   const [hovered, setHovered] = useState<TownId | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => { setLoaded(true); }, []);
 
+  const isNJ11 = scen.isNJ11;
+
+  const pins = useMemo<Pin[]>(() => {
+    if (isNJ11) return NJ11_PINS;
+    return genericPins(
+      scen.scenario.towns.map((t) => ({ id: t.id, tagline: t.tagline })),
+      scen.scenario.id,
+    );
+  }, [isNJ11, scen.scenario]);
+
+  const townIds = useMemo(() => pins.map((p) => p.id), [pins]);
+
   const agents = useMemo(() => Object.values(ws.agents), [ws.agents]);
-  const leaders = useMemo(() => leadingCandidatePerTown(agents), [agents]);
+  const leaders = useMemo(
+    () => leadingOptionPerTown(agents, townIds, scen.undecidedId),
+    [agents, townIds, scen.undecidedId],
+  );
   const townTotals: Record<TownId, number> = useMemo(() => {
-    const out: Record<TownId, number> = { dover: 0, montclair: 0, parsippany: 0, randolph: 0 };
+    const out: Record<TownId, number> = {};
+    for (const t of townIds) out[t] = 0;
     for (const a of agents) out[a.town] = (out[a.town] || 0) + 1;
-    // Fallback to canonical counts when no agents have streamed in yet.
-    if (agents.length === 0) {
+    // Fallback to canonical NJ-11 counts when no agents have streamed in yet.
+    if (agents.length === 0 && isNJ11) {
       out.dover = 6; out.montclair = 7; out.parsippany = 7; out.randolph = 6;
     }
     return out;
-  }, [agents]);
+  }, [agents, townIds, isNJ11]);
   const metPerTown: Record<TownId, number> = useMemo(() => {
-    const out: Record<TownId, number> = { dover: 0, montclair: 0, parsippany: 0, randolph: 0 };
+    const out: Record<TownId, number> = {};
+    for (const t of townIds) out[t] = 0;
     if (!profile?.metAgents) return out;
     // We can't know the town of every met agent without the agent list; intersect
     // with whatever we have. When ws.agents is empty, fall back to 0.
     for (const a of agents) {
-      if (profile.metAgents.includes(a.id)) out[a.town]++;
+      if (profile.metAgents.includes(a.id) && out[a.town] !== undefined) out[a.town]++;
     }
     return out;
-  }, [profile?.metAgents, agents]);
+  }, [profile?.metAgents, agents, townIds]);
 
   const goToTown = (id: TownId) => {
     if (isOnboarded) {
@@ -409,6 +873,9 @@ export default function DistrictMap() {
       navigate(`/onboarding?town=${id}`);
     }
   };
+
+  const totalResidents = agents.length || (isNJ11 ? 26 : 0);
+  const dday = decisionDayLabel(scen);
 
   return (
     <div
@@ -457,7 +924,7 @@ export default function DistrictMap() {
             animationDelay: "150ms",
           }}
         >
-          New Jersey's 11th Congressional District
+          {isNJ11 ? "New Jersey's 11th Congressional District" : scen.title}
         </p>
         <p className="text-base" style={{ color: "var(--text-muted)" }}>
           Click a community to meet your AI neighbors
@@ -552,180 +1019,25 @@ export default function DistrictMap() {
             </g>
           ))}
 
-          {/* ─── Layer 2: District Terrain Base ────────────── */}
-          <path
-            d={`
-              M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
-              C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
-              C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
-              C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
-              C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
-            `}
-            fill="url(#terrainBase)"
-            filter="url(#watercolor)"
-            stroke="#A0906E"
-            strokeWidth="1"
-            opacity="0.95"
-          />
-
-          {/* Highlands tint (western) */}
-          <path
-            d={`
-              M 140,160 C 160,130 210,95 280,80 C 340,68 380,65 420,64
-              L 400,200 L 380,320 L 350,400
-              C 300,455 260,442 220,420 C 190,390 162,358 145,320
-              C 138,280 130,240 130,200 C 130,200 140,160 140,160 Z
-            `}
-            fill="url(#highlands)" opacity="0.35"
-          />
-
-          {/* Piedmont tint (eastern) */}
-          <path
-            d={`
-              M 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
-              C 875,235 880,270 870,310 C 862,345 840,375 810,400
-              C 780,425 740,445 700,458 C 660,468 640,470 620,472
-              L 600,350 L 590,250 L 600,160 Z
-            `}
-            fill="url(#piedmont)" opacity="0.3"
-          />
-
-          {/* Grass texture */}
-          <path
-            d={`
-              M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
-              C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
-              C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
-              C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
-              C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
-            `}
-            fill="url(#grassPattern)" opacity="0.4"
-          />
-
-          {/* ─── Layer 3: Terrain Features ─────────────────── */}
-          {/* Mountains — pushed far west, clear of Dover pin at 250,240 */}
-          <Mountain x={148} y={195} s={0.9} variant={0} />
-          <Mountain x={180} y={150} s={1.1} variant={1} />
-          <Mountain x={155} y={260} s={0.7} variant={2} />
-          <Mountain x={195} y={130} s={0.55} variant={0} />
-
-          {/* Rolling hills — spread across mid-terrain, away from pins */}
-          {[
-            [420, 370, 45, 11, "#A4C488"], [580, 400, 38, 9, "#B0CC98"],
-            [650, 360, 42, 10, "#9CBC80"], [460, 440, 32, 8, "#B0CC98"],
-            [770, 310, 35, 9, "#A4C488"],
-          ].map(([cx, cy, rx, ry, fill], i) => (
-            <ellipse key={`hill-${i}`} cx={cx as number} cy={cy as number}
-              rx={rx as number} ry={ry as number} fill={fill as string} opacity="0.35" />
-          ))}
-
-          {/* Forest clusters — deliberately placed AWAY from pin zones */}
-          {/* Far-west forest (near mountains) */}
-          <Tree x={165} y={320} s={0.85} shade={0} />
-          <PineTree x={178} y={310} s={0.75} />
-          <Tree x={190} y={328} s={0.9} shade={1} />
-          <PineTree x={155} y={335} s={0.65} />
-
-          {/* South-central forest (between Parsippany & Randolph, below both) */}
-          <Tree x={400} y={460} s={0.75} shade={0} />
-          <PineTree x={418} y={455} s={0.85} />
-          <Tree x={435} y={465} s={0.7} shade={1} />
-          <PineTree x={385} y={470} s={0.6} />
-
-          {/* Eastern forest (below Montclair) */}
-          <Tree x={690} y={340} s={0.7} shade={1} />
-          <Tree x={708} y={335} s={0.8} shade={2} />
-          <PineTree x={725} y={345} s={0.65} />
-
-          {/* Northeastern trees */}
-          <Tree x={780} y={180} s={0.6} shade={0} />
-          <PineTree x={800} y={170} s={0.55} />
-
-          {/* Scattered singles — far from pins */}
-          <Tree x={560} y={160} s={0.55} shade={0} />
-          <PineTree x={620} y={430} s={0.55} />
-          <Tree x={530} y={450} s={0.5} shade={1} />
-          <Tree x={310} y={180} s={0.5} shade={2} />
-          <PineTree x={850} y={280} s={0.45} />
-
-          {/* Houses — scattered away from pins */}
-          <House x={370} y={200} s={0.7} roofColor="#C8706E" />
-          <House x={580} y={190} s={0.65} roofColor="#B08060" />
-          <House x={440} y={350} s={0.6} roofColor="#C8706E" />
-          <House x={660} y={280} s={0.6} roofColor="#A07858" />
-          <House x={320} y={340} s={0.55} roofColor="#B08060" />
-
-          {/* ─── Layer 4: Water Features ───────────────────── */}
-          {/* Rockaway River — clear, visible stroke */}
-          <path
-            d="M 170,145 C 185,175 210,210 225,245 C 240,272 252,295 275,325 C 292,348 315,370 345,390"
-            fill="none" stroke="url(#waterGrad)" strokeWidth="4" strokeLinecap="round"
-            opacity="0.8"
-          />
-          {/* River shimmer */}
-          {[[192, 185], [220, 230], [248, 278], [280, 330], [325, 378]].map(([cx, cy], i) => (
-            <circle key={`shimmer-${i}`} cx={cx} cy={cy} r="1.3" fill="white" opacity="0.5">
-              <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
-            </circle>
-          ))}
-
-          {/* Passaic River */}
-          <path
-            d="M 640,175 C 655,210 668,250 676,285 C 684,315 686,345 680,380"
-            fill="none" stroke="url(#waterGrad)" strokeWidth="3.5" strokeLinecap="round"
-            opacity="0.7"
-          />
-
-          <Bridge x={230} y={250} s={0.75} />
-
-          {/* ─── Layer 5: Roads ────────────────────────────── */}
-          <path
-            d="M 155,220 C 250,215 400,230 500,240 C 600,250 700,220 850,215"
-            fill="none" stroke="#C4AE8C" strokeWidth="2.5" strokeLinecap="round"
-            opacity="0.5" strokeDasharray="8 4"
-          />
-          <rect x="490" y="222" width="30" height="13" rx="3" fill="rgba(180,160,130,0.65)" />
-          <text x="505" y="232" textAnchor="middle" fontSize="7.5" fontWeight="700"
-            fill="#6B5B45" fontFamily="Inter, sans-serif">I-80</text>
-
-          <path
-            d="M 300,280 C 400,285 500,290 620,275"
-            fill="none" stroke="#C4AE8C" strokeWidth="1.5" strokeLinecap="round"
-            opacity="0.35" strokeDasharray="5 3"
-          />
-
-          {/* ─── Layer 6: County Boundary ──────────────────── */}
-          <path
-            d="M 590,70 C 585,140 580,220 575,300 C 572,360 570,420 565,475"
-            fill="none" stroke="#A89888" strokeWidth="0.8"
-            strokeDasharray="3 3" opacity="0.45"
-          />
-          <text x="380" y={108} textAnchor="middle" fontSize="10" fontWeight="600"
-            fill="#A0907A" fontFamily="Inter, sans-serif" letterSpacing="0.2em" opacity="0.65">
-            MORRIS COUNTY
-          </text>
-          <text x="720" y={155} textAnchor="middle" fontSize="10" fontWeight="600"
-            fill="#A0907A" fontFamily="Inter, sans-serif" letterSpacing="0.2em" opacity="0.65">
-            ESSEX COUNTY
-          </text>
-
-          {/* ─── Layer 7: Clouds ───────────────────────────── */}
-          <Cloud x={150} y={85} s={0.85} driftDur="80s" />
-          <Cloud x={500} y={48} s={1.1} driftDur="100s" />
-          <Cloud x={830} y={95} s={0.75} driftDur="120s" />
-          <Cloud x={390} y={510} s={0.65} driftDur="90s" />
-          <Cloud x={750} y={490} s={0.55} driftDur="110s" />
+          {/* ─── Layers 2–7: Terrain ───────────────────────── */}
+          {isNJ11 ? (
+            <NJ11Terrain />
+          ) : (
+            <GenericTerrain pins={pins} seedKey={scen.scenario.id} />
+          )}
 
           {/* ─── Layer 8: Town Markers ─────────────────────── */}
-          {PINS.map((pin) => (
+          {pins.map((pin) => (
             <TownMarker
               key={pin.id}
               pin={pin}
+              meta={scen.townMeta(pin.id)}
               isHovered={hovered === pin.id}
               onHover={() => setHovered(pin.id)}
               onLeave={() => setHovered(null)}
               onClick={() => goToTown(pin.id)}
               leader={leaders[pin.id]}
+              leaderColor={leaders[pin.id] ? scen.optionColor(leaders[pin.id]) : null}
               metCount={metPerTown[pin.id]}
               totalCount={townTotals[pin.id]}
             />
@@ -742,14 +1054,19 @@ export default function DistrictMap() {
 
           {/* ─── Title cartouche ───────────────────────────── */}
           <g transform="translate(65, 48)">
-            <rect x="-10" y="-8" width="155" height="40" rx="5" fill="rgba(237,231,218,0.92)"
+            <rect x="-10" y="-8" width={isNJ11 ? 155 : Math.max(155, scen.title.length * 6.8 + 24)} height="40" rx="5" fill="rgba(237,231,218,0.92)"
               stroke="#C4B49A" strokeWidth="0.6" filter="url(#labelShadow)" />
             <text x="0" y="7" fontSize="11" fontWeight="700" fill="#5A4A38"
               fontFamily="var(--font-display)" letterSpacing="0.5">
-              NJ-11 District
+              {isNJ11 ? "NJ-11 District" : scen.title}
             </text>
             <text x="0" y="22" fontSize="7.5" fill="#A89078" fontFamily="Inter, sans-serif" letterSpacing="0.3">
-              26 AI Residents · 4 Towns
+              {isNJ11
+                ? "26 AI Residents · 4 Towns"
+                : [
+                    totalResidents ? `${totalResidents} AI Residents` : "AI Residents",
+                    `${pins.length} Town${pins.length === 1 ? "" : "s"}`,
+                  ].join(" · ")}
             </text>
           </g>
 
@@ -786,7 +1103,7 @@ export default function DistrictMap() {
         </div>
       </div>
 
-      {/* ── Election Info Banner ──────────────────────────────── */}
+      {/* ── Decision Info Banner ──────────────────────────────── */}
       <div
         className="mt-6 max-w-2xl w-full rounded-xl px-6 py-4 text-center relative overflow-hidden"
         style={{
@@ -815,21 +1132,27 @@ export default function DistrictMap() {
           fontSize: "14px",
           fontWeight: 600,
         }}>
-          NJ-11 Special Election — April 16, 2026
+          {isNJ11
+            ? "NJ-11 Special Election — April 16, 2026"
+            : dday
+              ? `${scen.title} — ${dday}`
+              : scen.title}
         </p>
         <p className="mt-1" style={{
           fontFamily: "var(--font-body)",
           color: "var(--text-secondary)",
           fontSize: "12px",
         }}>
-          Early voting happening now (April 6 – 14). 26 AI residents across 4 towns are deliberating.
+          {isNJ11
+            ? "Early voting happening now (April 6 – 14). 26 AI residents across 4 towns are deliberating."
+            : scen.scenario.dates?.prose || scen.question}
         </p>
       </div>
 
       {/* ── Town Cards ───────────────────────────────────────── */}
       <div className="mt-6 district-town-cards max-w-3xl w-full">
-        {(["montclair", "parsippany", "dover", "randolph"] as TownId[]).map((id, idx) => {
-          const meta = TOWN_META[id];
+        {(isNJ11 ? (["montclair", "parsippany", "dover", "randolph"] as TownId[]) : townIds).map((id, idx) => {
+          const meta = scen.townMeta(id);
           const isActive = hovered === id;
           return (
             <button
@@ -870,21 +1193,25 @@ export default function DistrictMap() {
                   {meta.name}
                 </span>
               </div>
-              <p style={{
-                fontFamily: "var(--font-body)",
-                fontSize: "12px",
-                fontStyle: "italic",
-                color: "var(--text-muted)",
-              }}>
-                {meta.tagline}
-              </p>
-              <p className="mt-1" style={{
-                fontSize: "12px",
-                fontWeight: 600,
-                color: meta.color,
-              }}>
-                {meta.population}
-              </p>
+              {meta.tagline && (
+                <p style={{
+                  fontFamily: "var(--font-body)",
+                  fontSize: "12px",
+                  fontStyle: "italic",
+                  color: "var(--text-muted)",
+                }}>
+                  {meta.tagline}
+                </p>
+              )}
+              {meta.population && (
+                <p className="mt-1" style={{
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  color: meta.color,
+                }}>
+                  {meta.population}
+                </p>
+              )}
             </button>
           );
         })}

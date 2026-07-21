@@ -14,7 +14,7 @@ import MiniMap from "./MiniMap";
 import Tutorial from "./Tutorial";
 import DebugOverlay from "./DebugOverlay";
 import type { AgentState, TownId, SimulationEvent, Opinion, ChatMessage, Relationship } from "../types/messages";
-import { TOWN_META } from "../types/messages";
+import { useScenario } from "../hooks/useScenario";
 
 interface TownViewProps {
   ws: {
@@ -72,6 +72,12 @@ const DEMO_AGENTS: Record<TownId, AgentState[]> = {
 
 export { DEMO_AGENTS };
 
+/* Muted avatar tones for roster-fetched agents (non-NJ-11 scenarios). */
+const ROSTER_COLORS = [
+  "#B07040", "#6098C0", "#508858", "#A06888", "#D0A050",
+  "#707888", "#C06060", "#60A090", "#8070A0", "#88A050",
+];
+
 /* ── Keyboard Hint Overlay ────────────────────────────────── */
 
 function KeyboardHint({ onDismiss }: { onDismiss: () => void }) {
@@ -114,8 +120,9 @@ function KeyboardHint({ onDismiss }: { onDismiss: () => void }) {
 
 export default function TownView({ ws }: TownViewProps) {
   const { townId } = useParams<{ townId: string }>();
-  const town = (townId as TownId) || "dover";
-  const meta = TOWN_META[town];
+  const scen = useScenario();
+  const town = (townId as TownId) || scen.scenario.towns[0]?.id || "dover";
+  const meta = scen.townMeta(town);
   const { profile, isOnboarded, markAgentMet, markAgentPersuaded } = useUserProfile();
   const { data: townData } = useTownData();
   const { trustFor } = useRelationships(profile?.playerId, {
@@ -124,6 +131,9 @@ export default function TownView({ ws }: TownViewProps) {
 
   const gameContainerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
+  // Latest scenario helpers for Phaser callbacks registered once at init.
+  const scenRef = useRef(scen);
+  useEffect(() => { scenRef.current = scen; }, [scen]);
   const sceneRef = useRef<TownScene | null>(null);
   const playerSpawnedRef = useRef(false);
 
@@ -150,11 +160,47 @@ export default function TownView({ ws }: TownViewProps) {
   } | null>(null);
   const lastChatTranscriptRef = useRef<Record<string, ChatMessage[]>>({});
 
-  // Get agents for this town
+  // Roster fallback for non-NJ-11 scenarios: before a simulation streams
+  // agent state over the WS, resolve the town's real roster from the backend
+  // so the sidebar isn't empty. NJ-11 keeps its offline DEMO_AGENTS furniture.
+  const [rosterAgents, setRosterAgents] = useState<AgentState[]>([]);
+  useEffect(() => {
+    setRosterAgents([]);
+    if (scen.isNJ11) return;
+    const ctrl = new AbortController();
+    fetch(`/api/simulation/agents?town=${encodeURIComponent(town)}`, { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const list = d?.agents?.[town];
+        if (!Array.isArray(list)) return;
+        setRosterAgents(list.map((a: any, i: number): AgentState => ({
+          id: a.agent_id,
+          name: a.name,
+          town: town as TownId,
+          occupation: a.occupation || "",
+          opinion: {
+            candidate: a.initial_lean || scen.undecidedId,
+            confidence: 35,
+            reasoning: "",
+            top_issues: Array.isArray(a.top_concerns) ? a.top_concerns.slice(0, 2) : [],
+          },
+          location: "",
+          current_activity: "Going about the day",
+          initials: String(a.name || "?").split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2),
+          color: ROSTER_COLORS[i % ROSTER_COLORS.length],
+        })));
+      })
+      .catch(() => { /* offline — sidebar stays empty, canvas still renders */ });
+    return () => ctrl.abort();
+  }, [town, scen.isNJ11, scen.undecidedId]);
+
+  // Get agents for this town. The DEMO_AGENTS roster is NJ-11-only offline
+  // furniture — never leak it into other scenarios' towns.
   const townAgents: AgentState[] = (() => {
     const fromWs = Object.values(ws.agents).filter((a) => a.town === town);
     if (fromWs.length > 0) return fromWs;
-    return DEMO_AGENTS[town] || [];
+    if (scen.isNJ11) return DEMO_AGENTS[town] || [];
+    return rosterAgents;
   })();
 
   const selectedAgent = townAgents.find((a) => a.id === selectedAgentId) || null;
@@ -165,7 +211,7 @@ export default function TownView({ ws }: TownViewProps) {
     name: profile.name,
     town: profile.town as TownId,
     occupation: "You",
-    opinion: { candidate: "undecided", confidence: 0, reasoning: "", top_issues: profile.topConcerns.length ? [profile.topConcerns[0]] : [] },
+    opinion: { candidate: scen.undecidedId, confidence: 0, reasoning: "", top_issues: profile.topConcerns.length ? [profile.topConcerns[0]] : [] },
     location: "Exploring",
     current_activity: "Walking around",
     initials: profile.initials,
@@ -216,6 +262,14 @@ export default function TownView({ ws }: TownViewProps) {
           // Could show a UI indicator — for now proximity is handled in-game
         });
 
+        // Non-NJ-11 scenarios: seed option colors before any agents render.
+        if (!scenRef.current.isNJ11) {
+          const colors: Record<string, string> = {};
+          for (const id of scenRef.current.optionIds) colors[id] = scenRef.current.optionColor(id);
+          colors[scenRef.current.undecidedId] = scenRef.current.optionColor(scenRef.current.undecidedId);
+          try { activeScene.setOptionColors(colors); } catch { /* ignore */ }
+        }
+
         // Add demo agents
         for (const agent of townAgents) {
           activeScene.addAgent(agent);
@@ -238,6 +292,20 @@ export default function TownView({ ws }: TownViewProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [town]);
+
+  /* ── Feed scenario option colors to Phaser (non-NJ-11) ────
+   * NJ-11 keeps its hand-tuned in-scene palette; other scenarios drive the
+   * opinion ring colors from their /api/scenario option colors. */
+
+  useEffect(() => {
+    if (scen.isNJ11) return;
+    const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
+    if (!scene) return;
+    const colors: Record<string, string> = {};
+    for (const id of scen.optionIds) colors[id] = scen.optionColor(id);
+    colors[scen.undecidedId] = scen.optionColor(scen.undecidedId);
+    try { scene.setOptionColors(colors); } catch { /* ignore */ }
+  }, [scen, town]);
 
   /* ── Spawn player when profile becomes available ────────── */
 
@@ -586,7 +654,9 @@ export default function TownView({ ws }: TownViewProps) {
               {meta.name}
             </h2>
             <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-muted)" }}>
-              {meta.tagline} | {meta.county} County | Pop. {meta.population}
+              {[meta.tagline, meta.county, meta.population ? `Pop. ${meta.population}` : ""]
+                .filter(Boolean)
+                .join(" | ")}
             </p>
           </div>
           {ws.simulationRunning && (
@@ -594,7 +664,7 @@ export default function TownView({ ws }: TownViewProps) {
               className="ml-auto px-3 py-1 rounded-full text-xs font-medium"
               style={{ background: "rgba(74,155,92,0.1)", color: "#4A9B5C" }}
             >
-              Round {ws.currentRound} / {ws.totalRounds}
+              Round {ws.currentRound} / {ws.totalRounds || scen.totalRounds}
             </div>
           )}
         </div>

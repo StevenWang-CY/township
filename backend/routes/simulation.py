@@ -1,14 +1,21 @@
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..core.storage import load_json, runs_root
 from ..core.wire import district_summary_to_wire, opinion_to_wire
+from .runs import RUN_ID_RE, resolve_run_dir
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/simulation", tags=["simulation"])
+
+# township/ — anchored on this file (backend/routes/simulation.py → repo root)
+# so relative cache paths resolve identically from any working directory.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class StartRequest(BaseModel):
@@ -23,8 +30,47 @@ class StartRequest(BaseModel):
 
 
 class ReplayRequest(BaseModel):
-    cache_path: str = "data/simulation_cache.json"
+    """Pick a replay source: explicit cache_path > run_id > the scenario demo.
+
+    `cache_path` is resolved against the project root and must stay inside it.
+    """
+    cache_path: str | None = None
+    run_id: str | None = None
     speed: float = 1.0
+
+
+def _demo_cache_path(scenario) -> Path:
+    """The active scenario's shipped demo replay."""
+    return scenario.scenario_dir / "demo" / "simulation_cache.json"
+
+
+def _resolve_replay_path(req: ReplayRequest, scenario) -> Path | JSONResponse:
+    """Resolve the replay source, anchored to PROJECT_ROOT (no traversal)."""
+    if req.cache_path:
+        candidate = Path(req.cache_path)
+        if not candidate.is_absolute():
+            candidate = PROJECT_ROOT / candidate
+        candidate = candidate.resolve()
+        if not candidate.is_relative_to(PROJECT_ROOT.resolve()):
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": "cache_path must stay inside the project directory",
+                },
+                status_code=400,
+            )
+        return candidate
+
+    if req.run_id:
+        run_dir = resolve_run_dir(req.run_id)
+        if run_dir is None:
+            return JSONResponse(
+                {"status": "error", "message": f"Unknown run: {req.run_id}"},
+                status_code=404,
+            )
+        return run_dir / "events.json"
+
+    return _demo_cache_path(scenario)
 
 
 @router.post("/start")
@@ -163,32 +209,102 @@ async def get_agent(agent_id: str, request: Request):
 
 @router.post("/replay")
 async def replay_simulation(req: ReplayRequest, request: Request, background_tasks: BackgroundTasks):
-    """Replay cached simulation through WebSocket."""
-    import os
+    """Replay a cached simulation through the WebSocket.
 
+    Source resolution: explicit `cache_path` (project-root anchored) wins,
+    then `run_id` (a persisted runs/ directory), then the active scenario's
+    shipped demo cache.
+    """
     from ..simulation.replay import load_cache_summary, replay
 
     event_bus = request.app.state.event_bus
 
-    # Resolve path relative to project root
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    cache_path = os.path.join(os.path.dirname(project_root), req.cache_path)
+    resolved = _resolve_replay_path(req, request.app.state.scenario)
+    if isinstance(resolved, JSONResponse):
+        return resolved
 
-    # Check if cache exists
-    summary = await load_cache_summary(cache_path)
+    summary = await load_cache_summary(str(resolved))
     if "error" in summary:
         return JSONResponse(
             {"status": "error", "message": summary["error"]},
             status_code=404,
         )
 
-    background_tasks.add_task(replay, event_bus, cache_path, req.speed)
+    background_tasks.add_task(replay, event_bus, str(resolved), req.speed)
 
     return {
         "status": "replaying",
         "total_events": summary["total_events"],
         "speed": req.speed,
     }
+
+
+@router.get("/replay/available")
+async def replay_available(request: Request):
+    """List every replay source this deployment can serve right now."""
+    scenario = request.app.state.scenario
+    sources: list[dict] = []
+
+    demo = _demo_cache_path(scenario)
+    if demo.is_file():
+        sources.append({
+            "kind": "demo",
+            "scenario_id": scenario.id,
+            "cache_path": str(demo.relative_to(PROJECT_ROOT))
+            if demo.is_relative_to(PROJECT_ROOT)
+            else str(demo),
+        })
+
+    root = runs_root()
+    if root.is_dir():
+        for run_dir in sorted(root.iterdir(), reverse=True):
+            if not run_dir.is_dir() or not RUN_ID_RE.match(run_dir.name):
+                continue
+            if not (run_dir / "events.json").is_file():
+                continue
+            run_summary = load_json(run_dir / "summary.json", {}) or {}
+            sources.append({
+                "kind": "run",
+                "run_id": run_dir.name,
+                "scenario_id": run_summary.get("scenario_id"),
+                "ended_at": run_summary.get("ended_at"),
+                "events": run_summary.get("counts", {}).get("events"),
+            })
+
+    return {"sources": sources}
+
+
+@router.get("/recap")
+async def latest_recap(request: Request):
+    """The most recent narrative recap — in-memory first, then newest run."""
+    from ..simulation.recap import recap_headline
+
+    orchestrator = request.app.state.orchestrator
+    if orchestrator.last_recap:
+        return {
+            "recap_markdown": orchestrator.last_recap,
+            "headline": recap_headline(orchestrator.last_recap),
+            "run_id": orchestrator.last_run_dir.name if orchestrator.last_run_dir else None,
+        }
+
+    root = runs_root()
+    if root.is_dir():
+        for run_dir in sorted(root.iterdir(), reverse=True):
+            if not run_dir.is_dir() or not RUN_ID_RE.match(run_dir.name):
+                continue
+            recap_path = run_dir / "recap.md"
+            if recap_path.is_file():
+                recap = recap_path.read_text(encoding="utf-8")
+                return {
+                    "recap_markdown": recap,
+                    "headline": recap_headline(recap),
+                    "run_id": run_dir.name,
+                }
+
+    return JSONResponse(
+        {"error": "no_recap", "message": "No simulation recap exists yet."},
+        status_code=404,
+    )
 
 
 @router.get("/agents")
