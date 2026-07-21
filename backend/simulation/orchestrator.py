@@ -1,13 +1,13 @@
 import asyncio
-import json
 import logging
-import os
-import tempfile
+import re
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..core.event_bus import EventBus
 from ..core.scenario import Scenario, validate_stance
+from ..core.storage import runs_root, save_json_atomic
 from ..core.types import (
     AgentState,
     CivicAgentState,
@@ -22,6 +22,7 @@ from ..core.types import (
     WeatherChangedEvent,
 )
 from ..core.wire import agent_state_to_wire, district_summary_to_wire
+from ..simulation.recap import generate_recap
 from ..simulation.round_manager import RoundManager
 from ..tools.schemas import build_tools
 
@@ -58,6 +59,11 @@ class SimulationOrchestrator:
         self.is_running = False
         self.current_round = 0
         self.total_rounds = scenario.total_rounds
+
+        # Set by _finalize_run() after each completed simulation.
+        self.last_recap: str | None = None
+        self.last_run_dir: Path | None = None
+        self._run_started_at: datetime | None = None
 
         # Initialize agent states
         self._init_agent_states()
@@ -129,6 +135,7 @@ class SimulationOrchestrator:
         self.is_running = True
         self.current_round = 0
         self.total_rounds = num_rounds
+        self._run_started_at = datetime.now(UTC)
         logger.info(f"Starting full simulation: {num_rounds} rounds across {len(self.agent_states)} towns")
 
         try:
@@ -246,6 +253,10 @@ class SimulationOrchestrator:
             # Save cache
             await self.save_cache()
 
+            # Persist the run + narrative recap. Best-effort by contract:
+            # a broken disk or recap bug must never fail a finished sim.
+            await self._finalize_run()
+
             return self.district_summary
 
         finally:
@@ -274,6 +285,7 @@ class SimulationOrchestrator:
         num_rounds = min(num_rounds, self.scenario.total_rounds)
         self.is_running = True
         self.total_rounds = num_rounds
+        self._run_started_at = datetime.now(UTC)
         try:
             # Announce the run with this town's roster (mirrors the full-run
             # path) so the frontend receives agent colors/locations over WS.
@@ -313,6 +325,8 @@ class SimulationOrchestrator:
                 ))
             except Exception as e:  # pragma: no cover — defensive
                 logger.warning(f"SimulationEndedEvent publish failed: {e}")
+
+            await self._finalize_run()
 
             return result
         finally:
@@ -397,21 +411,24 @@ class SimulationOrchestrator:
             failed_agents=total_failed_agents,
         )
 
+    def _serialized_events(self) -> list[dict]:
+        """The event log as plain dicts (replay-cache / run-persistence shape)."""
+        serialized = []
+        for event in self.event_bus.get_event_log():
+            if hasattr(event, "model_dump"):
+                serialized.append(event.model_dump())
+            else:
+                serialized.append({"type": "unknown", "data": str(event)})
+        return serialized
+
     async def save_cache(self, filepath: str | None = None):
         """Save event log for replay.
 
         Defaults to <project_root>/data/simulation_cache.json so the cache lands
         in the same place regardless of the process working directory. Writes
-        atomically: serialize to a temp file in the same dir, then os.replace.
+        atomically via storage.save_json_atomic (temp file + os.replace).
         """
-        event_log = self.event_bus.get_event_log()
-        serialized = []
-        for event in event_log:
-            if hasattr(event, "model_dump"):
-                serialized.append(event.model_dump())
-            else:
-                serialized.append({"type": "unknown", "data": str(event)})
-
+        serialized = self._serialized_events()
         cache_data = {
             "events": serialized,
             "district_summary": self.district_summary.model_dump() if self.district_summary else None,
@@ -419,25 +436,84 @@ class SimulationOrchestrator:
         }
 
         cache_path = Path(filepath) if filepath else DEFAULT_CACHE_PATH
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Atomic write: temp file in the same directory, then os.replace.
-        fd, tmp_name = tempfile.mkstemp(
-            dir=str(cache_path.parent), prefix=".sim_cache_", suffix=".tmp"
-        )
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(cache_data, f, indent=2, default=str)
-            os.replace(tmp_name, cache_path)
-        except Exception:
-            # Clean up the temp file on failure so we don't leave debris.
-            try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
-            raise
-
+        save_json_atomic(cache_path, cache_data)
         logger.info(f"Saved simulation cache to {cache_path} ({len(serialized)} events)")
+
+    # ── Run persistence + narrative recap ─────────────────────────
+
+    async def _finalize_run(self) -> None:
+        """Generate the narrative recap and persist the run under runs/.
+
+        Strictly best-effort: any failure here is logged and swallowed so a
+        finished simulation is never failed by its own paperwork.
+        """
+        recap: str | None = None
+        try:
+            if self.district_summary is not None:
+                recap = await generate_recap(
+                    self.scenario,
+                    self.district_summary,
+                    self.event_bus.get_event_log(),
+                    self.client,
+                )
+                self.last_recap = recap
+        except Exception as e:
+            logger.error(f"Recap generation failed: {e}")
+
+        try:
+            self.last_run_dir = self._persist_run(recap)
+            logger.info(f"Persisted run to {self.last_run_dir}")
+        except Exception as e:
+            logger.error(f"Run persistence failed: {e}")
+
+    def _persist_run(self, recap: str | None) -> Path:
+        """Write runs/<YYYYMMDD-HHMMSS>-<scenario-id>/{events,summary,recap}."""
+        started = self._run_started_at or datetime.now(UTC)
+        ended = datetime.now(UTC)
+        slug = re.sub(r"[^a-z0-9-]+", "-", self.scenario.id.lower()).strip("-") or "scenario"
+        run_id = f"{started.strftime('%Y%m%d-%H%M%S')}-{slug}"
+
+        run_dir = runs_root() / run_id
+        suffix = 2
+        while run_dir.exists():  # two runs in the same second (tests, mock)
+            run_dir = runs_root() / f"{run_id}-{suffix}"
+            suffix += 1
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        serialized = self._serialized_events()
+        # events.json shares the replay-cache shape ({"events": [...]}) so a
+        # run can be replayed or dropped into the demo player unchanged.
+        save_json_atomic(run_dir / "events.json", {"events": serialized}, minify=True)
+
+        district_wire = (
+            district_summary_to_wire(self.district_summary, self.scenario)
+            if self.district_summary
+            else None
+        )
+        summary = {
+            "run_id": run_dir.name,
+            "scenario_id": self.scenario.id,
+            "scenario_title": self.scenario.title,
+            "started_at": started.isoformat(),
+            "ended_at": ended.isoformat(),
+            "district_summary": district_wire,
+            "usage": self.client.get_usage_report(),
+            "counts": {
+                "events": len(serialized),
+                "towns": len(self.town_summaries),
+                "agents": self.district_summary.total_agents if self.district_summary else 0,
+                "conversations": (
+                    self.district_summary.total_conversations if self.district_summary else 0
+                ),
+            },
+            "recap_markdown": recap,
+        }
+        save_json_atomic(run_dir / "summary.json", summary)
+
+        if recap:
+            (run_dir / "recap.md").write_text(recap, encoding="utf-8")
+
+        return run_dir
 
     async def inject_god_view(self, description: str) -> list[NewsReaction]:
         """Inject a variable into all agents and collect reactions."""

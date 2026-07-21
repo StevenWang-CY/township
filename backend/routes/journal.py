@@ -1,13 +1,16 @@
 """
 Player journal API — keeps a per-user log of every conversation with every
-agent. Stored in-memory for the demo (no DB). Wire-format matches the Journal
-panel on the frontend (§5.7 of the implementation plan).
+agent. In-memory with debounced file persistence (data/state/journal.json).
+Wire-format matches the Journal panel on the frontend (§5.7 of the
+implementation plan).
 """
 import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
+
+from ..core.storage import STATE_DIR, DebouncedSaver, load_json
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +19,23 @@ router = APIRouter(prefix="/api/journal", tags=["journal"])
 
 # In-memory store: user_id -> list of journal entries (most recent last)
 _JOURNAL: dict[str, list[dict]] = {}
+
+_JOURNAL_PATH = STATE_DIR / "journal.json"
+_journal_saver = DebouncedSaver(_JOURNAL_PATH, lambda: _JOURNAL)
+
+
+def load_journal_state() -> None:
+    """Hydrate the in-memory journal from disk (app startup)."""
+    saved = load_json(_JOURNAL_PATH, {})
+    if isinstance(saved, dict) and saved:
+        _JOURNAL.clear()
+        _JOURNAL.update(saved)
+        logger.info(f"Loaded journals for {len(_JOURNAL)} user(s) from {_JOURNAL_PATH}")
+
+
+async def flush_journal_state() -> None:
+    """Persist any pending journal changes (app shutdown)."""
+    await _journal_saver.aflush()
 
 
 class JournalMessage(BaseModel):
@@ -66,6 +86,7 @@ async def add_journal_entry(req: JournalEntryRequest, request: Request):
     }
     entries = _JOURNAL.setdefault(req.user_id, [])
     entries.append(entry)
+    _journal_saver.mark_dirty()
     return {"status": "ok", "total_entries": len(entries)}
 
 
@@ -83,4 +104,6 @@ async def clear_journal(user_id: str):
     """Clear all journal entries for a user (dev convenience)."""
     cleared = len(_JOURNAL.get(user_id, []))
     _JOURNAL[user_id] = []
+    if cleared:
+        _journal_saver.mark_dirty()
     return {"status": "ok", "cleared": cleared}

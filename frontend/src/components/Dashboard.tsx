@@ -7,7 +7,7 @@ import { useUserProfile } from "../context/UserProfileContext";
 import { useRelationships } from "../hooks/useRelationships";
 import { useSimulation } from "../hooks/useSimulation";
 import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, OpinionChangedEvent, Relationship, NewsReaction } from "../types/messages";
-import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
+import { useScenario } from "../hooks/useScenario";
 
 interface DashboardProps {
   ws: {
@@ -25,6 +25,8 @@ interface DashboardProps {
 
 export default function Dashboard({ ws }: DashboardProps) {
   const navigate = useNavigate();
+  const scen = useScenario();
+  const { townMeta, optionColor, optionLabel, stanceIds, undecidedId } = scen;
   const [filter, setFilter] = useState<"all" | TownId | LeanId>("all");
   const [results, setResults] = useState<DistrictSummary | null>(null);
   const { profile } = useUserProfile();
@@ -77,54 +79,66 @@ export default function Dashboard({ ws }: DashboardProps) {
 
   const allAgents = Object.values(ws.agents);
   const hasLiveAgents = allAgents.length > 0;
-  const towns: TownId[] = ["montclair", "parsippany", "dover", "randolph"];
+  // Scenario town roster, plus any stray towns present in the agent stream.
+  const towns: TownId[] = useMemo(() => {
+    const roster = scen.scenario.towns.map((t) => t.id);
+    for (const a of allAgents) {
+      if (a.town && !roster.includes(a.town)) roster.push(a.town);
+    }
+    return roster;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scen.scenario, allAgents.length]);
+
+  const emptyOpinions = useCallback((): Record<LeanId, number> => {
+    const out: Record<LeanId, number> = {};
+    for (const k of stanceIds) out[k] = 0;
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stanceIds.join("|")]);
 
   // Compute opinions per town — all-zero until a simulation supplies agents.
   const townOpinions = useMemo(() => {
-    const result: Record<TownId, Record<LeanId, number>> = {
-      dover: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
-      montclair: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
-      parsippany: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
-      randolph: { mejia: 0, hathaway: 0, bond: 0, undecided: 0 },
-    };
+    const result: Record<TownId, Record<LeanId, number>> = {};
+    for (const t of towns) result[t] = emptyOpinions();
     for (const a of allAgents) {
-      const lean = (a.opinion?.candidate as LeanId) || "undecided";
-      if (result[a.town]) result[a.town][lean]++;
+      const lean = (a.opinion?.candidate as LeanId) || undecidedId;
+      if (result[a.town]) result[a.town][lean] = (result[a.town][lean] || 0) + 1;
     }
     return result;
-  }, [allAgents]);
+  }, [allAgents, towns, emptyOpinions, undecidedId]);
 
   const overallOpinions = useMemo(() => {
-    const total: Record<LeanId, number> = { mejia: 0, hathaway: 0, bond: 0, undecided: 0 };
+    const total = emptyOpinions();
     for (const t of towns) {
-      for (const k of Object.keys(total) as LeanId[]) {
-        total[k] += townOpinions[t][k];
+      for (const k of Object.keys(townOpinions[t] || {})) {
+        total[k] = (total[k] || 0) + townOpinions[t][k];
       }
     }
     return total;
-  }, [townOpinions]);
+  }, [townOpinions, towns, emptyOpinions]);
 
   // Filtered agents
   const filteredAgents = useMemo(() => {
     if (allAgents.length === 0) return [];
     if (filter === "all") return allAgents;
-    if (["dover", "montclair", "parsippany", "randolph"].includes(filter)) {
+    if (towns.includes(filter)) {
       return allAgents.filter((a) => a.town === filter);
     }
-    return allAgents.filter((a) => (a.opinion?.candidate || "undecided") === filter);
-  }, [allAgents, filter]);
+    return allAgents.filter((a) => (a.opinion?.candidate || undecidedId) === filter);
+  }, [allAgents, filter, towns, undecidedId]);
 
-  const consensusZones = results?.consensus_zones || [
+  // The canned consensus / fault-line prose is NJ-11 offline furniture only.
+  const consensusZones = results?.consensus_zones || (scen.isNJ11 ? [
     "Gateway Tunnel is critical infrastructure",
     "Property taxes are too high across the district",
     "Healthcare affordability affects all demographics",
-  ];
+  ] : []);
 
-  const faultLines = results?.fault_lines || [
+  const faultLines = results?.fault_lines || (scen.isNJ11 ? [
     "Immigration: Dover fears ICE; Randolph wants enforcement",
     "Taxes: Randolph wants cuts; Montclair wants progressive revenue",
     "Israel/Gaza: Deep divide between progressive and conservative blocs",
-  ];
+  ] : []);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-6" style={{ background: "var(--bg-cream)" }}>
@@ -151,17 +165,19 @@ export default function Dashboard({ ws }: DashboardProps) {
           <rect x="64" y="1.5" width="7" height="7" rx="1" transform="rotate(45 67.5 5)" fill="var(--gold-accent)" opacity="0.45" />
         </svg>
         <p className="text-sm" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
-          Cross-town comparison of NJ-11 agent deliberation
+          {scen.isNJ11
+            ? "Cross-town comparison of NJ-11 agent deliberation"
+            : `Cross-town comparison — ${scen.title}`}
           {ws.simulationRunning && ` | Round ${ws.currentRound}`}
         </p>
       </div>
 
       {/* Scoreboard banner */}
       <div className="dashboard-scoreboard">
-        <PlayerHUD compact />
+        <PlayerHUD compact totalAgents={allAgents.length || undefined} />
         <div className="dashboard-scoreboard-towns">
-          {(["dover", "montclair", "parsippany", "randolph"] as TownId[]).map((t) => {
-            const meta = TOWN_META[t];
+          {towns.map((t) => {
+            const meta = townMeta(t);
             const townAgentIds = Object.values(ws.agents).filter((a) => a.town === t).map((a) => a.id);
             const metInTown = townAgentIds.filter((id) => profile?.metAgents?.includes(id)).length;
             const persuadedInTown = townAgentIds.filter((id) => profile?.persuadedAgents?.includes(id)).length;
@@ -196,14 +212,14 @@ export default function Dashboard({ ws }: DashboardProps) {
             District-Wide Sentiment {hasLiveAgents ? `(${allAgents.length} agents)` : ""}
           </h3>
           {hasLiveAgents ? (
-            <div className="flex gap-6 mb-3">
-              {(["mejia", "hathaway", "bond", "undecided"] as LeanId[]).map((k) => (
+            <div className="flex gap-6 mb-3 flex-wrap">
+              {stanceIds.map((k) => (
                 <div key={k} className="text-center">
-                  <div className="text-2xl font-bold" style={{ color: CANDIDATE_COLORS[k] }}>
-                    {overallOpinions[k]}
+                  <div className="text-2xl font-bold" style={{ color: optionColor(k) }}>
+                    {overallOpinions[k] || 0}
                   </div>
-                  <div className="text-xs capitalize" style={{ color: "var(--township-ink-muted)" }}>
-                    {k}
+                  <div className="text-xs" style={{ color: "var(--township-ink-muted)" }}>
+                    {optionLabel(k)}
                   </div>
                 </div>
               ))}
@@ -229,10 +245,10 @@ export default function Dashboard({ ws }: DashboardProps) {
                 cursor: ws.simulationRunning ? "default" : "pointer",
                 boxShadow: ws.simulationRunning ? "none" : "0 2px 8px var(--gold-glow)",
               }}
-              title={ws.simulationRunning ? "Simulation is running" : "Start a fresh 5-round simulation"}
+              title={ws.simulationRunning ? "Simulation is running" : `Start a fresh ${scen.totalRounds}-round simulation`}
             >
               {ws.simulationRunning
-                ? `Running… Round ${ws.currentRound}/${ws.totalRounds || 5}`
+                ? `Running… Round ${ws.currentRound}/${ws.totalRounds || scen.totalRounds}`
                 : simStartLoading
                   ? "Starting…"
                   : "Start Simulation"}
@@ -264,7 +280,7 @@ export default function Dashboard({ ws }: DashboardProps) {
       {/* Town columns */}
       <div className="dashboard-town-grid mb-8">
         {towns.map((t) => {
-          const meta = TOWN_META[t];
+          const meta = townMeta(t);
           const issues: string[] =
             ws.townSummaries[t]?.top_issues ||
             results?.town_summaries?.find((s: any) => s.town === t)?.top_issues ||
@@ -344,11 +360,17 @@ export default function Dashboard({ ws }: DashboardProps) {
             </svg>
             Consensus Zones
           </h3>
-          {consensusZones.map((item, i) => (
-            <p key={i} className="text-sm mb-1.5" style={{ color: "var(--township-ink)" }}>
-              {item}
+          {consensusZones.length > 0 ? (
+            consensusZones.map((item, i) => (
+              <p key={i} className="text-sm mb-1.5" style={{ color: "var(--township-ink)" }}>
+                {item}
+              </p>
+            ))
+          ) : (
+            <p className="text-sm italic" style={{ color: "var(--township-ink-muted)" }}>
+              Run a simulation to surface points of agreement.
             </p>
-          ))}
+          )}
         </div>
 
         {/* Fault Lines */}
@@ -366,11 +388,17 @@ export default function Dashboard({ ws }: DashboardProps) {
             </svg>
             Fault Lines
           </h3>
-          {faultLines.map((item, i) => (
-            <p key={i} className="text-sm mb-1.5" style={{ color: "var(--township-ink)" }}>
-              {item}
+          {faultLines.length > 0 ? (
+            faultLines.map((item, i) => (
+              <p key={i} className="text-sm mb-1.5" style={{ color: "var(--township-ink)" }}>
+                {item}
+              </p>
+            ))
+          ) : (
+            <p className="text-sm italic" style={{ color: "var(--township-ink-muted)" }}>
+              Run a simulation to surface disagreements.
             </p>
-          ))}
+          )}
         </div>
       </div>
 
@@ -386,22 +414,22 @@ export default function Dashboard({ ws }: DashboardProps) {
             <h3 className="dashboard-timeline-title">Opinion Timeline</h3>
             <ol className="dashboard-timeline-list">
               {shifts.map((evt, i) => {
-                const oldC = (evt.old_opinion?.candidate as LeanId) ?? "undecided";
-                const newC = (evt.new_opinion?.candidate as LeanId) ?? "undecided";
+                const oldC = (evt.old_opinion?.candidate as LeanId) ?? undecidedId;
+                const newC = (evt.new_opinion?.candidate as LeanId) ?? undecidedId;
                 return (
                   <li key={i} className="dashboard-timeline-row">
                     <span
                       className="dashboard-timeline-dot"
-                      style={{ background: CANDIDATE_COLORS[newC] }}
+                      style={{ background: optionColor(newC) }}
                     />
                     <div className="dashboard-timeline-content">
                       <strong>{evt.agent_name}</strong>
                       <span>
-                        <span style={{ color: CANDIDATE_COLORS[oldC] }}>{CANDIDATE_NAMES[oldC]}</span>
+                        <span style={{ color: optionColor(oldC) }}>{optionLabel(oldC)}</span>
                         {" → "}
-                        <span style={{ color: CANDIDATE_COLORS[newC], fontWeight: 600 }}>{CANDIDATE_NAMES[newC]}</span>
+                        <span style={{ color: optionColor(newC), fontWeight: 600 }}>{optionLabel(newC)}</span>
                       </span>
-                      <span className="dashboard-timeline-meta">{TOWN_META[evt.town]?.name ?? evt.town}</span>
+                      <span className="dashboard-timeline-meta">{townMeta(evt.town).name}</span>
                     </div>
                   </li>
                 );
@@ -427,7 +455,7 @@ export default function Dashboard({ ws }: DashboardProps) {
           </h3>
           <div className="flex flex-col gap-2">
             {ws.newsReactions.slice(-8).reverse().map((r, i) => {
-              const meta = TOWN_META[r.town];
+              const meta = townMeta(r.town);
               return (
                 <div
                   key={`${r.agent_id}-${i}`}
@@ -453,18 +481,12 @@ export default function Dashboard({ ws }: DashboardProps) {
         <h3 className="font-semibold text-sm mr-2" style={{ fontFamily: "var(--font-display)", color: "var(--gold-accent)", letterSpacing: "1px" }}>
           All Agents
         </h3>
-        {(
-          [
-            { value: "all", label: "All" },
-            { value: "montclair", label: "Montclair" },
-            { value: "parsippany", label: "Parsippany" },
-            { value: "dover", label: "Dover" },
-            { value: "randolph", label: "Randolph" },
-            { value: "undecided", label: "Undecided" },
-            { value: "mejia", label: "Mejia" },
-            { value: "hathaway", label: "Hathaway" },
-          ] as const
-        ).map((f) => (
+        {[
+          { value: "all", label: "All" },
+          ...towns.map((t) => ({ value: t, label: townMeta(t).name })),
+          { value: undecidedId, label: optionLabel(undecidedId) },
+          ...scen.optionIds.map((o) => ({ value: o, label: optionLabel(o) })),
+        ].map((f) => (
           <button
             key={f.value}
             onClick={() => setFilter(f.value as any)}

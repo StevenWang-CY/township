@@ -1,9 +1,13 @@
 /* ── Township Type Definitions ─────────────────────────────── */
 
-export type CandidateId = "mejia" | "hathaway" | "bond";
-export type TownId = "dover" | "montclair" | "parsippany" | "randolph";
-export type PoliticalRegistration = "democrat" | "republican" | "unaffiliated";
-export type LeanId = CandidateId | "undecided";
+// Scenario-generic identifier aliases. Township is a scenario engine: the
+// concrete option/town/registration vocabularies come from GET /api/scenario
+// at runtime (see src/context/ScenarioContext.tsx). These aliases keep the
+// wire types readable without baking any one scenario into the type system.
+export type CandidateId = string;
+export type TownId = string;
+export type PoliticalRegistration = string;
+export type LeanId = string;
 
 /* ── Agent ──────────────────────────────────────────────────── */
 
@@ -388,7 +392,13 @@ export interface GodsViewResponse {
   opinion_shifts: OpinionShift[];
 }
 
-/* ── Town metadata ─────────────────────────────────────────── */
+/* ── NJ-11 fallback metadata ───────────────────────────────── */
+//
+// These tables describe the flagship NJ-11 scenario ONLY. They exist so the
+// app renders fully offline (no backend) and are the seed for the synthetic
+// fallback scenario in ScenarioContext. Components must NOT import these
+// directly — use the useScenario() helpers (optionColor/optionLabel/townMeta)
+// which resolve against the ACTIVE scenario and fall back to these values.
 
 export const TOWN_META: Record<TownId, { name: string; tagline: string; population: string; color: string; county: string }> = {
   dover: {
@@ -434,3 +444,36 @@ export const CANDIDATE_NAMES: Record<LeanId, string> = {
   bond: "Bond",
   undecided: "Undecided",
 };
+
+/* ── Scenario bootstrap (GET /api/scenario) ────────────────── */
+
+export interface ScenarioOption {
+  id: string;
+  /** Full display name, e.g. "Analilia Mejia" / "The Riverwalk Greenway". */
+  name: string;
+  /** Short chip/legend label, e.g. "Mejia" / "Greenway". */
+  label: string;
+  color: string;
+  group?: string | null;
+}
+
+export interface ScenarioTownInfo {
+  id: string;
+  name: string;
+  tagline: string;
+  color: string;
+  county?: string;
+  population?: number | string;
+}
+
+export interface ScenarioData {
+  id: string;
+  title: string;
+  question: string;
+  decision_kind: "election" | "vote";
+  options: ScenarioOption[];
+  undecided: { id: string; label: string; color: string };
+  towns: ScenarioTownInfo[];
+  total_rounds: number;
+  dates: { decision_day: string; prose: string };
+}

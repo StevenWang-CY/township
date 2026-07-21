@@ -66,7 +66,9 @@ export function composeTownAmbience(
   W: number,
   H: number,
 ): AmbienceHandle {
-  const pal = PALETTES[town];
+  // Unknown (non-NJ-11) towns borrow Dover's warm palette — safe default so
+  // any scenario's towns get the full ambience treatment.
+  const pal = PALETTES[town] ?? PALETTES.dover;
   const rng = mulberry32(0xa11ce ^ town.length * 211);
   const objects: Phaser.GameObjects.GameObject[] = [];
   const tweens: Phaser.Tweens.Tween[] = [];

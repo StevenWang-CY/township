@@ -1,7 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import type { AgentState, LeanId } from "../types/messages";
-import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
+import { useScenario } from "../hooks/useScenario";
 import TrustBadge from "./TrustBadge";
+
+/** 8-digit hex alpha suffix helper: "#RRGGBB" + pct → rgba-ish hex. */
+function withAlpha(hex: string, alphaHex: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(hex) ? `${hex}${alphaHex}` : hex;
+}
 
 interface AgentCardProps {
   agent: AgentState;
@@ -17,20 +22,19 @@ interface AgentCardProps {
 
 export default function AgentCard({ agent, compact = false, onClick, met, persuaded, trust }: AgentCardProps) {
   const navigate = useNavigate();
-  const meta = TOWN_META[agent.town];
-  const candidateId = (agent.opinion?.candidate as LeanId) || "undecided";
-  const opinionColor = CANDIDATE_COLORS[candidateId] || CANDIDATE_COLORS.undecided;
-  const opinionLabel = CANDIDATE_NAMES[candidateId];
+  const { townMeta, optionColor, optionLabel, undecidedId } = useScenario();
+  const meta = townMeta(agent.town);
+  const candidateId = (agent.opinion?.candidate as LeanId) || undecidedId;
+  const opinionLabel = optionLabel(candidateId);
   const confidence = agent.opinion?.confidence ?? 0;
 
-  // Mondstadt-style opinion colors
-  const mondstadtOpinionColors: Record<string, { border: string; badgeBg: string; badgeText: string }> = {
-    mejia: { border: "#4A8FBF", badgeBg: "rgba(74,143,191,0.12)", badgeText: "#4A8FBF" },
-    hathaway: { border: "#C0792A", badgeBg: "rgba(192,121,42,0.12)", badgeText: "#C0792A" },
-    bond: { border: "#9A8E80", badgeBg: "rgba(154,142,128,0.1)", badgeText: "#9A8E80" },
-    undecided: { border: "rgba(154,142,128,0.4)", badgeBg: "rgba(154,142,128,0.1)", badgeText: "var(--text-muted)" },
-  };
-  const opinionStyle = mondstadtOpinionColors[candidateId] || mondstadtOpinionColors.undecided;
+  // Mondstadt-style opinion chrome derived from the scenario option color:
+  // undecided stays a quiet warm-grey; decided options tint border + badge.
+  const isUndecided = candidateId === undecidedId;
+  const baseColor = optionColor(candidateId);
+  const opinionStyle = isUndecided
+    ? { border: "rgba(154,142,128,0.4)", badgeBg: "rgba(154,142,128,0.1)", badgeText: "var(--text-muted)" }
+    : { border: baseColor, badgeBg: withAlpha(baseColor, "1F"), badgeText: baseColor };
 
   const initials =
     agent.initials ||

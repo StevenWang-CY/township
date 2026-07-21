@@ -9,9 +9,18 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .core.event_bus import EventBus
 from .core.scenario import load_scenario_with_fallback
 from .providers import create_provider
+from .routes.chat import (
+    flush_relationship_state,
+    load_relationship_state,
+)
 from .routes.chat import router as chat_router
 from .routes.gods_view import router as gods_view_router
+from .routes.journal import (
+    flush_journal_state,
+    load_journal_state,
+)
 from .routes.journal import router as journal_router
+from .routes.runs import router as runs_router
 from .routes.scenario import router as scenario_router
 from .routes.simulation import router as simulation_router
 from .routes.towns import router as towns_router
@@ -90,6 +99,7 @@ app.include_router(chat_router)
 app.include_router(gods_view_router)
 app.include_router(towns_router)
 app.include_router(journal_router)
+app.include_router(runs_router)
 app.include_router(transcribe_router)
 app.include_router(tts_router)
 
@@ -149,7 +159,9 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.on_event("startup")
 async def startup():
-    """Log startup info."""
+    """Load persisted player state and log startup info."""
+    load_relationship_state()
+    load_journal_state()
     agent_count = sum(len(v) for v in orchestrator.agent_states.values())
     towns = list(orchestrator.agent_states.keys())
     provider_name = llm_provider.get_usage_report().get("provider", "unknown")
@@ -167,8 +179,10 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    """Log shutdown and save any state."""
+    """Flush persisted player state and log shutdown."""
     logger.info("Township shutting down")
+    await flush_relationship_state()
+    await flush_journal_state()
     usage = llm_provider.get_usage_report()
     logger.info(f"Final usage: {usage}")
 

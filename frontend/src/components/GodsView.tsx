@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import OpinionChart from "./OpinionChart";
 import type { NewsReaction, LeanId, TownId, AgentState, OpinionShift } from "../types/messages";
-import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
+import { useScenario } from "../hooks/useScenario";
 
 /* ── Types ────────────────────────────────────────────────────── */
 
@@ -73,6 +73,8 @@ interface GodsViewProps {
 }
 
 export default function GodsView({ ws }: GodsViewProps) {
+  const scen = useScenario();
+  const { townMeta, optionColor, optionLabel, stanceIds, undecidedId } = scen;
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,8 +136,15 @@ export default function GodsView({ ws }: GodsViewProps) {
     }
   }, [prompt]);
 
-  // Group reactions by town
-  const byTown: Record<TownId, NewsReaction[]> = { dover: [], montclair: [], parsippany: [], randolph: [] };
+  // Group reactions by town — scenario roster order first, then any strays.
+  const reactionTowns: TownId[] = [
+    ...scen.scenario.towns.map((t) => t.id),
+    ...Array.from(new Set(reactions.map((r) => r.town))).filter(
+      (t) => t && !scen.scenario.towns.some((s) => s.id === t),
+    ),
+  ];
+  const byTown: Record<TownId, NewsReaction[]> = {};
+  for (const t of reactionTowns) byTown[t] = [];
   for (const r of reactions) {
     if (byTown[r.town]) byTown[r.town].push(r);
   }
@@ -152,14 +161,15 @@ export default function GodsView({ ws }: GodsViewProps) {
   );
 
   const currentOpinions = useMemo(() => {
-    const total: Record<LeanId, number> = { mejia: 0, hathaway: 0, bond: 0, undecided: 0 };
+    const total: Record<LeanId, number> = {};
+    for (const k of stanceIds) total[k] = 0;
     for (const a of allAgents) {
-      const lean = (a.opinion?.candidate as LeanId) || "undecided";
+      const lean = (a.opinion?.candidate as LeanId) || undecidedId;
       total[lean] = (total[lean] || 0) + 1;
     }
     return total;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on opinionSignature
-  }, [opinionSignature]);
+  }, [opinionSignature, stanceIds.join("|"), undecidedId]);
 
   const projectedOpinions = useMemo(() => {
     if (opinionShifts.length === 0) return null;
@@ -176,11 +186,16 @@ export default function GodsView({ ws }: GodsViewProps) {
 
   const predictionSummary = useMemo(() => {
     if (!projectedOpinions) return null;
-    const deltas: { lean: LeanId; delta: number }[] = (
-      ["mejia", "hathaway", "bond", "undecided"] as LeanId[]
-    ).map((k) => ({ lean: k, delta: (projectedOpinions[k] || 0) - (currentOpinions[k] || 0) }));
+    const keys = Array.from(
+      new Set([...stanceIds, ...Object.keys(projectedOpinions), ...Object.keys(currentOpinions)]),
+    );
+    const deltas: { lean: LeanId; delta: number }[] = keys.map((k) => ({
+      lean: k,
+      delta: (projectedOpinions[k] || 0) - (currentOpinions[k] || 0),
+    }));
     return deltas.filter((d) => d.delta !== 0);
-  }, [projectedOpinions, currentOpinions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectedOpinions, currentOpinions, stanceIds.join("|")]);
 
   // Filter scenarios by category
   const categories = Array.from(new Set(scenarios.map((s) => s.category)));
@@ -334,18 +349,17 @@ export default function GodsView({ ws }: GodsViewProps) {
                     {/* Affected towns badges */}
                     <div className="flex flex-wrap gap-1">
                       {scenario.affected_towns.map((t) => {
-                        const townMeta = TOWN_META[t as TownId];
-                        if (!townMeta) return null;
+                        const tm = townMeta(t);
                         return (
                           <span
                             key={t}
                             className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
                             style={{
-                              background: `color-mix(in srgb, ${townMeta.color} 15%, white)`,
-                              color: townMeta.color,
+                              background: `color-mix(in srgb, ${tm.color} 15%, white)`,
+                              color: tm.color,
                             }}
                           >
-                            {townMeta.name}
+                            {tm.name}
                           </span>
                         );
                       })}
@@ -478,8 +492,8 @@ export default function GodsView({ ws }: GodsViewProps) {
                     <p className="prediction-widget-summary">
                       {predictionSummary
                         .map((d) => (
-                          <span key={d.lean} style={{ color: CANDIDATE_COLORS[d.lean], fontWeight: 600 }}>
-                            {CANDIDATE_NAMES[d.lean]} {d.delta > 0 ? "+" : ""}{d.delta}
+                          <span key={d.lean} style={{ color: optionColor(d.lean), fontWeight: 600 }}>
+                            {optionLabel(d.lean)} {d.delta > 0 ? "+" : ""}{d.delta}
                           </span>
                         ))
                         .reduce<React.ReactNode[]>((acc, el, i) => {
@@ -494,8 +508,8 @@ export default function GodsView({ ws }: GodsViewProps) {
 
               {/* Per-town reaction panels */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                {(["dover", "montclair", "parsippany", "randolph"] as TownId[]).map((t) => {
-                  const meta = TOWN_META[t];
+                {reactionTowns.map((t, idx) => {
+                  const meta = townMeta(t);
                   const townReactions = byTown[t];
                   if (townReactions.length === 0) return null;
 
@@ -509,7 +523,7 @@ export default function GodsView({ ws }: GodsViewProps) {
                         borderTop: `3px solid ${meta.color}`,
                         boxShadow: "var(--shadow-soft)",
                         animation: "stagger-in 0.4s var(--ease-genshin) backwards",
-                        animationDelay: `${(["dover","montclair","parsippany","randolph"].indexOf(t)) * 60}ms`,
+                        animationDelay: `${idx * 60}ms`,
                       }}
                     >
                       <h3 className="font-semibold text-sm mb-3 flex items-center gap-2" style={{ fontFamily: "var(--font-display)", color: meta.color, letterSpacing: "0.5px" }}>

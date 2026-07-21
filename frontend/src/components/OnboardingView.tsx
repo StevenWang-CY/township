@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Phaser from "phaser";
 import { OnboardingScene } from "../game/OnboardingScene";
+import type { OnboardingTownInfo } from "../game/OnboardingScene";
 import { GAME_CONFIG } from "../game/config";
 import { useUserProfile } from "../context/UserProfileContext";
+import { useScenario } from "../hooks/useScenario";
 import type { TownId } from "../types/messages";
 
 /* ── Progress Dots ────────────────────────────────────────── */
@@ -46,10 +48,14 @@ export default function OnboardingView() {
   const [stepIndex, setStepIndex] = useState(0);
 
   const preselectedTown = searchParams.get("town") as TownId | null;
+  const scen = useScenario();
 
   /* ── Initialize Phaser ───────────────────────────────────── */
 
   useEffect(() => {
+    // Wait for the scenario bootstrap (resolves fast; falls back to NJ-11
+    // offline) so the town-selection step shows the right roster.
+    if (scen.loading) return;
     if (!gameContainerRef.current || gameRef.current) return;
 
     const scene = new OnboardingScene();
@@ -61,7 +67,11 @@ export default function OnboardingView() {
       scene,
     });
 
-    game.scene.start("OnboardingScene", { preselectedTown });
+    const towns: OnboardingTownInfo[] = scen.scenario.towns.map((t) => {
+      const m = scen.townMeta(t.id);
+      return { id: t.id, name: m.name, tagline: m.tagline, color: m.color, population: m.population };
+    });
+    game.scene.start("OnboardingScene", { preselectedTown, towns });
     gameRef.current = game;
 
     // Listen for scene events
@@ -89,7 +99,8 @@ export default function OnboardingView() {
       gameRef.current = null;
       sceneRef.current = null;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- init once, after scenario bootstrap
+  }, [scen.loading]);
 
   /* ── Handle input submission ─────────────────────────────── */
 

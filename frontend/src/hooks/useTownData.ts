@@ -57,6 +57,31 @@ const RANDOLPH_LANDMARKS: LandmarkData[] = [
   { name: "Residential Cul-de-sacs", x: 600, y: 550, width: 140, height: 100, color: "#C4B5A0", type: "housing" },
 ];
 
+/* ── Generic fallback for towns outside the NJ-11 roster ────── */
+//
+// Non-NJ-11 scenarios serve authoritative landmarks via /api/towns. If that
+// fetch fails (or a town id is simply unknown), we still lay out a small,
+// serviceable village — a main street, a green, and a town hall — so the
+// scene renders warmly instead of crashing or showing an empty field.
+
+export function genericLandmarks(): LandmarkData[] {
+  return [
+    { name: "Main Street", x: 150, y: 380, width: 900, height: 30, color: "#D4A574", type: "road" },
+    { name: "Town Hall", x: 520, y: 210, width: 140, height: 110, color: "#C9B896", type: "building" },
+    { name: "Town Green", x: 250, y: 520, width: 200, height: 150, color: "#7CB87C", type: "park" },
+    { name: "General Store", x: 300, y: 280, width: 120, height: 70, color: "#D4B896", type: "building" },
+    { name: "Public Library", x: 760, y: 280, width: 120, height: 80, color: "#A0C4E8", type: "building" },
+    { name: "Old Church", x: 900, y: 180, width: 100, height: 110, color: "#C9B896", type: "church" },
+    { name: "Riverside Park", x: 780, y: 540, width: 190, height: 140, color: "#90C890", type: "park" },
+    { name: "Cottage Row", x: 130, y: 160, width: 150, height: 90, color: "#C4B5A0", type: "housing" },
+  ];
+}
+
+/** Landmarks for a town id: curated NJ-11 fallback, else the generic village. */
+export function landmarksFor(townId: TownId): LandmarkData[] {
+  return FALLBACK_TOWN_DATA[townId]?.landmarks ?? genericLandmarks();
+}
+
 export const FALLBACK_TOWN_DATA: Record<TownId, TownData> = {
   dover: {
     name: "Dover",

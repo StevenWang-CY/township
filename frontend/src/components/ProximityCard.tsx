@@ -1,5 +1,5 @@
 import type { AgentState, LeanId } from "../types/messages";
-import { TOWN_META, CANDIDATE_COLORS, CANDIDATE_NAMES } from "../types/messages";
+import { useScenario } from "../hooks/useScenario";
 
 interface ProximityCardProps {
   agent: AgentState;
@@ -10,9 +10,10 @@ interface ProximityCardProps {
 }
 
 export default function ProximityCard({ agent, trust = 0, x, y }: ProximityCardProps) {
-  const meta = TOWN_META[agent.town];
-  const candidate = (agent.opinion?.candidate as LeanId) ?? "undecided";
-  const candidateColor = CANDIDATE_COLORS[candidate];
+  const { townMeta, optionColor, optionLabel, undecidedId } = useScenario();
+  const meta = townMeta(agent.town);
+  const candidate = (agent.opinion?.candidate as LeanId) ?? undecidedId;
+  const candidateColor = optionColor(candidate);
   const trustPct = Math.max(0, Math.min(100, (trust + 100) / 2));
 
   return (
@@ -51,7 +52,7 @@ export default function ProximityCard({ agent, trust = 0, x, y }: ProximityCardP
               borderColor: `${candidateColor}40`,
             }}
           >
-            {CANDIDATE_NAMES[candidate]}
+            {optionLabel(candidate)}
           </span>
           <div className="proximity-card-trust">
             <div

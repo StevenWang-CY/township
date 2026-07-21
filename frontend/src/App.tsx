@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
 import { UserProfileProvider, useUserProfile } from "./context/UserProfileContext";
 import { WebSocketProvider, useWebSocketContext } from "./context/WebSocketContext";
+import { ScenarioProvider } from "./context/ScenarioContext";
+import { useScenario } from "./hooks/useScenario";
 import { useAudio } from "./hooks/useAudio";
 import DistrictMap from "./components/DistrictMap";
 import TownView from "./components/TownView";
@@ -12,6 +14,7 @@ import Journal from "./components/Journal";
 
 function AppShell() {
   const ws = useWebSocketContext();
+  const scen = useScenario();
   const location = useLocation();
   const navigate = useNavigate();
   const {
@@ -104,8 +107,9 @@ function AppShell() {
           <span
             className="text-xs font-medium px-2.5 py-0.5 rounded-full"
             style={{ background: "var(--gold-accent)", color: "#fff", letterSpacing: "0.06em", fontFamily: "var(--font-body)" }}
+            title={scen.title}
           >
-            NJ-11
+            {scen.isNJ11 ? "NJ-11" : scen.title}
           </span>
         </Link>
 
@@ -273,10 +277,12 @@ function AppShell() {
 
 export default function App() {
   return (
-    <UserProfileProvider>
-      <WebSocketProvider>
-        <AppShell />
-      </WebSocketProvider>
-    </UserProfileProvider>
+    <ScenarioProvider>
+      <UserProfileProvider>
+        <WebSocketProvider>
+          <AppShell />
+        </WebSocketProvider>
+      </UserProfileProvider>
+    </ScenarioProvider>
   );
 }

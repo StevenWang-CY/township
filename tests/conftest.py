@@ -8,10 +8,37 @@ real Anthropic tool schemas (backend/tools/schemas.py).
 import os
 import sys
 
+import pytest
+
 # Make `import backend...` work when pytest is launched from the repo root.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
+
+# Keep player-state persistence (relationships/journal) out of the repo's
+# data/state/ during tests. Must happen before any `backend` import — the
+# route modules bind their state paths at import time.
+if "TOWNSHIP_STATE_DIR" not in os.environ:
+    import tempfile
+
+    os.environ["TOWNSHIP_STATE_DIR"] = tempfile.mkdtemp(prefix="township-state-")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _runs_dir_outside_repo(tmp_path_factory):
+    """Keep run persistence (runs/<id>/) out of the repo during tests.
+
+    Individual tests may still monkeypatch TOWNSHIP_RUNS_DIR to their own
+    tmp dir; monkeypatch restores this session value afterwards.
+    """
+    runs_dir = tmp_path_factory.mktemp("runs")
+    previous = os.environ.get("TOWNSHIP_RUNS_DIR")
+    os.environ["TOWNSHIP_RUNS_DIR"] = str(runs_dir)
+    yield
+    if previous is None:
+        os.environ.pop("TOWNSHIP_RUNS_DIR", None)
+    else:
+        os.environ["TOWNSHIP_RUNS_DIR"] = previous
 
 SCENARIOS_DIR = os.path.join(REPO_ROOT, "scenarios")
 NJ11_SCENARIO_DIR = os.path.join(SCENARIOS_DIR, "nj11-2026")

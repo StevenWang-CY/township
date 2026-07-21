@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useUserProfile } from "../context/UserProfileContext";
+import { useScenario } from "../hooks/useScenario";
 import WeatherWidget from "./WeatherWidget";
 import type { WeatherKind } from "../types/messages";
 
@@ -8,11 +9,10 @@ interface PlayerHUDProps {
   compact?: boolean;
   worldClock?: { hour: number; minute: number };
   weather?: WeatherKind;
-  /** Total NPC count (defaults to 26 — the demo agent count). */
+  /** Total NPC count. Defaults to 26 for the NJ-11 demo roster; other
+   *  scenarios show just the raw met/persuaded counts until agents stream. */
   totalAgents?: number;
 }
-
-const ELECTION_DATE = new Date("2026-04-16T00:00:00");
 
 function formatTime(h: number, m: number): string {
   const period = h >= 12 ? "PM" : "AM";
@@ -21,9 +21,11 @@ function formatTime(h: number, m: number): string {
   return `${hh}:${mm} ${period}`;
 }
 
-function daysUntilElection(): number {
-  const now = new Date();
-  const ms = ELECTION_DATE.getTime() - now.getTime();
+function daysUntil(dateISO: string | undefined): number | null {
+  if (!dateISO) return null;
+  const d = new Date(`${dateISO}T00:00:00`);
+  if (isNaN(d.getTime())) return null;
+  const ms = d.getTime() - Date.now();
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 }
 
@@ -65,17 +67,24 @@ export default function PlayerHUD({
   compact = false,
   worldClock,
   weather = "clear",
-  totalAgents = 26,
+  totalAgents,
 }: PlayerHUDProps) {
   const { profile } = useUserProfile();
+  const scen = useScenario();
   const metCount = profile?.metAgents?.length ?? 0;
   const persuadedCount = profile?.persuadedAgents?.length ?? 0;
+  const decisionDay = scen.scenario.dates?.decision_day;
+  const countdownLabel = scen.decisionKind === "election" ? "Election in" : "Decision in";
+  // NJ-11 ships a known 26-agent roster; other scenarios show raw counts
+  // unless the caller passes a live total.
+  const total = totalAgents ?? (scen.isNJ11 ? 26 : undefined);
 
-  const [days, setDays] = useState(daysUntilElection());
+  const [days, setDays] = useState<number | null>(daysUntil(decisionDay));
   useEffect(() => {
-    const id = setInterval(() => setDays(daysUntilElection()), 60_000);
+    setDays(daysUntil(decisionDay));
+    const id = setInterval(() => setDays(daysUntil(decisionDay)), 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [decisionDay]);
 
   return (
     <div className={`player-hud ${compact ? "player-hud--compact" : ""}`}>
@@ -94,19 +103,19 @@ export default function PlayerHUD({
 
       <div className="player-hud-chip player-hud-chip--met" title="Agents you've met">
         <span>Met</span>
-        <strong>{metCount} / {totalAgents}</strong>
+        <strong>{total != null ? `${metCount} / ${total}` : metCount}</strong>
       </div>
 
       <div className="player-hud-chip player-hud-chip--persuaded" title="Agents you have persuaded">
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
           <StarIcon /> Persuaded
         </span>
-        <strong>{persuadedCount} / {totalAgents}</strong>
+        <strong>{total != null ? `${persuadedCount} / ${total}` : persuadedCount}</strong>
       </div>
 
-      {!compact && (
-        <div className="player-hud-chip player-hud-chip--countdown" title="Election countdown">
-          <span>Election in</span>
+      {!compact && days != null && (
+        <div className="player-hud-chip player-hud-chip--countdown" title="Decision-day countdown">
+          <span>{countdownLabel}</span>
           <strong>{days}d</strong>
         </div>
       )}

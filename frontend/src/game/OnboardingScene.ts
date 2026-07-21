@@ -2,7 +2,27 @@ import Phaser from "phaser";
 import { AgentSprite } from "./AgentSprite";
 import type { TownId, PoliticalRegistration } from "../types/messages";
 import { TOWN_META } from "../types/messages";
-import { TOWN_ACCENT } from "./config";
+import { townAccent } from "./config";
+
+/** Scenario town info passed in from React (OnboardingView). */
+export interface OnboardingTownInfo {
+  id: string;
+  name: string;
+  tagline: string;
+  color: string;
+  population?: string;
+}
+
+/** NJ-11 fallback roster — used when no scenario roster is passed in. */
+const NJ11_TOWN_ROSTER: OnboardingTownInfo[] = Object.entries(TOWN_META).map(
+  ([id, m]) => ({
+    id,
+    name: m.name,
+    tagline: m.tagline,
+    color: townAccent(id) || m.color,
+    population: m.population,
+  }),
+);
 
 /**
  * OnboardingScene — NPC-guided onboarding using real tilemap + character sprites.
@@ -59,13 +79,34 @@ export class OnboardingScene extends Phaser.Scene {
   // Pre-selected town from URL query param
   private preselectedTown: TownId | null = null;
 
+  // Scenario town roster (from GET /api/scenario via OnboardingView);
+  // defaults to the NJ-11 towns for the offline / zero-config path.
+  private townRoster: OnboardingTownInfo[] = NJ11_TOWN_ROSTER;
+
   constructor() {
     super({ key: "OnboardingScene" });
   }
 
-  init(data: { preselectedTown?: TownId }) {
+  init(data: { preselectedTown?: TownId; towns?: OnboardingTownInfo[] }) {
+    if (data.towns && data.towns.length > 0) this.townRoster = data.towns;
+    this.userTown = this.townRoster[0]?.id ?? "dover";
     this.preselectedTown = data.preselectedTown ?? null;
     if (this.preselectedTown) this.userTown = this.preselectedTown;
+  }
+
+  /** Roster lookup with a graceful default for unknown ids. */
+  private townInfo(townId: TownId): OnboardingTownInfo {
+    return (
+      this.townRoster.find((t) => t.id === townId) ?? {
+        id: townId,
+        name: townId
+          .split(/[-_]/)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" "),
+        tagline: "",
+        color: townAccent(townId),
+      }
+    );
   }
 
   /* ── Preload (reuse all existing assets) ─────────────────── */
@@ -383,9 +424,11 @@ export class OnboardingScene extends Phaser.Scene {
         });
         this.time.delayedCall(360, () => {
           if (this.preselectedTown) {
-            const pm = TOWN_META[this.preselectedTown];
+            const pm = this.townInfo(this.preselectedTown);
             this.greeter?.showSpeechBubble(
-              `${this.userName}, ${pm.name} suits you — ${pm.tagline.toLowerCase()}!`,
+              pm.tagline
+                ? `${this.userName}, ${pm.name} suits you — ${pm.tagline.toLowerCase()}!`
+                : `${this.userName}, ${pm.name} suits you!`,
               3000,
             );
             this.time.delayedCall(3200, () => this.showLeaningSelection());
@@ -439,15 +482,21 @@ export class OnboardingScene extends Phaser.Scene {
       const H = Number(this.game.config.height);
       const container = this.add.container(0, 0).setDepth(350);
 
-      const towns: TownId[] = ["dover", "montclair", "parsippany", "randolph"];
+      const towns: TownId[] = this.townRoster.map((t) => t.id);
       const cardWidth = 130;
       const gap = 16;
-      const totalWidth = towns.length * cardWidth + (towns.length - 1) * gap;
-      const startX = (W - totalWidth) / 2 + cardWidth / 2;
-      const y = H * 0.78;
+      // Wrap into rows so any scenario's roster fits on screen.
+      const perRow = Math.max(1, Math.min(towns.length, Math.floor((W - 40) / (cardWidth + gap))));
+      const rowCount = Math.ceil(towns.length / perRow);
+      const baseY = H * 0.78 - (rowCount - 1) * 36;
 
       towns.forEach((townId, i) => {
-        const cx = startX + i * (cardWidth + gap);
+        const row = Math.floor(i / perRow);
+        const inRow = row === rowCount - 1 ? towns.length - row * perRow : perRow;
+        const rowWidth = inRow * cardWidth + (inRow - 1) * gap;
+        const startX = (W - rowWidth) / 2 + cardWidth / 2;
+        const cx = startX + (i - row * perRow) * (cardWidth + gap);
+        const y = baseY + row * 72;
         const card = this.createTownCard(townId, cx, y);
         card.setScale(0.8);
         card.setAlpha(0);
@@ -467,8 +516,8 @@ export class OnboardingScene extends Phaser.Scene {
   }
 
   private createTownCard(townId: TownId, x: number, y: number): Phaser.GameObjects.Container {
-    const meta = TOWN_META[townId];
-    const accent = TOWN_ACCENT[townId] || meta.color;
+    const meta = this.townInfo(townId);
+    const accent = meta.color || townAccent(townId);
     const accentNum = Phaser.Display.Color.HexStringToColor(accent).color;
     const card = this.add.container(x, y);
 
@@ -510,7 +559,7 @@ export class OnboardingScene extends Phaser.Scene {
     });
     card.add(tagline);
 
-    const pop = this.add.text(-w / 2 + 12, 42, `Pop. ${meta.population}`, {
+    const pop = this.add.text(-w / 2 + 12, 42, meta.population ? `Pop. ${meta.population}` : "", {
       fontFamily: "Inter, sans-serif",
       fontSize: "7px",
       color: accent,
@@ -887,7 +936,7 @@ export class OnboardingScene extends Phaser.Scene {
 
   private completeOnboarding() {
     this.currentStep = "complete";
-    const townName = TOWN_META[this.userTown]?.name ?? "Township";
+    const townName = this.townInfo(this.userTown).name || "Township";
     this.greeter?.showSpeechBubble(`Welcome home to ${townName}, ${this.userName}!`, 3000);
 
     this.time.delayedCall(2000, () => {
@@ -918,7 +967,7 @@ export class OnboardingScene extends Phaser.Scene {
             topConcerns: this.userConcerns,
             personality: this.userPersonality,
             initials,
-            color: TOWN_ACCENT[this.userTown] || TOWN_META[this.userTown].color,
+            color: this.townInfo(this.userTown).color || townAccent(this.userTown),
             agentId: agentId || "player",
             spriteKey: this.userAvatar,
             outfitKey: this.userOutfit,
