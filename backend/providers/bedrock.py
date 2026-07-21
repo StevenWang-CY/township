@@ -72,7 +72,10 @@ class BedrockProvider(_AnthropicFamilyProvider):
         # by the Anthropic SDK; SigV4 via boto3's default credential chain is
         # the fallback. The `api_key` arg is preserved only so the legacy
         # caller signature still type-checks; it is ignored.
-        client = AsyncAnthropicBedrock(aws_region=region, timeout=60.0, max_retries=2)
+        max_retries = int(os.environ.get("BEDROCK_MAX_RETRIES", "2"))
+        client = AsyncAnthropicBedrock(
+            aws_region=region, timeout=60.0, max_retries=max_retries
+        )
         default_model = os.environ.get("BEDROCK_MODEL_ID", DEFAULT_BEDROCK_MODEL)
         cache_system = env_flag("BEDROCK_CACHE_SYSTEM", default=True)
         super().__init__(

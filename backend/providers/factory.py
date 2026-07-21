@@ -63,6 +63,10 @@ def create_provider(max_concurrent: int = 10) -> LLMProvider:
     ANTHROPIC_API_KEY → anthropic, AWS_BEARER_TOKEN_BEDROCK → bedrock,
     OPENAI_API_KEY → openai, OPENROUTER_API_KEY → openrouter, else mock.
     """
+    env_concurrent = (os.environ.get("LLM_MAX_CONCURRENT") or "").strip()
+    if env_concurrent.isdigit() and int(env_concurrent) > 0:
+        max_concurrent = int(env_concurrent)
+
     explicit = (os.environ.get("LLM_PROVIDER") or "").strip().lower()
     if explicit:
         logger.info("LLM_PROVIDER=%s — using the %s provider", explicit, explicit)
