@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { appUrl } from "../lib/assetUrl";
 
 export interface MiniMapData {
   width: number;
@@ -10,6 +11,8 @@ export interface MiniMapData {
 
 interface MiniMapProps {
   getData: () => MiniMapData | null;
+  /** Town id — selects the generated map preview used as the background. */
+  townId?: string;
   /** Called when the player clicks on an agent dot. */
   onPinClick?: (agentId: string) => void;
   width?: number;
@@ -18,6 +21,7 @@ interface MiniMapProps {
 
 export default function MiniMap({
   getData,
+  townId,
   onPinClick,
   width = 180,
   height = 120,
@@ -64,24 +68,21 @@ export default function MiniMap({
         viewBox={`0 0 ${width} ${height}`}
         style={{ display: "block" }}
       >
-        {/* Background tint */}
-        <rect x={0} y={0} width={width} height={height} fill="rgba(255,252,245,0.85)" />
-        {/* Landmark blocks */}
-        {data.landmarks.map((lm, i) => (
-          <rect
-            key={`${lm.name}-${i}`}
-            x={lm.x * scaleX}
-            y={lm.y * scaleY}
-            width={Math.max(1, lm.w * scaleX)}
-            height={Math.max(1, lm.h * scaleY)}
-            fill={lm.color || "#C4B49A"}
-            opacity={0.45}
-            rx={1}
-          >
-            <title>{lm.name}</title>
-          </rect>
-        ))}
-        {/* Agent dots */}
+        {/* Generated map preview as the background — keep it crisp. */}
+        {townId ? (
+          <image
+            href={appUrl(`assets/maps/${townId}-preview.png`)}
+            x={0}
+            y={0}
+            width={width}
+            height={height}
+            preserveAspectRatio="none"
+            style={{ imageRendering: "pixelated" }}
+          />
+        ) : (
+          <rect x={0} y={0} width={width} height={height} fill="rgba(255,252,245,0.85)" />
+        )}
+        {/* Agent dots (town accent colors) */}
         {data.agents.map((a) => (
           <circle
             key={a.id}

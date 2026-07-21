@@ -84,7 +84,11 @@ export class PlayerSprite extends AgentSprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     if (body) {
       body.setSize(24, 16);
-      body.setOffset(-12, -8); // center on feet
+      // Container bodies subtract displayOrigin (origin × setSize dims from
+      // AgentSprite) during the physics sync, so a bare (-12, -8) offset put
+      // the box ~(24, 47) px up-left of the sprite. Compensate with the
+      // container's display origin so the 24×16 box sits centered on the feet.
+      body.setOffset(this.displayOriginX - 12, this.displayOriginY - 8);
       body.setCollideWorldBounds(true);
     }
 
@@ -321,7 +325,8 @@ export class PlayerSprite extends AgentSprite {
     const radius = 60;
     this.joystickGraphics = scene.add.graphics();
     this.joystickGraphics.setScrollFactor(0);
-    this.joystickGraphics.setDepth(2000);
+    // Screen-space UI — above the sky tint (6000) and lamp glows (6001).
+    this.joystickGraphics.setDepth(7000);
     this.joystickGraphics.setVisible(false);
 
     scene.input.on("pointerdown", (p: Phaser.Input.Pointer) => {

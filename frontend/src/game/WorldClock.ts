@@ -67,7 +67,8 @@ const LUT: Array<{ h: number; color: number; alpha: number }> = [
   { h: 18, color: hexToInt("#ff8866"), alpha: 0.18 }, // golden hour
   { h: 19, color: hexToInt("#ff8866"), alpha: 0.20 },
   { h: 20, color: hexToInt("#4a3b6a"), alpha: 0.32 }, // dusk
-  { h: 21, color: hexToInt("#4a3b6a"), alpha: 0.35 },
+  { h: 21, color: hexToInt("#2c2450"), alpha: 0.44 }, // early night
+
   { h: 22, color: hexToInt("#0c1633"), alpha: 0.50 }, // night
   { h: 24, color: hexToInt("#0c1633"), alpha: 0.50 },
 ];
