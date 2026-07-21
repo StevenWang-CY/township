@@ -1,13 +1,27 @@
 # Township documentation
 
-Index of project documentation. Topic guides land in this directory; project-wide
-policies live at the repository root and are linked below.
-
-## In this directory
-
-No topic guides yet — this index grows as they land. Until then, the
-[repository README](../README.md) covers the project overview and quickstart, and
+Index of project documentation. Topic guides live in this directory; project-wide
+policies live at the repository root and are linked below. For the project overview
+and quickstart, start with the [repository README](../README.md);
 [CLAUDE.md](../CLAUDE.md) orients coding agents (layout, commands, invariants).
+
+## Guides
+
+| Document | One-liner |
+|----------|-----------|
+| [architecture.md](architecture.md) | How the pieces fit — scenario package → simulation engine → event stream → frontend — plus the wire contract, prompt assembly, and design decisions |
+| [api.md](api.md) | The full REST + WebSocket reference, with real captured responses from a mock-provider server |
+| [scenario-format.md](scenario-format.md) | The full scenario package spec — `scenario.json`, towns, options, personas, news beats, validation — with both shipped packages as worked examples |
+| [persona-authoring.md](persona-authoring.md) | Writing a resident: every frontmatter field, the craft of voice and ambivalence, the ethics rules, and the submission checklist |
+| [persona-template.md](persona-template.md) | A complete, annotated, lint-passing persona to copy from |
+| [deployment.md](deployment.md) | Running Township: local dev, environment variables, the provider matrix, Docker, reverse proxies, and cost guardrails |
+| [faq.md](faq.md) | Short answers on cost, keys, models, memory, licensing, and what Township is not |
+
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) is the on-ramp for all three contribution
+paths (personas, scenarios, engine/frontend work).
+`docs/media/` holds the baseline UI screenshots referenced by the README.
+The map-generation pipeline has its own guide at
+[`scripts/mapgen/README.md`](../scripts/mapgen/README.md).
 
 ## Policies and notices
 

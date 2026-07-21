@@ -1,4 +1,4 @@
-# Scenario Package Format
+# Scenario package format
 
 A *scenario* is everything Township needs to stage one civic deliberation: the question a community faces, the options on the table, the towns it plays out in, the residents who argue about it, the news beats that land mid-argument, and the round-by-round plan the engine follows. It is a plain directory under `scenarios/` — JSON manifests plus markdown personas, no code.
 
@@ -28,7 +28,9 @@ scenarios/<id>/
 ├── context/               # OPTIONAL extra briefing material
 │   ├── debate-excerpts.json
 │   └── logistics.json
-└── god-scenarios.json     # OPTIONAL curated God's View injections
+├── god-scenarios.json     # OPTIONAL curated God's View injections
+└── demo/
+    └── simulation_cache.json   # OPTIONAL shipped replay — the zero-key demo
 ```
 
 The loader is `load_scenario()` in `backend/core/scenario.py`. It validates the manifest with Pydantic, loads every town and option file, parses all personas, and fails loudly on anything inconsistent (see [Validation](#validation)).
@@ -39,7 +41,7 @@ The manifest schema is `ScenarioConfig` in `backend/core/scenario.py`. Every fie
 
 | Field | Type | Required | Consumed by |
 |---|---|---|---|
-| `id` | `str` | yes | Everything — must match the directory name so `SCENARIO=<id>` resolves |
+| `id` | `str` | yes | Everything — reported by `GET /api/scenario`, stamped into run ids. `SCENARIO=<id>` resolves by *directory* name, so keep the two identical |
 | `title` | `str` | yes | Prompt templating (tool descriptions, conversation openers), UI header via `GET /api/scenario` |
 | `question` | `str` | yes | Seed and opinion prompts in `RoundManager`; UI |
 | `kind` | `str` | no (default `"vote"`) | `"election"` or `"vote"` — served as `decision_kind` by `GET /api/scenario`; the frontend's `ScenarioContext` switches its wording accordingly |
@@ -186,6 +188,19 @@ A JSON array of curated injections served by `GET /api/gods-view/scenarios` and 
 
 `description` is what actually gets injected into every agent; `expected_impact` is your authoring hypothesis, displayed so users can compare prediction against what the agents actually do. Write injections that cut *across* your options rather than obviously boosting one — the interesting ones split a coalition.
 
+## Demo replay cache (`demo/simulation_cache.json`) — optional
+
+A recorded event log that lets anyone *watch* your scenario without running a simulation (or holding an API key). When present, it is the default source for `POST /api/simulation/replay`, appears in `GET /api/simulation/replay/available`, and plays in the terminal via `township replay --demo --scenario <id>`.
+
+Generate it with the script rather than by hand:
+
+```bash
+python scripts/generate_demo_cache.py --scenario millbrook-budget --provider mock --allow-mock
+python scripts/generate_demo_cache.py --scenario <your-id> --provider anthropic   # a real deliberation
+```
+
+The script runs a full headless simulation, minifies the event log, and warns when the result exceeds the 3 MB budget — pass `--trim` to bring an oversized cache back under it (high-volume `agent_moved` / `relationship_update` events are dropped first, then long prose is truncated). It refuses the mock provider unless you pass `--allow-mock` — mock caches are fine for CI and quick demos, but a flagship cache should be a real deliberation. Both shipped scenarios include one (`scenarios/nj11-2026/demo/`, `scenarios/millbrook-budget/demo/`).
+
 ## Personas (`agents/<town-id>/*.md`)
 
 One markdown file per resident: YAML frontmatter (parsed by `backend/core/agent_loader.py` into an `AgentDefinition`) plus a markdown body that becomes the agent's base system prompt.
@@ -283,20 +298,27 @@ Two curated pairs across eight agents; the other four get random cross-town matc
 
 ## Creating a scenario
 
-1. **Start from the manifest.** Copy `scenarios/millbrook-budget/scenario.json` to `scenarios/<your-id>/scenario.json` and rewrite `id`, `title`, `question`, `options`, `dates`, and both context blocks. Get the question right before writing anything else — every persona and news beat hangs off it.
-2. **Write the towns.** One `towns/<town-id>.json` each. The map is a 1200×800 canvas; place 8–10 landmarks with the fields shown above, including at least the places your personas' routines will name.
-3. **Write the option files.** One `options/<id>.json` per option with `background`, `positions`, `endorsements`, and `tradeoffs`. If you can't write honest tradeoffs for an option, it isn't really an option.
-4. **Write the personas.** `agents/<town-id>/<slug>.md`. Give every agent an `initial_lean` on your roster, concerns that overlap with *some* neighbors (that's what they'll talk about), and at least one reason to doubt their own lean.
-5. **Script the rounds.** Order phases per round; attach news ids; set `gossip_rounds` and `weather_schedule` (one entry per round).
-6. **Optionally** add `god-scenarios.json` presets and `context/` extras.
-7. **Run it — no API keys needed.** The mock provider runs the full pipeline deterministically:
+1. **Scaffold it.** `make install` puts the `township` CLI (`backend/cli.py`) on your path. Then:
 
    ```bash
-   SCENARIO=<your-id> LLM_PROVIDER=mock python -m uvicorn backend.main:app --port 8001
-   curl -X POST localhost:8001/api/simulation/start -H 'content-type: application/json' -d '{}'
+   township new-scenario harbor-bridge
    ```
 
-   Then open the frontend (`cd frontend && npm run dev`) and watch it play out before spending a cent on real model calls.
+   creates `scenarios/harbor-bridge/` with a two-option manifest, one town, and two personas (with a relationship between them) — a package that loads and lints out of the box; the command verifies the load before declaring success. Prefer copying `scenarios/millbrook-budget/` wholesale when you want a fuller starting point.
+2. **Rewrite the manifest.** Edit `id`, `title`, `question`, `options`, `dates`, and both context blocks first. Get the question right before writing anything else — every persona and news beat hangs off it. A scenario with an obviously correct answer produces five rounds of agreement.
+3. **Write the towns.** One `towns/<town-id>.json` each. The map is a 1200×800 canvas; place 8–10 landmarks with the fields shown above, including at least the places your personas' routines will name.
+4. **Write the option files.** One `options/<id>.json` per option with `background`, `positions`, `endorsements`, and `tradeoffs`. If you can't write honest tradeoffs for an option, it isn't really an option.
+5. **Write the personas.** `agents/<town-id>/<slug>.md` — `township new-agent harbor-bridge <town> --name "Jane Doe"` drops a skeleton with valid frontmatter, its routine grounded in that town's real landmarks, and prints the valid `initial_lean` stances. Give every agent an `initial_lean` on your roster, concerns that overlap with *some* neighbors (that's what they'll talk about), and at least one reason to doubt their own lean.
+6. **Script the rounds.** Order phases per round; attach news ids; set `gossip_rounds` and `weather_schedule` (one entry per round).
+7. **Optionally** add `god-scenarios.json` presets, `context/` extras, and a `demo/` replay cache.
+8. **Run it — no API keys needed.** The mock provider runs the full pipeline deterministically:
+
+   ```bash
+   township run --scenario harbor-bridge --provider mock     # headless: prints rounds, prediction, recap
+   township serve --scenario harbor-bridge --provider mock   # the API server on :8001
+   ```
+
+   (`township serve` is `SCENARIO=<id> python -m uvicorn backend.main:app --port 8001` with the env set for you; kick a run with `curl -X POST localhost:8001/api/simulation/start -H 'content-type: application/json' -d '{}'`.) Then open the frontend (`cd frontend && npm run dev`) and watch it play out before spending a cent on real model calls.
 
 ## Validation
 
@@ -321,7 +343,7 @@ python -m pytest tests/test_persona_lint.py -q     # just the lint
 make test                                           # full suite, no API keys needed
 ```
 
-Your scenario participates the moment the directory exists — no registration step.
+Your scenario participates the moment the directory exists — no registration step. For a one-line health check, `township scenarios` lists every package under `scenarios/` with its town/agent/round counts — and prints `INVALID: <error>` for any package that fails to load.
 
 ## A note on responsible scenario authorship
 
