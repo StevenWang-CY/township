@@ -10,8 +10,14 @@ import type {
 } from "../types/messages";
 
 /* ── State ──────────────────────────────────────────────────── */
+//
+// The reducer, initial state, and their types are exported so the zero-backend
+// demo player (src/hooks/useDemoFeed.ts) can replay a recorded event stream
+// through EXACTLY the same state machine the live WebSocket uses. Keep the
+// reducer pure: seeking in the demo player re-reduces an event prefix from
+// initialState synchronously.
 
-interface WsState {
+export interface WsState {
   connected: boolean;
   agents: Record<string, AgentState>;
   conversations: Conversation[];
@@ -28,7 +34,7 @@ interface WsState {
   newsReactions: NewsReaction[];
 }
 
-const initialState: WsState = {
+export const initialState: WsState = {
   connected: false,
   agents: {},
   conversations: [],
@@ -45,12 +51,12 @@ const initialState: WsState = {
 
 /* ── Reducer ────────────────────────────────────────────────── */
 
-type WsAction =
+export type WsAction =
   | { type: "CONNECTED" }
   | { type: "DISCONNECTED" }
   | { type: "EVENT"; payload: SimulationEvent };
 
-function reducer(state: WsState, action: WsAction): WsState {
+export function reducer(state: WsState, action: WsAction): WsState {
   switch (action.type) {
     case "CONNECTED":
       return { ...state, connected: true };

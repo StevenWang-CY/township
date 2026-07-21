@@ -2,6 +2,9 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import OpinionChart from "./OpinionChart";
 import type { NewsReaction, LeanId, TownId, AgentState, OpinionShift } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
+import { DEMO_MODE, REPO_URL } from "../demo/demoMode";
+
+const DEMO_INJECT_HINT = "Scenario injection needs the local install — 60 seconds, zero keys.";
 
 /* ── Types ────────────────────────────────────────────────────── */
 
@@ -108,7 +111,7 @@ export default function GodsView({ ws }: GodsViewProps) {
   }, []);
 
   const submit = useCallback(async () => {
-    if (!prompt.trim()) return;
+    if (DEMO_MODE || !prompt.trim()) return;
     setLoading(true);
     setError(null);
     setReactions([]);
@@ -416,7 +419,8 @@ export default function GodsView({ ws }: GodsViewProps) {
         <div className="mt-4 flex items-center gap-3">
           <button
             onClick={submit}
-            disabled={loading || !prompt.trim()}
+            disabled={DEMO_MODE || loading || !prompt.trim()}
+            title={DEMO_MODE ? DEMO_INJECT_HINT : undefined}
             className="px-6 py-2.5 rounded-lg text-sm text-white disabled:opacity-40 active:scale-[0.97]"
             style={{
               background: "var(--gold-accent)",
@@ -439,6 +443,14 @@ export default function GodsView({ ws }: GodsViewProps) {
             >
               Clear
             </button>
+          )}
+          {DEMO_MODE && (
+            <span className="text-xs" style={{ color: "var(--township-ink-muted)", fontStyle: "italic" }} title={DEMO_INJECT_HINT}>
+              Injection needs the local install —{" "}
+              <a href={REPO_URL} target="_blank" rel="noreferrer" style={{ color: "var(--gold-accent)", fontWeight: 600 }}>
+                60 seconds, zero keys
+              </a>.
+            </span>
           )}
           {error && (
             <span className="text-xs" style={{ color: "#EF4444" }}>

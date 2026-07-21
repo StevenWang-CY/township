@@ -11,6 +11,9 @@ import OnboardingView from "./components/OnboardingView";
 import Dashboard from "./components/Dashboard";
 import GodsView from "./components/GodsView";
 import Journal from "./components/Journal";
+import DemoBanner from "./components/DemoBanner";
+import DemoTimeline from "./components/DemoTimeline";
+import { DEMO_MODE } from "./demo/demoMode";
 
 function AppShell() {
   const ws = useWebSocketContext();
@@ -241,19 +244,24 @@ function AppShell() {
             )}
           </div>
 
-          {/* Connection indicator */}
+          {/* Connection indicator (demo build: it's a replay, say so) */}
           <div className="ml-3 flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
             <span
               className="w-2 h-2 rounded-full"
               style={{
-                background: ws.connected ? "#4CAF50" : "#EF4444",
+                background: DEMO_MODE
+                  ? (ws.connected ? "var(--gold-accent)" : "#EF4444")
+                  : (ws.connected ? "#4CAF50" : "#EF4444"),
                 animation: ws.connected ? "pulse-glow 2s ease-in-out infinite" : "none",
               }}
             />
-            {ws.connected ? "Live" : "Offline"}
+            {DEMO_MODE ? (ws.connected ? "Replay" : "Loading") : (ws.connected ? "Live" : "Offline")}
           </div>
         </nav>
       </header>
+
+      {/* Demo-mode ribbon: recorded deliberation + star link */}
+      {DEMO_MODE && <DemoBanner />}
 
       {/* ── Content ──────────────────────────────────────── */}
       <main className="flex-1">
@@ -265,6 +273,12 @@ function AppShell() {
           <Route path="/gods-view" element={<GodsView ws={ws} />} />
         </Routes>
       </main>
+
+      {/* Demo replay media bar — on the town + dashboard surfaces */}
+      {DEMO_MODE &&
+        (location.pathname.startsWith("/town/") || location.pathname === "/dashboard") && (
+          <DemoTimeline />
+        )}
 
       {/* Journal panel */}
       <Journal open={journalOpen} onClose={() => setJournalOpen(false)} />

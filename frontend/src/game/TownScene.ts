@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { appUrl } from "../lib/assetUrl";
 import { AgentSprite, type AgentActivity, type GestureKind } from "./AgentSprite";
 import { PlayerSprite } from "./PlayerSprite";
 import { townAccent, townMapKey } from "./config";
@@ -90,30 +91,30 @@ export class TownScene extends Phaser.Scene {
   /* ── Preload ─────────────────────────────────────────────── */
 
   preload() {
-    this.load.image("rpg-tileset", "/assets/tilesets/rpg-tileset.png");
-    this.load.image("magecity-bg", "/assets/tilesets/magecity.png");
-    this.load.image("speech-bubble", "/assets/speech_bubble/v2.png");
+    this.load.image("rpg-tileset", appUrl("assets/tilesets/rpg-tileset.png"));
+    this.load.image("magecity-bg", appUrl("assets/tilesets/magecity.png"));
+    this.load.image("speech-bubble", appUrl("assets/speech_bubble/v2.png"));
 
     // Town-aware tilemap. Until per-town files exist, fall back to shared tilemap.
     const mapKey = townMapKey(this.townId);
-    const mapUrl = `/assets/maps/${this.townId}.tmj`;
+    const mapUrl = appUrl(`assets/maps/${this.townId}.tmj`);
     this.load.tilemapTiledJSON(mapKey, mapUrl);
     // If per-town .tmj is missing, fall back to the shared default.
     this.load.once(`fileerror-tilemapJSON-${mapKey}`, () => {
-      this.load.tilemapTiledJSON(mapKey, "/assets/maps/tilemap.json");
+      this.load.tilemapTiledJSON(mapKey, appUrl("assets/maps/tilemap.json"));
       this.load.start();
     });
 
-    this.load.spritesheet("campfire", "/assets/spritesheets/campfire.png", { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet("sparkle", "/assets/spritesheets/gentlesparkle32.png", { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("campfire", appUrl("assets/spritesheets/campfire.png"), { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("sparkle", appUrl("assets/spritesheets/gentlesparkle32.png"), { frameWidth: 32, frameHeight: 32 });
     // Animated water-foam frames (bottom half of gentlewaterfall32.png is foam) — used as
     // lake surface shimmer. We treat the whole sheet as 32×32 cells; foam frames live in
     // the bottom rows.
-    this.load.spritesheet("water-foam", "/assets/spritesheets/gentlewaterfall32.png", {
+    this.load.spritesheet("water-foam", appUrl("assets/spritesheets/gentlewaterfall32.png"), {
       frameWidth: 32, frameHeight: 32,
     });
     // Animated windmill (8 frames in a 3×3 grid, each 208×208).
-    this.load.spritesheet("windmill", "/assets/spritesheets/windmill.png", {
+    this.load.spritesheet("windmill", appUrl("assets/spritesheets/windmill.png"), {
       frameWidth: 208, frameHeight: 208,
     });
 
@@ -121,7 +122,7 @@ export class TownScene extends Phaser.Scene {
     for (const fullKey of ALL_CHARACTER_KEYS) {
       // ALL_CHARACTER_KEYS already prefixes "char-" — use rest as filename.
       const fileName = fullKey.startsWith("char-") ? fullKey.slice(5) : fullKey;
-      this.load.spritesheet(fullKey, `/assets/characters/${fileName}.png`, {
+      this.load.spritesheet(fullKey, appUrl(`assets/characters/${fileName}.png`), {
         frameWidth: 32,
         frameHeight: 32,
       });
@@ -129,15 +130,15 @@ export class TownScene extends Phaser.Scene {
     }
 
     // Folk spritesheet as additional fallback
-    this.load.spritesheet("folk", "/assets/characters/32x32folk.png", { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("folk", appUrl("assets/characters/32x32folk.png"), { frameWidth: 32, frameHeight: 32 });
 
     // Player sprite variants — try 32×32 player-N first, fall back to legacy 16-px.
     for (let i = 1; i <= 6; i++) {
       const key = `char-player-${i}`;
-      this.load.spritesheet(key, `/assets/characters/player-${i}.png`, { frameWidth: 32, frameHeight: 32 });
+      this.load.spritesheet(key, appUrl(`assets/characters/player-${i}.png`), { frameWidth: 32, frameHeight: 32 });
       this.load.once(`fileerror-spritesheet-${key}`, () => {/* silently skip */});
     }
-    this.load.spritesheet("char-player", "/assets/characters/player.png", {
+    this.load.spritesheet("char-player", appUrl("assets/characters/player.png"), {
       frameWidth: 16, frameHeight: 16,
     });
   }
