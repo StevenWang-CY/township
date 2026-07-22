@@ -49,6 +49,19 @@ pipeline work without credentials or network access.
 > [Responsible Use](RESPONSIBLE_USE.md) before creating or publishing a
 > real-world scenario.
 
+<table>
+  <tr>
+    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/demo-player/01-map.png" alt="Township's scenario-first civic atlas"></a></td>
+    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/demo-player/02-town-replay.png" alt="Residents deliberating in Township's Dover pixel town"></a></td>
+    <td width="33%" align="center"><a href="docs/nj11-retrospective.md"><img src="docs/media/demo-player/04-dashboard-end.png" alt="Township's final cross-town deliberation dashboard"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>A scenario becomes a place</strong><br><sub>Towns, residents, options, context, and news live in one package.</sub></td>
+    <td align="center"><strong>Deliberation becomes visible</strong><br><sub>Routines, weather, meetings, replay, and opinion shifts.</sub></td>
+    <td align="center"><strong>The record stays inspectable</strong><br><sub>Portable evidence, cost accounting, and an honest retrospective.</sub></td>
+  </tr>
+</table>
+
 ## Why Township
 
 - **A world, not a spreadsheet.** Residents follow routines through distinct
@@ -68,6 +81,26 @@ pipeline work without credentials or network access.
   when recap generation succeeds.
 - **Human-readable agents.** Each resident is one Markdown file with structured
   frontmatter, prose voice, routines, concerns, goals, and relationships.
+
+### Meet a few residents
+
+These fictional composites are authored as people rather than demographic rows.
+Their pixel portraits are cropped from the same directional sprite sheets that
+walk through the live town.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/media/residents/carlos-restrepo.png" alt="Carlos Restrepo" width="72"><br><sub>Carlos<br>Restrepo</sub></td>
+    <td align="center"><img src="docs/media/residents/maria-santos.png" alt="Maria Santos" width="72"><br><sub>Maria<br>Santos</sub></td>
+    <td align="center"><img src="docs/media/residents/miguel-hernandez.png" alt="Miguel Hernandez" width="72"><br><sub>Miguel<br>Hernandez</sub></td>
+    <td align="center"><img src="docs/media/residents/rosa-chen.png" alt="Rosa Chen" width="72"><br><sub>Rosa<br>Chen</sub></td>
+    <td align="center"><img src="docs/media/residents/jordan-williams.png" alt="Jordan Williams" width="72"><br><sub>Jordan<br>Williams</sub></td>
+    <td align="center"><img src="docs/media/residents/vikram-iyer.png" alt="Vikram Iyer" width="72"><br><sub>Vikram<br>Iyer</sub></td>
+    <td align="center"><img src="docs/media/residents/jen-russo.png" alt="Jen Russo" width="72"><br><sub>Jen<br>Russo</sub></td>
+    <td align="center"><img src="docs/media/residents/mike-brennan.png" alt="Mike Brennan" width="72"><br><sub>Mike<br>Brennan</sub></td>
+    <td align="center"><img src="docs/media/residents/frank-deluca.png" alt="Frank DeLuca" width="72"><br><sub>Frank<br>DeLuca</sub></td>
+  </tr>
+</table>
 
 ## Try it in two minutes
 

@@ -17,6 +17,7 @@ make capture-media
 | [`scene/`](scene/) | Reproducible day/night scene coverage for every shipped town |
 | [`mobile/`](mobile/) | 390×844 map and town checks |
 | [`brand/`](brand/) | Reusable Township lockups and marks |
+| [`residents/`](residents/) | Nearest-neighbor crops of the real in-game resident sheets used by the README cast strip |
 
 The capture script treats missing residents, browser/network errors, and an
 incorrect final dashboard as failures. Replay content is deterministic, while

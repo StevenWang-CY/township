@@ -387,5 +387,17 @@ if (!process.exitCode) {
   if (gifCode !== 0) process.exitCode = Number(gifCode) || 1;
 }
 
+if (!process.exitCode) {
+  const portraitBuilder = spawn(
+    process.env.PYTHON || "python3",
+    [join(SCRIPT_DIR, "make_resident_portraits.py")],
+    { cwd: REPO_ROOT, stdio: "inherit" },
+  );
+  const portraitCode = await new Promise((resolveCode) =>
+    portraitBuilder.on("close", resolveCode),
+  );
+  if (portraitCode !== 0) process.exitCode = Number(portraitCode) || 1;
+}
+
 rmSync(tempFrames, { recursive: true, force: true });
 if (!process.exitCode) console.log(`capture: launch media written to ${MEDIA}`);

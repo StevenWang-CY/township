@@ -77,7 +77,7 @@ demo-preview: ## Serve the built demo player locally (run 'make demo-build' firs
 capture-setup: ## Install Playwright Chromium for automated product captures
 	cd frontend && npx playwright install chromium
 
-capture-media: demo-build ## Regenerate README hero, product stills, mobile proof, and social card
+capture-media: demo-build ## Regenerate README hero, stills, resident strip, mobile proof, and social card
 	node scripts/capture/capture.mjs
 
 sim: ## Start a full simulation on the running backend (TOWN=dover for one town)
