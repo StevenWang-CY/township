@@ -314,6 +314,7 @@ function TownMarker({
   leaderLabel,
   metCount,
   totalCount,
+  showMet,
 }: {
   pin: Pin;
   meta: ResolvedTownMeta;
@@ -326,6 +327,8 @@ function TownMarker({
   leaderLabel: string | null;
   metCount: number;
   totalCount: number;
+  /** Player-quest chrome ("x/y met") renders only when a real player exists. */
+  showMet: boolean;
 }) {
   const glowId = `town-glow-${pin.id}`;
   const gradId = `waypoint-grad-${pin.id}`;
@@ -342,7 +345,7 @@ function TownMarker({
       className="district-map-pin"
       role="button"
       tabIndex={0}
-      aria-label={`${meta.name}. ${leaderLabel ? `${leaderLabel} is leading. ` : "No leading option yet. "}${metCount} of ${totalCount} residents met. Enter town.`}
+      aria-label={`${meta.name}. ${leaderLabel ? `${leaderLabel} is leading. ` : "No leading option yet. "}${showMet ? `${metCount} of ${totalCount} residents met. ` : `${totalCount} residents. `}Enter town.`}
       onClick={onClick}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
@@ -448,7 +451,7 @@ function TownMarker({
             fill="#2C2416"
             fontFamily="Inter, sans-serif"
           >
-            {metCount}/{totalCount} met
+            {showMet ? `${metCount}/${totalCount} met` : `${totalCount} residents`}
           </text>
         </g>
       )}
@@ -511,7 +514,7 @@ function TownMarker({
 /* ── Resident dots ────────────────────────────────────────────
    Each town's roster rendered as tiny wandering villagers around its
    waypoint, tinted by their current stance. The atlas reads as inhabited,
-   and the deliberation state is visible from the landing page. ── */
+   and the deliberation state is visible at a glance on /map. ── */
 
 function ResidentDots({
   pin,
@@ -1249,6 +1252,7 @@ export default function DistrictMap() {
               leaderLabel={leaders[pin.id] ? scen.optionLabel(leaders[pin.id]) : null}
               metCount={metPerTown[pin.id]}
               totalCount={townTotals[pin.id]}
+              showMet={!DEMO_MODE && isOnboarded}
             />
           ))}
 

@@ -79,10 +79,10 @@ def compose(m: MapCanvas) -> None:
 
     # ================= buildings (reserve before paint_roads) =============
     # -- storefront row, north of Blackwell, doors on the sidewalk
-    storefront(m, 22, 16, 6, 6, facade="brick", awning=True)  # La Finca
-    storefront(m, 31, 16, 4, 6, facade="cream", awning=True)  # bodega
-    storefront(m, 35, 16, 4, 6, facade="brick", roof="stone", sign=4, window=False)  # taqueria
-    storefront(m, 39, 16, 4, 6, facade="cream", awning=True)  # barber
+    storefront(m, 22, 16, 6, 6, facade="brick", roof="terracotta", awning=True)  # La Finca
+    storefront(m, 31, 16, 4, 6, facade="cream", roof="terracotta", awning=True)  # bodega
+    storefront(m, 35, 16, 4, 6, facade="brick", roof="terracotta", sign=4, window=False)  # taqueria
+    storefront(m, 39, 16, 4, 6, facade="cream", roof="terracotta", awning=True)  # barber
     # -- St. Mary's Church
     grand(m, 48, 10, 8, 7, facade="stone_gray")
     # -- Factory & warehouse district

@@ -2,11 +2,12 @@
 
 Reading of the town: affluent, green, horse-country township. Everything is
 set back from one long Main Road; the west block is the memorable set-piece —
-the Randolph Diner (striped awning, outdoor stools, menu board) next to the
-VFW hall (brick, twin red banners, memorial statue on a concrete pad). The
+the Randolph Diner (chrome band, DINER letterboard, outdoor stools, menu
+board) next to the VFW hall (brick, terracotta shingles, twin red banners,
+memorial statue on a concrete pad). Homes are cream colonials: slate-blue
+shingle roofs, shuttered sash windows, ranch-fenced front yards. The
 north-west corner is the crops corner: wheat + tilled field + a ranch-fence
-horse pen with haystacks. Big negative space, clustered trees, ranch fences
-framing yards.
+horse pen with haystacks. Big negative space and clustered trees.
 
 Grid plan (cols x rows):
   - Main Road .......... horizontal rows 24-26, west+east map exits
@@ -32,6 +33,7 @@ from mapgen.build_maps import (
     MapCanvas,
     apron,
     cottage,
+    diner,
     grand,
     path,
     storefront,
@@ -118,19 +120,21 @@ def compose(m: MapCanvas) -> None:
 
     # ================= buildings (reserve before paint_roads) =============
     # -- the diner + VFW set-piece corner
-    storefront(m, 2, 17, 7, 6, facade="cream", awning=True)  # diner
-    grand(m, 14, 15, 8, 8, facade="brick", roof="stone", banners=True)  # VFW
+    diner(m, 2, 17, 7, 6)  # Randolph Diner, chrome kit
+    # VFW hall: brick front under terracotta shingles (the old brick-arch
+    # "fort" recomposed as a hall with a door, flags stay)
+    storefront(m, 14, 15, 8, 8, facade="brick", roof="terracotta", sign=None)
     # -- shops
-    storefront(m, 28, 17, 6, 6, facade="brick", sign=0)  # finance
+    storefront(m, 28, 17, 6, 6, facade="brick", roof="slate", sign=0)  # finance
     storefront(m, 37, 17, 5, 6, facade="cream", awning=True)  # boutique
     # -- civic north tier
     grand(m, 31, 8, 9, 8, facade="stone_large", windows=True)  # Town Hall
     grand(m, 47, 10, 10, 9, facade="stone_large", windows=True)  # High School
     grand(m, 58, 16, 8, 7, facade="stone_gray")  # church
-    # -- housing
-    cottage(m, 69, 15, 6, 8)  # colonial E
-    cottage(m, 36, 29, 6, 7)  # cul-de-sac W
-    cottage(m, 47, 29, 6, 7)  # cul-de-sac E
+    # -- housing: cream colonials, slate-blue shingles, shutters
+    cottage(m, 69, 15, 6, 8, roof="slate")  # colonial E
+    cottage(m, 36, 29, 6, 7, roof="slate")  # cul-de-sac W
+    cottage(m, 47, 29, 6, 7, roof="slate")  # cul-de-sac E
 
     # ================= tan paths / trails (before paint_roads) ============
     # sports-fields path from Main Road to the gate
@@ -261,6 +265,16 @@ def compose(m: MapCanvas) -> None:
     m.flowers(21, 30, n=5, spread=2)
 
     # ================= cul-de-sac =================
+    # picket-fenced front yards for the colonials (runs flank the door walks)
+    f = R.FENCE_WOOD
+    for i, cx in enumerate(range(33, 37)):  # W colonial, left of its walk
+        m.stamp("deco-below", f["rail_h_a" if i % 2 == 0 else "rail_h_b"], cx, 36)
+    m.collide(33, 36, 4, 1)
+    for i, cx in enumerate(range(51, 55)):  # E colonial, right of its walk
+        m.stamp("deco-below", f["rail_h_a" if i % 2 == 0 else "rail_h_b"], cx, 36)
+    m.collide(51, 36, 4, 1)
+    m.flowers(34, 35, n=4, spread=1)
+    m.flowers(52, 35, n=4, spread=1)
     for px in (42, 46):
         m.set("ground-detail", px, 38, M.mg("parking_stall"))
     m.lamp(40, 36)

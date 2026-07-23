@@ -318,25 +318,33 @@ export default function Dashboard({ ws }: DashboardProps) {
         </div>
       )}
 
-      {/* Scoreboard banner */}
+      {/* Scoreboard banner — Met/★ quest chrome exists only when a real
+          player walks the towns (never in the hosted replay). */}
       <div className="dashboard-scoreboard">
-        <PlayerHUD compact totalAgents={allAgents.length || undefined} />
-        <div className="dashboard-scoreboard-towns">
-          {towns.map((t) => {
-            const meta = townMeta(t);
-            const townAgentIds = Object.values(ws.agents).filter((a) => a.town === t).map((a) => a.id);
-            const metInTown = townAgentIds.filter((id) => profile?.metAgents?.includes(id)).length;
-            const persuadedInTown = townAgentIds.filter((id) => profile?.persuadedAgents?.includes(id)).length;
-            const total = townAgentIds.length || 0;
-            return (
-              <div key={t} className="dashboard-scoreboard-town" style={{ borderLeft: `3px solid ${meta.color}` }}>
-                <strong>{meta.name}</strong>
-                <span>Met {metInTown}{total > 0 ? ` / ${total}` : ""}</span>
-                <span style={{ color: "var(--gold-ink)" }}>★ {persuadedInTown}</span>
-              </div>
-            );
-          })}
-        </div>
+        <PlayerHUD
+          compact
+          totalAgents={allAgents.length || undefined}
+          round={ws.currentRound}
+          totalRounds={ws.totalRounds}
+        />
+        {!DEMO_MODE && profile && (
+          <div className="dashboard-scoreboard-towns">
+            {towns.map((t) => {
+              const meta = townMeta(t);
+              const townAgentIds = Object.values(ws.agents).filter((a) => a.town === t).map((a) => a.id);
+              const metInTown = townAgentIds.filter((id) => profile?.metAgents?.includes(id)).length;
+              const persuadedInTown = townAgentIds.filter((id) => profile?.persuadedAgents?.includes(id)).length;
+              const total = townAgentIds.length || 0;
+              return (
+                <div key={t} className="dashboard-scoreboard-town" style={{ borderLeft: `3px solid ${meta.color}` }}>
+                  <strong>{meta.name}</strong>
+                  <span>Met {metInTown}{total > 0 ? ` / ${total}` : ""}</span>
+                  <span style={{ color: "var(--gold-ink)" }}>★ {persuadedInTown}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Overall donut */}

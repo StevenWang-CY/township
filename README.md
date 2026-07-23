@@ -27,7 +27,7 @@
 
 <p align="center">
   <a href="https://stevenwang-cy.github.io/township/">
-    <img src="docs/media/hero.gif" alt="A day in Dover: pixel residents stroll the town at golden hour, two neighbors meet on the lawn to talk about the election, and lamplit night falls" width="896">
+    <img src="docs/media/hero.gif" alt="The living town of Dover from above: pixel residents go about their routines, two neighbors stop to talk through the election, then dusk settles and lamplit night falls" width="896">
   </a>
 </p>
 
@@ -148,8 +148,8 @@ local backend for live chat, new simulations, voice, and God's View injections.
 
 | Surface | What it reveals |
 |---|---|
-| **District map** | Each town's setting, cast, demographics, and live balance of agent stances |
-| **Living town** | Routines, weather, time of day, conversations, gossip, gestures, and opinion ripples rendered in Phaser |
+| **Living town** | The landing view: routines, weather, time of day, conversations, gossip, gestures, and opinion ripples rendered in Phaser |
+| **District atlas** | Each town's setting, cast, demographics, and live balance of agent stances |
 | **Resident chat** | In-character conversation with private relationship context, trust, voice hooks, and a capability-protected personal journal |
 | **Dashboard** | Cross-town patterns, issue fault lines, conversations, and stance trajectories |
 | **God's View** | A transparent intervention sandbox for asking how agents react to a hypothetical development |

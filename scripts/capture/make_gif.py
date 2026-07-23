@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
-TARGET_SIZE = (896, 560)
+TARGET_WIDTH = 896
 MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -24,10 +24,18 @@ def main() -> int:
         print(f"make_gif: no PNG frames in {frames_dir}", file=sys.stderr)
         return 1
 
+    # Frames are canvas-only crops; derive the height from the first frame so
+    # the GIF keeps the town's true aspect instead of stretching to a fixed box.
+    with Image.open(paths[0]) as first:
+        target_size = (
+            TARGET_WIDTH,
+            max(1, round(first.height * TARGET_WIDTH / first.width / 2) * 2),
+        )
+
     frames: list[Image.Image] = []
     for path in paths:
         with Image.open(path) as source:
-            frame = source.convert("RGB").resize(TARGET_SIZE, Image.Resampling.LANCZOS)
+            frame = source.convert("RGB").resize(target_size, Image.Resampling.LANCZOS)
             frames.append(frame.quantize(colors=72, method=Image.Quantize.MEDIANCUT))
 
     output.parent.mkdir(parents=True, exist_ok=True)

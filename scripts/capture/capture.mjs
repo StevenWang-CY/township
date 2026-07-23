@@ -136,6 +136,14 @@ async function pauseReplay(page) {
   }
 }
 
+async function resumeReplay(page) {
+  const control = page.locator('[aria-label="Play replay"]');
+  if (await control.isVisible().catch(() => false)) {
+    await control.click();
+    await page.waitForTimeout(120);
+  }
+}
+
 async function settleTownStill(page) {
   await pauseReplay(page);
   await page.evaluate(() => {
@@ -168,15 +176,44 @@ async function waitForTown(page, minimumResidents = 4) {
   await settle(page, 900);
 }
 
-async function setTownMoment(page, hour, weather = "clear") {
+async function setTownMoment(page, hour, minute = 0, weather = "clear") {
   await page.evaluate(
-    ({ targetHour, targetWeather }) => {
+    ({ targetHour, targetMinute, targetWeather }) => {
       window.__town?.setWeather(targetWeather);
-      window.__town?.setWorldTime(targetHour, 0);
+      window.__town?.setWorldTime(targetHour, targetMinute);
     },
-    { targetHour: hour, targetWeather: weather },
+    { targetHour: hour, targetMinute: minute, targetWeather: weather },
   );
   await page.waitForTimeout(500);
+}
+
+/** Canvas-only frame for the hero GIF: the living town, no app chrome. */
+async function heroFrame(page) {
+  return page.locator(".town-canvas-wrapper").screenshot({
+    type: "png",
+    animations: "allow",
+    style:
+      ".proximity-card, .keyboard-hint, .player-hud, .atlas-card, .town-minimap-wrapper { display: none !important; }",
+  });
+}
+
+/** The two agents nearest the map centre — a conversation spotlight there
+ *  never drags the camera off the edge of the world. */
+async function centerPair(page) {
+  return page.evaluate(() => {
+    const scene = window.__townshipScene;
+    if (!scene?.agentSprites) return null;
+    const sprites = [...scene.agentSprites.entries()]
+      .filter(([, sprite]) => sprite !== scene.playerSprite);
+    if (sprites.length < 2) return null;
+    const cx = sprites.reduce((sum, [, s]) => sum + s.x, 0) / sprites.length;
+    const cy = sprites.reduce((sum, [, s]) => sum + s.y, 0) / sprites.length;
+    const ranked = sprites
+      .map(([id, sprite]) => ({ id, d: (sprite.x - cx) ** 2 + (sprite.y - cy) ** 2 }))
+      .sort((a, b) => a.d - b.d)
+      .map((entry) => entry.id);
+    return [ranked[0], ranked[1]];
+  });
 }
 
 async function resetPageScroll(page) {
@@ -233,8 +270,52 @@ try {
   const runtimeFailures = [];
   watchRuntimeFailures(page, "desktop", runtimeFailures);
 
-  // District map: the product's front door and the opening hero beat.
+  // Hero GIF: the landing itself — the living town overview at golden hour,
+  // one conversation beat, then a dusk-to-night finale as windows and lamps
+  // come on. Canvas only, no app chrome.
   await openRoute(page, "/");
+  await waitForTown(page, 6);
+  await page.evaluate(() => window.__town?.setOverviewMode(true));
+  await setTownMoment(page, 16, 30);
+  await settle(page, 600);
+  for (let i = 0; i < 6; i += 1) {
+    addHeroFrame(await heroFrame(page));
+    await page.waitForTimeout(200);
+  }
+  const heroPair = await centerPair(page);
+  if (heroPair) {
+    await page.evaluate(
+      ([a, b]) => window.__town?.triggerConversation(a, b),
+      heroPair,
+    );
+  }
+  for (let i = 0; i < 12; i += 1) {
+    await page.waitForTimeout(190);
+    addHeroFrame(await heroFrame(page));
+  }
+  // Finale: freeze the replay clock so the dusk pass sticks, clear the beat,
+  // and hand the camera back to the wide overview framing.
+  await pauseReplay(page);
+  await page.evaluate(() => {
+    const scene = window.__townshipScene;
+    scene?.agentSprites?.forEach?.((sprite) => sprite.clearSpeechBubbles?.());
+    scene?.handleConversationEnded?.("capture-hero");
+    window.__town?.setOverviewMode(false);
+    window.__town?.setOverviewMode(true);
+  });
+  await page.waitForTimeout(1_100);
+  const duskSteps = [
+    [17, 30], [18, 0], [18, 30], [19, 0], [19, 30], [20, 0], [20, 30], [21, 0],
+  ];
+  for (const [h, m] of duskSteps) {
+    await setTownMoment(page, h, m);
+    addHeroFrame(await heroFrame(page), 2);
+    await page.waitForTimeout(160);
+  }
+  addHeroFrame(await heroFrame(page), 4);
+
+  // District atlas: now lives at /map (the town itself is the landing).
+  await openRoute(page, "/map");
   await resetPageScroll(page);
   const firstPin = page.locator(".district-map-pin").first();
   if (await firstPin.isVisible().catch(() => false)) {
@@ -242,12 +323,7 @@ try {
     if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   }
   await settle(page, 500);
-  const mapBuffer = await shot(
-    page,
-    join(MEDIA, "demo-player", "01-map.png"),
-    { resetScroll: false },
-  );
-  addHeroFrame(mapBuffer, 3);
+  await shot(page, join(MEDIA, "demo-player", "01-map.png"), { resetScroll: false });
 
   const townSets = [
     { scenario: null, id: "dover", residents: 6 },
@@ -262,8 +338,9 @@ try {
   for (const town of townSets) {
     await openRoute(page, `/town/${town.id}`, town.scenario);
     await waitForTown(page, town.residents);
+    await page.evaluate(() => window.__town?.setOverviewMode(true));
     await settleTownStill(page);
-    await setTownMoment(page, 16, "clear");
+    await setTownMoment(page, 16, 30);
     const dayPath = join(MEDIA, "scene", `${town.id}-day.png`);
     const dayBuffer = await shot(page, dayPath);
 
@@ -276,25 +353,27 @@ try {
         style: ".proximity-card, .keyboard-hint { display: none !important; }",
       });
       writeFileSync(join(MEDIA, "demo-player", "02-town-replay.png"), dayBuffer);
-      await page.evaluate(() => {
-        window.__town?.triggerConversation("carlos-restrepo", "sofia-ramirez");
-      });
-      for (let i = 0; i < 7; i += 1) {
-        await page.waitForTimeout(180);
-        addHeroFrame(await page.screenshot({ type: "png" }));
-      }
-      await page.evaluate(() => window.__town?.triggerNews("A late-breaking town hall draws a crowd"));
-      for (let i = 0; i < 4; i += 1) {
-        await page.waitForTimeout(220);
-        addHeroFrame(await page.screenshot({ type: "png" }));
-      }
+      // Timeline surface: the replay running mid-round in the wide overview —
+      // residents mid-conversation, the transport reading "playing". A
+      // synthetic spotlight would zoom the camera and letterbox the map.
+      await resumeReplay(page);
+      await page
+        .waitForFunction(() => {
+          const scene = window.__townshipScene;
+          if (!scene?.agentSprites) return false;
+          return [...scene.agentSprites.values()].some(
+            (sprite) => sprite.getActivity?.() === "talking",
+          );
+        }, null, { timeout: 15_000 })
+        .catch(() => undefined);
+      await page.waitForTimeout(450);
       writeFileSync(join(MEDIA, "demo-player", "03-timeline-seek.png"), await page.screenshot({ type: "png" }));
+      await pauseReplay(page);
     }
 
     await settleTownStill(page);
-    await setTownMoment(page, 21, "clear");
-    const nightBuffer = await shot(page, join(MEDIA, "scene", `${town.id}-night.png`));
-    if (town.id === "dover") addHeroFrame(nightBuffer, 3);
+    await setTownMoment(page, 21, 0);
+    await shot(page, join(MEDIA, "scene", `${town.id}-night.png`));
   }
 
   // Dashboard at the actual end: state and narrative, not a merely late round.
@@ -311,8 +390,7 @@ try {
     return node?.getAttribute("data-stance-count") === String(count);
   }), expectedFinalCounts);
   await settle(page, 1_200);
-  const dashboardBuffer = await shot(page, join(MEDIA, "demo-player", "04-dashboard-end.png"));
-  addHeroFrame(dashboardBuffer, 3);
+  await shot(page, join(MEDIA, "demo-player", "04-dashboard-end.png"));
 
   await openRoute(page, "/gods-view");
   await settle(page, 500);
@@ -326,11 +404,12 @@ try {
   });
   const mobile = await mobileContext.newPage();
   watchRuntimeFailures(mobile, "mobile", runtimeFailures);
-  await openRoute(mobile, "/");
+  await openRoute(mobile, "/map");
   await shot(mobile, join(MEDIA, "mobile", "map.png"));
   await openRoute(mobile, "/town/dover");
   await waitForTown(mobile, 3);
-  await setTownMoment(mobile, 16, "clear");
+  await mobile.evaluate(() => window.__town?.setOverviewMode(true));
+  await setTownMoment(mobile, 16, 30);
   await shot(mobile, join(MEDIA, "mobile", "town.png"));
   await mobileContext.close();
 

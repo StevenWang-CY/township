@@ -16,8 +16,8 @@ import { DEMO_MODE } from "./demo/demoMode";
 import { eventsSince } from "./hooks/useWebSocket";
 import { appUrl } from "./lib/assetUrl";
 
-// Phaser is the largest dependency in the app. Keep it off the district map,
-// dashboard, and documentation-style surfaces until somebody enters a town.
+// Phaser is the largest dependency in the app. Lazy-loading keeps it out of
+// the atlas/dashboard bundles; the landing town view streams it on demand.
 const TownView = lazy(() => import("./components/TownView"));
 const OnboardingView = lazy(() => import("./components/OnboardingView"));
 
@@ -139,11 +139,18 @@ function AppShell() {
   };
 
   const demoTimelineVisible = DEMO_MODE && (
-    location.pathname.startsWith("/town/") || location.pathname === "/dashboard"
+    location.pathname === "/" ||
+    location.pathname.startsWith("/town/") ||
+    location.pathname === "/dashboard"
   );
 
+  // Town routes pin the shell to the viewport (desktop) so the canvas, its
+  // corner affordances, and the resident rail are all fully visible without
+  // the disclosure bar pushing them below the fold.
+  const townRoute = location.pathname === "/" || location.pathname.startsWith("/town/");
+
   return (
-    <div className={`min-h-screen flex flex-col${DEMO_MODE ? " demo-mode" : ""}`}>
+    <div className={`min-h-screen flex flex-col${DEMO_MODE ? " demo-mode" : ""}${townRoute ? " app-shell--pinned" : ""}`}>
       {/* ── Header ───────────────────────────────────────── */}
       <header
         className="flex items-center justify-between px-6 py-3 relative"
@@ -200,11 +207,15 @@ function AppShell() {
 
         <nav id="primary-navigation" className={`nav-links ${menuOpen ? "nav-links--open" : ""}`}>
           {[
-            { to: "/", label: "Map" },
+            { to: "/", label: "Town" },
+            { to: "/map", label: "Map" },
             { to: "/dashboard", label: "Dashboard" },
             { to: "/gods-view", label: "God's View" },
           ].map((link) => {
-            const active = location.pathname === link.to;
+            // "/" is the living town view; deep links under /town/ light it too.
+            const active = link.to === "/"
+              ? location.pathname === "/" || location.pathname.startsWith("/town/")
+              : location.pathname === link.to;
             return (
               <Link
                 key={link.to}
@@ -359,7 +370,10 @@ function AppShell() {
       <main className={`flex-1${demoTimelineVisible ? " demo-timeline-space" : ""}`}>
         <Suspense fallback={<RouteLoading />}>
           <Routes>
-            <Route path="/" element={<DistrictMap />} />
+            {/* The landing IS the product: the flagship town, alive on load.
+                The illustrated District Atlas moved to /map. */}
+            <Route path="/" element={<TownView ws={ws} />} />
+            <Route path="/map" element={<DistrictMap />} />
             <Route path="/onboarding" element={<OnboardingView />} />
             <Route path="/town/:townId" element={<TownView ws={ws} />} />
             <Route path="/dashboard" element={<Dashboard ws={ws} />} />

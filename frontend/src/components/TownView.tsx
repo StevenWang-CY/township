@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import Phaser from "phaser";
 import { TownScene, hasAuthoredTownMap } from "../game/TownScene";
 import { GAME_CONFIG } from "../game/config";
@@ -111,19 +111,25 @@ export default function TownView({ ws }: TownViewProps) {
   // Before a live simulation streams, resolve the scenario's real roster from
   // the backend. Static replay mode receives the same authoritative roster as
   // transport metadata derived from simulation_started in the staged feed.
+  // Fetched for EVERY town at once: the town-tabs strip shows resident counts
+  // for the whole district, not just the active town.
+  const allTownIds = useMemo(
+    () => scen.scenario.towns.map((t) => t.id as TownId),
+    [scen.scenario.towns],
+  );
   const [rosterAgents, setRosterAgents] = useState<AgentState[]>([]);
   useEffect(() => {
     setRosterAgents([]);
     if (DEMO_MODE) return;
     const ctrl = new AbortController();
-    fetch(`/api/simulation/agents?town=${encodeURIComponent(town)}`, { signal: ctrl.signal })
+    fetch("/api/simulation/agents", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        setRosterAgents(rosterAgentsFromPayload(d, [town], scen.undecidedId));
+        setRosterAgents(rosterAgentsFromPayload(d, allTownIds, scen.undecidedId));
       })
       .catch(() => { /* offline — sidebar stays empty, canvas still renders */ });
     return () => ctrl.abort();
-  }, [town, scen.undecidedId]);
+  }, [allTownIds, scen.undecidedId]);
 
   // Applied agent state wins; before the first event, use the transport roster
   // (finite replay) or API roster (live). No scenario identity is special.
@@ -132,10 +138,26 @@ export default function TownView({ ws }: TownViewProps) {
     if (fromWs.length > 0) return fromWs;
     const fromTransport = Object.values(ws.agentRoster).filter((a) => a.town === town);
     if (fromTransport.length > 0) return fromTransport;
-    return rosterAgents;
+    return rosterAgents.filter((a) => a.town === town);
   })();
   const streamedTotalAgents =
     Object.keys(ws.agents).length || Object.keys(ws.agentRoster).length || undefined;
+
+  // District-wide resident counts for the town-tabs strip (any source).
+  const townCounts = useMemo(() => {
+    const merged = new Map<string, AgentState>();
+    for (const a of rosterAgents) merged.set(a.id, a);
+    for (const a of Object.values(ws.agentRoster)) merged.set(a.id, a);
+    for (const a of Object.values(ws.agents)) merged.set(a.id, a);
+    const counts: Record<string, number> = {};
+    for (const t of allTownIds) counts[t] = 0;
+    let total = 0;
+    for (const a of merged.values()) {
+      if (counts[a.town] !== undefined) counts[a.town]++;
+      total++;
+    }
+    return { counts, total };
+  }, [rosterAgents, ws.agentRoster, ws.agents, allTownIds]);
 
   const selectedAgent = townAgents.find((a) => a.id === selectedAgentId) || null;
 
@@ -165,8 +187,13 @@ export default function TownView({ ws }: TownViewProps) {
     );
   }, []);
 
+  // A real player exists only in the interactive local build. The hosted
+  // replay's ephemeral guest is a preferences vessel — it must never appear
+  // as a resident row, a sprite, or quest chrome.
+  const hasPlayer = !DEMO_MODE && isOnboarded;
+
   // Build a player AgentState for the sidebar
-  const playerAgentState: AgentState | null = profile && profile.town === town ? {
+  const playerAgentState: AgentState | null = hasPlayer && profile && profile.town === town ? {
     id: profile.agentId,
     name: profile.name,
     town: profile.town as TownId,
@@ -247,8 +274,9 @@ export default function TownView({ ws }: TownViewProps) {
         colors[scenRef.current.undecidedId] = scenRef.current.optionColor(scenRef.current.undecidedId);
         try { activeScene.setOptionColors(colors); } catch { /* ignore */ }
 
-        // Spawn player if onboarded
-        if (isOnboarded && profile && !playerSpawnedRef.current) {
+        // Spawn player if onboarded (never in the hosted replay — the demo
+        // guest is not a resident and must not appear on the map)
+        if (!DEMO_MODE && isOnboarded && profile && !playerSpawnedRef.current) {
           activeScene.addPlayer(profile);
           playerSpawnedRef.current = true;
         }
@@ -285,7 +313,7 @@ export default function TownView({ ws }: TownViewProps) {
   /* ── Spawn player when profile becomes available ────────── */
 
   useEffect(() => {
-    if (!isOnboarded || !profile || playerSpawnedRef.current) return;
+    if (DEMO_MODE || !isOnboarded || !profile || playerSpawnedRef.current) return;
     const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
     if (!scene?.scene?.isActive()) return;
     scene.addPlayer(profile);
@@ -619,53 +647,43 @@ export default function TownView({ ws }: TownViewProps) {
     <div className="town-view-layout">
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Town header */}
-        <div
-          className="px-6 py-3 flex items-center gap-4"
-          style={{
-            background: "var(--warm-glass)",
-            backdropFilter: "blur(var(--warm-glass-blur))",
-            WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
-            borderBottom: "1px solid var(--warm-glass-border)",
-          }}
-        >
-          <div
-            className="w-3 h-3 rounded-full"
-            style={{
-              background: meta.color,
-              animation: "pulse-glow 2s ease-in-out infinite",
-            }}
-          />
-          <div>
-            <h2
-              className="font-semibold"
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "18px",
-                fontWeight: 600,
-                color: "var(--text-primary)",
-              }}
-            >
-              {meta.name}
-            </h2>
-            <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-muted)" }}>
-              {[meta.tagline, meta.county, meta.population ? `Pop. ${meta.population}` : ""]
-                .filter(Boolean)
-                .join(" | ")}
-            </p>
-          </div>
-          {ws.simulationRunning && (
-            <div
-              className="ml-auto px-3 py-1 rounded-full text-xs font-medium"
-              style={{
-                background: "color-mix(in srgb, var(--color-success) 10%, transparent)",
-                color: "var(--color-success)",
-              }}
-            >
+        {/* Town-tabs strip: hop between towns without leaving the canvas.
+            The heading stays for structure/AT; visually the active tab IS
+            the town's name — no second title bar burying the map. */}
+        <h2 className="sr-only">{meta.name}</h2>
+        <nav className="town-tabs" aria-label="Towns">
+          {scen.scenario.towns.map((t) => {
+            const m = scen.townMeta(t.id);
+            const active = t.id === town;
+            const count = townCounts.counts[t.id] ?? 0;
+            return (
+              <Link
+                key={t.id}
+                to={`/town/${t.id}`}
+                className={`town-tab${active ? " town-tab--active" : ""}`}
+                aria-current={active ? "page" : undefined}
+                title={[m.tagline, m.county].filter(Boolean).join(" — ")}
+              >
+                <span className="town-tab-dot" style={{ background: m.color }} aria-hidden="true" />
+                <span className="town-tab-name">{m.name}</span>
+                {count > 0 && (
+                  <span className="town-tab-count" aria-label={`${count} residents`}>{count}</span>
+                )}
+              </Link>
+            );
+          })}
+          <span className="town-tabs-spacer" aria-hidden="true" />
+          {!DEMO_MODE && ws.simulationRunning && (
+            <span className="town-tabs-round" title="Simulation progress">
               Round {ws.currentRound} / {ws.totalRounds || scen.totalRounds}
-            </div>
+            </span>
           )}
-        </div>
+          {!DEMO_MODE && !isOnboarded && (
+            <Link className="town-tabs-cta" to={`/onboarding?town=${town}`}>
+              Create your resident →
+            </Link>
+          )}
+        </nav>
 
         {/* Phaser canvas */}
         <div
@@ -708,17 +726,9 @@ export default function TownView({ ws }: TownViewProps) {
               worldClock={ws.worldClock}
               weather={ws.weather}
               totalAgents={streamedTotalAgents}
+              round={ws.currentRound}
+              totalRounds={ws.totalRounds || scen.totalRounds}
             />
-          </div>
-
-          {/* Top-right clock chip (FIX 13) */}
-          <div className="world-clock-chip" aria-hidden="true">
-            <span className="world-clock-chip-icon">
-              {(ws.worldClock.hour >= 19 || ws.worldClock.hour < 6) ? "☾" : "☀"}
-            </span>
-            <span className="world-clock-chip-time">
-              {String(ws.worldClock.hour).padStart(2, "0")}:{String(ws.worldClock.minute).padStart(2, "0")}
-            </span>
           </div>
 
           {/* Mini-map top-right */}
@@ -740,29 +750,57 @@ export default function TownView({ ws }: TownViewProps) {
             </div>
           )}
 
-          {/* DOM title banner */}
-          <div className="town-canvas-title absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-            <div
-              className="px-6 py-1.5 rounded-lg"
-              style={{
-                background: "color-mix(in srgb, var(--overlay-ink) 52%, transparent)",
-                backdropFilter: "blur(4px)",
-                borderRadius: "9px",
-              }}
-            >
-              <span
-                className="text-base font-bold"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  color: "var(--text-on-accent)",
-                  textShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                  letterSpacing: "0.5px",
-                }}
-              >
-                {meta.name}
+          {/* District Atlas affordance — the illustrated map now lives at
+              /map; this parchment corner card is its doorway. */}
+          <Link
+            to="/map"
+            className="atlas-card"
+            aria-label={`Open the District Atlas — ${allTownIds.length} towns`}
+          >
+            <span className="atlas-card-thumb" aria-hidden="true">
+              <svg viewBox="0 0 64 44" width="64" height="44">
+                {/* Parchment field */}
+                <rect x="1" y="1" width="62" height="42" rx="4" fill="#F1E4C6" stroke="#C9B285" strokeWidth="1" />
+                <rect x="4" y="4" width="56" height="36" rx="2.5" fill="none" stroke="#D8C49B" strokeWidth="0.8" strokeDasharray="2 2" />
+                {/* Terrain hints */}
+                <path d="M8 33 Q 14 27 20 33 T 32 33" fill="none" stroke="#A9BF8C" strokeWidth="1.4" strokeLinecap="round" />
+                <path d="M46 9 l3.5 6 h-7 z" fill="#B4A48C" />
+                <path d="M52 11 l3 5 h-6 z" fill="#C2B49E" />
+                {/* Road linking the pins */}
+                {allTownIds.length > 1 && (
+                  <path
+                    d={allTownIds.map((_, i) => {
+                      const f = allTownIds.length === 1 ? 0.5 : i / (allTownIds.length - 1);
+                      const px = 12 + f * 40;
+                      const py = 22 + (i % 2 === 0 ? -4 : 5);
+                      return `${i === 0 ? "M" : "L"} ${px} ${py}`;
+                    }).join(" ")}
+                    fill="none" stroke="#C4AE8C" strokeWidth="1.2" strokeDasharray="2.5 2" strokeLinecap="round"
+                  />
+                )}
+                {/* Waypoint pins in each town's accent color */}
+                {allTownIds.map((id, i) => {
+                  const f = allTownIds.length === 1 ? 0.5 : i / (allTownIds.length - 1);
+                  const px = 12 + f * 40;
+                  const py = 22 + (i % 2 === 0 ? -4 : 5);
+                  return (
+                    <g key={id}>
+                      <circle cx={px} cy={py} r="4" fill={scen.townMeta(id).color} stroke="#FFF9EC" strokeWidth="1.4" />
+                      <circle cx={px} cy={py} r="1.2" fill="#FFF9EC" />
+                    </g>
+                  );
+                })}
+              </svg>
+            </span>
+            <span className="atlas-card-label">
+              <strong>District Atlas</strong>
+              <span>
+                {allTownIds.length} {allTownIds.length === 1 ? "town" : "towns"}
+                {townCounts.total > 0 ? ` · ${townCounts.total} residents` : ""}
               </span>
-            </div>
-          </div>
+            </span>
+            <span className="atlas-card-arrow" aria-hidden="true">→</span>
+          </Link>
 
           {/* Listen-in affordance + side panel */}
           {listenNearbyLandmark && !chatOpen && (
@@ -795,14 +833,14 @@ export default function TownView({ ws }: TownViewProps) {
             </div>
           )}
 
-          {/* Keyboard hint overlay */}
-          {showKeyboardHint && isOnboarded && (
+          {/* Keyboard hint overlay — only when a real player can move */}
+          {showKeyboardHint && hasPlayer && (
             <KeyboardHint onDismiss={() => setShowKeyboardHint(false)} />
           )}
 
           {/* The hosted replay is immediately explorable without a player;
               movement onboarding belongs to the interactive local flow. */}
-          {isOnboarded && !DEMO_MODE && <Tutorial />}
+          {hasPlayer && <Tutorial />}
 
           {/* Debug overlay (toggled with ~) */}
           {debugOpen && (

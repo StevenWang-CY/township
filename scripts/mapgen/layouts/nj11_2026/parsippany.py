@@ -207,7 +207,7 @@ def compose(m: MapCanvas) -> None:
     # ================= buildings (reserve before paint_roads) =============
     # -- strip mall on Route 46
     storefront(m, 25, 13, 4, 6, facade="cream", roof="stone", sign=1)  # deli
-    storefront(m, 29, 13, 6, 6, facade="brick", awning=True)  # grocery
+    storefront(m, 29, 13, 6, 6, facade="brick", roof="cedar", awning=True)  # grocery
     # -- Hindu temple (cream, banners; garden composed below). The cream
     # facade's arch-adjacent tiles have transparent notches; backfill the
     # upper wall rows with its plain interior tile so no grass pokes
@@ -224,7 +224,7 @@ def compose(m: MapCanvas) -> None:
     cottage(m, 16, 31, 6, 8)
     # -- NJ Transit shelter: striped awning over a brick waiting room,
     # door opening south onto the platform
-    storefront(m, 41, 26, 6, 6, facade="brick", awning=True)
+    storefront(m, 41, 26, 6, 6, facade="brick", roof="cedar", awning=True)
     # -- community center + school on the shared esplanade
     storefront(m, 55, 26, 8, 7, facade="stone_small", roof="deck_light", sign=1)
     grand(m, 64, 26, 8, 7, facade="brick")

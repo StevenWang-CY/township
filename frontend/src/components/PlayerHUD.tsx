@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useScenario } from "../hooks/useScenario";
 import WeatherWidget from "./WeatherWidget";
+import { DEMO_MODE } from "../demo/demoMode";
 import type { WeatherKind } from "../types/messages";
 
 interface PlayerHUDProps {
@@ -11,6 +11,10 @@ interface PlayerHUDProps {
   weather?: WeatherKind;
   /** Total resident count when an authoritative roster is available. */
   totalAgents?: number;
+  /** Current simulation/replay round (used by the Recorded chip). */
+  round?: number;
+  /** Total rounds when known. */
+  totalRounds?: number;
 }
 
 function formatTime(h: number, m: number): string {
@@ -20,12 +24,12 @@ function formatTime(h: number, m: number): string {
   return `${hh}:${mm} ${period}`;
 }
 
-function daysUntil(dateISO: string | undefined): number | null {
+/** "2026-04-16" → "Apr 16" — the scenario's own calendar, never the viewer's. */
+function shortDate(dateISO: string | undefined): string | null {
   if (!dateISO) return null;
   const d = new Date(`${dateISO}T00:00:00`);
   if (isNaN(d.getTime())) return null;
-  const ms = d.getTime() - Date.now();
-  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 /* ── Inline SVG icons (replaces emoji) ─────────────────────────── */
@@ -67,53 +71,71 @@ export default function PlayerHUD({
   worldClock,
   weather = "clear",
   totalAgents,
+  round,
+  totalRounds,
 }: PlayerHUDProps) {
   const { profile } = useUserProfile();
   const scen = useScenario();
+  // Player-quest chrome (Met / Persuaded) exists only when a real player
+  // walks the town. The hosted replay and any spectator view have none.
+  const hasPlayer = !DEMO_MODE && profile !== null;
   const metCount = profile?.metAgents?.length ?? 0;
   const persuadedCount = profile?.persuadedAgents?.length ?? 0;
-  const decisionDay = scen.scenario.dates?.decision_day;
-  const countdownLabel = scen.decisionKind === "election" ? "Election in" : "Decision in";
   const total = totalAgents;
 
-  const [days, setDays] = useState<number | null>(daysUntil(decisionDay));
-  useEffect(() => {
-    setDays(daysUntil(decisionDay));
-    const id = setInterval(() => setDays(daysUntil(decisionDay)), 60_000);
-    return () => clearInterval(id);
-  }, [decisionDay]);
+  // The decision chip speaks the SIMULATION's calendar (scenario.dates), never
+  // the viewer's wall clock — a 2026 replay watched in 2027 must not say "0d".
+  const decisionDate = shortDate(scen.scenario.dates?.decision_day);
+  const decisionLabel = scen.decisionKind === "election" ? "Election day" : "Decision day";
+
+  const roundKnown = totalRounds != null && totalRounds > 0;
+  const clockLabel = worldClock ? formatTime(worldClock.hour, worldClock.minute) : null;
 
   return (
     <div className={`player-hud ${compact ? "player-hud--compact" : ""}`}>
-      {!compact && worldClock && (
-        <div className="player-hud-chip" title="In-game time">
-          <span style={{ display: "inline-flex" }}>
-            {worldClock.hour >= 19 || worldClock.hour < 6 ? <MoonIcon /> : <SunIcon />}
-          </span>
-          <span>{formatTime(worldClock.hour, worldClock.minute)}</span>
+      {/* Replay provenance chip — the recorded round + the sim's own clock. */}
+      {DEMO_MODE && (
+        <div className="player-hud-chip player-hud-chip--recorded" title="A recorded simulation, replayed in your browser">
+          <span className="player-hud-recorded-dot" aria-hidden="true" />
+          <span>Recorded</span>
+          {roundKnown && <strong>Round {round ?? 0}/{totalRounds}</strong>}
+          {!compact && clockLabel && <span className="player-hud-chip-quiet">{clockLabel}</span>}
         </div>
       )}
 
-      {!compact && (
+      {!DEMO_MODE && !compact && worldClock && (
+        <div className="player-hud-chip" title="In-simulation time">
+          <span style={{ display: "inline-flex" }}>
+            {worldClock.hour >= 19 || worldClock.hour < 6 ? <MoonIcon /> : <SunIcon />}
+          </span>
+          <span>{clockLabel}</span>
+        </div>
+      )}
+
+      {!compact && !DEMO_MODE && (
         <WeatherWidget weather={weather} compact />
       )}
 
-      <div className="player-hud-chip player-hud-chip--met" title="Agents you've met">
-        <span>Met</span>
-        <strong>{total != null ? `${metCount} / ${total}` : metCount}</strong>
-      </div>
+      {hasPlayer && (
+        <div className="player-hud-chip player-hud-chip--met" title="Agents you've met">
+          <span>Met</span>
+          <strong>{total != null ? `${metCount} / ${total}` : metCount}</strong>
+        </div>
+      )}
 
-      <div className="player-hud-chip player-hud-chip--persuaded" title="Agents you have persuaded">
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <StarIcon /> Persuaded
-        </span>
-        <strong>{total != null ? `${persuadedCount} / ${total}` : persuadedCount}</strong>
-      </div>
+      {hasPlayer && (
+        <div className="player-hud-chip player-hud-chip--persuaded" title="Agents you have persuaded">
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <StarIcon /> Persuaded
+          </span>
+          <strong>{total != null ? `${persuadedCount} / ${total}` : persuadedCount}</strong>
+        </div>
+      )}
 
-      {!compact && days != null && (
-        <div className="player-hud-chip player-hud-chip--countdown" title="Decision-day countdown">
-          <span>{countdownLabel}</span>
-          <strong>{days}d</strong>
+      {!DEMO_MODE && !compact && decisionDate && (
+        <div className="player-hud-chip player-hud-chip--countdown" title={scen.scenario.dates?.prose || decisionLabel}>
+          <span>{decisionLabel}</span>
+          <strong>{decisionDate}</strong>
         </div>
       )}
     </div>

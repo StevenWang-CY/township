@@ -21,14 +21,14 @@ export function reducedMotion(): boolean {
 /* ── Dithered ground shadow ────────────────────────────────────────────── */
 
 /**
- * 36x12 three-tone dithered shadow ellipse built from 2x2 blocks, drawn at
- * final size so callers can keep using plain setScale(1) resets. Replaces
- * the old smooth vector ellipse under every character.
+ * 26x10 three-tone dithered shadow ellipse built from 2x2 blocks, drawn at
+ * final size so callers can keep using plain setScale(1) resets. Sized for
+ * the SPRITE_SCALE 1.6 body (~51 px tall, ~24 px wide at the shoulders).
  */
 export function ensureShadowTexture(scene: Phaser.Scene): string {
   const key = "px-shadow";
   if (scene.textures.exists(key)) return key;
-  const W = 36, H = 12, B = 2; // B = chunky block size
+  const W = 26, H = 10, B = 2; // B = chunky block size
   const canvas = scene.textures.createCanvas(key, W, H);
   if (!canvas) return key;
   const ctx = canvas.context;
@@ -69,17 +69,15 @@ export function ensureRingTextures(
   if (scene.textures.exists(keys[0])) return keys;
   const col = Phaser.Display.Color.HexStringToColor(color);
   // Hand-authored pixel ellipse (each cell = one 2x2 block → clean 2px line).
+  // Sized for the SPRITE_SCALE 1.6 body: 32x14 px sits just past the feet.
   const MASK = [
-    "........########........",
-    "....####........####....",
-    "..##................##..",
-    ".#....................#.",
-    "#......................#",
-    "#......................#",
-    ".#....................#.",
-    "..##................##..",
-    "....####........####....",
-    "........########........",
+    "....########....",
+    "..##........##..",
+    ".#............#.",
+    "#..............#",
+    ".#............#.",
+    "..##........##..",
+    "....########....",
   ];
   const W = MASK[0].length * 2, H = MASK.length * 2;
   for (let f = 0; f < 2; f++) {

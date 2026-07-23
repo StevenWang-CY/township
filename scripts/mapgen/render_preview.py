@@ -5,9 +5,9 @@ Draws every tile layer in TownScene's order, approximates anchor sprites
 with registry stamps (trees, lamps, flowers) so the preview matches what the
 running game will show, and can overlay faint landmark-name labels.
 
-Outputs ``frontend/public/assets/maps/<scenario>/<town>-preview.png`` (1200x800). The
-source is pixel art, so an upscaled duplicate adds repository and deployment
-weight without adding detail; consumers can scale this file losslessly.
+Outputs ``frontend/public/assets/maps/<scenario>/<town>-preview.png``
+(1200x800) plus a nearest-neighbour ``<town>-preview@2x.png`` for media and
+gallery use where consumers cannot force crisp pixel scaling themselves.
 
 Run:
     python3 -m scripts.mapgen.render_preview dover [--labels]
@@ -175,6 +175,9 @@ def render(town_id: str, scenario: str = "nj11-2026", labels: bool = False) -> P
     out1.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out1)
     print(f"wrote {out1}")
+    out2 = _asset_path(scenario, f"{town_id}-preview@2x.png")
+    canvas.resize((W * 2, H * 2), Image.NEAREST).save(out2)
+    print(f"wrote {out2}")
     return out1
 
 

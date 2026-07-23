@@ -19,15 +19,21 @@ import {
  * Frame 1 / 4 / 7 / 10  =  mid-stride "stand" pose per direction.
  */
 
-export const SPRITE_SCALE = 2.2;          // 32 × 2.2 ≈ 70 px display height
-export const FRAME_H = 32 * SPRITE_SCALE; // ~70 px – sprite top to feet
-export const SHADOW_Y = 4;                // px below feet (container y=0 = feet)
-export const LABEL_Y = 12;                // name tag below feet
-export const BUBBLE_TIP_Y = -(FRAME_H + 8); // speech-bubble pointer just above head
+/**
+ * Sprite proportion (Round 1.5 redesign): 2.2 made residents stand ~4.5
+ * tiles tall — buildings read as toys and every crowd shot was cluttered.
+ * 1.6 was picked from a side-by-side 1.4/1.6/1.8/2.2 study: characters read
+ * ~2.5-3 tiles tall, expressive but architecturally believable.
+ */
+export const SPRITE_SCALE = 1.6;          // 32 × 1.6 ≈ 51 px display height
+export const FRAME_H = 32 * SPRITE_SCALE; // ~51 px – sprite top to feet
+export const SHADOW_Y = 3;                // px below feet (container y=0 = feet)
+export const LABEL_Y = 10;                // name tag below feet
+export const BUBBLE_TIP_Y = -(FRAME_H + 6); // speech-bubble pointer just above head
 export const WALK_FPS = 9;
 export const IDLE_FRAMES: Record<string, number> = { down: 1, left: 4, right: 7, up: 10 };
 /** Default side-by-side offset for a couple's companion body (perpendicular to facing). */
-export const COMPANION_OFFSET = 18;
+export const COMPANION_OFFSET = 14;
 
 export type Direction = "down" | "left" | "right" | "up";
 export type GestureKind = "nod" | "shake_head" | "shrug" | "laugh" | "point" | "none";
@@ -127,6 +133,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   private currentActivity: AgentActivity = "idle";
   private reservedTarget: { x: number; y: number } | null = null;
+  /** Declutter state: "dot" collapses the name into a 4px marker. */
+  private labelMode: "full" | "dot" = "full";
+  private labelHover = false;
+  private labelDot?: Phaser.GameObjects.Container;
   private currentGesture: GestureKind = "none";
   private partnerInfo?: { name: string; tint: number };
   /** Companion body sprite for couple agents — a real second body that
@@ -265,7 +275,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.add(this.nameLabel);
 
     // ── Interaction ──────────────────────────────────────────
-    this.setSize(48, FRAME_H + LABEL_Y + 12);
+    this.setSize(38, FRAME_H + LABEL_Y + 10);
     if (this.ambient) {
       // Ambient NPCs: no interaction, no nameplate, no opinion ring.
       this.nameLabel.setVisible(false);
@@ -277,11 +287,16 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       // Hover: gentle lift, not a Back.easeOut overshoot. The earlier 1.1×
       // bounce felt twitchy during normal cursor passes.
       this.on("pointerover", () => {
+        // Hover always re-promotes a decluttered dot back to the full name.
+        this.labelHover = true;
+        this.applyLabelMode();
         if (this.isMoving) return;
         scene.tweens.add({ targets: this, scaleX: 1.05, scaleY: 1.05, duration: 130, ease: "Sine.easeOut" });
         this.nameLabel.setColor("#FFD700");
       });
       this.on("pointerout", () => {
+        this.labelHover = false;
+        this.applyLabelMode();
         scene.tweens.add({ targets: this, scaleX: 1, scaleY: 1, duration: 130, ease: "Sine.easeOut" });
         this.nameLabel.setColor("#ffffff");
       });
@@ -326,14 +341,39 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     return this.reservedTarget;
   }
 
-  /** Label declutter hooks (TownScene): stack a colliding pair into lanes. */
-  setLabelSlot(dy: number) {
-    this.nameLabel.setY(LABEL_Y + dy);
+  /**
+   * Label declutter (TownScene): in a cluster only the nearest-to-camera
+   * resident keeps a readable name; the rest fade to a 4px pixel dot until
+   * hover or player approach re-promotes them.
+   */
+  setLabelMode(mode: "full" | "dot") {
+    if (mode === this.labelMode && (mode === "full" || this.labelDot)) {
+      this.applyLabelMode();
+      return;
+    }
+    this.labelMode = mode;
+    this.applyLabelMode();
   }
 
-  /** Label declutter hooks (TownScene): hide labels merged into a crowd badge. */
-  setLabelVisible(visible: boolean) {
-    this.nameLabel.setVisible(visible && !this.ambient);
+  private applyLabelMode() {
+    if (this.ambient) return;
+    const full = this.labelHover || this.labelMode === "full";
+    this.nameLabel.setVisible(full);
+    if (full) {
+      this.labelDot?.setVisible(false);
+      return;
+    }
+    if (!this.labelDot) {
+      // 4px parchment dot with a 1px ink frame — a quiet "someone is here"
+      // marker that never collides with neighboring names.
+      const dot = this.scene.add.container(0, LABEL_Y + 4);
+      const frame = this.scene.add.rectangle(0, 0, 6, 6, 0x2c2416, 0.85);
+      const core = this.scene.add.rectangle(0, 0, 4, 4, 0xf5ead2, 0.95);
+      dot.add([frame, core]);
+      this.add(dot);
+      this.labelDot = dot;
+    }
+    this.labelDot.setVisible(true);
   }
 
   /** Gentle position correction from the overlap-resolver (never mid-walk). */
@@ -458,14 +498,14 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       fontStyle: emphasis ? "bold" : "normal",
       color: "#2c2416",
       align: "center",
-      wordWrap: { width: emphasis ? 176 : 150, useAdvancedWrap: true },
+      wordWrap: { width: emphasis ? 158 : 132, useAdvancedWrap: true },
       lineSpacing: 2,
       resolution: 3,
     });
     txt.setOrigin(0.5, 1);
 
-    const pad = emphasis ? 10 : 9;
-    const bw = Math.ceil(Math.max(txt.width + pad * 2, 55));
+    const pad = emphasis ? 9 : 8;
+    const bw = Math.ceil(Math.max(txt.width + pad * 2, 48));
     const bh = Math.ceil(txt.height + pad * 2);
     const camera = this.scene.cameras.main;
     const view = camera.worldView;
@@ -803,7 +843,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         // Blue glow ring under feet
         const ring = this.scene.add.graphics();
         ring.lineStyle(2, 0x3b5998, 0.85);
-        ring.strokeCircle(this.x, this.y + 4, 18);
+        ring.strokeCircle(this.x, this.y + 3, 14);
         this.scene.tweens.add({
           targets: ring,
           scaleX: 1.3, scaleY: 1.3, alpha: 0,
@@ -892,7 +932,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         playEmote(this.scene, "joy", this.x, this.y - FRAME_H * 0.5);
         break;
       case "point": {
-        const dx = { down: 0, left: -14, right: 14, up: 0 }[this.currentDirection];
+        const dx = { down: 0, left: -11, right: 11, up: 0 }[this.currentDirection];
         const dy = { down: 8, left: -FRAME_H * 0.5, right: -FRAME_H * 0.5, up: -FRAME_H * 0.7 }[this.currentDirection];
         const arrow = this.scene.add.graphics();
         arrow.fillStyle(0x4a7abf, 0.95);
@@ -927,21 +967,40 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     let ox: number;
     let oy: number;
     if (mode === "walk") {
-      // Behind = opposite the travel direction (slight lateral offset so the
-      // trailing body never hides fully behind the lead).
+      // Behind = opposite the travel direction. The trail distance must be a
+      // readable fraction of a body-length: at ±10px the two bodies fused
+      // into one dark garbled smear (the S5 bug). ~16px along the travel
+      // axis plus a lateral step keeps both silhouettes legible mid-walk.
       switch (dir) {
-        case "down":  ox = 9;   oy = -12; break;
-        case "up":    ox = -9;  oy = 12;  break;
-        case "left":  ox = 13;  oy = -3;  break;
-        case "right": ox = -13; oy = -3;  break;
+        case "down":  ox = 12;  oy = -19; break;
+        case "up":    ox = -12; oy = 19;  break;
+        case "left":  ox = 18;  oy = -4;  break;
+        case "right": ox = -18; oy = -4;  break;
       }
     } else {
-      // Side-by-side at rest, perpendicular to facing.
+      // Side-by-side at rest, perpendicular to facing. A hint of southward
+      // offset keeps the pair from sharing one exact baseline (which made
+      // their outlines fuse into a single blob at rest).
       switch (dir) {
-        case "down":  ox = COMPANION_OFFSET + 2;    oy = 0;  break;
-        case "up":    ox = -(COMPANION_OFFSET + 2); oy = 0;  break;
-        case "left":  ox = COMPANION_OFFSET - 2;    oy = -2; break;
-        case "right": ox = -(COMPANION_OFFSET - 2); oy = -2; break;
+        case "down":  ox = COMPANION_OFFSET + 2;    oy = 2;  break;
+        case "up":    ox = -(COMPANION_OFFSET + 2); oy = 2;  break;
+        case "left":  ox = COMPANION_OFFSET;        oy = -2; break;
+        case "right": ox = -COMPANION_OFFSET;       oy = -2; break;
+      }
+    }
+
+    // Painter's order INSIDE the container: a companion standing south of
+    // the lead must draw in front of it; north of it, behind. Leaving the
+    // companion permanently under the lead made the up-walk (companion
+    // trailing below) interleave the two bodies into a dark garbled smear.
+    if (this.bodySprite) {
+      const topLayer = this.accessorySprite ?? this.bodySprite;
+      if (oy > 0) {
+        if (this.getIndex(sprite) < this.getIndex(topLayer)) {
+          this.moveTo(sprite, this.getIndex(topLayer));
+        }
+      } else if (this.getIndex(sprite) > this.getIndex(this.bodySprite)) {
+        this.moveTo(sprite, this.getIndex(this.bodySprite));
       }
     }
     // Delayed target: ease the companion toward the new offset instead of
@@ -1192,13 +1251,13 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       // Draw three concentric layers
       // Outer halo
       this.proxGlow.lineStyle(4, civicBlue, 0.08);
-      this.proxGlow.strokeCircle(0, cy, 38);
+      this.proxGlow.strokeCircle(0, cy, 29);
       // Inner ring
       this.proxGlow.lineStyle(1.5, civicBlue, 0.25);
-      this.proxGlow.strokeCircle(0, cy, 28);
+      this.proxGlow.strokeCircle(0, cy, 21);
       // Soft radial fill
       this.proxGlow.fillStyle(civicBlue, 0.06);
-      this.proxGlow.fillCircle(0, cy, 30);
+      this.proxGlow.fillCircle(0, cy, 23);
 
       this.proxGlow.setAlpha(0);
 

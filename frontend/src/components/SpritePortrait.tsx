@@ -28,6 +28,40 @@ const FRAME_H = 32;
 const SHEET_COLS = 3; // Smallville: 3 frames per row
 const SHEET_ROWS = 4;
 
+/* Head crop: at sidebar sizes (28px) a full 32px body frame reads as a dark,
+ * samey smudge — the face is ~10px tall. Portraits now crop the HEAD rows of
+ * the down-facing frame, centered on the character's actual pixels (sheets
+ * place bodies anywhere from x=1 to x=6), over a warm parchment backdrop. */
+const HEAD_CROP = 21; // source px — head + a hint of shoulders
+
+/**
+ * Find the head crop rect inside one 32x32 frame by scanning its alpha:
+ * horizontally centered on the sprite's pixels, vertically anchored just
+ * above its top row. Falls back to a centered crop for blank frames.
+ */
+function headCropRect(
+  frame: CanvasRenderingContext2D,
+): { sx: number; sy: number; size: number } {
+  const { data } = frame.getImageData(0, 0, FRAME_W, FRAME_H);
+  let minX = FRAME_W, maxX = -1, minY = FRAME_H;
+  for (let y = 0; y < FRAME_H; y++) {
+    for (let x = 0; x < FRAME_W; x++) {
+      if (data[(y * FRAME_W + x) * 4 + 3] > 24) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+      }
+    }
+  }
+  if (maxX < 0) return { sx: (FRAME_W - HEAD_CROP) / 2, sy: 2, size: HEAD_CROP };
+  const centerX = (minX + maxX + 1) / 2;
+  const sx = Math.max(0, Math.min(FRAME_W - HEAD_CROP, Math.round(centerX - HEAD_CROP / 2)));
+  // Anchor at the hair's top row: tall Smallville hairstyles put the face
+  // low in the frame, so the window must reach the mouth, not just the brow.
+  const sy = Math.max(0, Math.min(FRAME_H - HEAD_CROP, minY));
+  return { sx, sy, size: HEAD_CROP };
+}
+
 function bodyAssetPath(key: string): string {
   if (key.startsWith("char-custom-")) {
     return `assets/characters/custom/${key.slice("char-custom-".length)}_custom.png`;
@@ -103,14 +137,25 @@ export default function SpritePortrait({
           % (SHEET_COLS * SHEET_ROWS);
         const col = safeFrame % SHEET_COLS;
         const row = Math.floor(safeFrame / SHEET_COLS);
-        const sx = col * FRAME_W;
-        const sy = row * FRAME_H;
+        const frameX = col * FRAME_W;
+        const frameY = row * FRAME_H;
+
+        // Composite body + accessory at native resolution first, so the head
+        // scan sees the finished character (hijab/cap pixels included).
+        const composite = document.createElement("canvas");
+        composite.width = FRAME_W;
+        composite.height = FRAME_H;
+        const cctx = composite.getContext("2d");
+        if (!cctx) return;
+        cctx.imageSmoothingEnabled = false;
+        cctx.drawImage(body, frameX, frameY, FRAME_W, FRAME_H, 0, 0, FRAME_W, FRAME_H);
+        if (overlay) {
+          cctx.drawImage(overlay, frameX, frameY, FRAME_W, FRAME_H, 0, 0, FRAME_W, FRAME_H);
+        }
+        const { sx, sy, size: cropSize } = headCropRect(cctx);
 
         ctx.clearRect(0, 0, size, size);
-        ctx.drawImage(body, sx, sy, FRAME_W, FRAME_H, 0, 0, size, size);
-        if (overlay) {
-          ctx.drawImage(overlay, sx, sy, FRAME_W, FRAME_H, 0, 0, size, size);
-        }
+        ctx.drawImage(composite, sx, sy, cropSize, cropSize, 0, 0, size, size);
         setLoaded(true);
       })
       .catch(() => {
@@ -143,8 +188,14 @@ export default function SpritePortrait({
         width: size,
         height: size,
         borderRadius: isPixel ? undefined : "50%",
-        background: color,
+        // Warm parchment backdrop behind the transparent sprite — faces read
+        // bright at 28px. The colored initials tile only appears on failure.
+        background: failed
+          ? color
+          : "radial-gradient(140% 120% at 32% 24%, #FBF2DD 0%, #F1E2C2 58%, #E4CFA4 100%)",
         border: ringColor ? `2px solid ${ringColor}` : undefined,
+        // Inner hairline keeps the opinion ring crisp against the parchment.
+        boxShadow: ringColor ? "inset 0 0 0 1px rgba(255,252,244,0.85)" : undefined,
         overflow: "hidden",
         display: "flex",
         alignItems: "center",
@@ -174,7 +225,7 @@ export default function SpritePortrait({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "var(--text-on-accent)",
+            color: failed ? "var(--text-on-accent)" : "rgba(120,100,70,0.55)",
             fontFamily: "var(--font-display)",
             fontWeight: 700,
             fontSize: size * 0.36,

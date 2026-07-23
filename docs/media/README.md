@@ -11,7 +11,7 @@ make capture-media
 
 | Artifact | Purpose |
 |---|---|
-| [`hero.gif`](hero.gif) | README opening sequence inside the living town: residents out at golden hour, two neighbors meeting to talk it over, then dusk and a lamplit night |
+| [`hero.gif`](hero.gif) | README opening sequence, canvas-only: the town overview with residents mid-routine, one conversation beat, then dusk-to-night as windows and lamps come on |
 | [`social-preview.png`](social-preview.png) | 1280×640 repository/social card composed from the real town renderer |
 | [`demo-player/`](demo-player/) | Map, replay, timeline, final dashboard, and God's View product surfaces |
 | [`scene/`](scene/) | Reproducible day/night scene coverage for every shipped town |

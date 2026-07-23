@@ -44,7 +44,7 @@ def _stable_seed(label: str) -> int:
 T = 16
 MODERN_FIRSTGID = 10001
 MODERN_COLUMNS = 10
-MODERN_ROWS = 6
+MODERN_ROWS = 11
 MODERN_TILECOUNT = MODERN_COLUMNS * MODERN_ROWS
 MODERN_IMAGE = "frontend/public/assets/tilesets/township-modern.png"
 
@@ -117,6 +117,42 @@ IDS: dict[str, int] = {
     "rail_x": 56,  # track embedded in asphalt (level crossing)
 }
 
+#: rows 6-8 — pitched shingle-roof kit, one row per colorway. Each row is
+#: ridge / slope / eave strips with gable-end (l/r) and tileable middle (m)
+#: tiles; ridge caps the top, slope rows repeat vertically, the eave row
+#: closes the bottom with an overhang shadow.
+SHINGLE_COLORWAYS = ("terracotta", "slate", "cedar")
+_SHINGLE_PARTS = ("ridge", "slope", "eave")
+for _i, _cw in enumerate(SHINGLE_COLORWAYS):
+    for _j, _part in enumerate(_SHINGLE_PARTS):
+        for _k, _side in enumerate(("l", "m", "r")):
+            IDS[f"shg_{_cw}_{_part}_{_side}"] = 60 + _i * 10 + _j * 3 + _k
+
+#: rows 9-10 — chrome-diner kit (rounded chrome band, DINER signboard, big
+#: window band, ribbed stainless walls, glass door) + colonial 2x2 window
+#: with slate-blue shutters (drops onto the cream facade).
+for _j, _n in enumerate(
+    (
+        "diner_roof_l",
+        "diner_roof_m",
+        "diner_roof_r",
+        "diner_sign_a",
+        "diner_sign_b",
+        "diner_trim",
+        "diner_win_l",
+        "diner_win_m",
+        "diner_win_r",
+        "diner_wall",
+        "diner_door_t",
+        "diner_door_b",
+        "swin_tl",
+        "swin_tr",
+        "swin_bl",
+        "swin_br",
+    )
+):
+    IDS[_n] = 90 + _j
+
 
 def mg(name: str) -> int:
     """Absolute GID of a modern tile."""
@@ -164,6 +200,60 @@ BUS_SIGN = TileStamp("bus_sign", ((mg("bus_sign_top"),), (mg("bus_sign_bot"),)))
 #: 2x2 sash window on TRANSPARENT background — unlike the rpg tileset's
 #: WINDOW_TEAL (which has grass baked around it), this drops onto any facade.
 WINDOW = TileStamp("window_modern", ((mg("win_tl"), mg("win_tr")), (mg("win_bl"), mg("win_br"))))
+
+#: 2x2 colonial sash window with slate-blue shutters, cream surround —
+#: fully opaque, designed for the cream clapboard facade.
+SHUTTER_WINDOW = TileStamp(
+    "window_shutter", ((mg("swin_tl"), mg("swin_tr")), (mg("swin_bl"), mg("swin_br")))
+)
+
+#: 1x2 chrome-framed glass diner door.
+DINER_DOOR = TileStamp("diner_door", ((mg("diner_door_t"),), (mg("diner_door_b"),)))
+
+#: 2x1 "DINER" letterboard (red panel, chrome edging); flank with
+#: ``diner_trim`` tiles to span a wider frontage.
+DINER_SIGN = TileStamp("diner_sign", ((mg("diner_sign_a"), mg("diner_sign_b")),))
+
+
+def shingle_stamp(colorway: str, w: int, h: int) -> TileStamp:
+    """Pitched shingle roof, ``w x h`` tiles (both >= 2): ridge row on top,
+    tileable slope rows, eave row with an overhang shadow at the bottom;
+    gable-end trim closes the left/right edges."""
+    if colorway not in SHINGLE_COLORWAYS:
+        raise ValueError(f"unknown shingle colorway: {colorway!r}")
+    if w < 2 or h < 2:
+        raise ValueError("shingle roofs need w >= 2 and h >= 2")
+
+    def row(part: str) -> tuple[int, ...]:
+        return (
+            mg(f"shg_{colorway}_{part}_l"),
+            *([mg(f"shg_{colorway}_{part}_m")] * (w - 2)),
+            mg(f"shg_{colorway}_{part}_r"),
+        )
+
+    rows = (row("ridge"), *(row("slope") for _ in range(h - 2)), row("eave"))
+    return TileStamp(f"shingle_{colorway}_{w}x{h}", rows)
+
+
+def diner_row(kind: str, w: int) -> tuple[int, ...]:
+    """One w-wide course of the diner kit: ``roof`` (rounded chrome band),
+    ``sign`` (trim with the DINER board centered), ``window`` (big glass
+    band) or ``wall`` (ribbed stainless)."""
+    if w < 4:
+        raise ValueError("the diner kit needs w >= 4")
+    if kind == "roof":
+        return (mg("diner_roof_l"), *([mg("diner_roof_m")] * (w - 2)), mg("diner_roof_r"))
+    if kind == "window":
+        return (mg("diner_win_l"), *([mg("diner_win_m")] * (w - 2)), mg("diner_win_r"))
+    if kind == "wall":
+        return tuple([mg("diner_wall")] * w)
+    if kind == "sign":
+        lo = (w - 2) // 2
+        row = [mg("diner_trim")] * w
+        row[lo] = mg("diner_sign_a")
+        row[lo + 1] = mg("diner_sign_b")
+        return tuple(row)
+    raise ValueError(f"unknown diner course: {kind!r}")
 
 MODERN_SINGLES: dict[str, int] = {
     n: mg(n)
@@ -250,6 +340,44 @@ B2 = (148, 162, 163)
 B3 = (108, 108, 132)
 BSPECK = (167, 186, 185)
 SHADOW = (30, 26, 22, 70)  # kept semi-transparent, not quantized
+
+# shingle colorways: hi (course top-light) / base / dark (stagger speck) /
+# line (course separation). Intent colors sit near real rpg-palette entries
+# (terracotta near the brick facade, slate near the stone pad) so
+# quantization keeps the ramps distinct.
+SHINGLE_TONES: dict[str, dict[str, tuple[int, int, int]]] = {
+    "terracotta": {
+        "hi": (206, 130, 82),
+        "base": (183, 98, 62),
+        "dark": (150, 74, 58),
+        "line": (114, 56, 52),
+    },
+    "slate": {
+        "hi": (134, 148, 170),
+        "base": (95, 109, 128),
+        "dark": (66, 74, 92),
+        "line": (46, 46, 58),
+    },
+    "cedar": {
+        "hi": (176, 133, 88),
+        "base": (133, 97, 67),
+        "dark": (98, 69, 52),
+        "line": (64, 46, 42),
+    },
+}
+GABLE_TRIM = (229, 218, 195)  # cream fascia board on the gable ends
+
+# chrome-diner metals
+CHR_HI = (224, 228, 232)
+CHR = (186, 190, 198)
+CHR_MID = (156, 160, 170)
+CHR_DK = (118, 124, 134)
+DINER_RED = (186, 44, 52)
+DINER_RED_D = (140, 26, 40)
+CREAM_WALL = (241, 202, 158)  # matches the rpg cream facade fill
+CREAM_WALL_D = (227, 169, 125)
+SHUTTER_BLUE = (95, 109, 128)
+SHUTTER_BLUE_D = (66, 76, 94)
 
 
 def _load_palette() -> list[tuple[int, int, int]]:
@@ -833,6 +961,290 @@ def _draw_tiles() -> dict[int, object]:
 
     make("bollard", bollard)
 
+    # --- pitched shingle-roof kit (3 colorways x ridge/slope/eave x l/m/r) --
+    def _shingle_field(p: Painter, t: dict, y0: int, y1: int, phase: int = 0) -> None:
+        """Shingle courses: 4 px per course (highlight, 2x base, dark line),
+        vertical joints every 8 px staggered half a shingle per course. The
+        pattern's vertical period is 16 px, so slope tiles stack seamlessly."""
+        for y in range(y0, y1 + 1):
+            yy = y - y0 + phase
+            cy = yy % 4
+            course = yy // 4
+            joint = 0 if course % 2 == 0 else 4
+            for x in range(T):
+                at_joint = (x + joint) % 8 == 0
+                if cy == 0:
+                    # notch the course highlight at every shingle joint so
+                    # individual shingles read, not just horizontal stripes
+                    c = t["base"] if at_joint else t["hi"]
+                elif cy == 3:
+                    c = t["line"]
+                else:
+                    c = t["dark"] if at_joint else t["base"]
+                p.px(x, y, c)
+
+    def _ridge_cap(p: Painter, t: dict) -> None:
+        for x in range(T):
+            p.px(x, 0, K)
+            p.px(x, 1, t["hi"])
+            p.px(x, 2, t["base"])
+            p.px(x, 3, t["line"])
+        # phase 4 => the field below the cap ends on an odd course, so a
+        # slope tile placed underneath continues the half-shingle stagger
+        _shingle_field(p, t, 4, 15, phase=4)
+
+    def _eave_rows(p: Painter, t: dict) -> None:
+        _shingle_field(p, t, 0, 11)
+        for x in range(T):
+            p.px(x, 12, t["base"])
+            p.px(x, 13, t["dark"])
+            p.px(x, 14, t["line"])
+            p.px(x, 15, K)
+
+    def _gable(p: Painter, side: str) -> None:
+        xo, xt = (0, 1) if side == "l" else (15, 14)
+        for y in range(T):
+            p.px(xt, y, GABLE_TRIM)
+            p.px(xo, y, K)
+
+    for cw in SHINGLE_COLORWAYS:
+        tones = SHINGLE_TONES[cw]
+        for part in _SHINGLE_PARTS:
+            for side in ("l", "m", "r"):
+
+                def f(p, t=tones, part=part, side=side):
+                    if part == "ridge":
+                        _ridge_cap(p, t)
+                    elif part == "eave":
+                        _eave_rows(p, t)
+                    else:
+                        _shingle_field(p, t, 0, 15)
+                    if side in ("l", "r"):
+                        _gable(p, side)
+                        if part == "ridge":
+                            for x in range(T):
+                                p.px(x, 0, K)
+                        if part == "eave":
+                            for x in range(T):
+                                p.px(x, 15, K)
+
+                make(f"shg_{cw}_{part}_{side}", f)
+
+    # --- chrome-diner kit ---------------------------------------------------
+    def _chrome_band(p: Painter) -> None:
+        rows = (
+            K,
+            CHR_HI,
+            CHR_HI,
+            CHR,
+            WHITE,
+            WHITE,
+            CHR,
+            CHR,
+            CHR_MID,
+            CHR_MID,
+            CHR,
+            CHR_MID,
+            CHR_DK,
+            CHR_DK,
+            CHR_MID,
+            K,
+        )
+        for y, c in enumerate(rows):
+            for x in range(T):
+                p.px(x, y, c)
+        for x in (2, 6, 10, 14):  # rivets on the lower band
+            p.px(x, 12, CHR_HI)
+
+    def diner_roof_m(p):
+        _chrome_band(p)
+
+    make("diner_roof_m", diner_roof_m)
+
+    def _diner_roof_end(p, side: str) -> None:
+        _chrome_band(p)
+        _round_cut(p, "nw" if side == "l" else "ne", r=5)
+        xo = 0 if side == "l" else 15
+        for y in range(5, T):
+            p.px(xo, y, K)
+
+    make("diner_roof_l", lambda p: _diner_roof_end(p, "l"))
+    make("diner_roof_r", lambda p: _diner_roof_end(p, "r"))
+
+    def _sign_panel(p: Painter) -> None:
+        rows = (
+            K,
+            CHR_HI,
+            CHR_MID,
+            DINER_RED,
+            DINER_RED,
+            DINER_RED,
+            DINER_RED,
+            DINER_RED,
+            DINER_RED,
+            DINER_RED,
+            DINER_RED,
+            DINER_RED_D,
+            DINER_RED_D,
+            CHR_MID,
+            CHR_DK,
+            K,
+        )
+        for y, c in enumerate(rows):
+            for x in range(T):
+                p.px(x, y, c)
+
+    make("diner_trim", _sign_panel)
+
+    # DINER letterboard drawn across a 32x16 pair, 5x7 px letters
+    _FONT = {
+        "D": ("XXXX.", "X...X", "X...X", "X...X", "X...X", "X...X", "XXXX."),
+        "I": ("XXXXX", "..X..", "..X..", "..X..", "..X..", "..X..", "XXXXX"),
+        "N": ("X...X", "XX..X", "XX..X", "X.X.X", "X..XX", "X..XX", "X...X"),
+        "E": ("XXXXX", "X....", "X....", "XXXX.", "X....", "X....", "XXXXX"),
+        "R": ("XXXX.", "X...X", "X...X", "XXXX.", "X.X..", "X..X.", "X...X"),
+    }
+
+    def _diner_sign_tiles():
+        from PIL import Image
+
+        big = Image.new("RGBA", (32, 16), (0, 0, 0, 0))
+        pa, pb = Painter(), Painter()
+        _sign_panel(pa)
+        _sign_panel(pb)
+        big.alpha_composite(pa.img, (0, 0))
+        big.alpha_composite(pb.img, (16, 0))
+        for li, ch in enumerate("DINER"):
+            x0 = 2 + li * 6
+            for gy, rowbits in enumerate(_FONT[ch]):
+                for gx, bit in enumerate(rowbits):
+                    if bit == "X":
+                        big.putpixel((x0 + gx, 4 + gy), (*WHITE, 255))
+        return {"diner_sign_a": big.crop((0, 0, 16, 16)), "diner_sign_b": big.crop((16, 0, 32, 16))}
+
+    for name, img in _diner_sign_tiles().items():
+        tiles_out[IDS[name]] = img
+
+    def _diner_window(p: Painter, side: str = "m") -> None:
+        # stainless header, chrome-framed glass band, red skirt stripe
+        for x in range(T):
+            p.px(x, 0, CHR_HI)
+            p.px(x, 1, CHR)
+            p.px(x, 2, K)
+            for y in range(3, 12):
+                p.px(x, y, TEAL if y < 10 else TEAL_D)
+            p.px(x, 12, K)
+            p.px(x, 13, DINER_RED)
+            p.px(x, 14, DINER_RED_D)
+            p.px(x, 15, K)
+        if side == "m":
+            for y in range(3, 12):  # slim mullion between panes
+                p.px(0, y, CHR_MID)
+        for i in range(5):  # sparkle
+            p.px(3 + i, 8 - i, WHITE)
+            p.px(4 + i, 8 - i, WHITE)
+        if side in ("l", "r"):
+            xo, xt = (0, 1) if side == "l" else (15, 14)
+            for y in range(T):
+                p.px(xt, y, CHR)
+                p.px(xo, y, K)
+
+    make("diner_win_m", lambda p: _diner_window(p, "m"))
+    make("diner_win_l", lambda p: _diner_window(p, "l"))
+    make("diner_win_r", lambda p: _diner_window(p, "r"))
+
+    def diner_wall(p):
+        # smooth stainless panels: 8 px sheets with a soft top sheen and a
+        # thin seam line — quiet, so the windows and sign carry the facade
+        for y in range(T):
+            m8 = y % 8
+            c = CHR_HI if m8 in (1, 2) else (CHR_MID if m8 == 7 else CHR)
+            for x in range(T):
+                p.px(x, y, c)
+
+    make("diner_wall", diner_wall)
+
+    def _diner_door(p: Painter, half: str) -> None:
+        diner_wall(p)
+        if half == "t":
+            for x in range(3, 13):
+                p.px(x, 2, K)
+            for y in range(3, 16):
+                p.px(3, y, K)
+                p.px(12, y, K)
+                p.px(4, y, CHR)
+                p.px(11, y, CHR)
+                for x in range(5, 11):
+                    p.px(x, y, TEAL)
+            for i in range(3):
+                p.px(6 + i, 6 - i, WHITE)
+        else:
+            for y in range(0, 10):
+                p.px(3, y, K)
+                p.px(12, y, K)
+                p.px(4, y, CHR)
+                p.px(11, y, CHR)
+                for x in range(5, 11):
+                    p.px(x, y, TEAL if y < 4 else CHR_MID)
+            p.px(10, 2, K)  # handle
+            p.px(10, 3, K)
+            for x in range(3, 13):
+                p.px(x, 10, K)
+            for x in range(2, 14):  # doorstep
+                p.px(x, 12, CHR_MID)
+                p.px(x, 13, CHR_DK)
+
+    make("diner_door_t", lambda p: _diner_door(p, "t"))
+    make("diner_door_b", lambda p: _diner_door(p, "b"))
+
+    # --- colonial shutter window (2x2, opaque, cream surround) -------------
+    def _shutter_quadrants():
+        from PIL import Image
+
+        big = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+
+        def wpx(x, y, c):
+            if 0 <= x < 32 and 0 <= y < 32:
+                big.putpixel((x, y), c if len(c) == 4 else (*c, 255))
+
+        def wrect(x0, y0, x1, y1, c):
+            for y in range(y0, y1 + 1):
+                for x in range(x0, x1 + 1):
+                    wpx(x, y, c)
+
+        # cream clapboard surround with faint siding lines
+        wrect(0, 0, 31, 31, CREAM_WALL)
+        for y in (5, 13, 21, 29):
+            wrect(0, y, 31, y, CREAM_WALL_D)
+        # shutters: louvered slate-blue panels
+        for sx in (2, 25):
+            wrect(sx - 1, 2, sx + 5, 26, K)
+            wrect(sx, 3, sx + 4, 25, SHUTTER_BLUE)
+            for ly in range(5, 25, 3):
+                wrect(sx, ly, sx + 4, ly, SHUTTER_BLUE_D)
+        # sash window: white frame, four panes
+        wrect(8, 2, 23, 26, K)
+        wrect(9, 3, 22, 25, WHITE)
+        wrect(10, 4, 21, 24, TEAL)
+        wrect(10, 22, 21, 24, TEAL_D)
+        wrect(15, 4, 16, 24, WHITE)
+        wrect(10, 13, 21, 14, WHITE)
+        for i in range(4):  # sparkle in the upper-left pane
+            wpx(11 + i, 9 - i, WHITE)
+            wpx(12 + i, 9 - i, WHITE)
+        # sill
+        wrect(6, 27, 25, 28, GABLE_TRIM)
+        wrect(6, 29, 25, 29, CJOINT)
+        return {
+            "swin_tl": big.crop((0, 0, 16, 16)),
+            "swin_tr": big.crop((16, 0, 32, 16)),
+            "swin_bl": big.crop((0, 16, 16, 32)),
+            "swin_br": big.crop((16, 16, 32, 32)),
+        }
+
+    for name, img in _shutter_quadrants().items():
+        tiles_out[IDS[name]] = img
+
     return tiles_out
 
 
@@ -946,8 +1358,69 @@ def _render_contact_sheet(sheet) -> None:
     stamp_on(scene, R.SIGNS_STANDING[2], 10, 8)
     scene_z = scene.resize((scene.width * Z, scene.height * Z), Image.NEAREST)
 
-    W = max(per_row * cell + 20, scene_z.width + 20)
-    H = grid_h + scene_z.height + 70
+    # -- part 3: building strip — new roofs/diner next to rpg-tileset houses
+    bw, bh = 46, 9
+    bscene = Image.new("RGBA", (bw * T, bh * T))
+    brng = random.Random(9)
+    for y in range(bh):
+        for x in range(bw):
+            bscene.alpha_composite(any_tile(brng.choice(R.GRASS.fill)), (x * T, y * T))
+
+    def put(g: int, tx: int, ty: int) -> None:
+        bscene.alpha_composite(any_tile(g), (tx * T, ty * T))
+
+    def put_stamp(stamp, tx: int, ty: int) -> None:
+        for r, c, g in stamp.cells():
+            put(g, tx + c, ty + r)
+
+    def _pad(stamp, w: int, h: int):
+        rows_ = stamp.gids
+        Hs, Ws = len(rows_), len(rows_[0])
+        cols = [0] + [1 + i % (Ws - 2) for i in range(max(0, w - 2))] + ([Ws - 1] if w > 1 else [])
+        rws = [0] + [1 + i % (Hs - 2) for i in range(max(0, h - 2))] + ([Hs - 1] if h > 1 else [])
+        return TileStamp(f"{stamp.name}_{w}x{h}", tuple(tuple(rows_[r][c] for c in cols) for r in rws))
+
+    def wall_rows(stamp, w: int, rows: list[int]) -> list[list[int]]:
+        cols = [0] + [5 + (i % 2) for i in range(w - 2)] + [stamp.w - 1]
+        return [[stamp.gids[r][c] for c in cols] for r in rows]
+
+    def put_rows(rows: list[list[int]], tx: int, ty: int) -> None:
+        for r, row in enumerate(rows):
+            for c, g in enumerate(row):
+                if g:
+                    put(g, tx + c, ty + r)
+
+    # A) OLD language for comparison: dark deck pad over a brick front
+    put_stamp(_pad(R.DECK_DARK, 7, 3), 1, 1)
+    put_rows(wall_rows(R.FACADE_BRICK, 7, [3, 4, 5]), 1, 4)
+    put_stamp(R.DOOR_WOOD, 3, 5)
+    # B) colonial: terracotta shingles + cream front + shutters + door
+    put_stamp(shingle_stamp("terracotta", 8, 3), 9, 1)
+    put_rows(wall_rows(R.FACADE_CREAM, 8, [2, 3, 4, 5]), 9, 4)
+    put_stamp(SHUTTER_WINDOW, 10, 4)
+    put_stamp(SHUTTER_WINDOW, 14, 4)
+    put_stamp(R.DOOR_WOOD, 12, 6)
+    # C) colonial, slate colorway
+    put_stamp(shingle_stamp("slate", 8, 4), 18, 0)
+    put_rows(wall_rows(R.FACADE_CREAM, 8, [2, 3, 4, 5]), 18, 4)
+    put_stamp(SHUTTER_WINDOW, 19, 4)
+    put_stamp(SHUTTER_WINDOW, 23, 4)
+    put_stamp(R.DOOR_WOOD, 21, 6)
+    # D) tudor boutique: cedar shingles + timber band + red door + window
+    put_stamp(shingle_stamp("cedar", 7, 3), 27, 1)
+    put_stamp(_pad(R.WALL_TIMBER_BAND, 7, 2), 27, 4)
+    put_rows(wall_rows(R.FACADE_CREAM, 7, [4, 5]), 27, 6)
+    put_stamp(R.DOOR_RED, 29, 6)
+    put_stamp(WINDOW, 31, 6)
+    # E) chrome diner
+    for r, kind in enumerate(("roof", "sign", "window", "wall", "wall")):
+        for c, g in enumerate(diner_row(kind, 9)):
+            put(g, 36 + c, 1 + r)
+    put_stamp(DINER_DOOR, 40, 4)
+    bscene_z = bscene.resize((bscene.width * Z, bscene.height * Z), Image.NEAREST)
+
+    W = max(per_row * cell + 20, scene_z.width + 20, bscene_z.width + 20)
+    H = grid_h + scene_z.height + bscene_z.height + 110
     out = Image.new("RGBA", (W, H), (24, 26, 32, 255))
     draw = ImageDraw.Draw(out)
     draw.text((10, 4), "TOWNSHIP-MODERN TILES (quantized to rpg palette)", fill=(255, 200, 80))
@@ -966,6 +1439,13 @@ def _render_contact_sheet(sheet) -> None:
         (10, y_strip), "INTEGRATION STRIP (modern + registry side by side)", fill=(255, 200, 80)
     )
     out.alpha_composite(scene_z, (10, y_strip + 16))
+    y_b = y_strip + 16 + scene_z.height + 8
+    draw.text(
+        (10, y_b),
+        "BUILDING STRIP (old deck roof | colonials | tudor | diner)",
+        fill=(255, 200, 80),
+    )
+    out.alpha_composite(bscene_z, (10, y_b + 16))
     SHEET_PATH.parent.mkdir(parents=True, exist_ok=True)
     out.save(SHEET_PATH)
     print(f"wrote {SHEET_PATH}")

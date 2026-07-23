@@ -161,11 +161,11 @@ export default function DemoTimeline() {
 
   return (
     <div className="demo-timeline pixel-frame" role="group" aria-label="Replay timeline">
-      {/* LIVE REPLAY badge */}
+      {/* RECORDED REPLAY badge — same provenance language as the HUD chip */}
       <div className="demo-timeline-badge" title={scen.title}>
         <span className="demo-timeline-badge-dot" aria-hidden="true" />
         <span className="demo-timeline-badge-text">
-          Live replay · <em>{scen.title}</em>
+          Recorded replay · <em>{scen.title}</em>
         </span>
       </div>
 

@@ -131,11 +131,18 @@ FACADES: dict[str, tuple[TileStamp, list[int], tuple[int, int] | None]] = {
     "stone_small": (R.FACADE_STONE_SMALL, [1, 2], None),
 }
 
-ROOFS: dict[str, TileStamp] = {
-    "deck_dark": R.DECK_DARK,
-    "deck_light": R.DECK_LIGHT,
-    "stone": R.STONE_PAD_DARK,
-}
+#: Legacy deck-roof names map onto shingle colorways so every layout
+#: inherits the pitched-roof language without editing each call site.
+SHINGLE_ALIASES = {"deck_dark": "slate", "deck_light": "cedar"}
+
+
+def roof_stamp(name: str, w: int, h: int) -> TileStamp:
+    """A building roof: pitched shingles by colorway (``terracotta`` /
+    ``slate`` / ``cedar``, with the legacy deck names aliased onto
+    colorways), or the flat ``stone`` pad kept for civic buildings."""
+    if name == "stone":
+        return pad_stamp(R.STONE_PAD_DARK, w, h)
+    return M.shingle_stamp(SHINGLE_ALIASES.get(name, name), w, h)
 
 
 def facade_wall(
@@ -552,11 +559,13 @@ def storefront(
     Total footprint w x h, door on the south wall. h >= 6 reads best."""
     m.reserve(x, y - 1, w, h + 1)
     roof_h = max(2, h - 3)
-    m.stamp("buildings-top", pad_stamp(ROOFS[roof], w, roof_h), x, y)
+    m.stamp("buildings-top", roof_stamp(roof, w, roof_h), x, y)
     wall = facade_wall(facade, w, rows=[3, 4, 5])
     m.stamp("buildings-base", wall, x, y + roof_h)
     dd = door_dx if door_dx is not None else (w - 2) // 2
-    m.stamp("buildings-base", R.DOOR_WOOD, x + dd, y + roof_h + 1)
+    # top_rows=1: the door art has transparent margins on its top row, so
+    # overlay it on buildings-top and keep the wall tile behind it
+    m.building_stamp(R.DOOR_WOOD, x + dd, y + roof_h + 1, top_rows=1)
     if window:
         for wx in [x + 1] if w < 7 else [x + 1, x + w - 3]:
             if not (wx <= x + dd + 1 and x + dd <= wx + 1):
@@ -587,13 +596,13 @@ def grand(
     m.reserve(x, y - 1, w, h + 1)
     roof_h = h - 6
     if roof_h > 0:
-        m.stamp("buildings-top", pad_stamp(ROOFS[roof], w, roof_h + 1), x, y)
+        m.stamp("buildings-top", roof_stamp(roof, w, roof_h + 1), x, y)
     wall = facade_wall(facade, w, with_arch=True)
     m.building_stamp(wall, x, y + roof_h, top_rows=1)
     _, _, arch = FACADES[facade]
     if arch is None and door:
         ds = R.DOOR_METAL if door == "metal" else R.DOOR_WOOD
-        m.stamp("buildings-base", ds, x + (w - 2) // 2, y + roof_h + 4)
+        m.building_stamp(ds, x + (w - 2) // 2, y + roof_h + 4, top_rows=1)
     aw = (arch[1] - arch[0] + 1) if arch else 0
     if banners and w >= 7 and aw:
         lo = x + (w - aw) // 2 - 1
@@ -606,13 +615,30 @@ def grand(
 
 
 def cottage(m: MapCanvas, x: int, y: int, w: int = 6, h: int = 8, roof: str = "deck_light") -> None:
-    """Small cream house: light deck roof over the full arched cream facade.
-    Footprint w x h, h >= 7; w >= 6 keeps the arch."""
+    """Colonial house: pitched shingle roof over a cream clapboard front —
+    paired shutter windows upstairs, centered door below. Footprint w x h,
+    h >= 6, w >= 6 keeps the paired windows."""
     m.reserve(x, y - 1, w, h + 1)
-    roof_h = max(2, h - 6)
-    m.stamp("buildings-top", pad_stamp(ROOFS[roof], w, roof_h + 1), x, y)
-    wall = facade_wall("cream", w, with_arch=True)
-    m.building_stamp(wall, x, y + roof_h, top_rows=1)
+    roof_h = max(2, h - 4)
+    m.stamp("buildings-top", roof_stamp(roof, w, roof_h), x, y)
+    m.stamp("buildings-base", facade_wall("cream", w, rows=[2, 3, 4, 5]), x, y + roof_h)
+    for wx in [x + 1, x + w - 3] if w >= 6 else [x + (w - 2) // 2]:
+        m.stamp("buildings-base", M.SHUTTER_WINDOW, wx, y + roof_h)
+    m.building_stamp(R.DOOR_WOOD, x + (w - 2) // 2, y + roof_h + 2, top_rows=1)
+    m.collide(x, y, w, h)
+
+
+def diner(m: MapCanvas, x: int, y: int, w: int, h: int = 6, door_dx: int | None = None) -> None:
+    """Roadside chrome diner: rounded chrome band + DINER letterboard +
+    big glass window band + stainless walls with a glass door. Footprint
+    w x h, w >= 4, h >= 5."""
+    m.reserve(x, y - 1, w, h + 1)
+    for r, kind in enumerate(["roof", "sign", "window"] + ["wall"] * (h - 3)):
+        layer = "buildings-top" if r < 2 else "buildings-base"
+        for c, g in enumerate(M.diner_row(kind, w)):
+            m.set(layer, x + c, y + r, g)
+    dd = door_dx if door_dx is not None else (w - 1) // 2
+    m.stamp("buildings-base", M.DINER_DOOR, x + dd, y + h - 2)
     m.collide(x, y, w, h)
 
 

@@ -68,6 +68,11 @@ async function fetchTownData(townId: TownId): Promise<TownData | null> {
 }
 
 // Generic fallback idle thoughts (used until per-agent banks are wired).
+/** Minimum open ground between a wander/spawn target and any other body —
+ *  ~3 tiles, so idle residents hold conversational distance instead of
+ *  stacking into one label pile. */
+const WANDER_CLEARANCE = 48;
+
 const IDLE_THOUGHTS = [
   "I should read the full proposal.",
   "There are real tradeoffs here.",
@@ -118,6 +123,8 @@ export class TownScene extends Phaser.Scene {
   private landmarkLabelTexts: Phaser.GameObjects.Text[] = [];
   private townDataResolved = false;
   private playerSpawnPending: UserProfile | null = null;
+  /** Round-robin cursor for landmark-fallback spawns (see addAgent). */
+  private spawnCursor = 0;
 
   // World clock + sky overlay
   private worldClock = new WorldClock({ startHour: 8, minutesPerSecond: 1 });
@@ -146,6 +153,22 @@ export class TownScene extends Phaser.Scene {
   private randomBeforeCapture?: typeof Math.random;
   private reducedMotionRequested = false;
 
+  // ── Overview camera (no-player default: replay / demo / pre-onboarding) ──
+  /** True while the composed town-overview camera owns framing. */
+  private overviewMode = false;
+  /** Init flag: whether to auto-enter overview when no player exists. */
+  private overviewRequested = true;
+  private overviewDriftTimer?: Phaser.Time.TimerEvent;
+  private overviewResumeTimer?: Phaser.Time.TimerEvent;
+  private overviewWaypoints: Array<{ x: number; y: number }> = [];
+  private overviewLeg = 0;
+  private overviewStep = 0;
+  /** Wheel/pinch/double-click zoom override (0.25 snaps, 0.75-2.0). */
+  private userZoom: number | null = null;
+  /** Two-finger pinch bookkeeping. */
+  private pinchStartDist: number | null = null;
+  private pinchStartZoom = 1;
+
   // The built tilemap (kept for the window-glow scan).
   private builtMap?: Phaser.Tilemaps.Tilemap;
   // Scenario towns do not have to ship a Tiled map. This procedural layer is
@@ -156,11 +179,19 @@ export class TownScene extends Phaser.Scene {
     super({ key: "TownScene" });
   }
 
-  init(data: { scenarioId: string; townId: TownId; mapPath?: string; reducedMotion?: boolean }) {
+  init(data: {
+    scenarioId: string;
+    townId: TownId;
+    mapPath?: string;
+    reducedMotion?: boolean;
+    /** Start in the composed town-overview camera (default when no player). */
+    overview?: boolean;
+  }) {
     this.scenarioId = data.scenarioId;
     this.townId = data.townId;
     this.mapPath = data.mapPath ?? null;
     this.reducedMotionRequested = Boolean(data.reducedMotion);
+    this.overviewRequested = data.overview ?? true;
     // Inline fallback until the scenario town payload resolves.
     this.landmarks = landmarksFor(this.townId).slice();
 
@@ -287,6 +318,15 @@ export class TownScene extends Phaser.Scene {
     // Fit the camera to the map and keep it fitted on container resize.
     this.fitCamera();
     this.scale.on("resize", () => this.fitCamera());
+
+    // Wheel / pinch / double-click camera controls.
+    this.installCameraControls();
+
+    // No player at scene start (replay, demo, live before onboarding) →
+    // open on the composed town overview with its slow set-piece drift.
+    if (!this.playerSpawnPending && this.overviewRequested) {
+      this.setOverviewMode(true);
+    }
 
     // Try to fetch authoritative town data; build landmarks immediately with
     // current (fallback) data and re-render if the API supplies different
@@ -448,7 +488,6 @@ export class TownScene extends Phaser.Scene {
   /* ── Crowd hygiene: separation + label declutter ────────── */
 
   private crowdTickAccum = 0;
-  private clusterBadges: Phaser.GameObjects.Text[] = [];
 
   /**
    * Gently push apart bodies that overlap on the ground plane. Walk targets
@@ -485,15 +524,18 @@ export class TownScene extends Phaser.Scene {
 
   /**
    * Keep name labels legible when residents gather — exactly the moment the
-   * simulation is most interesting. Pairs get stacked lanes; crowds of 3+
-   * collapse into a single "N residents" badge; landmark labels yield to
-   * anyone standing on them.
+   * simulation is most interesting. When labels would overlap, only the
+   * nearest-to-camera resident (southernmost — it draws in front) keeps its
+   * name; the rest collapse to 4px pixel dots until hover or the player
+   * walks up. Landmark labels yield to anyone standing on them.
    */
   private declutterLabels() {
     const residents = [...this.agentSprites.values()]
       .filter((s) => s !== this.playerSprite && s.active);
+    const player = this.playerSprite;
 
     // Greedy proximity clustering (n is small — a town has < 12 residents).
+    // Thresholds approximate the rendered label footprint (~56x26 px).
     const assigned = new Array(residents.length).fill(false);
     const clusters: number[][] = [];
     for (let i = 0; i < residents.length; i++) {
@@ -504,7 +546,7 @@ export class TownScene extends Phaser.Scene {
         if (assigned[j]) continue;
         const dx = Math.abs(residents[i].x - residents[j].x);
         const dy = Math.abs(residents[i].y - residents[j].y);
-        if (dx < 52 && dy < 34) {
+        if (dx < 56 && dy < 28) {
           group.push(j);
           assigned[j] = true;
         }
@@ -512,40 +554,22 @@ export class TownScene extends Phaser.Scene {
       clusters.push(group);
     }
 
-    let badgeIdx = 0;
     for (const group of clusters) {
       if (group.length === 1) {
-        residents[group[0]].setLabelVisible(true);
-        residents[group[0]].setLabelSlot(0);
-      } else if (group.length === 2) {
-        // Two lanes: the more southern sprite keeps the base lane (it draws
-        // in front); the other's label drops to a second lane.
-        const [p, q] = group;
-        const south = residents[p].y >= residents[q].y ? p : q;
-        const north = south === p ? q : p;
-        residents[south].setLabelVisible(true);
-        residents[south].setLabelSlot(0);
-        residents[north].setLabelVisible(true);
-        residents[north].setLabelSlot(11);
-      } else {
-        // Crowd: one badge instead of an unreadable stack of names.
-        let cx = 0;
-        let maxY = -Infinity;
-        for (const idx of group) {
-          residents[idx].setLabelVisible(false);
-          cx += residents[idx].x;
-          maxY = Math.max(maxY, residents[idx].y);
-        }
-        cx /= group.length;
-        const badge = this.obtainClusterBadge(badgeIdx++);
-        badge.setText(`${group.length} residents`);
-        badge.setPosition(Math.round(cx), Math.round(maxY + 12));
-        badge.setDepth(100 + Math.floor(maxY) + 1);
-        badge.setVisible(true);
+        residents[group[0]].setLabelMode("full");
+        continue;
       }
-    }
-    for (let k = badgeIdx; k < this.clusterBadges.length; k++) {
-      this.clusterBadges[k].setVisible(false);
+      // Nearest to camera = southernmost body (it draws in front).
+      let south = group[0];
+      for (const idx of group) {
+        if (residents[idx].y > residents[south].y) south = idx;
+      }
+      for (const idx of group) {
+        const s = residents[idx];
+        const approached = !!player
+          && Phaser.Math.Distance.Between(player.x, player.y, s.x, s.y) < 80;
+        s.setLabelMode(idx === south || approached ? "full" : "dot");
+      }
     }
 
     // Landmark labels yield to residents standing inside their bounds.
@@ -563,22 +587,6 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  private obtainClusterBadge(idx: number): Phaser.GameObjects.Text {
-    while (this.clusterBadges.length <= idx) {
-      const badge = this.add.text(0, 0, "", {
-        fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-        fontSize: "9px",
-        fontStyle: "bold",
-        color: "#fff7e0",
-        backgroundColor: "rgba(20,17,12,0.78)",
-        padding: { x: 5, y: 2 },
-        resolution: 3,
-      }).setOrigin(0.5, 0).setVisible(false);
-      this.clusterBadges.push(badge);
-    }
-    return this.clusterBadges[idx];
-  }
-
   /* ── Agent Management (called from React / TownView) ──── */
 
   /** Push authoritative scenario town data into an already-running scene.
@@ -594,13 +602,27 @@ export class TownScene extends Phaser.Scene {
   addAgent(agent: AgentState & { routine?: RoutineEntry[] }) {
     if (this.agentSprites.has(agent.id)) return;
 
-    const base = this.landmarkPositions.get(agent.location) ??
-      this.wanderPoints[0] ?? { x: 400, y: 400 };
+    const routine = agent.routine ? new Routine(agent.routine) : undefined;
+
+    // Crowd choreography: spawn each resident at their FIRST routine
+    // location so round 0 opens on a town already going about its morning.
+    // Residents without a resolvable routine stop fall back to their stated
+    // location, then to distinct landmarks round-robin — never one pile.
+    const firstStop = routine?.entries[0]?.location;
+    let base =
+      (firstStop ? this.landmarkPositions.get(firstStop) : undefined) ??
+      this.landmarkPositions.get(agent.location);
+    if (!base) {
+      const spots = [...this.landmarkPositions.values()];
+      base = spots.length > 0
+        ? spots[this.spawnCursor++ % spots.length]
+        : this.wanderPoints[0] ?? { x: 400, y: 400 };
+    }
 
     const spawn = this.findFreeNear(
-      base.x + Phaser.Math.Between(-55, 55),
-      base.y + Phaser.Math.Between(-35, 35),
-      { clearOf: 36 },
+      base.x + Phaser.Math.Between(-40, 40),
+      base.y + Phaser.Math.Between(-26, 26),
+      { clearOf: WANDER_CLEARANCE },
     );
     const sx = spawn.x;
     const sy = spawn.y;
@@ -628,7 +650,7 @@ export class TownScene extends Phaser.Scene {
 
     const record: AgentRecord = {
       sprite,
-      routine: agent.routine ? new Routine(agent.routine) : undefined,
+      routine,
       topConcerns: agent.top_concerns ?? [],
       idleThoughts: agent.idle_thoughts ?? undefined,
     };
@@ -848,6 +870,7 @@ export class TownScene extends Phaser.Scene {
     // movement), or has a chat panel open.
     const cam = this.cameras.main;
     if (!this.playerSprite) {
+      this.pauseOverviewDrift(15000);
       if (this.convoZoomBase === undefined) this.convoZoomBase = cam.zoom;
       cam.pan(midX, midY, 520, "Sine.easeInOut");
       cam.zoomTo(this.convoZoomBase * 1.09, 520, "Sine.easeInOut");
@@ -988,6 +1011,7 @@ export class TownScene extends Phaser.Scene {
         this.playOpinionShiftBeat(agentId);
       },
       triggerNews: (headline?: string) => this.playNewsBeat(headline),
+      setOverviewMode: (on: boolean) => this.setOverviewMode(on),
       snapshot: () => this.getReplaySnapshot(),
       mapMode: () => this.builtMap ? "tilemap" as const : "procedural" as const,
       /** List agent ids present in this town (capture scripts pick pairs). */
@@ -1098,6 +1122,7 @@ export class TownScene extends Phaser.Scene {
 
     // Camera emphasis (existing beat).
     if (motionOk) {
+      if (!this.playerSprite) this.pauseOverviewDrift(8000);
       const baseZoom = cam.zoom;
       cam.pan(land.x, land.y, 350, "Sine.easeInOut");
       cam.zoomTo(baseZoom * 1.15, 300, "Sine.easeInOut");
@@ -1116,6 +1141,7 @@ export class TownScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const sprite = this.agentSprites.get(agentId);
     if (!cam || !sprite || reducedMotion()) return;
+    if (!this.playerSprite) this.pauseOverviewDrift(8000);
     const z = cam.zoom;
     const baseCenter = { x: cam.midPoint.x, y: cam.midPoint.y };
     cam.pan(sprite.x, sprite.y, 280, "Sine.easeInOut");
@@ -1244,6 +1270,10 @@ export class TownScene extends Phaser.Scene {
     // Register in agentSprites so depth sorting includes the player
     this.agentSprites.set(profile.agentId, this.playerSprite);
 
+    // The player always wins the camera: leave the overview drift and hand
+    // framing to the follow camera.
+    this.setOverviewMode(false);
+
     // Camera follow with smooth lerp + closer zoom while a player is present.
     this.cameras.main.startFollow(this.playerSprite, true, 0.08, 0.08);
     this.cameras.main.setBounds(0, 0, Number(this.game.config.width), Number(this.game.config.height));
@@ -1258,7 +1288,8 @@ export class TownScene extends Phaser.Scene {
    * canvases keep the intimate 1.5; phones pull back to show the town.
    */
   private playerFollowZoom(): number {
-    return Phaser.Math.Clamp(this.scale.width / 520, 0.75, 1.5);
+    // A wheel/pinch override wins; otherwise scale with the canvas.
+    return this.userZoom ?? Phaser.Math.Clamp(this.scale.width / 520, 0.75, 1.5);
   }
 
   getPlayerSprite(): PlayerSprite | null {
@@ -1342,17 +1373,17 @@ export class TownScene extends Phaser.Scene {
   }
 
   private pickWanderTarget(exclude?: AgentSprite): { x: number; y: number } {
-    if (this.wanderPoints.length === 0) return this.findFreeNear(400, 400, { clearOf: 34, exclude });
+    if (this.wanderPoints.length === 0) return this.findFreeNear(400, 400, { clearOf: WANDER_CLEARANCE, exclude });
     // Rejection-sample so NPCs stop walking into (through) buildings — or
     // into each other (occupancy keeps wander targets a body-width apart).
     for (let attempt = 0; attempt < 10; attempt++) {
       const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
       const x = Phaser.Math.Clamp(pt.x + Phaser.Math.Between(-70, 70), 40, 1160);
       const y = Phaser.Math.Clamp(pt.y + Phaser.Math.Between(-45, 45), 40, 760);
-      if (!this.isBlocked(x, y) && !this.isOccupied(x, y, 34, exclude)) return { x, y };
+      if (!this.isBlocked(x, y) && !this.isOccupied(x, y, WANDER_CLEARANCE, exclude)) return { x, y };
     }
     const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
-    return this.findFreeNear(pt.x, pt.y, { clearOf: 34, exclude });
+    return this.findFreeNear(pt.x, pt.y, { clearOf: WANDER_CLEARANCE, exclude });
   }
 
   private addScatteredWaypoints(W: number, H: number) {
@@ -1545,7 +1576,7 @@ export class TownScene extends Phaser.Scene {
       const t = this.findFreeNear(
         target.x + Phaser.Math.Between(-40, 40),
         target.y + Phaser.Math.Between(-30, 30),
-        { clearOf: 34, exclude: npc },
+        { clearOf: WANDER_CLEARANCE, exclude: npc },
       );
       npc.moveToPosition(t.x, t.y, () => this.scheduleAmbientWander(npc, W, H));
     });
@@ -1883,9 +1914,10 @@ export class TownScene extends Phaser.Scene {
   }
 
   /**
-   * Keep the camera covering the 1200x800 map. When no player is spawned we
-   * zoom so the viewport is filled (no dead space outside the map); once the
-   * player exists the follow-camera (zoom 1.5) owns framing, bounds clamp it.
+   * Keep the camera covering the 1200x800 map. With a player, the follow
+   * camera owns framing (bounds clamp it). With no player, the composed
+   * overview owns framing (see setOverviewMode); if overview was explicitly
+   * disabled we fall back to the old fill-the-viewport zoom.
    */
   private fitCamera() {
     const cam = this.cameras.main;
@@ -1899,9 +1931,246 @@ export class TownScene extends Phaser.Scene {
       if (!this.convoFollowPaused) cam.setZoom(this.playerFollowZoom());
       return;
     }
-    const zoom = Math.max(this.scale.width / W, this.scale.height / H);
+    if (this.overviewMode) {
+      this.applyOverviewBase(true);
+      return;
+    }
+    const zoom = this.userZoom ?? Math.max(this.scale.width / W, this.scale.height / H);
     cam.setZoom(zoom);
     cam.centerOn(W / 2, H / 2);
+  }
+
+  /* ── Overview camera — the no-player default framing ────── */
+
+  /**
+   * Composed base zoom for the overview. Wide canvases fit the full map with
+   * a small parchment margin; tall/narrow canvases (phones) would render the
+   * town as a thumbnail strip at true fit, so they use the fill zoom instead
+   * and rely on the drift to tour the map.
+   */
+  private overviewBaseZoom(): number {
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    const fit = Math.min(this.scale.width / W, this.scale.height / H) * 0.98;
+    const fill = Math.max(this.scale.width / W, this.scale.height / H);
+    return fit >= fill * 0.62 ? fit : fill;
+  }
+
+  /** Snap (or ease) the overview camera to its wide base framing. */
+  private applyOverviewBase(immediate: boolean) {
+    const cam = this.cameras.main;
+    if (!cam) return;
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    const zoom = this.userZoom ?? this.overviewBaseZoom();
+    // Bounds clamp pins a wider-than-map view to the top-left corner
+    // (Phaser clamps, it does not center). The wide beat drops the bounds so
+    // the town floats centered in its parchment margin; anchor legs restore
+    // them (see overviewDriftTick).
+    cam.removeBounds();
+    if (immediate || reducedMotion()) {
+      cam.setZoom(zoom);
+      cam.centerOn(W / 2, H / 2);
+    } else {
+      cam.zoomTo(zoom, 900, "Sine.easeInOut");
+      cam.pan(W / 2, H / 2, 900, "Sine.easeInOut");
+    }
+  }
+
+  /**
+   * Enter/leave the composed town overview. Public contract for TownView and
+   * the demo/replay shells (also reachable as `__townshipScene.setOverviewMode`
+   * and `__town.setOverviewMode`). Spawning a player always exits overview.
+   */
+  setOverviewMode(on: boolean) {
+    if (on === this.overviewMode) return;
+    this.overviewMode = on;
+    if (on) {
+      const cam = this.cameras.main;
+      cam?.stopFollow();
+      this.applyOverviewBase(true);
+      // Capture sessions script their own framing; a drifting camera would
+      // make every still nondeterministic. Reduced motion keeps the static
+      // wide shot for the same reason it skips other decorative motion.
+      if (!this.captureMode && !reducedMotion() && !this.reducedMotionRequested) {
+        this.overviewStep = 0;
+        this.overviewDriftTimer?.remove(false);
+        this.overviewDriftTimer = this.time.delayedCall(4200, () => this.overviewDriftTick());
+      }
+    } else {
+      this.stopOverviewDrift();
+      if (!this.playerSprite) this.fitCamera();
+    }
+  }
+
+  /** Cancel the drift timers (mode flag untouched by pause). */
+  private stopOverviewDrift() {
+    this.overviewDriftTimer?.remove(false);
+    this.overviewDriftTimer = undefined;
+    this.overviewResumeTimer?.remove(false);
+    this.overviewResumeTimer = undefined;
+  }
+
+  /**
+   * Pause the drift (user took the camera, or a scene beat borrowed it) and
+   * resume from the wide base framing after `ms` of quiet.
+   */
+  private pauseOverviewDrift(ms: number) {
+    if (!this.overviewMode) return;
+    this.overviewDriftTimer?.remove(false);
+    this.overviewDriftTimer = undefined;
+    this.overviewResumeTimer?.remove(false);
+    this.overviewResumeTimer = this.time.delayedCall(ms, () => {
+      if (!this.overviewMode || this.playerSprite) return;
+      if (this.captureMode || reducedMotion() || this.reducedMotionRequested) return;
+      this.userZoom = null;
+      this.applyOverviewBase(false);
+      this.overviewDriftTimer = this.time.delayedCall(1400, () => this.overviewDriftTick());
+    });
+  }
+
+  /** Set-piece waypoints for the drift: label anchors, else landmarks. */
+  private buildOverviewWaypoints(): Array<{ x: number; y: number }> {
+    const raw = this.mapLabels.size > 0
+      ? [...this.mapLabels.values()]
+      : [...this.landmarkPositions.values()];
+    if (raw.length === 0) return [{ x: 600, y: 400 }];
+    // Nearest-neighbour chain from the point closest to the town centre —
+    // an unhurried walking tour rather than criss-cross whip-pans.
+    const remaining = raw.slice();
+    remaining.sort((a, b) =>
+      Phaser.Math.Distance.Between(a.x, a.y, 600, 400)
+      - Phaser.Math.Distance.Between(b.x, b.y, 600, 400));
+    const tour: Array<{ x: number; y: number }> = [remaining.shift()!];
+    while (remaining.length > 0 && tour.length < 9) {
+      const last = tour[tour.length - 1];
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const d = Phaser.Math.Distance.Between(last.x, last.y, remaining[i].x, remaining[i].y);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+      }
+      const next = remaining.splice(bestIdx, 1)[0];
+      // Skip waypoints so close the "drift" would be a shiver.
+      if (bestDist >= 140) tour.push(next);
+    }
+    return tour;
+  }
+
+  /**
+   * One leg of the extremely slow overview drift: three set-piece anchors at
+   * a gentle close-in zoom, then a long wide beat back at the base framing.
+   */
+  private overviewDriftTick() {
+    if (!this.overviewMode || this.playerSprite) return;
+    const cam = this.cameras.main;
+    if (!cam) return;
+    if (this.overviewWaypoints.length === 0) {
+      this.overviewWaypoints = this.buildOverviewWaypoints();
+    }
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    const base = this.overviewBaseZoom();
+    const fill = Math.max(this.scale.width / W, this.scale.height / H);
+    const driftZoom = Math.max(base * 1.22, fill * 1.06);
+
+    const CYCLE = 4; // 3 anchor legs, then one wide beat
+    const phase = this.overviewStep % CYCLE;
+    this.overviewStep += 1;
+    let holdMs: number;
+    if (phase === CYCLE - 1) {
+      // Wide beat: ease back out to the composed full-town shot (unbounded
+      // so the map centers in its margin — see applyOverviewBase).
+      cam.removeBounds();
+      cam.pan(W / 2, H / 2, 9000, "Sine.easeInOut");
+      cam.zoomTo(base, 9000, "Sine.easeInOut");
+      holdMs = 15000;
+    } else {
+      // Anchor legs run zoomed past fill, where the bounds keep the pan
+      // from drifting into off-map parchment near edge waypoints.
+      cam.setBounds(0, 0, W, H);
+      const wp = this.overviewWaypoints[this.overviewLeg % this.overviewWaypoints.length];
+      this.overviewLeg += 1;
+      cam.pan(wp.x, wp.y, 15000, "Sine.easeInOut");
+      cam.zoomTo(driftZoom, 15000, "Sine.easeInOut");
+      holdMs = 17000;
+    }
+    this.overviewDriftTimer = this.time.delayedCall(holdMs, () => this.overviewDriftTick());
+  }
+
+  /* ── User camera controls: wheel zoom, pinch, double-click ── */
+
+  /** Snap a zoom value to 0.25 steps inside the 0.75-2.0 clamp. */
+  private snapZoom(z: number): number {
+    return Phaser.Math.Clamp(Math.round(z / 0.25) * 0.25, 0.75, 2.0);
+  }
+
+  private installCameraControls() {
+    // Mouse-wheel zoom — 0.25 snaps, clamped. Works over the overview AND
+    // over the follow camera (the follow zoom keeps the override).
+    this.input.on(
+      "wheel",
+      (_p: Phaser.Input.Pointer, _objs: unknown[], _dx: number, dy: number) => {
+        const cam = this.cameras.main;
+        if (!cam || dy === 0) return;
+        const current = this.userZoom ?? cam.zoom;
+        const next = this.snapZoom(current + (dy > 0 ? -0.25 : 0.25));
+        if (next === this.userZoom) return;
+        this.userZoom = next;
+        cam.zoomTo(next, 200, "Sine.easeOut");
+        this.pauseOverviewDrift(11000);
+      },
+    );
+
+    // Double-click: zoom toward the clicked point (no-player camera only —
+    // with a player, taps are movement).
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      if (this.playerSprite) return;
+      const detail = (p.event as MouseEvent | undefined)?.detail ?? 0;
+      if (detail < 2) return;
+      const cam = this.cameras.main;
+      if (!cam) return;
+      const next = this.snapZoom((this.userZoom ?? cam.zoom) + 0.5);
+      this.userZoom = next;
+      cam.pan(p.worldX, p.worldY, 450, "Sine.easeInOut");
+      cam.zoomTo(next, 450, "Sine.easeInOut");
+      this.pauseOverviewDrift(11000);
+    });
+
+    // Two-finger pinch (no-player camera only; the player owns touch for
+    // the joystick + tap-to-walk). Continuous while pinching, snapped on
+    // release.
+    this.input.addPointer(2);
+    this.input.on("pointermove", () => {
+      if (this.playerSprite) return;
+      const p1 = this.input.pointer1;
+      const p2 = this.input.pointer2;
+      const cam = this.cameras.main;
+      if (!cam || !p1?.isDown || !p2?.isDown) return;
+      const dist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
+      if (this.pinchStartDist === null) {
+        this.pinchStartDist = dist;
+        this.pinchStartZoom = cam.zoom;
+        this.pauseOverviewDrift(11000);
+        return;
+      }
+      if (this.pinchStartDist > 0) {
+        const z = Phaser.Math.Clamp(
+          this.pinchStartZoom * (dist / this.pinchStartDist), 0.75, 2.0);
+        cam.setZoom(z);
+      }
+    });
+    const endPinch = () => {
+      if (this.pinchStartDist === null) return;
+      this.pinchStartDist = null;
+      const cam = this.cameras.main;
+      if (!cam || this.playerSprite) return;
+      this.userZoom = this.snapZoom(cam.zoom);
+      cam.zoomTo(this.userZoom, 160, "Sine.easeOut");
+      this.pauseOverviewDrift(11000);
+    };
+    this.input.on("pointerup", endPinch);
+    this.input.on("pointerupoutside", endPinch);
   }
 
   /** Recompute landmark positions + wander waypoints from this.landmarks. */

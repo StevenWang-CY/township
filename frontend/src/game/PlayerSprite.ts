@@ -13,15 +13,17 @@ import type { Direction } from "./AgentSprite";
 const PLAYER_SPEED = 160; // px per second
 // Conversational radius: how close the player needs to stand to an NPC for
 // the proximity prompt to appear AND for the dwell-auto-talk timer to start.
-// Bumped from 80 to 110 — the previous radius required pixel-perfect approach
-// and made "walking up to someone" feel finicky.
-const INTERACTION_RADIUS = 110;
+// Retuned with SPRITE_SCALE 1.6 (was 110 at 2.2): ~1.6 body-heights away
+// still reads as "walking up to someone" without feeling finicky.
+const INTERACTION_RADIUS = 84;
 // NOTE: an earlier build auto-opened the chat after standing near an NPC for
 // 1.2s ("dwell-to-talk"). It hijacked the session — chats opened on spawn,
 // re-fired while exploring, froze movement, and silently swapped partners
 // when a closer NPC wandered by. Conversations are now strictly explicit:
 // press E, click/tap the resident, or use the proximity card.
-const LEGACY_PLAYER_SPRITE_SCALE = 4.4; // 16px frames × 4.4 ≈ 70px (matches 32px × 2.2)
+// 16px legacy frames render at exactly 2× the 32px family scale so the two
+// sprite families share one visual height (per-texture factors live here).
+const LEGACY_PLAYER_SPRITE_SCALE = SPRITE_SCALE * 2;
 
 interface PlayerConfig {
   id: string;
@@ -77,12 +79,12 @@ export class PlayerSprite extends AgentSprite {
     scene.physics.world.enable(this);
     const body = this.body as Phaser.Physics.Arcade.Body;
     if (body) {
-      body.setSize(24, 16);
+      body.setSize(18, 12);
       // Container bodies subtract displayOrigin (origin × setSize dims from
-      // AgentSprite) during the physics sync, so a bare (-12, -8) offset put
-      // the box ~(24, 47) px up-left of the sprite. Compensate with the
-      // container's display origin so the 24×16 box sits centered on the feet.
-      body.setOffset(this.displayOriginX - 12, this.displayOriginY - 8);
+      // AgentSprite) during the physics sync, so a bare (-9, -6) offset put
+      // the box up-left of the sprite. Compensate with the container's
+      // display origin so the 18×12 box sits centered on the feet.
+      body.setOffset(this.displayOriginX - 9, this.displayOriginY - 6);
       body.setCollideWorldBounds(true);
     }
 

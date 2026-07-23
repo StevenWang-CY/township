@@ -42,7 +42,6 @@ from mapgen.build_maps import (
     MapCanvas,
     facade_wall,
     grand,
-    pad_stamp,
     path,
     path_rect,
     storefront,
@@ -155,10 +154,10 @@ def compose(m: MapCanvas) -> None:
     # -- Harlow Firehouse (hand-composed: twin metal bays + red bunting),
     #    on the crossing's SE shoulder, fronting Crossing Road's sidewalk
     m.reserve(39, 28, 8, 8)
-    m.stamp("buildings-top", pad_stamp(R.DECK_DARK, 8, 4), 39, 29)
+    m.stamp("buildings-top", M.shingle_stamp("terracotta", 8, 4), 39, 29)
     m.stamp("buildings-base", facade_wall("brick", 8, rows=[3, 4, 5]), 39, 33)
-    m.stamp("buildings-base", R.DOOR_METAL, 40, 34)
-    m.stamp("buildings-base", R.DOOR_METAL, 44, 34)
+    m.building_stamp(R.DOOR_METAL, 40, 34, top_rows=1)
+    m.building_stamp(R.DOOR_METAL, 44, 34, top_rows=1)
     m.stamp("buildings-base", R.BANNER_RED_A, 42, 33)
     m.stamp("buildings-base", R.BANNER_RED_B, 43, 33)
     m.collide(39, 29, 8, 7)

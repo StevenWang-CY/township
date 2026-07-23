@@ -82,8 +82,9 @@ function readGuestPrefs(): DisplayPreferences {
 }
 
 // The hosted replay has no accounts and writes no profile data. A small
-// in-memory guest lets first-time visitors use accessibility preferences,
-// open the journal explainer, and appear in the town without onboarding.
+// in-memory guest lets first-time visitors use accessibility preferences and
+// open the journal explainer without onboarding. It is never spawned on the
+// map or listed as a resident (TownView gates all of that behind !DEMO_MODE).
 const DEMO_GUEST_PROFILE: UserProfile = {
   name: "Demo Visitor",
   town: "demo-town",

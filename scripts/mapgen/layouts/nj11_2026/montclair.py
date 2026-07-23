@@ -52,15 +52,25 @@ def tudor_shop(
     awning: bool = False,
     door: str = "red",
 ) -> None:
-    """Tudor boutique: dark deck roof (3) + timber band (2) + cream wall (2).
-    Footprint w x 7, red door on the south wall, signboard on the band."""
+    """Tudor boutique: cedar shingle roof (3) + timber band (2) + light
+    cream shopfront (2). Footprint w x 7 — a red door pops against the
+    cream, and every free bay gets a bright display window."""
     m.reserve(x, y - 1, w, 8)
-    m.stamp("buildings-top", pad_stamp(R.DECK_DARK, w, 3), x, y)
+    m.stamp("buildings-top", M.shingle_stamp("cedar", w, 3), x, y)
     m.stamp("buildings-base", pad_stamp(R.WALL_TIMBER_BAND, w, 2), x, y + 3)
     m.stamp("buildings-base", facade_wall("cream", w, rows=[4, 5]), x, y + 5)
     dd = door_dx if door_dx is not None else (w - 2) // 2
     ds = R.DOOR_RED if door == "red" else R.DOOR_WOOD
-    m.stamp("buildings-base", ds, x + dd, y + 5)
+    # top row overlays the wall on buildings-top: the arched door art has
+    # transparent corners that must not punch grass holes into the facade
+    m.building_stamp(ds, x + dd, y + 5, top_rows=1)
+    # display-window rhythm: fill the shopfront bays the door leaves free
+    placed = x - 2
+    for wx in range(x + 1, x + w - 2):
+        if wx < placed + 2 or (wx <= x + dd + 1 and x + dd <= wx + 1):
+            continue
+        m.stamp("buildings-base", M.WINDOW, wx, y + 5)
+        placed = wx
     if awning:
         m.stamp("buildings-top", awning_strip(w), x, y + 3)
     elif sign is not None:
@@ -68,7 +78,10 @@ def tudor_shop(
             sx = x + w - 3 if dd <= 1 else x + 1
         else:
             sx = x + dd
-        m.stamp("buildings-base", R.SIGNS_WALL[sign % len(R.SIGNS_WALL)], sx, y + 4)
+        # buildings-top: the sign tile has transparent margins, so drawing
+        # it over the band (instead of replacing the band tile) avoids
+        # punching a grass-colored hole through the facade
+        m.stamp("buildings-top", R.SIGNS_WALL[sign % len(R.SIGNS_WALL)], sx, y + 4)
     m.collide(x, y, w, 7)
 
 
@@ -113,13 +126,12 @@ def compose(m: MapCanvas) -> None:
     grand(m, 10, 9, 10, 8, facade="stone_large", roof="stone", windows=True)
     m.stamp("buildings-base", R.BANNER_RED_A, 13, 12)
     m.stamp("buildings-base", R.BANNER_RED_B, 16, 12)
-    # -- Boutique Row: three tudor shopfronts with front gardens
-    tudor_shop(m, 21, 13, 5, awning=True)
-    tudor_shop(m, 26, 13, 4, sign=4)  # bakery pretzel
-    tudor_shop(m, 30, 13, 5, door_dx=2, sign=3)
-    m.pave(22, 20, 2, 2)  # stoop paths across the front gardens
-    m.pave(27, 20, 2, 2)
-    m.pave(32, 20, 2, 2)
+    # -- Boutique Row: two generous tudor shopfronts — cedar shingles,
+    #    red doors, display windows between the timber bays
+    tudor_shop(m, 21, 13, 7, awning=True)
+    tudor_shop(m, 28, 13, 7, sign=4)  # bakery pretzel
+    m.pave(23, 20, 2, 2)  # stoop paths across the front gardens
+    m.pave(30, 20, 2, 2)
     # -- Town Hall: brick arch, civic banners, paved forecourt
     grand(m, 35, 12, 8, 7, facade="brick", banners=True)
     m.pave(37, 19, 4, 3)
@@ -131,7 +143,7 @@ def compose(m: MapCanvas) -> None:
     m.pave(57, 21, 15, 1)
     # -- Watchung Plaza: cafe + tudor bookshop over a shared plaza
     storefront(m, 31, 28, 6, 7, facade="cream", awning=True)  # cafe
-    tudor_shop(m, 38, 28, 5, sign=0)  # bookshop
+    tudor_shop(m, 38, 28, 6, door_dx=3, sign=0)  # bookshop
     m.pave(30, 35, 11, 5)
     # -- Public Library
     grand(m, 19, 28, 8, 7, facade="stone_small", roof="stone", windows=True)
@@ -171,10 +183,10 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.FLOWER_PATCH, 4, 20)
 
     # ================= boutique front gardens =================
-    m.set("deco-below", 24, 21, M.mg("planter_box"))
-    m.collide(24.1, 21.3, 0.8, 0.7)
-    m.set("deco-below", 30, 21, M.mg("planter_box"))
-    m.collide(30.1, 21.3, 0.8, 0.7)
+    m.set("deco-below", 26, 21, M.mg("planter_box"))
+    m.collide(26.1, 21.3, 0.8, 0.7)
+    m.set("deco-below", 33, 21, M.mg("planter_box"))
+    m.collide(33.1, 21.3, 0.8, 0.7)
     m.flowers(25, 20, n=4, spread=1)
     m.flowers(21, 21, n=3, spread=1)
 
