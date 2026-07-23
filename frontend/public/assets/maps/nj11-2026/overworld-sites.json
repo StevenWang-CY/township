@@ -4,8 +4,8 @@
   "image": {
     "path": "overworld.png",
     "path2x": "overworld@2x.png",
-    "width": 1100,
-    "height": 700
+    "width": 1600,
+    "height": 1024
   },
   "clouds": {
     "path": "overworld-clouds.png",
@@ -16,41 +16,41 @@
     {
       "town_id": "dover",
       "name": "Dover",
-      "x": 235,
-      "y": 330,
+      "x": 320,
+      "y": 416,
       "clearing": {
-        "rx": 68,
-        "ry": 46
+        "rx": 64,
+        "ry": 48
       }
     },
     {
       "town_id": "montclair",
       "name": "Montclair",
-      "x": 925,
-      "y": 435,
+      "x": 1344,
+      "y": 720,
       "clearing": {
-        "rx": 68,
-        "ry": 46
+        "rx": 64,
+        "ry": 48
       }
     },
     {
       "town_id": "parsippany",
       "name": "Parsippany-Troy Hills",
-      "x": 630,
-      "y": 295,
+      "x": 912,
+      "y": 368,
       "clearing": {
-        "rx": 68,
-        "ry": 46
+        "rx": 64,
+        "ry": 48
       }
     },
     {
       "town_id": "randolph",
       "name": "Randolph",
-      "x": 330,
-      "y": 525,
+      "x": 480,
+      "y": 768,
       "clearing": {
-        "rx": 68,
-        "ry": 46
+        "rx": 64,
+        "ry": 48
       }
     }
   ]

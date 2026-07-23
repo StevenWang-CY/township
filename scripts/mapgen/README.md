@@ -31,7 +31,7 @@ last produces the registry acceptance sheet. Town outputs are always isolated un
 | `moderntiles.py` | Draws + quantizes the `township-modern` sheet (asphalt, sidewalk, road markings, street props, shingle-roof / chrome-diner / church kits) and exports `ASPHALT` / `SIDEWALK` blobs and prop GIDs with `firstgid` 10001. Contact sheet: `_inspect/modern_sheet.png`. |
 | `build_maps.py` | `MapCanvas` (layers, blob autotiler, stamps, road network, collision + anchor emitters), building recipes (`storefront`, `grand`, `cottage`, `church`, `diner`), generic landmark interpreter, `.tmj` writer. |
 | `render_preview.py` | Compositor for generated maps; approximates anchors with registry stamps so previews match the in-game look. |
-| `overworld.py` | District-Atlas pixel overworld: paints a per-scenario terrain page (grass, forests, water, ridgeline, roads), a translucent cloud-shadow layer, and the town-site coordinates JSON. Geography per scenario lives in its `GEOGRAPHY` dict; unknown scenarios get a deterministic generic layout. |
+| `overworld.py` | District-Atlas overworld: a TRUE tilemap render on a 100x64-tile `MapCanvas` built from the same registry material as the towns (grass + `GRASS_LIGHT` meadows, `TREE_*` stamps with cast shadows, `WATER_DEEP` shoreline autotiles, the cliff kit, `township-modern` asphalt with dashes, `PATH_TAN` connector roads, cobble-pad town clearings), plus a translucent cloud-shadow layer and the town-site coordinates JSON. Geography per scenario lives in its `GEOGRAPHY` dict (tile coords); unknown scenarios get a deterministic generic layout. |
 | `layouts/<scenario>/<town>.py` | Optional hand-tuned layout per town; hyphens in both ids become underscores (for example `layouts/nj11_2026/dover.py`). |
 | `validate_registry.py`, `inspect_tiles.py` | Registry acceptance sheet and raw tileset inspection tools. |
 
@@ -65,12 +65,12 @@ assets plus one JSON into `frontend/public/assets/maps/<scenario-id>/`:
 
 | File | Contents |
 |------|----------|
-| `overworld.png` | 1100x700 opaque pixel terrain panel (@1x; every overworld pixel is a crisp 2x2 block, palette-quantized to `rpg-tileset.png`) |
-| `overworld@2x.png` | 2200x1400 nearest-neighbour upscale of the same frame |
+| `overworld.png` | 1600x1024 opaque terrain panel (@1x) — a real 100x64-tile map render of 16 px registry tiles, so the material is identical to a town screenshot |
+| `overworld@2x.png` | 3200x2048 nearest-neighbour upscale of the same frame |
 | `overworld-clouds.png` / `overworld-clouds@2x.png` | translucent cloud-shadow blobs on transparency, **tileable on both axes** — the frontend can wrap-drift the layer freely (respect reduced motion) |
 | `overworld-sites.json` | town-site coordinates for vignette/pin placement |
 
-`overworld-sites.json` schema (all pixel values are in the 1100x700 @1x
+`overworld-sites.json` schema (all pixel values are in the 1600x1024 @1x
 space; multiply by 2 for the @2x assets):
 
 ```json
@@ -78,26 +78,26 @@ space; multiply by 2 for the @2x assets):
   "version": 1,
   "scenario": "nj11-2026",
   "image":  { "path": "overworld.png", "path2x": "overworld@2x.png",
-              "width": 1100, "height": 700 },
+              "width": 1600, "height": 1024 },
   "clouds": { "path": "overworld-clouds.png",
               "path2x": "overworld-clouds@2x.png", "tileable": true },
   "sites": [
     {
       "town_id": "dover",            // matches scenarios/<id>/towns/<town>.json
       "name": "Dover",               // display name from the town payload
-      "x": 235, "y": 330,            // clearing center — put the vignette here
-      "clearing": { "rx": 68, "ry": 46 }  // flat-meadow ellipse radii around it
+      "x": 320, "y": 416,            // clearing center — put the vignette here
+      "clearing": { "rx": 64, "ry": 48 }  // cobble-pad radii around it (px)
     }
   ]
 }
 ```
 
 `sites` is sorted by `town_id` and contains one entry per town in the
-scenario package. The clearing ellipse is guaranteed flat meadow (no forest
-or water; a road may pass through), so a vignette of `2*rx x 2*ry` or
-smaller never covers terrain features that matter. Chrome (parchment frame,
-cartouche, compass, pins, hover cards) belongs to the frontend, never to
-these PNGs.
+scenario package. Each clearing is a flat plaza-cobble pad (~8x6 tiles) with
+a tan apron, guaranteed free of trees, props, and water (connector roads end
+at its rim), so a vignette of `2*rx x 2*ry` or smaller never covers terrain
+features that matter. Chrome (parchment frame, cartouche, compass, pins,
+hover cards) belongs to the frontend, never to these PNGs.
 
 ## Adding a town
 

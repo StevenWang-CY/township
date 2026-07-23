@@ -793,10 +793,89 @@ function GenericTerrain({ pins, seedKey }: { pins: Pin[]; seedKey: string }) {
 }
 
 /* ── Pixel-atlas town site (HTML marker over the overworld PNG) ──
-   A gold-framed vignette cropped from the town's own preview render,
-   a pulsing waypoint pin in the town accent, a Cinzel name plate, and
-   the resident-count / leading-option chips. The existing hover card
-   renders on top (see the overlay layer in the main component). */
+   A designed pixel object standing on the town's clearing: the town's
+   set-piece vignette in a gold stepped frame mounted on plinth legs,
+   a wooden nameplate hanging from pixel ropes beneath it (parchment
+   fill, 2px ink border — the speech-bubble 9-slice language), and a
+   discrete pixel-ellipse ground pulse in the town accent. */
+
+/** Outline cells of a pixel ellipse (integer lattice, 1 cell = 1 SVG unit). */
+function pixelEllipseCells(rx: number, ry: number): Array<[number, number]> {
+  const seen = new Set<string>();
+  const cells: Array<[number, number]> = [];
+  const steps = Math.max(rx, ry) * 10;
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const x = Math.round(Math.cos(a) * rx);
+    const y = Math.round(Math.sin(a) * ry);
+    const key = `${x},${y}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      cells.push([x, y]);
+    }
+  }
+  return cells;
+}
+
+/** Filled cells of a pixel ellipse (used for the ground-contact shadow). */
+function pixelEllipseFill(rx: number, ry: number): Array<[number, number]> {
+  const cells: Array<[number, number]> = [];
+  for (let y = -Math.ceil(ry); y <= Math.ceil(ry); y++) {
+    for (let x = -Math.ceil(rx); x <= Math.ceil(rx); x++) {
+      if ((x / rx) ** 2 + (y / ry) ** 2 <= 1) cells.push([x, y]);
+    }
+  }
+  return cells;
+}
+
+const PULSE_RX = 21;
+const PULSE_RY = 7;
+
+/** Ground pulse under a town marker: a static pixel contact shadow plus two
+ *  concentric pixel-ellipse rings that step outward (discrete frames — a
+ *  true pixel animation, not a blurred CSS glow). Reduced motion freezes it
+ *  on a faint outer ring. */
+function AtlasPulse({ pct, color }: { pct: { x: number; y: number }; color: string }) {
+  const rings = useMemo(
+    () => ({
+      shadow: pixelEllipseFill(10, 3),
+      inner: pixelEllipseCells(14, 4.6),
+      outer: pixelEllipseCells(PULSE_RX - 1, PULSE_RY - 1),
+    }),
+    [],
+  );
+  const w = PULSE_RX * 2 + 2;
+  const h = PULSE_RY * 2 + 2;
+  return (
+    <div
+      className="atlas-site-pulse"
+      style={{ left: `${pct.x}%`, top: `${pct.y}%`, color }}
+      aria-hidden="true"
+    >
+      <svg
+        viewBox={`${-PULSE_RX - 1} ${-PULSE_RY - 1} ${w} ${h}`}
+        shapeRendering="crispEdges"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <g className="atlas-pulse-shadow">
+          {rings.shadow.map(([x, y]) => (
+            <rect key={`s${x},${y}`} x={x} y={y} width="1" height="1" />
+          ))}
+        </g>
+        <g className="atlas-pulse-ring atlas-pulse-ring--inner">
+          {rings.inner.map(([x, y]) => (
+            <rect key={`i${x},${y}`} x={x} y={y} width="1" height="1" />
+          ))}
+        </g>
+        <g className="atlas-pulse-ring atlas-pulse-ring--outer">
+          {rings.outer.map(([x, y]) => (
+            <rect key={`o${x},${y}`} x={x} y={y} width="1" height="1" />
+          ))}
+        </g>
+      </svg>
+    </div>
+  );
+}
 
 function AtlasSite({
   meta,
@@ -845,34 +924,36 @@ function AtlasSite({
       onFocus={onHover}
       onBlur={onLeave}
     >
-      <span className="atlas-site-vignette" aria-hidden="true">
-        <span className="atlas-site-vignette-fallback">{meta.name.charAt(0)}</span>
-        {previewUrl && !previewFailed && (
-          <img
-            className="atlas-site-vignette-img"
-            src={previewUrl}
-            alt=""
-            loading="lazy"
-            onError={onPreviewError}
-          />
-        )}
+      {/* Easel: gold pixel-framed vignette standing on tiny plinth legs */}
+      <span className="atlas-site-easel" aria-hidden="true">
+        <span className="atlas-site-leg atlas-site-leg--l" />
+        <span className="atlas-site-leg atlas-site-leg--r" />
+        <span className="atlas-site-vignette">
+          <span className="atlas-site-vignette-fallback">{meta.name.charAt(0)}</span>
+          {previewUrl && !previewFailed && (
+            <img
+              className="atlas-site-vignette-img"
+              src={previewUrl}
+              alt=""
+              loading="lazy"
+              onError={onPreviewError}
+            />
+          )}
+        </span>
       </span>
-      <span className="atlas-site-pin" aria-hidden="true">
-        <span className="atlas-site-pin-pulse" />
-        <span className="atlas-site-pin-core" />
+      {/* Pixel ropes + nails hang the nameplate from the frame */}
+      <span className="atlas-site-ropes" aria-hidden="true">
+        <i />
+        <i />
       </span>
-      <span className="atlas-site-plate">{meta.name}</span>
-      <span className="atlas-site-meta" aria-hidden="true">
-        {leaderLabel && leaderColor && (
-          <span
-            className="atlas-site-chip"
-            style={{ color: "#3D3222", borderColor: withAlpha(leaderColor, "88", leaderColor) }}
-          >
-            <span className="atlas-site-chip-dot" style={{ background: leaderColor }} />
-            {leaderLabel}
-          </span>
-        )}
-        <span className="atlas-site-count">
+      {/* Wooden nameplate: parchment 9-slice with ink border */}
+      <span className="atlas-site-plate">
+        <span className="atlas-site-plate-name">{meta.name}</span>
+        <span className="atlas-site-plate-ribbon" aria-hidden="true" />
+        <span className="atlas-site-plate-meta" aria-hidden="true">
+          {leaderColor && (
+            <span className="atlas-site-plate-dot" style={{ background: leaderColor }} />
+          )}
           {showMet ? `${metCount}/${totalCount} met` : `${totalCount} residents`}
         </span>
       </span>
@@ -1086,31 +1167,38 @@ export default function DistrictMap() {
       const leader = leaders[id];
       const chipColor = leader ? scen.optionColor(leader) : "rgba(154,142,128,0.9)";
       const resident = firstResident[id];
+      const detailLine = [meta.population ? `Pop. ${meta.population}` : "", meta.county ?? ""]
+        .filter(Boolean)
+        .join(" · ");
       return (
         <div
           key={`hover-${id}`}
-          className={`map-hover-card pixel-frame${atlasMode ? " map-hover-card--atlas" : ""}`}
+          className={`map-hover-card${atlasMode ? " map-hover-card--atlas" : ""}`}
           style={{ left: `${a.x}%`, top: `${a.y}%` }}
           role="tooltip"
           aria-hidden="true"
         >
-          <div className="map-hover-card-preview-frame pixel-frame pixel-frame--quiet">
-            <div className="map-hover-card-preview-fallback" aria-hidden="true">
-              {!meta.map?.preview_path || previewFailed[id]
-                ? "Preview unavailable"
-                : `Opening ${meta.name}`}
+          {/* In atlas mode the marker itself is the preview — the card
+              carries the meta instead of repeating the same crop. */}
+          {!atlasMode && (
+            <div className="map-hover-card-preview-frame">
+              <div className="map-hover-card-preview-fallback" aria-hidden="true">
+                {!meta.map?.preview_path || previewFailed[id]
+                  ? "Preview unavailable"
+                  : `Opening ${meta.name}`}
+              </div>
+              {!previewFailed[id] && meta.map?.preview_path && (
+                <img
+                  className="map-hover-card-preview"
+                  src={appUrl(meta.map.preview_path)}
+                  alt=""
+                  onError={() =>
+                    setPreviewFailed((m) => (m[id] ? m : { ...m, [id]: true }))
+                  }
+                />
+              )}
             </div>
-            {!previewFailed[id] && meta.map?.preview_path && (
-              <img
-                className="map-hover-card-preview"
-                src={appUrl(meta.map.preview_path)}
-                alt=""
-                onError={() =>
-                  setPreviewFailed((m) => (m[id] ? m : { ...m, [id]: true }))
-                }
-              />
-            )}
-          </div>
+          )}
           <div className="map-hover-card-row">
             {resident && (
               <SpritePortrait
@@ -1139,20 +1227,29 @@ export default function DistrictMap() {
             <span className="map-hover-card-chip-dot" style={{ background: chipColor }} />
             {leader ? `Leading: ${scen.optionLabel(leader)}` : "No leader yet"}
           </span>
+          {atlasMode && meta.tagline && (
+            <span className="map-hover-card-tagline">{meta.tagline}</span>
+          )}
+          {atlasMode && detailLine && (
+            <span className="map-hover-card-detail">{detailLine}</span>
+          )}
         </div>
       );
     });
 
-  const ambientLayer = () => {
+  const ambientLayer = (atlasMode: boolean) => {
     if (!ambient || hovered === ambient.town) return null;
     const a = anchorPct[ambient.town];
     if (!a) return null;
+    // In atlas mode the marker is a tall standing object — float the bubble
+    // clear above its framed vignette instead of on top of it.
+    const lift = atlasMode ? 102 : 42;
     return (
       <div
         key={ambient.seq}
         className="map-ambient-bubble"
         aria-hidden="true"
-        style={{ left: `${a.x}%`, top: `calc(${a.y}% - 42px)` }}
+        style={{ left: `${a.x}%`, top: `calc(${a.y}% - ${lift}px)` }}
       >
         <span className="map-ambient-bubble-name">{ambient.name}</span>
         <span className="map-ambient-bubble-text">{ambient.text}</span>
@@ -1240,7 +1337,16 @@ export default function DistrictMap() {
                 <div className="district-atlas-shade" aria-hidden="true" />
               </div>
 
-              {/* Town sites: vignette + waypoint pin + plate + chips */}
+              {/* Ground pulses sit on the terrain, beneath the markers */}
+              {atlas.sites.map((site) => (
+                <AtlasPulse
+                  key={`pulse-${site.town_id}`}
+                  pct={anchorPct[site.town_id]}
+                  color={scen.townMeta(site.town_id).color}
+                />
+              ))}
+
+              {/* Town sites: framed vignette + hanging nameplate */}
               {atlas.sites.map((site) => {
                 const leader = leaders[site.town_id];
                 const meta = scen.townMeta(site.town_id);
@@ -1286,7 +1392,7 @@ export default function DistrictMap() {
 
               {/* Overlay layers live inside the panel so % anchors are exact */}
               {hoverCardLayer(true)}
-              {ambientLayer()}
+              {ambientLayer(true)}
             </div>
           </div>
         )}
@@ -1452,7 +1558,7 @@ export default function DistrictMap() {
         {/* Fallback overlays are siblings of the SVG (same box, no frame
             padding), so the original percentage anchors still hold. */}
         {showSvgFallback && hoverCardLayer(false)}
-        {showSvgFallback && ambientLayer()}
+        {showSvgFallback && ambientLayer(false)}
 
         {/* ── Ambient Floating Particles ──────────────────────── */}
         <div className="ambient-particles">

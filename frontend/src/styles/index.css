@@ -2715,15 +2715,33 @@ html.high-contrast {
     inset 0 0 10px rgba(60, 45, 20, 0.14);
 }
 
-/* ── Town site marker: vignette + pin + plate + chips ──────── */
+/* ── Town site marker: pixel object on the clearing ─────────
+   Anatomy (top→bottom): gold pixel-framed vignette on plinth legs,
+   rope pixels, hanging parchment nameplate (2px ink 9-slice — the
+   speech-bubble language), Cinzel name + accent ribbon + meta row.
+   Fixed colors throughout: these sit ON the pixel map, which never
+   changes theme. */
+
+:root {
+  --atlas-ink: #3a3226;
+  --atlas-ink-deep: #2c2416;
+  --atlas-parch: #f6eedd;
+  /* Pixel 9-slice plaque ring: 2px ink border (2px radius ≈ the bubbles'
+     notched corner) + hard offset pixel shadow. box-shadow, not filter,
+     so nothing blurs and nothing gets clipped. */
+  --atlas-plaque-shadow:
+    0 0 0 2px var(--atlas-ink),
+    3px 4px 0 2px rgba(44, 36, 22, 0.26);
+}
 
 .atlas-site {
   position: absolute;
-  transform: translate(-50%, -34px); /* vignette center sits on the clearing */
+  /* Plinth feet stand on the clearing center. */
+  transform: translate(-50%, -86px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 0;
   background: none;
   border: none;
   padding: 0;
@@ -2741,33 +2759,62 @@ html.high-contrast {
   box-shadow:
     0 0 0 2px rgba(250, 246, 239, 0.95),
     0 0 0 4px var(--gold-accent),
-    0 0 12px 2px rgba(196, 163, 90, 0.8),
-    0 6px 14px rgba(60, 45, 20, 0.3);
+    0 0 0 6px rgba(58, 50, 38, 0.85),
+    6px 10px 0 2px rgba(44, 36, 22, 0.24);
 }
+
+/* Easel: relative anchor for the plinth legs behind the frame. */
+.atlas-site-easel {
+  position: relative;
+  display: block;
+  /* Clear the 4px stepped frame ring drawn via box-shadow. */
+  margin: 4px 4px 0;
+}
+
+.atlas-site-leg {
+  position: absolute;
+  bottom: -13px;
+  width: 10px;
+  height: 17px;
+  background: #55402f;
+  /* Ink outline + lit edge so the posts read against the cobble clearing. */
+  box-shadow:
+    0 0 0 2px var(--atlas-ink),
+    inset 2px 0 0 #8a6f52,
+    inset 0 -3px 0 #2c2416;
+}
+
+/* Poke out past the gold frame corners — easel stance. */
+.atlas-site-leg--l { left: -3px; }
+.atlas-site-leg--r { right: -3px; }
 
 .atlas-site-vignette {
   position: relative;
-  width: 96px;
-  height: 64px;
+  display: block;
+  width: 112px;
+  height: 72px;
   overflow: hidden;
-  border-radius: 2px;
+  border-radius: 0;
   background: var(--bg-warm);
+  /* Stepped 2px gold frame (matches .pixel-frame) + thin ink keyline +
+     HARD pixel drop shadow cast onto the terrain — no blur. */
   box-shadow:
     0 0 0 2px rgba(250, 246, 239, 0.95),
     0 0 0 4px var(--gold-accent),
-    0 6px 14px rgba(60, 45, 20, 0.3);
+    0 0 0 5px rgba(58, 50, 38, 0.55),
+    4px 6px 0 2px rgba(44, 36, 22, 0.22);
   image-rendering: pixelated;
   transition: transform 0.25s var(--ease-genshin), box-shadow 0.25s ease;
 }
 
 .atlas-site--hovered .atlas-site-vignette,
 .atlas-site:hover .atlas-site-vignette {
-  transform: translateY(-3px) scale(1.05);
+  transform: translateY(-3px);
   box-shadow:
     0 0 0 2px rgba(250, 246, 239, 0.98),
     0 0 0 4px var(--gold-accent),
-    0 0 14px 2px rgba(196, 163, 90, 0.55),
-    0 10px 20px rgba(60, 45, 20, 0.32);
+    0 0 0 5px rgba(58, 50, 38, 0.55),
+    6px 10px 0 2px rgba(44, 36, 22, 0.18);
 }
 
 /* Tight crop around the town's central set-piece: the preview PNG is
@@ -2799,129 +2846,174 @@ html.high-contrast {
   background-size: 12px 12px;
 }
 
-/* Waypoint pin — town accent diamond with a soft pulse. */
-.atlas-site-pin {
-  position: relative;
-  width: 14px;
-  height: 14px;
-  margin-top: -1px;
+/* Rope pixels + nail heads hang the plate from the frame's lower rail. */
+.atlas-site-ropes {
+  display: flex;
+  justify-content: space-between;
+  width: 56px;
+  height: 10px;
+  margin-top: 4px; /* clear the gold ring */
 }
 
-.atlas-site-pin-core {
-  position: absolute;
-  inset: 3px;
-  background: var(--town-accent, var(--gold-accent));
-  transform: rotate(45deg);
+.atlas-site-ropes i {
+  width: 4px;
+  height: 100%;
+  /* Dark chain-link strand: reads on grass AND on cobble. */
+  background: repeating-linear-gradient(
+    180deg,
+    var(--atlas-ink) 0 2px,
+    #6b5340 2px 4px
+  );
   box-shadow:
-    0 0 0 1.5px rgba(255, 255, 255, 0.92),
-    0 1px 3px rgba(0, 0, 0, 0.35);
+    1px 0 0 rgba(58, 50, 38, 0.55),
+    -1px 0 0 rgba(58, 50, 38, 0.55),
+    0 -3px 0 1px var(--gold-accent),
+    0 -4px 0 1px var(--atlas-ink);
 }
 
-.atlas-site-pin-pulse {
+/* Hanging nameplate — parchment fill, 2px ink border, notched corners,
+   hard offset shadow: the same 9-slice as the in-town speech bubbles. */
+.atlas-site-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 12px 5px;
+  background: var(--atlas-parch);
+  border-radius: 1px;
+  box-shadow: var(--atlas-plaque-shadow);
+  transition: transform 0.25s var(--ease-genshin);
+}
+
+.atlas-site--hovered .atlas-site-plate,
+.atlas-site:hover .atlas-site-plate {
+  transform: translateY(-2px);
+}
+
+.atlas-site-plate-name {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  line-height: 1.3;
+  color: var(--atlas-ink-deep);
+  white-space: nowrap;
+}
+
+/* Thin ribbon underline in the town accent. */
+.atlas-site-plate-ribbon {
+  width: 78%;
+  height: 2px;
+  margin-top: 1px;
+  background: var(--town-accent, var(--gold-accent));
+  box-shadow:
+    -2px 1px 0 -1px var(--town-accent, var(--gold-accent)),
+    2px 1px 0 -1px var(--town-accent, var(--gold-accent));
+}
+
+.atlas-site-plate-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-family: var(--font-body);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #6b5b45;
+  white-space: nowrap;
+}
+
+/* Leading-option pixel dot: square, ink-keyed like everything else. */
+.atlas-site-plate-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px var(--atlas-ink);
+}
+
+/* ── Ground pulse: discrete pixel-ellipse frames in the town accent ── */
+
+.atlas-site-pulse {
   position: absolute;
-  inset: 0;
-  border: 1.5px solid var(--town-accent, var(--gold-accent));
-  transform: rotate(45deg) scale(0.7);
-  opacity: 0.8;
-  animation: atlas-pin-pulse 2.6s ease-out infinite;
+  transform: translate(-50%, -50%);
+  width: 176px;
+  z-index: 2;
+  pointer-events: none;
 }
 
-@keyframes atlas-pin-pulse {
-  0%   { transform: rotate(45deg) scale(0.7); opacity: 0.8; }
-  70%  { transform: rotate(45deg) scale(1.8); opacity: 0; }
-  100% { transform: rotate(45deg) scale(1.8); opacity: 0; }
+.atlas-site-pulse svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.atlas-pulse-shadow rect {
+  fill: #2c2416;
+  opacity: 0.2;
+}
+
+.atlas-pulse-ring rect {
+  fill: currentColor;
+}
+
+/* Two-frame stepped pulse: inner ring, then outer ring, then rest.
+   Constant plateaus with 1% ramps ≈ discrete pixel animation. */
+.atlas-pulse-ring--inner {
+  opacity: 0;
+  animation: atlas-pulse-inner 2.8s linear infinite;
+}
+
+.atlas-pulse-ring--outer {
+  opacity: 0;
+  animation: atlas-pulse-outer 2.8s linear infinite;
+}
+
+@keyframes atlas-pulse-inner {
+  0%, 40%  { opacity: 0.75; }
+  41%, 100% { opacity: 0; }
+}
+
+@keyframes atlas-pulse-outer {
+  0%, 36%  { opacity: 0; }
+  37%, 92% { opacity: 0.6; }
+  93%, 100% { opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .atlas-site-pin-pulse { animation: none; opacity: 0.4; }
+  .atlas-pulse-ring--inner { animation: none; opacity: 0; }
+  .atlas-pulse-ring--outer { animation: none; opacity: 0.3; }
 }
 
-[data-reduced-motion] .atlas-site-pin-pulse {
+[data-reduced-motion] .atlas-pulse-ring--inner {
   animation: none;
-  opacity: 0.4;
+  opacity: 0;
+}
+
+[data-reduced-motion] .atlas-pulse-ring--outer {
+  animation: none;
+  opacity: 0.3;
 }
 
 [data-reduced-motion] .district-atlas-clouds-strip.is-drifting {
   animation: none;
 }
 
-/* Name plate — parchment + Cinzel, deliberately fixed-color: it sits on
-   the pixel map, which never changes theme. */
-.atlas-site-plate {
-  font-family: var(--font-display);
-  font-size: 12.5px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  line-height: 1.35;
-  color: #2c2416;
-  background: rgba(250, 246, 239, 0.94);
-  padding: 2px 10px;
-  border-radius: 3px;
-  border: 1px solid rgba(196, 163, 90, 0.6);
-  box-shadow: 0 2px 6px rgba(60, 45, 20, 0.22);
-  white-space: nowrap;
-}
-
-.atlas-site-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.atlas-site-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid;
-  font-family: var(--font-body);
-  font-size: 8.5px;
-  font-weight: 700;
-  line-height: 1.7;
-  letter-spacing: 0.35px;
-  text-transform: uppercase;
-  background: rgba(250, 246, 239, 0.92);
-  white-space: nowrap;
-  box-shadow: 0 1px 4px rgba(60, 45, 20, 0.16);
-}
-
-.atlas-site-chip-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 1px;
-  flex-shrink: 0;
-}
-
-.atlas-site-count {
-  font-family: var(--font-body);
-  font-size: 8.5px;
-  font-weight: 700;
-  line-height: 1.7;
-  letter-spacing: 0.35px;
-  color: #5a4a38;
-  background: rgba(250, 246, 239, 0.9);
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid rgba(196, 163, 90, 0.45);
-  white-space: nowrap;
-  box-shadow: 0 1px 4px rgba(60, 45, 20, 0.16);
-}
-
 /* ── Cartouche + compass chrome over the pixel panel ───────── */
 
+/* Cartouche shares the nameplates' 9-slice: parchment, 2px ink border,
+   notched corners, hard offset shadow — one material language inside
+   the pixel panel. */
 .district-atlas-cartouche {
   position: absolute;
   top: 12px;
   left: 12px;
   z-index: 4;
-  background: rgba(250, 246, 239, 0.93);
-  border: 1px solid rgba(196, 163, 90, 0.6);
-  border-radius: 4px;
-  padding: 7px 13px 6px;
-  box-shadow:
-    0 0 0 3px rgba(250, 246, 239, 0.35),
-    0 4px 12px rgba(60, 45, 20, 0.22);
+  background: var(--atlas-parch);
+  border-radius: 1px;
+  box-shadow: var(--atlas-plaque-shadow);
+  padding: 7px 14px 6px;
   pointer-events: none;
 }
 
@@ -2930,17 +3022,19 @@ html.high-contrast {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.6px;
-  color: #5a4a38;
+  color: var(--atlas-ink-deep);
 }
 
 .district-atlas-cartouche-sub {
   margin-top: 2px;
   font-family: var(--font-body);
   font-size: 8.5px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: #a08d6e;
+  color: #8a7a5e;
+  border-top: 1px solid rgba(196, 163, 90, 0.55);
+  padding-top: 3px;
 }
 
 .district-atlas-compass {
@@ -2955,8 +3049,8 @@ html.high-contrast {
 }
 
 /* Hover card needs extra clearance above the vignette in atlas mode. */
-.map-hover-card--atlas {
-  margin-top: -46px;
+.map-hover-card.map-hover-card--atlas {
+  margin-top: -96px;
 }
 
 @media (max-width: 600px) {
@@ -2979,45 +3073,73 @@ html.high-contrast {
   }
 
   .atlas-site {
-    transform: translate(-50%, -17px);
-    gap: 2px;
+    transform: translate(-50%, -46px);
+  }
+
+  .atlas-site-easel {
+    margin: 3px 3px 0;
   }
 
   .atlas-site-vignette {
-    width: 48px;
-    height: 32px;
+    width: 58px;
+    height: 38px;
     box-shadow:
       0 0 0 1.5px rgba(250, 246, 239, 0.95),
       0 0 0 3px var(--gold-accent),
-      0 4px 10px rgba(60, 45, 20, 0.3);
+      0 0 0 4px rgba(58, 50, 38, 0.55),
+      3px 6px 0 1px rgba(44, 36, 22, 0.24);
   }
 
-  .atlas-site-pin {
-    width: 10px;
-    height: 10px;
+  .atlas-site-leg {
+    bottom: -6px;
+    width: 5px;
+    height: 8px;
+    box-shadow:
+      inset 1px 0 0 #8a6f52,
+      inset -1px 0 0 #55402f,
+      inset 0 -2px 0 #3a2c1f;
   }
 
-  .atlas-site-pin-core {
-    inset: 2px;
+  .atlas-site-leg--l { left: 7px; }
+  .atlas-site-leg--r { right: 7px; }
+
+  .atlas-site-ropes {
+    width: 30px;
+    height: 6px;
+    margin-top: 3px;
+  }
+
+  .atlas-site-ropes i {
+    box-shadow:
+      1px 0 0 #55402f,
+      0 -2px 0 1px var(--atlas-ink);
   }
 
   .atlas-site-plate {
+    padding: 2px 7px 3px;
+    box-shadow:
+      0 0 0 2px var(--atlas-ink),
+      2px 3px 0 2px rgba(44, 36, 22, 0.26);
+  }
+
+  .atlas-site-plate-name {
     font-size: 7.5px;
-    padding: 1px 5px;
     letter-spacing: 0.2px;
-    box-shadow: 0 1px 4px rgba(60, 45, 20, 0.2);
   }
 
   /* The chips repeat in the town cards below the map — drop them here. */
-  .atlas-site-meta {
+  .atlas-site-plate-meta {
     display: none;
   }
 
+  .atlas-site-pulse {
+    width: 80px;
+  }
 
+  /* The header badge + question already carry the scenario title on
+     phones, and the plaque collides with top-row markers — drop it. */
   .district-atlas-cartouche {
-    top: 8px;
-    left: 8px;
-    padding: 4px 8px 3px;
+    display: none;
   }
 
   .district-atlas-cartouche-title {
@@ -3036,28 +3158,30 @@ html.high-contrast {
     bottom: 8px;
   }
 
-  .map-hover-card--atlas {
-    margin-top: -30px;
+  .map-hover-card.map-hover-card--atlas {
+    margin-top: -56px;
   }
 }
 
 /* ── District map hover card (waypoint enrichment) ───────── */
 
+/* Parchment 9-slice, same as the site nameplates and the in-town speech
+   bubbles: parchment fill, 2px ink border, notched corners, hard shadow.
+   Fixed colors — it floats over the pixel map in both themes. */
 .map-hover-card {
   position: absolute;
   transform: translate(-50%, -100%);
   margin-top: -26px;
-  width: 168px;
+  width: 172px;
   pointer-events: none;
   z-index: 10;
-  background: var(--bg-paper);
-  border: 1px solid rgba(196, 163, 90, 0.5);
-  border-radius: 4px;
-  box-shadow: var(--pixel-frame-shadow), 0 10px 26px rgba(100, 80, 50, 0.22);
-  padding: 6px;
+  background: var(--atlas-parch);
+  border-radius: 1px;
+  box-shadow: var(--atlas-plaque-shadow);
+  padding: 7px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   animation: map-hover-card-in 260ms var(--ease-genshin) backwards;
 }
 
@@ -3072,11 +3196,14 @@ html.high-contrast {
 
 .map-hover-card-preview-frame {
   position: relative;
-  width: 100%;
+  width: calc(100% - 4px);
   height: 74px;
   overflow: hidden;
   border-radius: 2px;
-  border: 1px solid rgba(196, 163, 90, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(250, 246, 239, 0.9),
+    0 0 0 2px var(--gold-accent);
+  margin: 2px;
   background: var(--bg-warm);
 }
 
@@ -3127,12 +3254,31 @@ html.high-contrast {
 .map-hover-card-name {
   font-family: var(--font-display);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.3px;
-  color: var(--text-primary);
+  color: var(--atlas-ink-deep);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.map-hover-card-tagline {
+  font-family: var(--font-body);
+  font-size: 9.5px;
+  font-style: italic;
+  line-height: 1.35;
+  color: #6b5b45;
+}
+
+.map-hover-card-detail {
+  font-family: var(--font-body);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #8a7a5e;
+  border-top: 1px solid rgba(196, 163, 90, 0.55);
+  padding-top: 4px;
 }
 
 .map-hover-card-chip {
@@ -3141,7 +3287,7 @@ html.high-contrast {
   align-items: center;
   gap: 5px;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 2px;
   border: 1px solid transparent;
   font-family: var(--font-body);
   font-size: 9.5px;
@@ -4407,6 +4553,8 @@ html.high-contrast {
 
 /* ── Atlas ambient speech bubble ───────────────────────────── */
 
+/* Same 9-slice parchment as the in-town speech bubbles: parchment fill,
+   2px ink ring, hard pixel shadow, square rotated tail. Fixed colors. */
 .map-ambient-bubble {
   position: absolute;
   transform: translate(-50%, -100%);
@@ -4414,11 +4562,10 @@ html.high-contrast {
   flex-direction: column;
   gap: 1px;
   max-width: 210px;
-  padding: 6px 10px 7px;
-  border: 1px solid rgba(196, 180, 154, 0.65);
-  border-radius: 9px;
-  background: rgba(255, 252, 245, 0.96);
-  box-shadow: 0 4px 14px rgba(74, 58, 30, 0.14);
+  padding: 5px 10px 6px;
+  border-radius: 1px;
+  background: var(--atlas-parch);
+  box-shadow: var(--atlas-plaque-shadow);
   pointer-events: none;
   z-index: 5;
   animation: ambient-bubble 4.2s ease-in-out both;
@@ -4428,13 +4575,13 @@ html.high-contrast {
   content: "";
   position: absolute;
   left: 50%;
-  bottom: -5px;
+  bottom: -6px;
   width: 8px;
   height: 8px;
   transform: translateX(-50%) rotate(45deg);
-  background: rgba(255, 252, 245, 0.96);
-  border-right: 1px solid rgba(196, 180, 154, 0.65);
-  border-bottom: 1px solid rgba(196, 180, 154, 0.65);
+  background: var(--atlas-parch);
+  border-right: 2px solid var(--atlas-ink);
+  border-bottom: 2px solid var(--atlas-ink);
 }
 
 .map-ambient-bubble-name {
@@ -4446,7 +4593,7 @@ html.high-contrast {
 
 .map-ambient-bubble-text {
   font: 400 11px/1.35 var(--font-body);
-  color: var(--text-primary);
+  color: var(--atlas-ink-deep);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

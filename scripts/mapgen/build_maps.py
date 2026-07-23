@@ -199,13 +199,16 @@ class Landmark:
 
 
 class MapCanvas:
-    """75x50 tile canvas with the five Township layers plus collision and
-    anchor emitters. All helper coordinates are tile-space."""
+    """Tile canvas (75x50 for towns by default) with the five Township
+    layers plus collision and anchor emitters. All helper coordinates are
+    tile-space. The overworld renderer reuses it at a larger size."""
 
-    def __init__(self, town_id: str, town: dict, seed: int = 7) -> None:
+    def __init__(
+        self, town_id: str, town: dict, seed: int = 7, w: int = MAP_W, h: int = MAP_H
+    ) -> None:
         self.town_id = town_id
         self.town = town
-        self.w, self.h = MAP_W, MAP_H
+        self.w, self.h = w, h
         self.layers: dict[str, list[list[int]]] = {
             n: [[0] * self.w for _ in range(self.h)] for n in LAYER_NAMES
         }

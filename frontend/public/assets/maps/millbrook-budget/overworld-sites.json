@@ -4,8 +4,8 @@
   "image": {
     "path": "overworld.png",
     "path2x": "overworld@2x.png",
-    "width": 1100,
-    "height": 700
+    "width": 1600,
+    "height": 1024
   },
   "clouds": {
     "path": "overworld-clouds.png",
@@ -16,21 +16,21 @@
     {
       "town_id": "harlow-crossing",
       "name": "Harlow Crossing",
-      "x": 755,
-      "y": 435,
+      "x": 1120,
+      "y": 672,
       "clearing": {
-        "rx": 68,
-        "ry": 46
+        "rx": 64,
+        "ry": 48
       }
     },
     {
       "town_id": "millbrook-village",
       "name": "Millbrook Village",
-      "x": 335,
-      "y": 285,
+      "x": 448,
+      "y": 384,
       "clearing": {
-        "rx": 68,
-        "ry": 46
+        "rx": 64,
+        "ry": 48
       }
     }
   ]
