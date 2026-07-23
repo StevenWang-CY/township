@@ -300,5 +300,11 @@ the [social preview](docs/media/social-preview.png) and the
 ---
 
 <p align="center">
+  <a href="https://stevenwang-cy.github.io/township/">
+    <img src="docs/media/social-preview.png" alt="Township — AI residents. Real trade-offs. A living town." width="720">
+  </a>
+</p>
+
+<p align="center">
   <strong>Build a town worth listening to.</strong>
 </p>
