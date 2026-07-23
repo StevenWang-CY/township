@@ -33,6 +33,7 @@ from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
     awning_strip,
+    church,
     cottage,
     facade_wall,
     grand,
@@ -149,7 +150,7 @@ def compose(m: MapCanvas) -> None:
     grand(m, 19, 28, 8, 7, facade="stone_small", roof="stone", windows=True)
     m.pave(20, 35, 7, 2)
     # -- St. Paul Baptist Church
-    grand(m, 8, 32, 8, 8, facade="stone_gray")
+    church(m, 8, 32, 8, 8, variant="clapboard")
     # -- Bay Street Station
     grand(m, 55, 30, 9, 7, facade="stone_large", roof="stone", door="metal", windows=True)
     m.pave(54, 37, 12, 2)

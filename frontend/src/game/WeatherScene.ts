@@ -9,6 +9,22 @@ import type { WeatherKind } from "../types/messages";
  * Listens for `setWeather(kind)` calls from the parent TownScene rather than
  * directly subscribing to the WS — TownScene fans events out to keep coupling
  * minimal.
+ *
+ * ── Clipping contract (Round-2 P1: weather overflow) ────────────────────
+ * Under Scale.RESIZE the canvas tracks its DOM parent, so on tall/mobile
+ * viewports the reported scale size can momentarily disagree with the laid
+ * out page (Phaser re-polls parent bounds on an interval), and the town map
+ * itself may not cover the whole canvas (overview letterboxing). Weather
+ * therefore never trusts a size captured at spawn time:
+ *   • the scene camera's viewport is pinned every frame-ish to the
+ *     intersection of the canvas and the TownScene camera's projected world
+ *     rect, so the camera scissor clips every particle to the visible town —
+ *     nothing can draw over parchment margins or page chrome;
+ *   • all spawn math reads the *current* viewport size (`viewW`/`viewH`),
+ *     including the rain respawn chain (previously it recursed with the
+ *     width/height captured when the storm started);
+ *   • viewport size changes rebuild the particle field (debounced), so a
+ *     resize never leaves a half-covered or overflowing storm behind.
  */
 
 interface RainDrop {
@@ -31,6 +47,14 @@ export class WeatherScene extends Phaser.Scene {
   private paused = false;
   private resizeListener?: () => void;
 
+  /** Current clipped viewport (camera scissor) — all spawn math uses this. */
+  private viewW = 0;
+  private viewH = 0;
+  /** Throttle for the per-frame viewport sync. */
+  private viewSyncAccum = 0;
+  /** Debounce timer for size-change rebuilds. */
+  private rebuildTimer?: Phaser.Time.TimerEvent;
+
   constructor() {
     super({ key: "WeatherScene", active: false });
   }
@@ -51,14 +75,88 @@ export class WeatherScene extends Phaser.Scene {
       }
     } catch { /* ignore */ }
 
-    // Resize handler so weather stays full-screen.
-    this.resizeListener = () => this.rebuild();
+    this.syncViewport();
+
+    // Resize handler so weather stays exactly canvas/town-sized. The actual
+    // rebuild is debounced — RESIZE mode can emit a burst of events while a
+    // mobile URL bar collapses or a flex layout settles.
+    this.resizeListener = () => {
+      if (this.syncViewport()) this.queueRebuild();
+    };
     this.scale.on("resize", this.resizeListener);
+
+    // Phaser does not call a method named `shutdown` automatically — wire it
+    // to the real lifecycle event so the scale listener never leaks.
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdown());
   }
 
   shutdown() {
-    if (this.resizeListener) this.scale.off("resize", this.resizeListener);
+    if (this.resizeListener) {
+      this.scale.off("resize", this.resizeListener);
+      this.resizeListener = undefined;
+    }
+    this.rebuildTimer?.remove(false);
+    this.rebuildTimer = undefined;
     this.clearWeather();
+  }
+
+  /* ── Viewport clipping ─────────────────────────────────── */
+
+  /**
+   * Pin the weather camera to the intersection of the canvas and the town
+   * map's on-screen rect. Returns true when the clip SIZE changed enough
+   * that the particle field should be rebuilt.
+   */
+  private syncViewport(): boolean {
+    const cam = this.cameras?.main;
+    if (!cam) return false;
+    const gw = Math.max(1, this.scale.width);
+    const gh = Math.max(1, this.scale.height);
+
+    let x = 0;
+    let y = 0;
+    let w = gw;
+    let h = gh;
+
+    // Project the town's world rect (the map spans the logical game size)
+    // through the TownScene camera into screen space.
+    const town = this.scene.get("TownScene");
+    const tcam = town?.cameras?.main;
+    const worldW = Number(this.game.config.width);
+    const worldH = Number(this.game.config.height);
+    if (tcam && worldW > 0 && worldH > 0) {
+      const z = tcam.zoom;
+      const left = (0 - tcam.worldView.x) * z;
+      const top = (0 - tcam.worldView.y) * z;
+      const right = (worldW - tcam.worldView.x) * z;
+      const bottom = (worldH - tcam.worldView.y) * z;
+      x = Math.max(0, Math.floor(left));
+      y = Math.max(0, Math.floor(top));
+      w = Math.min(gw, Math.ceil(right)) - x;
+      h = Math.min(gh, Math.ceil(bottom)) - y;
+      if (w < 8 || h < 8) { x = 0; y = 0; w = gw; h = gh; }
+    }
+
+    cam.setViewport(x, y, Math.round(w), Math.round(h));
+    cam.setScroll(0, 0);
+
+    // Rebuild when the clip GROWS (new area would be bare) or collapses
+    // dramatically. Mild shrinks — conversation-spotlight zooms, drift —
+    // are handled by the scissor alone so the storm never visibly resets.
+    const changed = (w - this.viewW > 48 || h - this.viewH > 48)
+      || (w < this.viewW * 0.6 || h < this.viewH * 0.6);
+    this.viewW = w;
+    this.viewH = h;
+    return changed;
+  }
+
+  /** Debounced rebuild after the viewport settles at a new size. */
+  private queueRebuild() {
+    this.rebuildTimer?.remove(false);
+    this.rebuildTimer = this.time.delayedCall(180, () => {
+      this.rebuildTimer = undefined;
+      this.rebuild();
+    });
   }
 
   /* ── Public API ────────────────────────────────────────── */
@@ -111,6 +209,7 @@ export class WeatherScene extends Phaser.Scene {
   private rebuild() {
     this.clearWeather();
     this.applyWeather(this.current);
+    this.container?.setAlpha(1);
   }
 
   private clearWeather() {
@@ -142,8 +241,8 @@ export class WeatherScene extends Phaser.Scene {
 
   private spawnClouds() {
     if (!this.container) return;
-    const W = this.scale.width;
-    const H = this.scale.height;
+    const W = this.viewW;
+    const H = this.viewH;
     const g = this.add.graphics();
     g.fillGradientStyle(0x9aa4b4, 0x9aa4b4, 0xc8cfd9, 0xc8cfd9, 0.22, 0.22, 0.10, 0.10);
     g.fillRect(0, 0, W, H);
@@ -155,11 +254,13 @@ export class WeatherScene extends Phaser.Scene {
 
   private spawnRain() {
     if (!this.container) return;
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const DROPS = 200;
+    const W = this.viewW;
+    const H = this.viewH;
+    // Density scales with covered area so a phone-sized clip is not a
+    // monsoon and a desktop canvas is not a drizzle (old fixed 200).
+    const drops = Phaser.Math.Clamp(Math.round((W * H) / 4800), 60, 260);
 
-    for (let i = 0; i < DROPS; i++) this.spawnRainDrop(W, H, /* stagger */ true);
+    for (let i = 0; i < drops; i++) this.spawnRainDrop(/* stagger */ true);
 
     // Light blue ambient haze
     const haze = this.add.graphics();
@@ -168,7 +269,12 @@ export class WeatherScene extends Phaser.Scene {
     this.container.add(haze);
   }
 
-  private spawnRainDrop(W: number, H: number, stagger = false) {
+  private spawnRainDrop(stagger = false) {
+    // Always read the CURRENT clip size — the respawn chain used to close
+    // over the size captured when the storm started, which kept painting a
+    // stale extent after the canvas or town frame changed size.
+    const W = this.viewW;
+    const H = this.viewH;
     const g = this.add.graphics();
     g.lineStyle(1, 0xb6cae3, 0.65);
     g.lineBetween(0, 0, -2, 8);
@@ -176,7 +282,8 @@ export class WeatherScene extends Phaser.Scene {
     const y = -Phaser.Math.Between(0, H);
     g.setPosition(x, y);
 
-    const tween = this.tweens.add({
+    const entry: RainDrop = { g, tween: null as unknown as Phaser.Tweens.Tween };
+    entry.tween = this.tweens.add({
       targets: g,
       x: x - 30,
       y: H + 20,
@@ -184,15 +291,17 @@ export class WeatherScene extends Phaser.Scene {
       ease: "Linear",
       delay: stagger ? Phaser.Math.Between(0, 800) : 0,
       onComplete: () => {
-        // Splash at ground
-        this.spawnSplash(g.x, H - 4);
+        // Splash at ground (bottom of the current clip).
+        this.spawnSplash(g.x, this.viewH - 4);
         g.destroy();
-        // Replace if the kind is still rain.
-        if (this.current === "rain" && !this.paused) this.spawnRainDrop(W, H);
+        // Retire this entry (the array used to grow without bound) and
+        // replace it if the kind is still rain.
+        this.rainDrops = this.rainDrops.filter((d) => d !== entry);
+        if (this.current === "rain" && !this.paused) this.spawnRainDrop();
       },
     });
     this.container?.add(g);
-    this.rainDrops.push({ g, tween });
+    this.rainDrops.push(entry);
   }
 
   private spawnSplash(x: number, y: number) {
@@ -209,17 +318,18 @@ export class WeatherScene extends Phaser.Scene {
       ease: "Quad.easeOut",
       onComplete: () => splash.destroy(),
     });
+    this.container?.add(splash);
   }
 
   /* ── Snow ──────────────────────────────────────────────── */
 
   private spawnSnow() {
     if (!this.container) return;
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const FLAKES = 120;
+    const W = this.viewW;
+    const H = this.viewH;
+    const flakes = Phaser.Math.Clamp(Math.round((W * H) / 8000), 40, 160);
 
-    for (let i = 0; i < FLAKES; i++) {
+    for (let i = 0; i < flakes; i++) {
       const g = this.add.graphics();
       const radius = 1.5 + Math.random() * 2;
       g.fillStyle(0xffffff, 0.65 + Math.random() * 0.3);
@@ -247,8 +357,8 @@ export class WeatherScene extends Phaser.Scene {
 
   private spawnFog() {
     if (!this.container) return;
-    const W = this.scale.width;
-    const H = this.scale.height;
+    const W = this.viewW;
+    const H = this.viewH;
     for (let i = 0; i < 3; i++) {
       const band = this.add.graphics();
       band.fillStyle(0xe0e7ef, 0.18);
@@ -267,9 +377,17 @@ export class WeatherScene extends Phaser.Scene {
     }
   }
 
-  /* ── Per-frame: side-drift on snow ─────────────────────── */
+  /* ── Per-frame: viewport sync + side-drift on snow ─────── */
 
-  override update(time: number, _delta: number) {
+  override update(time: number, delta: number) {
+    // Keep the clip glued to the town frame (~4 Hz — the town camera pans
+    // and zooms during overview drift and conversation spotlights).
+    this.viewSyncAccum += delta;
+    if (this.viewSyncAccum >= 250) {
+      this.viewSyncAccum = 0;
+      if (this.syncViewport()) this.queueRebuild();
+    }
+
     if (this.paused) return;
     if (this.snowFlakes.length === 0) return;
     for (const f of this.snowFlakes) {

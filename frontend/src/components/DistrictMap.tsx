@@ -67,15 +67,69 @@ interface Pin {
   description: string;
 }
 
-// Coordinate-only presentation adapter for the illustrated flagship atlas.
-// Names, descriptions, colors, dates, and resident counts still come from
-// the active scenario package and transport roster.
-const NJ11_PIN_LAYOUT: Record<string, { cx: number; cy: number }> = {
-  dover: { cx: 250, cy: 240 },
-  parsippany: { cx: 490, cy: 300 },
-  randolph: { cx: 340, cy: 410 },
-  montclair: { cx: 730, cy: 230 },
-};
+/* ── Pixel overworld atlas (mapgen-rendered) ──────────────────
+   scripts/mapgen renders a per-scenario overworld PNG (rolling grass,
+   forests, water, connecting roads) plus an overworld-sites.json under
+   public/assets/maps/<scenario>/. When those assets exist, the atlas
+   interior IS the pixel overworld — parchment frame, Cinzel cartouche
+   and compass stay as chrome around it, and each town becomes a
+   gold-framed pixel vignette anchored at its rendered clearing.
+   Scenarios without rendered assets fall back to the seeded SVG below. */
+
+interface OverworldSite {
+  town_id: TownId;
+  x: number;
+  y: number;
+}
+
+interface OverworldAtlas {
+  width: number;
+  height: number;
+  imageUrl: string;
+  image2xUrl: string | null;
+  cloudsUrl: string | null;
+  sites: OverworldSite[];
+}
+
+/** Validate + resolve overworld-sites.json. Returns null (→ SVG fallback)
+ *  unless the image metadata is sound and EVERY town has a rendered site. */
+function parseOverworldAtlas(
+  payload: unknown,
+  scenarioId: string,
+  townIds: string[],
+): OverworldAtlas | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const data = payload as Record<string, unknown>;
+  const image = (data.image ?? null) as Record<string, unknown> | null;
+  const clouds = (data.clouds ?? null) as Record<string, unknown> | null;
+  if (!image || typeof image.path !== "string") return null;
+  const width = typeof image.width === "number" ? image.width : 0;
+  const height = typeof image.height === "number" ? image.height : 0;
+  if (width <= 0 || height <= 0 || !Array.isArray(data.sites)) return null;
+  const asset = (p: unknown): string | null =>
+    typeof p === "string" && p.length > 0
+      ? appUrl(`assets/maps/${scenarioId}/${p}`)
+      : null;
+  const sites: OverworldSite[] = [];
+  for (const raw of data.sites) {
+    const s = (raw ?? null) as Record<string, unknown> | null;
+    if (!s || typeof s.town_id !== "string") continue;
+    if (typeof s.x !== "number" || typeof s.y !== "number") continue;
+    if (!townIds.includes(s.town_id)) continue;
+    sites.push({ town_id: s.town_id, x: s.x, y: s.y });
+  }
+  if (townIds.length === 0 || !townIds.every((id) => sites.some((s) => s.town_id === id))) {
+    return null;
+  }
+  return {
+    width,
+    height,
+    imageUrl: asset(image.path) as string,
+    image2xUrl: asset(image.path2x),
+    cloudsUrl: clouds ? asset(clouds.path) : null,
+    sites,
+  };
+}
 
 /* ── Seeded layout helpers (generic scenarios) ───────────────── */
 
@@ -264,9 +318,9 @@ function Bridge({ x, y, s = 1 }: { x: number; y: number; s?: number }) {
   );
 }
 
-function CompassRose({ x, y }: { x: number; y: number }) {
+function CompassRose({ x, y, opacity = 0.6 }: { x: number; y: number; opacity?: number }) {
   return (
-    <g transform={`translate(${x},${y})`} opacity="0.6">
+    <g transform={`translate(${x},${y})`} opacity={opacity}>
       <circle cx="0" cy="0" r="30" fill="none" stroke="#A89078" strokeWidth="1" />
       <circle cx="0" cy="0" r="27" fill="none" stroke="#A89078" strokeWidth="0.5" />
       {/* Tick marks */}
@@ -574,194 +628,6 @@ function ResidentDots({
   );
 }
 
-/* ── NJ-11 hand-drawn terrain (flagship scenario, unchanged) ─── */
-
-function NJ11Terrain() {
-  return (
-    <>
-      {/* ─── Layer 2: District Terrain Base ────────────── */}
-      <path
-        d={`
-          M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
-          C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
-          C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
-          C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
-          C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
-        `}
-        fill="url(#terrainBase)"
-        filter="url(#watercolor)"
-        stroke="#A0906E"
-        strokeWidth="1"
-        opacity="0.95"
-      />
-
-      {/* Highlands tint (western) */}
-      <path
-        d={`
-          M 140,160 C 160,130 210,95 280,80 C 340,68 380,65 420,64
-          L 400,200 L 380,320 L 350,400
-          C 300,455 260,442 220,420 C 190,390 162,358 145,320
-          C 138,280 130,240 130,200 C 130,200 140,160 140,160 Z
-        `}
-        fill="url(#highlands)" opacity="0.35"
-      />
-
-      {/* Piedmont tint (eastern) */}
-      <path
-        d={`
-          M 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
-          C 875,235 880,270 870,310 C 862,345 840,375 810,400
-          C 780,425 740,445 700,458 C 660,468 640,470 620,472
-          L 600,350 L 590,250 L 600,160 Z
-        `}
-        fill="url(#piedmont)" opacity="0.3"
-      />
-
-      {/* Grass texture */}
-      <path
-        d={`
-          M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
-          C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
-          C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
-          C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
-          C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
-        `}
-        fill="url(#grassPattern)" opacity="0.4"
-      />
-
-      {/* ─── Layer 3: Terrain Features ─────────────────── */}
-      {/* Mountains — pushed far west, clear of Dover pin at 250,240 */}
-      <Mountain x={148} y={195} s={0.9} variant={0} />
-      <Mountain x={180} y={150} s={1.1} variant={1} />
-      <Mountain x={155} y={260} s={0.7} variant={2} />
-      <Mountain x={195} y={130} s={0.55} variant={0} />
-
-      {/* Rolling hills — spread across mid-terrain, away from pins */}
-      {[
-        [420, 370, 45, 11, "#A4C488"], [580, 400, 38, 9, "#B0CC98"],
-        [650, 360, 42, 10, "#9CBC80"], [460, 440, 32, 8, "#B0CC98"],
-        [770, 310, 35, 9, "#A4C488"],
-      ].map(([cx, cy, rx, ry, fill], i) => (
-        <ellipse key={`hill-${i}`} cx={cx as number} cy={cy as number}
-          rx={rx as number} ry={ry as number} fill={fill as string} opacity="0.35" />
-      ))}
-
-      {/* Forest clusters — deliberately placed AWAY from pin zones */}
-      {/* Far-west forest (near mountains) */}
-      <Tree x={165} y={320} s={0.85} shade={0} />
-      <PineTree x={178} y={310} s={0.75} />
-      <Tree x={190} y={328} s={0.9} shade={1} />
-      <PineTree x={155} y={335} s={0.65} />
-
-      {/* South-central forest (between Parsippany & Randolph, below both) */}
-      <Tree x={400} y={460} s={0.75} shade={0} />
-      <PineTree x={418} y={455} s={0.85} />
-      <Tree x={435} y={465} s={0.7} shade={1} />
-      <PineTree x={385} y={470} s={0.6} />
-
-      {/* Eastern forest (below Montclair) */}
-      <Tree x={690} y={340} s={0.7} shade={1} />
-      <Tree x={708} y={335} s={0.8} shade={2} />
-      <PineTree x={725} y={345} s={0.65} />
-
-      {/* Northeastern trees */}
-      <Tree x={780} y={180} s={0.6} shade={0} />
-      <PineTree x={800} y={170} s={0.55} />
-
-      {/* Scattered singles — far from pins */}
-      <Tree x={560} y={160} s={0.55} shade={0} />
-      <PineTree x={620} y={430} s={0.55} />
-      <Tree x={530} y={450} s={0.5} shade={1} />
-      <Tree x={310} y={180} s={0.5} shade={2} />
-      <PineTree x={850} y={280} s={0.45} />
-
-      {/* Houses — scattered away from pins */}
-      <House x={370} y={200} s={0.7} roofColor="#C8706E" />
-      <House x={580} y={190} s={0.65} roofColor="#B08060" />
-      <House x={440} y={350} s={0.6} roofColor="#C8706E" />
-      <House x={660} y={280} s={0.6} roofColor="#A07858" />
-      <House x={320} y={340} s={0.55} roofColor="#B08060" />
-
-      {/* Mid-district hamlets — the open meadow between the four pins reads
-          as inhabited countryside instead of an empty oval. */}
-      <House x={560} y={350} s={0.65} roofColor="#B08060" />
-      <House x={588} y={332} s={0.55} roofColor="#C8706E" />
-      <Tree x={575} y={368} s={0.6} shade={1} />
-      <Tree x={540} y={318} s={0.55} shade={0} />
-      <House x={640} y={396} s={0.6} roofColor="#A07858" />
-      <Tree x={620} y={342} s={0.55} shade={2} />
-      <Tree x={390} y={330} s={0.6} shade={0} />
-      <House x={412} y={308} s={0.55} roofColor="#C8706E" />
-      <Tree x={470} y={158} s={0.55} shade={1} />
-      <House x={512} y={136} s={0.5} roofColor="#B08060" />
-      <PineTree x={432} y={122} s={0.5} />
-
-      {/* ─── Layer 4: Water Features ───────────────────── */}
-      {/* Rockaway River — clear, visible stroke */}
-      <path
-        d="M 170,145 C 185,175 210,210 225,245 C 240,272 252,295 275,325 C 292,348 315,370 345,390"
-        fill="none" stroke="url(#waterGrad)" strokeWidth="4" strokeLinecap="round"
-        opacity="0.8"
-      />
-      {/* River shimmer */}
-      {[[192, 185], [220, 230], [248, 278], [280, 330], [325, 378]].map(([cx, cy], i) => (
-        <circle key={`shimmer-${i}`} cx={cx} cy={cy} r="1.3" fill="white" opacity="0.5">
-          {!motionIsReduced() && (
-            <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
-          )}
-        </circle>
-      ))}
-
-      {/* Passaic River */}
-      <path
-        d="M 640,175 C 655,210 668,250 676,285 C 684,315 686,345 680,380"
-        fill="none" stroke="url(#waterGrad)" strokeWidth="3.5" strokeLinecap="round"
-        opacity="0.7"
-      />
-
-      <Bridge x={230} y={250} s={0.75} />
-
-      {/* ─── Layer 5: Roads ────────────────────────────── */}
-      <path
-        d="M 155,220 C 250,215 400,230 500,240 C 600,250 700,220 850,215"
-        fill="none" stroke="#C4AE8C" strokeWidth="2.5" strokeLinecap="round"
-        opacity="0.5" strokeDasharray="8 4"
-      />
-      <rect x="490" y="222" width="30" height="13" rx="3" fill="rgba(180,160,130,0.65)" />
-      <text x="505" y="232" textAnchor="middle" fontSize="7.5" fontWeight="700"
-        fill="#6B5B45" fontFamily="Inter, sans-serif">I-80</text>
-
-      <path
-        d="M 300,280 C 400,285 500,290 620,275"
-        fill="none" stroke="#C4AE8C" strokeWidth="1.5" strokeLinecap="round"
-        opacity="0.35" strokeDasharray="5 3"
-      />
-
-      {/* ─── Layer 6: County Boundary ──────────────────── */}
-      <path
-        d="M 590,70 C 585,140 580,220 575,300 C 572,360 570,420 565,475"
-        fill="none" stroke="#A89888" strokeWidth="0.8"
-        strokeDasharray="3 3" opacity="0.45"
-      />
-      <text x="380" y={108} textAnchor="middle" fontSize="10" fontWeight="600"
-        fill="#A0907A" fontFamily="Inter, sans-serif" letterSpacing="0.2em" opacity="0.65">
-        MORRIS COUNTY
-      </text>
-      <text x="720" y={155} textAnchor="middle" fontSize="10" fontWeight="600"
-        fill="#A0907A" fontFamily="Inter, sans-serif" letterSpacing="0.2em" opacity="0.65">
-        ESSEX COUNTY
-      </text>
-
-      {/* ─── Layer 7: Clouds ───────────────────────────── */}
-      <Cloud x={150} y={85} s={0.85} driftDur="80s" />
-      <Cloud x={500} y={48} s={1.1} driftDur="100s" />
-      <Cloud x={830} y={95} s={0.75} driftDur="120s" />
-      <Cloud x={390} y={510} s={0.65} driftDur="90s" />
-      <Cloud x={750} y={490} s={0.55} driftDur="110s" />
-    </>
-  );
-}
-
 /* ── Generic seeded terrain (any other scenario) ─────────────── */
 
 function GenericTerrain({ pins, seedKey }: { pins: Pin[]; seedKey: string }) {
@@ -926,6 +792,94 @@ function GenericTerrain({ pins, seedKey }: { pins: Pin[]; seedKey: string }) {
   );
 }
 
+/* ── Pixel-atlas town site (HTML marker over the overworld PNG) ──
+   A gold-framed vignette cropped from the town's own preview render,
+   a pulsing waypoint pin in the town accent, a Cinzel name plate, and
+   the resident-count / leading-option chips. The existing hover card
+   renders on top (see the overlay layer in the main component). */
+
+function AtlasSite({
+  meta,
+  pct,
+  previewUrl,
+  previewFailed,
+  onPreviewError,
+  isHovered,
+  onHover,
+  onLeave,
+  onClick,
+  leaderColor,
+  leaderLabel,
+  metCount,
+  totalCount,
+  showMet,
+}: {
+  meta: ResolvedTownMeta;
+  pct: { x: number; y: number };
+  previewUrl: string | null;
+  previewFailed: boolean;
+  onPreviewError: () => void;
+  isHovered: boolean;
+  onHover: () => void;
+  onLeave: () => void;
+  onClick: () => void;
+  leaderColor: string | null;
+  leaderLabel: string | null;
+  metCount: number;
+  totalCount: number;
+  showMet: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`atlas-site${isHovered ? " atlas-site--hovered" : ""}`}
+      style={{
+        left: `${pct.x}%`,
+        top: `${pct.y}%`,
+        ["--town-accent" as string]: meta.color,
+      }}
+      aria-label={`${meta.name}. ${leaderLabel ? `${leaderLabel} is leading. ` : "No leading option yet. "}${showMet ? `${metCount} of ${totalCount} residents met. ` : `${totalCount} residents. `}Enter town.`}
+      onClick={onClick}
+      onMouseEnter={onHover}
+      onMouseLeave={onLeave}
+      onFocus={onHover}
+      onBlur={onLeave}
+    >
+      <span className="atlas-site-vignette" aria-hidden="true">
+        <span className="atlas-site-vignette-fallback">{meta.name.charAt(0)}</span>
+        {previewUrl && !previewFailed && (
+          <img
+            className="atlas-site-vignette-img"
+            src={previewUrl}
+            alt=""
+            loading="lazy"
+            onError={onPreviewError}
+          />
+        )}
+      </span>
+      <span className="atlas-site-pin" aria-hidden="true">
+        <span className="atlas-site-pin-pulse" />
+        <span className="atlas-site-pin-core" />
+      </span>
+      <span className="atlas-site-plate">{meta.name}</span>
+      <span className="atlas-site-meta" aria-hidden="true">
+        {leaderLabel && leaderColor && (
+          <span
+            className="atlas-site-chip"
+            style={{ color: "#3D3222", borderColor: withAlpha(leaderColor, "88", leaderColor) }}
+          >
+            <span className="atlas-site-chip-dot" style={{ background: leaderColor }} />
+            {leaderLabel}
+          </span>
+        )}
+        <span className="atlas-site-count">
+          {showMet ? `${metCount}/${totalCount} met` : `${totalCount} residents`}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 /* ── Banner copy helpers ─────────────────────────────────────── */
 
 function decisionDayLabel(scen: ScenarioContextValue): string {
@@ -948,26 +902,54 @@ export default function DistrictMap() {
 
   useEffect(() => { setLoaded(true); }, []);
 
-  // This identity check selects an optional illustrated skin only; no domain
-  // facts are sourced from it.
-  const hasNJ11Atlas = scen.scenario.id === "nj11-2026";
+  const townIds = useMemo(
+    () => scen.scenario.towns.map((t) => t.id),
+    [scen.scenario],
+  );
 
-  const pins = useMemo<Pin[]>(() => {
-    if (hasNJ11Atlas) {
-      return scen.scenario.towns.map((town) => {
-        const point = NJ11_PIN_LAYOUT[town.id];
-        return point
-          ? { id: town.id, ...point, description: town.tagline ?? "" }
-          : genericPins([{ id: town.id, tagline: town.tagline }], `${scen.scenario.id}:${town.id}`)[0];
+  // Pixel overworld assets: presentation-only, rendered by scripts/mapgen.
+  // undefined = probing, null = not available (→ seeded SVG fallback).
+  const [overworld, setOverworld] = useState<OverworldAtlas | null | undefined>(undefined);
+  const [terrainFailed, setTerrainFailed] = useState(false);
+  useEffect(() => {
+    setOverworld(undefined);
+    setTerrainFailed(false);
+    const ctrl = new AbortController();
+    fetch(appUrl(`assets/maps/${scen.scenario.id}/overworld-sites.json`), { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((payload) => setOverworld(parseOverworldAtlas(payload, scen.scenario.id, townIds)))
+      .catch(() => {
+        if (!ctrl.signal.aborted) setOverworld(null);
       });
-    }
-    return genericPins(
-      scen.scenario.towns.map((t) => ({ id: t.id, tagline: t.tagline })),
-      scen.scenario.id,
-    );
-  }, [hasNJ11Atlas, scen.scenario]);
+    return () => ctrl.abort();
+  }, [scen.scenario.id, townIds]);
+  const atlas = !terrainFailed && overworld ? overworld : null;
+  // Only commit to the SVG fallback once the probe has actually failed —
+  // avoids a one-frame flash of the generic map before the pixel atlas loads.
+  const showSvgFallback = overworld === null || terrainFailed;
 
-  const townIds = useMemo(() => pins.map((p) => p.id), [pins]);
+  const pins = useMemo<Pin[]>(
+    () =>
+      genericPins(
+        scen.scenario.towns.map((t) => ({ id: t.id, tagline: t.tagline })),
+        scen.scenario.id,
+      ),
+    [scen.scenario],
+  );
+
+  // Unified overlay anchors (percent of the map surface) for the hover card
+  // and ambient bubble, valid in both pixel-atlas and SVG-fallback modes.
+  const anchorPct = useMemo(() => {
+    const out: Record<TownId, { x: number; y: number }> = {};
+    if (atlas) {
+      for (const s of atlas.sites) {
+        out[s.town_id] = { x: (s.x / atlas.width) * 100, y: (s.y / atlas.height) * 100 };
+      }
+    } else {
+      for (const p of pins) out[p.id] = { x: (p.cx / 1000) * 100, y: (p.cy / 620) * 100 };
+    }
+    return out;
+  }, [atlas, pins]);
 
   const agents = useMemo(() => Object.values(ws.agents), [ws.agents]);
   const [rosterAgents, setRosterAgents] = useState<AgentState[]>([]);
@@ -1093,6 +1075,91 @@ export default function DistrictMap() {
   const dday = decisionDayLabel(scen);
   const motionReduced = motionIsReduced();
 
+  /* Shared overlay layers — rendered inside the pixel panel (atlas mode,
+     exact % anchors) or as siblings of the fallback SVG. */
+  const hoverCardLayer = (atlasMode: boolean) =>
+    townIds.map((id) => {
+      if (hovered !== id) return null;
+      const a = anchorPct[id];
+      if (!a) return null;
+      const meta = scen.townMeta(id);
+      const leader = leaders[id];
+      const chipColor = leader ? scen.optionColor(leader) : "rgba(154,142,128,0.9)";
+      const resident = firstResident[id];
+      return (
+        <div
+          key={`hover-${id}`}
+          className={`map-hover-card pixel-frame${atlasMode ? " map-hover-card--atlas" : ""}`}
+          style={{ left: `${a.x}%`, top: `${a.y}%` }}
+          role="tooltip"
+          aria-hidden="true"
+        >
+          <div className="map-hover-card-preview-frame pixel-frame pixel-frame--quiet">
+            <div className="map-hover-card-preview-fallback" aria-hidden="true">
+              {!meta.map?.preview_path || previewFailed[id]
+                ? "Preview unavailable"
+                : `Opening ${meta.name}`}
+            </div>
+            {!previewFailed[id] && meta.map?.preview_path && (
+              <img
+                className="map-hover-card-preview"
+                src={appUrl(meta.map.preview_path)}
+                alt=""
+                onError={() =>
+                  setPreviewFailed((m) => (m[id] ? m : { ...m, [id]: true }))
+                }
+              />
+            )}
+          </div>
+          <div className="map-hover-card-row">
+            {resident && (
+              <SpritePortrait
+                agentId={resident.id}
+                spriteKey={resident.sprite_key}
+                accessoryKey={resident.accessory_key}
+                fallbackInitials={resident.initials}
+                color={resident.color || meta.color}
+                size={22}
+              />
+            )}
+            <span className="map-hover-card-name">{meta.name}</span>
+          </div>
+          <span
+            className="map-hover-card-chip"
+            style={{
+              background: leader
+                ? withAlpha(chipColor, "1F", "color-mix(in srgb, currentColor 12%, transparent)")
+                : "rgba(154,142,128,0.1)",
+              color: leader ? chipColor : "var(--text-muted)",
+              borderColor: leader
+                ? withAlpha(chipColor, "55", "color-mix(in srgb, currentColor 34%, transparent)")
+                : "rgba(154,142,128,0.35)",
+            }}
+          >
+            <span className="map-hover-card-chip-dot" style={{ background: chipColor }} />
+            {leader ? `Leading: ${scen.optionLabel(leader)}` : "No leader yet"}
+          </span>
+        </div>
+      );
+    });
+
+  const ambientLayer = () => {
+    if (!ambient || hovered === ambient.town) return null;
+    const a = anchorPct[ambient.town];
+    if (!a) return null;
+    return (
+      <div
+        key={ambient.seq}
+        className="map-ambient-bubble"
+        aria-hidden="true"
+        style={{ left: `${a.x}%`, top: `calc(${a.y}% - 42px)` }}
+      >
+        <span className="map-ambient-bubble-name">{ambient.name}</span>
+        <span className="map-ambient-bubble-text">{ambient.text}</span>
+      </div>
+    );
+  };
+
   return (
     <div
       className="flex flex-col items-center justify-center min-h-[calc(100vh-56px)] px-4 py-4"
@@ -1131,7 +1198,7 @@ export default function DistrictMap() {
         </p>
       </div>
 
-      {/* ── SVG Map ────────────────────────────────────────────── */}
+      {/* ── Atlas surface — pixel overworld, or seeded SVG fallback ── */}
       <div
         className="relative w-full max-w-[960px] mx-auto"
         style={{
@@ -1139,6 +1206,92 @@ export default function DistrictMap() {
           animationDelay: "300ms",
         }}
       >
+        {atlas && (
+          <div className="district-atlas-frame">
+            <div
+              className="district-atlas-panel"
+              style={{ aspectRatio: `${atlas.width} / ${atlas.height}` }}
+            >
+              <div className="district-atlas-viewport">
+                <img
+                  className="district-atlas-terrain"
+                  src={atlas.imageUrl}
+                  srcSet={atlas.image2xUrl ? `${atlas.imageUrl} 1x, ${atlas.image2xUrl} 2x` : undefined}
+                  alt=""
+                  draggable={false}
+                  onError={() => setTerrainFailed(true)}
+                />
+                {atlas.cloudsUrl && (
+                  <div className="district-atlas-clouds" aria-hidden="true">
+                    {/* Shadow pass first (beneath), then the cloud blobs —
+                        both drift on the same very slow seamless loop. */}
+                    <div className="district-atlas-clouds-shadow">
+                      <div className={`district-atlas-clouds-strip${motionReduced ? "" : " is-drifting"}`}>
+                        <img src={atlas.cloudsUrl} alt="" draggable={false} />
+                        <img src={atlas.cloudsUrl} alt="" draggable={false} />
+                      </div>
+                    </div>
+                    <div className={`district-atlas-clouds-strip${motionReduced ? "" : " is-drifting"}`}>
+                      <img src={atlas.cloudsUrl} alt="" draggable={false} />
+                      <img src={atlas.cloudsUrl} alt="" draggable={false} />
+                    </div>
+                  </div>
+                )}
+                <div className="district-atlas-shade" aria-hidden="true" />
+              </div>
+
+              {/* Town sites: vignette + waypoint pin + plate + chips */}
+              {atlas.sites.map((site) => {
+                const leader = leaders[site.town_id];
+                const meta = scen.townMeta(site.town_id);
+                return (
+                  <AtlasSite
+                    key={site.town_id}
+                    meta={meta}
+                    pct={anchorPct[site.town_id]}
+                    previewUrl={meta.map?.preview_path ? appUrl(meta.map.preview_path) : null}
+                    previewFailed={!!previewFailed[site.town_id]}
+                    onPreviewError={() =>
+                      setPreviewFailed((m) => (m[site.town_id] ? m : { ...m, [site.town_id]: true }))
+                    }
+                    isHovered={hovered === site.town_id}
+                    onHover={() => setHovered(site.town_id)}
+                    onLeave={() => setHovered(null)}
+                    onClick={() => goToTown(site.town_id)}
+                    leaderColor={leader ? scen.optionColor(leader) : null}
+                    leaderLabel={leader ? scen.optionLabel(leader) : null}
+                    metCount={metPerTown[site.town_id]}
+                    totalCount={townTotals[site.town_id]}
+                    showMet={!DEMO_MODE && isOnboarded}
+                  />
+                );
+              })}
+
+              {/* Cinzel title cartouche — chrome over the pixel panel */}
+              <div className="district-atlas-cartouche">
+                <div className="district-atlas-cartouche-title">{scen.title}</div>
+                <div className="district-atlas-cartouche-sub">
+                  {[
+                    totalResidents ? `${totalResidents} AI Residents` : "AI Residents",
+                    `${townIds.length} Town${townIds.length === 1 ? "" : "s"}`,
+                  ].join(" · ")}
+                </div>
+              </div>
+
+              {/* Compass rose — bottom-right chrome */}
+              <svg className="district-atlas-compass" viewBox="-42 -46 84 88" aria-hidden="true">
+                <circle r="36" fill="rgba(250,246,239,0.78)" stroke="rgba(196,163,90,0.5)" strokeWidth="1" />
+                <CompassRose x={0} y={0} opacity={0.95} />
+              </svg>
+
+              {/* Overlay layers live inside the panel so % anchors are exact */}
+              {hoverCardLayer(true)}
+              {ambientLayer()}
+            </div>
+          </div>
+        )}
+
+        {showSvgFallback && (
         <svg viewBox="0 0 1000 620" className="w-full h-auto" style={{ overflow: "visible" }}>
           <defs>
             <filter id="paperTexture" x="-5%" y="-5%" width="110%" height="110%">
@@ -1220,11 +1373,7 @@ export default function DistrictMap() {
           ))}
 
           {/* ─── Layers 2–7: Terrain ───────────────────────── */}
-          {hasNJ11Atlas ? (
-            <NJ11Terrain />
-          ) : (
-            <GenericTerrain pins={pins} seedKey={scen.scenario.id} />
-          )}
+          <GenericTerrain pins={pins} seedKey={scen.scenario.id} />
 
           {/* ─── Layer 8: Resident dots + Town Markers ─────── */}
           {pins.map((pin) => (
@@ -1298,93 +1447,12 @@ export default function DistrictMap() {
             </path>
           </g>
         </svg>
+        )}
 
-        {/* ── Waypoint hover card (HTML overlay over the SVG) ──── */}
-        {pins.map((pin) => {
-          if (hovered !== pin.id) return null;
-          const meta = scen.townMeta(pin.id);
-          const leader = leaders[pin.id];
-          const chipColor = leader ? scen.optionColor(leader) : "rgba(154,142,128,0.9)";
-          const resident = firstResident[pin.id];
-          return (
-            <div
-              key={`hover-${pin.id}`}
-              className="map-hover-card pixel-frame"
-              style={{
-                left: `${(pin.cx / 1000) * 100}%`,
-                top: `${(pin.cy / 620) * 100}%`,
-              }}
-              role="tooltip"
-              aria-hidden="true"
-            >
-              <div className="map-hover-card-preview-frame pixel-frame pixel-frame--quiet">
-                <div className="map-hover-card-preview-fallback" aria-hidden="true">
-                  {!meta.map?.preview_path || previewFailed[pin.id]
-                    ? "Preview unavailable"
-                    : `Opening ${meta.name}`}
-                </div>
-                {!previewFailed[pin.id] && meta.map?.preview_path && (
-                  <img
-                    className="map-hover-card-preview"
-                    src={appUrl(meta.map.preview_path)}
-                    alt=""
-                    onError={() =>
-                      setPreviewFailed((m) => (m[pin.id] ? m : { ...m, [pin.id]: true }))
-                    }
-                  />
-                )}
-              </div>
-              <div className="map-hover-card-row">
-                {resident && (
-                  <SpritePortrait
-                    agentId={resident.id}
-                    spriteKey={resident.sprite_key}
-                    accessoryKey={resident.accessory_key}
-                    fallbackInitials={resident.initials}
-                    color={resident.color || meta.color}
-                    size={22}
-                  />
-                )}
-                <span className="map-hover-card-name">{meta.name}</span>
-              </div>
-              <span
-                className="map-hover-card-chip"
-                style={{
-                  background: leader
-                    ? withAlpha(chipColor, "1F", "color-mix(in srgb, currentColor 12%, transparent)")
-                    : "rgba(154,142,128,0.1)",
-                  color: leader ? chipColor : "var(--text-muted)",
-                  borderColor: leader
-                    ? withAlpha(chipColor, "55", "color-mix(in srgb, currentColor 34%, transparent)")
-                    : "rgba(154,142,128,0.35)",
-                }}
-              >
-                <span className="map-hover-card-chip-dot" style={{ background: chipColor }} />
-                {leader ? `Leading: ${scen.optionLabel(leader)}` : "No leader yet"}
-              </span>
-            </div>
-          );
-        })}
-
-        {/* ── Ambient resident speech bubble ──────────────────── */}
-        {ambient && hovered !== ambient.town && (() => {
-          const pin = pins.find((p) => p.id === ambient.town);
-          if (!pin) return null;
-          return (
-            <div
-              key={ambient.seq}
-              className="map-ambient-bubble"
-              aria-hidden="true"
-              style={{
-                left: `${(pin.cx / 1000) * 100}%`,
-                top: `${((pin.cy - 40) / 620) * 100}%`,
-              }}
-            >
-              <span className="map-ambient-bubble-name">{ambient.name}</span>
-              <span className="map-ambient-bubble-text">{ambient.text}</span>
-            </div>
-          );
-        })()}
+        {/* Fallback overlays are siblings of the SVG (same box, no frame
+            padding), so the original percentage anchors still hold. */}
+        {showSvgFallback && hoverCardLayer(false)}
+        {showSvgFallback && ambientLayer()}
 
         {/* ── Ambient Floating Particles ──────────────────────── */}
         <div className="ambient-particles">

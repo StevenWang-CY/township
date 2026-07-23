@@ -147,6 +147,9 @@ export class TownScene extends Phaser.Scene {
   /** True while the spotlight camera has borrowed framing from the
    *  player-follow camera (restored on spotlight clear or player movement). */
   private convoFollowPaused = false;
+  /** Focal point of the active NPC conversation, offered to the player as
+   *  an edge chip ("Watch") instead of stealing the follow camera. */
+  private pendingSpotlight: { x: number; y: number } | null = null;
 
   // Fixed-seed capture mode (?capture=1) — see the doc block at the top.
   private captureMode = false;
@@ -506,7 +509,11 @@ export class TownScene extends Phaser.Scene {
         const b = bodies[j];
         const dx = a.x - b.x;
         const dy = a.y - b.y;
-        const d = Math.hypot(dx, dy);
+        // Elliptical metric: y-sorted tall sprites tolerate more vertical
+        // than horizontal closeness (the south body cleanly draws in front),
+        // and it keeps the resolver from slowly dismantling gathering rings
+        // whose north/south slots sit at dy≈24.
+        const d = Math.hypot(dx, dy * 1.45);
         if (d >= MIN_DIST) continue;
         // Deterministic tie-break for perfectly stacked sprites.
         const nx = d > 0.01 ? dx / d : Math.cos(i * 2.39996);
@@ -585,6 +592,156 @@ export class TownScene extends Phaser.Scene {
       }
       label.setVisible(!occupied);
     }
+  }
+
+  /* ── Gathering formations ─────────────────────────────────
+   *
+   * When N residents converge on one target (routine arrivals, news
+   * convergence, conversations, replay snapshots) they are assigned stable
+   * slots on elliptical rings around the meeting point instead of racing
+   * findFreeNear onto the same few tiles. Slot 0 is the centre itself;
+   * rings are wider than tall because y-sorted ~51px sprites need more
+   * horizontal than vertical clearance to keep distinct silhouettes.
+   * A resident keeps its slot until it leaves the gathering, so later
+   * arrivals never reshuffle the crowd; freed inner slots are simply
+   * reused by the next arrival.
+   */
+
+  /** Ring plan: arc spacing stays ~30-34px on every ring. */
+  private static readonly GATHER_RINGS = [
+    { cap: 6, rx: 38, ry: 27 },
+    { cap: 11, rx: 70, ry: 48 },
+    { cap: 15, rx: 100, ry: 66 },
+  ];
+
+  private gatherings = new Map<string, {
+    cx: number;
+    cy: number;
+    /** agentId → claimed slot indices (couples shadow-claim a neighbour). */
+    slots: Map<string, number[]>;
+    used: Set<number>;
+  }>();
+
+  /** agentId → gathering key it currently occupies. */
+  private agentGatherKey = new Map<string, string>();
+
+  /** Slot index → point around (cx, cy). Fills outward from the south
+   *  point, alternating right/left, so small groups read as an arc that
+   *  opens toward the camera. Returns null past total capacity. */
+  private gatherSlotPoint(cx: number, cy: number, idx: number): { x: number; y: number } | null {
+    if (idx === 0) return { x: cx, y: cy };
+    let base = 1;
+    for (const ring of TownScene.GATHER_RINGS) {
+      if (idx < base + ring.cap) {
+        const j = idx - base;
+        const k = j % 2 === 0 ? j / 2 : -((j + 1) / 2);
+        const a = Math.PI / 2 + k * ((Math.PI * 2) / ring.cap);
+        return { x: cx + Math.cos(a) * ring.rx, y: cy + Math.sin(a) * ring.ry };
+      }
+      base += ring.cap;
+    }
+    return null;
+  }
+
+  /** Free the agent's gathering slot (called when it walks away). */
+  private releaseGatherSlot(agentId: string) {
+    const key = this.agentGatherKey.get(agentId);
+    if (!key) return;
+    this.agentGatherKey.delete(agentId);
+    const g = this.gatherings.get(key);
+    if (!g) return;
+    for (const idx of g.slots.get(agentId) ?? []) g.used.delete(idx);
+    g.slots.delete(agentId);
+    if (g.slots.size === 0) this.gatherings.delete(key);
+  }
+
+  /** Drop every formation (used on landmark rebuilds and replay seeks). */
+  private clearGatherings() {
+    this.gatherings.clear();
+    this.agentGatherKey.clear();
+  }
+
+  /**
+   * Claim (or reuse) a formation slot around (cx, cy) for this sprite.
+   * `skipCenter` keeps slot 0 free when the centre is occupied by a prop
+   * (the dropped newspaper) or when a pair should flank the midpoint.
+   */
+  private gatherSlotFor(
+    key: string,
+    cx: number,
+    cy: number,
+    sprite: AgentSprite,
+    opts?: { skipCenter?: boolean },
+  ): { x: number; y: number } {
+    const prev = this.agentGatherKey.get(sprite.agentId);
+    if (prev && prev !== key) this.releaseGatherSlot(sprite.agentId);
+
+    let g = this.gatherings.get(key);
+    if (!g) {
+      g = { cx, cy, slots: new Map(), used: new Set() };
+      this.gatherings.set(key, g);
+    }
+    this.agentGatherKey.set(sprite.agentId, key);
+
+    // Stable per agent: an existing claim is always reused verbatim.
+    const claimed = g.slots.get(sprite.agentId);
+    if (claimed && claimed.length > 0) {
+      const p = this.gatherSlotPoint(g.cx, g.cy, claimed[0]);
+      if (p) return p;
+    }
+
+    const total = 1 + TownScene.GATHER_RINGS.reduce((n, r) => n + r.cap, 0);
+    for (let idx = opts?.skipCenter ? 1 : 0; idx < total; idx++) {
+      if (g.used.has(idx)) continue;
+      const p = this.gatherSlotPoint(g.cx, g.cy, idx);
+      if (!p) break;
+      if (this.isBlocked(p.x, p.y, 4)) continue;
+      // Bodies outside this gathering (wanderers, another formation a few
+      // tiles over) also make a slot unusable.
+      if (this.isOccupied(p.x, p.y, 24, sprite)) continue;
+      const claim = [idx];
+      // A couple is two bodies wide. The trailing partner settles ~22px to
+      // the side the pair's facing dictates (see AgentSprite rest offsets):
+      // that flank must be open ground, and the nearest neighbouring slot
+      // gets shadow-claimed so later arrivals never share the partner's
+      // ground.
+      if (sprite.hasCouple()) {
+        const fdx = g.cx - p.x;
+        const fdy = g.cy - p.y;
+        const dir = Math.abs(fdx) > Math.abs(fdy)
+          ? (fdx > 0 ? "right" : "left")
+          : (fdy > 0 ? "down" : "up");
+        const flank = dir === "left" || dir === "down" ? 22 : -22;
+        if (this.isBlocked(p.x + flank, p.y, 2) || this.isOccupied(p.x + flank, p.y, 22, sprite)) {
+          continue;
+        }
+        let bestIdx = -1;
+        let bestDist = Infinity;
+        for (let n = 1; n < total; n++) {
+          if (n === idx || g.used.has(n)) continue;
+          const q = this.gatherSlotPoint(g.cx, g.cy, n);
+          if (!q) break;
+          const d = Phaser.Math.Distance.Between(p.x + flank, p.y, q.x, q.y);
+          if (d < 26 && d < bestDist) { bestDist = d; bestIdx = n; }
+        }
+        if (bestIdx >= 0) claim.push(bestIdx);
+      }
+      for (const c of claim) g.used.add(c);
+      g.slots.set(sprite.agentId, claim);
+      return p;
+    }
+    // Formation full or fully blocked — fall back to open-ground search.
+    return this.findFreeNear(cx, cy, { clearOf: 30, exclude: sprite });
+  }
+
+  /** Face the gathering centroid on arrival (only meaningful in company). */
+  private faceGatherCenter(sprite: AgentSprite) {
+    const key = this.agentGatherKey.get(sprite.agentId);
+    const g = key ? this.gatherings.get(key) : undefined;
+    if (!g || g.slots.size < 2) return;
+    const claimed = g.slots.get(sprite.agentId);
+    if (claimed && claimed[0] === 0) return; // centre occupant keeps facing
+    sprite.faceToward(g.cx, g.cy);
   }
 
   /* ── Agent Management (called from React / TownView) ──── */
@@ -683,6 +840,9 @@ export class TownScene extends Phaser.Scene {
     }
 
     this.clearConversationSpotlight(true);
+    // Rebuild formations from scratch: the agents array order is stable per
+    // feed, so repeated seeks assign identical slots (no reshuffling).
+    this.clearGatherings();
     for (const agent of agents) {
       this.addAgent(agent);
       const sprite = this.agentSprites.get(agent.id);
@@ -694,32 +854,30 @@ export class TownScene extends Phaser.Scene {
         ?? this.wanderPoints[0]
         ?? { x: 400, y: 400 };
 
-      // When an older event has no pixel coordinates, give each resident a
-      // stable offset around the landmark so repeated seeks never reshuffle or
-      // stack the whole roster. FNV-1a keeps this scenario-agnostic.
-      let hash = 2166136261;
-      for (let i = 0; i < agent.id.length; i++) {
-        hash ^= agent.id.charCodeAt(i);
-        hash = Math.imul(hash, 16777619);
-      }
-      const dx = ((hash & 0xff) / 255 - 0.5) * 54;
-      const dy = (((hash >>> 8) & 0xff) / 255 - 0.5) * 36;
-      // Even authoritative recorded coordinates get occupancy-resolved: old
-      // event logs routinely stacked a whole meeting on one tile, which is
-      // the single worst craft signal a replay can show.
-      const slot = this.findFreeNear(
-        precise ? recorded.x! : landmark.x + dx,
-        precise ? recorded.y! : landmark.y + dy,
-        { clearOf: 34, exclude: sprite },
+      // Even authoritative recorded coordinates go through the gathering
+      // formation: old event logs routinely stacked a whole meeting on one
+      // tile, which is the single worst craft signal a replay can show. A
+      // lone resident still lands exactly on its recorded spot (slot 0).
+      const key = precise
+        ? `pt:${Math.round(recorded.x! / 72)}:${Math.round(recorded.y! / 72)}`
+        : `lm:${recorded?.location ?? agent.location}`;
+      const slot = this.gatherSlotFor(
+        key,
+        precise ? recorded.x! : landmark.x,
+        precise ? recorded.y! : landmark.y,
+        sprite,
       );
-      const x = slot.x;
-      const y = slot.y;
       const activity = agent.activity && agent.activity !== "walking"
         ? agent.activity
         : "idle";
 
-      sprite.syncReplayState(x, y, this.opinionColor(agent.opinion?.candidate), activity);
+      sprite.syncReplayState(slot.x, slot.y, this.opinionColor(agent.opinion?.candidate), activity);
       this.agentOpinions.set(agent.id, agent.opinion?.candidate ?? "");
+    }
+    // Everyone faces their gathering's centroid once all slots are settled
+    // (mid-loop the group sizes are still growing).
+    for (const sprite of this.agentSprites.values()) {
+      if (sprite !== this.playerSprite) this.faceGatherCenter(sprite);
     }
 
     this.setWorldTime(clock.hour, clock.minute, false);
@@ -729,19 +887,27 @@ export class TownScene extends Phaser.Scene {
   moveAgent(agentId: string, toLocation: string, x?: number, y?: number) {
     const sprite = this.agentSprites.get(agentId);
     if (!sprite) return;
-    // Prefer precise pixel coords when both are finite; else resolve by landmark.
+    // Both routine arrivals (landmark) and event moves (precise coords) go
+    // through the gathering formation: a lone walker lands on its exact
+    // target (slot 0), while N residents converging on the same spot fan
+    // out over stable ring slots and face the centroid on arrival. Precise
+    // coordinates are grouped by ~72px cell so a replayed meeting whose
+    // events all point at one tile forms a ring instead of a pile.
+    let key: string;
+    let cx: number;
+    let cy: number;
     if (Number.isFinite(x) && Number.isFinite(y)) {
-      const t = this.findFreeNear(x as number, y as number, { clearOf: 34, exclude: sprite });
-      sprite.moveToPosition(t.x, t.y);
-      return;
+      key = `pt:${Math.round((x as number) / 72)}:${Math.round((y as number) / 72)}`;
+      cx = x as number;
+      cy = y as number;
+    } else {
+      const base = this.landmarkPositions.get(toLocation) ?? this.wanderPoints[0] ?? { x: 400, y: 400 };
+      key = `lm:${toLocation}`;
+      cx = base.x;
+      cy = base.y;
     }
-    const base = this.landmarkPositions.get(toLocation) ?? this.wanderPoints[0] ?? { x: 400, y: 400 };
-    const t = this.findFreeNear(
-      base.x + Phaser.Math.Between(-50, 50),
-      base.y + Phaser.Math.Between(-35, 35),
-      { clearOf: 34, exclude: sprite },
-    );
-    sprite.moveToPosition(t.x, t.y);
+    const t = this.gatherSlotFor(key, cx, cy, sprite);
+    sprite.moveToPosition(t.x, t.y, () => this.faceGatherCenter(sprite));
   }
 
   showAgentSpeech(agentId: string, text: string, duration?: number) {
@@ -797,6 +963,37 @@ export class TownScene extends Phaser.Scene {
       .map((id) => this.agentSprites.get(id))
       .filter((s): s is AgentSprite => !!s);
     if (sprites.length < 2) return;
+
+    // Formation check: talkers who are stacked (<22px) or scattered (>90px)
+    // first pull into conversational distance around their centroid. A pair
+    // flanks the midpoint; larger groups take ring slots facing it.
+    const cx = sprites.reduce((s, a) => s + a.x, 0) / sprites.length;
+    const cy = sprites.reduce((s, a) => s + a.y, 0) / sprites.length;
+    let malformed = false;
+    for (let i = 0; i < sprites.length && !malformed; i++) {
+      for (let j = i + 1; j < sprites.length; j++) {
+        const d = Phaser.Math.Distance.Between(sprites[i].x, sprites[i].y, sprites[j].x, sprites[j].y);
+        if (d < 22 || d > 90) { malformed = true; break; }
+      }
+    }
+    if (malformed) {
+      if (sprites.length === 2) {
+        const [a, b] = sprites;
+        const left = this.findFreeNear(cx - 15, cy, { clearOf: 24, exclude: a });
+        const right = this.findFreeNear(cx + 15, cy, { clearOf: 24, exclude: b });
+        a.moveToPosition(left.x, left.y, () => { a.faceToward(b.x, b.y); a.setActivity("talking"); });
+        b.moveToPosition(right.x, right.y, () => { b.faceToward(a.x, a.y); b.setActivity("talking"); });
+      } else {
+        const key = `convo:${conversation.participants.slice().sort().join("+")}`;
+        for (const s of sprites) {
+          const t = this.gatherSlotFor(key, cx, cy, s, { skipCenter: true });
+          s.moveToPosition(t.x, t.y, () => { s.faceToward(cx, cy); s.setActivity("talking"); });
+        }
+      }
+      this.playConversationSpotlight(sprites[0], sprites[1]);
+      return;
+    }
+
     for (let i = 0; i < sprites.length; i++) {
       const me = sprites[i];
       const other = sprites[(i + 1) % sprites.length];
@@ -809,7 +1006,12 @@ export class TownScene extends Phaser.Scene {
   /** Backend conversation_ended → walk talkers back to idle. */
   handleConversationEnded(_conversationId: string) {
     this.agentSprites.forEach((s) => {
-      if (s.getActivity() === "talking") s.setActivity("idle");
+      if (s.getActivity() === "talking") {
+        s.setActivity("idle");
+        // Free ad-hoc conversation formations (landmark gatherings persist).
+        const key = this.agentGatherKey.get(s.agentId);
+        if (key?.startsWith("convo:")) this.releaseGatherSlot(s.agentId);
+      }
     });
     this.clearConversationSpotlight();
   }
@@ -877,20 +1079,45 @@ export class TownScene extends Phaser.Scene {
     } else {
       const p = this.playerSprite;
       const participant = a === p || b === p;
-      const chatOpen = !p.inputEnabled && !this.captureMode;
-      if (!participant && !chatOpen && !p.isWalking()) {
-        cam.stopFollow();
-        this.convoFollowPaused = true;
-        if (this.convoZoomBase === undefined) this.convoZoomBase = cam.zoom;
-        cam.pan(midX, midY, 620, "Sine.easeInOut");
-        cam.zoomTo(this.convoZoomBase * 1.12, 620, "Sine.easeInOut");
+      if (!participant) {
+        // Camera contract: with a player present the camera never leaves
+        // them without an explicit ask. Offer the spotlight to React as an
+        // edge chip ("… are talking · Watch") instead of stealing framing.
+        this.pendingSpotlight = { x: midX, y: midY };
+        this.events.emit("spotlight-offer", {
+          aId: a.agentId,
+          bId: b.agentId,
+        });
       }
+    }
+  }
+
+  /** Explicit user ask (edge-chip click): borrow the follow camera for the
+   *  active NPC conversation. Any player movement hands it straight back
+   *  (see update()); spotlight clear restores follow as before. */
+  borrowConversationSpotlight() {
+    const cam = this.cameras.main;
+    const p = this.playerSprite;
+    const target = this.pendingSpotlight;
+    if (!cam || !p || !target) return;
+    cam.stopFollow();
+    this.convoFollowPaused = true;
+    if (this.convoZoomBase === undefined) this.convoZoomBase = cam.zoom;
+    if (reducedMotion()) {
+      cam.centerOn(target.x, target.y);
+    } else {
+      cam.pan(target.x, target.y, 620, "Sine.easeInOut");
+      cam.zoomTo(this.convoZoomBase * 1.12, 620, "Sine.easeInOut");
     }
   }
 
   private clearConversationSpotlight(immediate = false) {
     this.convoFailsafe?.remove(false);
     this.convoFailsafe = undefined;
+    if (this.pendingSpotlight) {
+      this.pendingSpotlight = null;
+      this.events.emit("spotlight-clear");
+    }
     if (this.convoVignette) {
       const v = this.convoVignette;
       this.convoVignette = undefined;
@@ -1081,20 +1308,20 @@ export class TownScene extends Phaser.Scene {
         }
       }
       // Nearby agents react; only motion-enabled scenes converge physically.
+      // Convergers ring the dropped paper (centre slot stays free — the
+      // paper occupies it) and face it when they arrive.
+      const newsKey = `news:${Math.round(land.x)}:${Math.round(land.y)}`;
       let converged = 0;
       this.agentSprites.forEach((s) => {
         if (s === this.playerSprite || converged >= 4) return;
         const d = Phaser.Math.Distance.Between(s.x, s.y, land.x, land.y);
         if (d > 190 || d < 30) return;
         converged++;
-        const t = this.findFreeNear(
-          land.x + Phaser.Math.Between(-34, 34),
-          land.y + Phaser.Math.Between(16, 40),
-          { clearOf: 34, exclude: s },
-        );
+        const t = this.gatherSlotFor(newsKey, land.x, land.y + 4, s, { skipCenter: true });
         s.showEmote("surprise");
         if (motionOk) {
-          this.time.delayedCall(220 + converged * 160, () => s.moveToPosition(t.x, t.y));
+          this.time.delayedCall(220 + converged * 160, () =>
+            s.moveToPosition(t.x, t.y, () => s.faceToward(land.x, land.y)));
         }
       });
     };
@@ -1120,18 +1347,16 @@ export class TownScene extends Phaser.Scene {
       }
     });
 
-    // Camera emphasis (existing beat).
-    if (motionOk) {
-      if (!this.playerSprite) this.pauseOverviewDrift(8000);
+    // Camera emphasis (existing beat) — spectator/replay only. With a
+    // player present the camera never leaves them without an explicit ask
+    // (camera contract); the paper drop + convergence still play on-map.
+    if (motionOk && !this.playerSprite) {
+      this.pauseOverviewDrift(8000);
       const baseZoom = cam.zoom;
       cam.pan(land.x, land.y, 350, "Sine.easeInOut");
       cam.zoomTo(baseZoom * 1.15, 300, "Sine.easeInOut");
       this.time.delayedCall(900, () => {
-        if (this.playerSprite) {
-          cam.pan(this.playerSprite.x, this.playerSprite.y, 400, "Sine.easeInOut");
-        } else {
-          cam.pan(baseCenter.x, baseCenter.y, 400, "Sine.easeInOut");
-        }
+        cam.pan(baseCenter.x, baseCenter.y, 400, "Sine.easeInOut");
         cam.zoomTo(baseZoom, 400, "Sine.easeInOut");
       });
     }
@@ -1140,22 +1365,24 @@ export class TownScene extends Phaser.Scene {
   playOpinionShiftBeat(agentId: string) {
     const cam = this.cameras.main;
     const sprite = this.agentSprites.get(agentId);
-    if (!cam || !sprite || reducedMotion()) return;
-    if (!this.playerSprite) this.pauseOverviewDrift(8000);
+    // Camera contract: never abandon a present player for a beat pan. The
+    // ring morph + emote still mark the shift on the resident themselves.
+    if (!cam || !sprite || reducedMotion() || this.playerSprite) return;
+    this.pauseOverviewDrift(8000);
     const z = cam.zoom;
     const baseCenter = { x: cam.midPoint.x, y: cam.midPoint.y };
     cam.pan(sprite.x, sprite.y, 280, "Sine.easeInOut");
     cam.zoomTo(z * 1.2, 240, "Sine.easeInOut");
     this.time.delayedCall(600, () => {
       cam.zoomTo(z, 380, "Sine.easeInOut");
-      if (this.playerSprite) cam.pan(this.playerSprite.x, this.playerSprite.y, 380, "Sine.easeInOut");
-      else cam.pan(baseCenter.x, baseCenter.y, 380, "Sine.easeInOut");
+      cam.pan(baseCenter.x, baseCenter.y, 380, "Sine.easeInOut");
     });
   }
 
   playSimEndBeat() {
     const cam = this.cameras.main;
-    if (!cam || reducedMotion()) return;
+    // Zoom-out flourish is a spectator/replay beat; a player keeps framing.
+    if (!cam || reducedMotion() || this.playerSprite) return;
     const z = cam.zoom;
     cam.zoomTo(z * 0.7, 800, "Sine.easeInOut");
     this.time.delayedCall(1000, () => cam.zoomTo(z, 700, "Sine.easeInOut"));
@@ -1205,6 +1432,7 @@ export class TownScene extends Phaser.Scene {
     this.agentSprites.clear();
     this.agentRecords.clear();
     this.agentOpinions.clear();
+    this.clearGatherings();
   }
 
   /* ── Player Management ──────────────────────────────────── */
@@ -1323,6 +1551,62 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * requestChat's spatial half — the ONE sanctioned camera move besides
+   * player-follow. A remote talk request (sidebar card, canvas click from
+   * afar, activity row) walks the player up to the resident (follow camera
+   * carries the view) or, with no player, pans the spectator camera to
+   * them. `onReady` fires when the approach lands so the chat panel opens
+   * on arrival instead of teleporting open across the map.
+   * Returns false when the resident has no sprite in this town.
+   */
+  approachAgent(agentId: string, onReady?: () => void): boolean {
+    const sprite = this.agentSprites.get(agentId);
+    if (!sprite || sprite === this.playerSprite) return false;
+
+    // Visible destination: the same glow ring the walk-up proximity uses.
+    sprite.setProximityHighlight(true);
+    this.time.delayedCall(2600, () => {
+      if (sprite.active) sprite.setProximityHighlight(false);
+    });
+
+    const cam = this.cameras.main;
+    const p = this.playerSprite;
+    if (p) {
+      const d = Phaser.Math.Distance.Between(p.x, p.y, sprite.x, sprite.y);
+      if (d <= 64) {
+        p.faceToward(sprite.x, sprite.y);
+        sprite.respondToInteractRequest(p.x, p.y);
+        onReady?.();
+        return true;
+      }
+      const side = p.x < sprite.x ? -34 : 34;
+      const spot = this.findFreeNear(sprite.x + side, sprite.y + 8, {
+        clearOf: 20,
+        exclude: p,
+      });
+      p.moveToPosition(spot.x, spot.y, () => {
+        p.faceToward(sprite.x, sprite.y);
+        sprite.respondToInteractRequest(p.x, p.y);
+        onReady?.();
+      });
+      return true;
+    }
+
+    // Spectator: reuse the mini-map pin pan.
+    this.pauseOverviewDrift(12000);
+    if (cam) {
+      if (reducedMotion()) {
+        cam.centerOn(sprite.x, sprite.y);
+        onReady?.();
+        return true;
+      }
+      cam.pan(sprite.x, sprite.y, 650, "Sine.easeInOut");
+    }
+    this.time.delayedCall(660, () => onReady?.());
+    return true;
+  }
+
   /* ── Routines ─────────────────────────────────────────── */
 
   private tickRoutines() {
@@ -1352,6 +1636,8 @@ export class TownScene extends Phaser.Scene {
       const sp = this.agentSprites.get(agentId);
       if (!sp) return;
 
+      // Wandering off means leaving whatever gathering the agent was in.
+      this.releaseGatherSlot(agentId);
       const target = this.pickWanderTarget(sp);
       sp.moveToPosition(target.x, target.y, () => {
         // Occasionally show an idle thought after arriving.
@@ -2177,6 +2463,8 @@ export class TownScene extends Phaser.Scene {
   private rebuildLandmarks() {
     this.landmarkPositions.clear();
     this.wanderPoints = [];
+    // Gathering centres were derived from the old landmark positions.
+    this.clearGatherings();
     if (!this.builtMap) {
       this.buildFallbackTown(Number(this.game.config.width), Number(this.game.config.height));
     }
@@ -2260,6 +2548,9 @@ export class TownScene extends Phaser.Scene {
       if (Phaser.Math.Distance.Between(x, y, body.x, body.y) < clearance) return true;
       const target = body.getReservedTarget();
       if (target && Phaser.Math.Distance.Between(x, y, target.x, target.y) < clearance) return true;
+      // A couple's trailing partner is a real second body on the ground.
+      const cp = body.getCompanionPoint();
+      if (cp && Phaser.Math.Distance.Between(x, y, cp.x, cp.y) < clearance) return true;
     }
     return false;
   }

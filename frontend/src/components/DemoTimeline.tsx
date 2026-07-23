@@ -179,6 +179,19 @@ export default function DemoTimeline() {
         {player.ended ? <ReplayIcon /> : player.playing ? <PauseIcon /> : <PlayIcon />}
       </button>
 
+      {/* "Skip to the talk" — visible while paused before the first line of
+          dialogue, so nobody has to sit through round-0 walking. */}
+      {!player.playing && !player.ended && player.talkIndex >= 0 &&
+        player.position <= player.talkIndex && (
+        <button
+          className="demo-timeline-skip"
+          onClick={player.skipToTalk}
+          title="Jump to the first conversation"
+        >
+          Skip to the talk ▸
+        </button>
+      )}
+
       {/* The slider and chapter buttons are siblings: interactive elements
           must never be nested inside another interactive ARIA widget. */}
       <div className="demo-timeline-scrubber">

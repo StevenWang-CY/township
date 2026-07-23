@@ -19,9 +19,34 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SimulationEvent } from "../types/messages";
 import { replayReducer, initialState } from "./useWebSocket";
 import type { WsState } from "./useWebSocket";
-import { eventDelayMs } from "../demo/pacing";
+import { DEFAULT_EVENT_DELAY, EVENT_DELAYS, eventDelayMs } from "../demo/pacing";
 import type { DemoSpeed } from "../demo/pacing";
 import { demoUrl } from "../demo/demoMode";
+
+/* ── Cold-open curation ──────────────────────────────────────
+ * A raw feed opens on round-0 arrivals: 30-60s of walking with no dialogue.
+ * Instead, playback begins a few seconds BEFORE the first agent_speech (so
+ * visitors still see the town assemble) and runs slightly fast until that
+ * first line lands, then settles to 1×. Any user interaction (seek, speed,
+ * pause) cancels the boost — it is an opening flourish, not a mode. */
+
+/** Seconds (at 1×) of arrivals kept ahead of the first spoken line. */
+const COLD_OPEN_LEAD_SECONDS = 4;
+/** Speed multiplier applied until the first agent_speech has been emitted. */
+const COLD_OPEN_BOOST = 1.5;
+
+/** Index to start playback from: ~COLD_OPEN_LEAD_SECONDS before the first
+ *  agent_speech (0 when the feed has no speech at all). */
+function curatedStartIndex(events: SimulationEvent[], talkIndex: number): number {
+  if (talkIndex <= 0) return 0;
+  let lead = 0;
+  let k = talkIndex;
+  while (k > 0 && lead < COLD_OPEN_LEAD_SECONDS) {
+    k -= 1;
+    lead += EVENT_DELAYS[events[k].type] ?? DEFAULT_EVENT_DELAY;
+  }
+  return k;
+}
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -60,6 +85,11 @@ export interface DemoPlayer {
   seekBy: (delta: number) => void;
   /** Jump to the start of round n (lands just after its round_started). */
   skipToRound: (round: number) => void;
+  /** Feed index of the first agent_speech event (-1 when the feed has none). */
+  talkIndex: number;
+  /** Jump to the curated opening (a breath of arrivals, then the first
+   *  conversation) and play. The "Skip to the talk" affordance. */
+  skipToTalk: () => void;
 }
 
 export interface DemoFeed {
@@ -111,6 +141,12 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
   const speedRef = useRef<DemoSpeed>(1);
   const playingRef = useRef(false);
   const timerRef = useRef<number | undefined>(undefined);
+  // Cold-open curation (see module header): where the first line of dialogue
+  // lives, where the curated opening starts, and whether the opening boost
+  // is still active.
+  const talkIndexRef = useRef(-1);
+  const startIndexRef = useRef(0);
+  const boostRef = useRef(false);
 
   // React-visible mirrors.
   const [view, setView] = useState<WsState>(initialState);
@@ -122,6 +158,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [chapters, setChapters] = useState<DemoChapter[]>([]);
+  const [talkIndex, setTalkIndex] = useState(-1);
   const [agentRoster, setAgentRoster] = useState<WsState["agentRoster"]>({});
 
   const stopPlayback = useCallback(() => {
@@ -150,7 +187,13 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
       setEnded(true);
       return;
     }
-    timerRef.current = window.setTimeout(tick, eventDelayMs(evt.type, speedRef.current));
+    // The cold-open boost ends the moment the first line of dialogue lands,
+    // so that line paces (and reads) at the user's chosen speed.
+    if (evt.type === "agent_speech") boostRef.current = false;
+    const paceSpeed = boostRef.current
+      ? speedRef.current * COLD_OPEN_BOOST
+      : speedRef.current;
+    timerRef.current = window.setTimeout(tick, eventDelayMs(evt.type, paceSpeed));
   }, [stopPlayback]);
 
   const seekTo = useCallback(
@@ -158,6 +201,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
       const events = eventsRef.current;
       const target = Math.max(0, Math.min(events.length, Math.floor(i)));
       window.clearTimeout(timerRef.current);
+      boostRef.current = false; // seeking is user intent — drop the opening boost
       // Pure reducer ⇒ position = synchronous prefix reduction. Instant.
       let s = initialState;
       for (let k = 0; k < target; k++) {
@@ -196,14 +240,18 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
     tick();
   }, [seekTo, tick]);
 
-  const pause = useCallback(() => stopPlayback(), [stopPlayback]);
+  const pause = useCallback(() => {
+    boostRef.current = false;
+    stopPlayback();
+  }, [stopPlayback]);
 
   const toggle = useCallback(() => {
-    if (playingRef.current) stopPlayback();
+    if (playingRef.current) pause();
     else play();
-  }, [play, stopPlayback]);
+  }, [play, pause]);
 
   const setSpeed = useCallback((s: DemoSpeed) => {
+    boostRef.current = false; // an explicit speed choice overrides the boost
     speedRef.current = s;
     setSpeedState(s);
     if (playingRef.current) {
@@ -221,6 +269,18 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
     [chapters, seekTo],
   );
 
+  const skipToTalk = useCallback(() => {
+    if (talkIndexRef.current < 0) return;
+    seekTo(startIndexRef.current);
+    // Re-arm the opening flourish and play: brisk arrivals, then the line.
+    boostRef.current = talkIndexRef.current > startIndexRef.current;
+    setEnded(false);
+    playingRef.current = true;
+    setPlaying(true);
+    window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(tick, 120);
+  }, [seekTo, tick]);
+
   /* ── Feed loading ─────────────────────────────────────────── */
 
   useEffect(() => {
@@ -232,6 +292,10 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
     setReady(false);
     setError(null);
     setAgentRoster({});
+    talkIndexRef.current = -1;
+    startIndexRef.current = 0;
+    boostRef.current = false;
+    setTalkIndex(-1);
 
     fetch(demoUrl(`${scenarioId}.json`), { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -245,16 +309,29 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
           for (const agent of started.agents) roster[agent.id] = agent;
         }
         eventsRef.current = events;
-        stateRef.current = initialState;
-        posRef.current = 0;
-        setView(initialState);
-        setPosition(0);
+        // Curated cold open: start a breath before the first conversation
+        // instead of at raw round-0 walking, and pace slightly fast until
+        // the first line lands. Visitors see dialogue within seconds.
+        const talkIdx = events.findIndex((event) => event.type === "agent_speech");
+        const startIdx = curatedStartIndex(events, talkIdx);
+        let startState = initialState;
+        for (let k = 0; k < startIdx; k++) {
+          startState = replayReducer(startState, { type: "EVENT", payload: events[k] });
+        }
+        talkIndexRef.current = talkIdx;
+        startIndexRef.current = startIdx;
+        setTalkIndex(talkIdx);
+        stateRef.current = startState;
+        posRef.current = startIdx;
+        setView(startState);
+        setPosition(startIdx);
         setDuration(events.length);
         setChapters(buildChapters(events));
         setAgentRoster(roster);
         setEnded(false);
         setReady(true);
         // Auto-play: the demo should feel alive the moment it loads.
+        boostRef.current = talkIdx > startIdx;
         playingRef.current = true;
         setPlaying(true);
         window.clearTimeout(timerRef.current);
@@ -308,9 +385,11 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
       seekTo,
       seekBy,
       skipToRound,
+      talkIndex,
+      skipToTalk,
     }),
     [ready, error, playing, ended, speed, position, duration, chapters, scenarioId,
-     play, pause, toggle, setSpeed, seekTo, seekBy, skipToRound],
+     play, pause, toggle, setSpeed, seekTo, seekBy, skipToRound, talkIndex, skipToTalk],
   );
 
   return { state, player };

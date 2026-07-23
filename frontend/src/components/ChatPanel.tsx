@@ -12,6 +12,7 @@ import MoodIndicator from "./MoodIndicator";
 import TrustBadge from "./TrustBadge";
 import { readableInk } from "../lib/color";
 import { playerCapabilityHeaders, registerPlayerCapability } from "../lib/playerCapability";
+import { useLayerStack } from "../hooks/useLayerStack";
 
 /* ── Persistent transcripts (one record per agent across panel reopens) ── */
 
@@ -247,6 +248,51 @@ function topicsForAgent(agent: AgentState): string[] {
   return out.slice(0, 5);
 }
 
+/* ── Intro line grammar ──────────────────────────────────────
+ * The guest player is literally named "You", which conjugates second-person
+ * ("You walk up…"), while a named player conjugates third-person
+ * ("Maya walks up…"). Never emit "You approaches".
+ *
+ * The "walks up" fiction is only earned when a player sprite actually
+ * stands in this town; spectators "strike up a conversation", and the demo
+ * replay is honest about being recorded. */
+
+function isSecondPerson(name: string): boolean {
+  return name.trim().toLowerCase() === "you";
+}
+
+/** "Owner, La Finca Restaurant" → " — owner of La Finca Restaurant".
+ *  Only simple "Role, Place" pairs are rewritten; multi-role or annotated
+ *  occupations ("Retired (formerly …)", "…, County College of Morris
+ *  student") keep their own wording, just lowercased mid-sentence. */
+function occupationBlurb(occupation: string | undefined): string {
+  const raw = (occupation ?? "").trim().replace(/\.$/, "");
+  if (!raw) return "";
+  // The place must read as a proper noun ("La Finca Restaurant"), not a
+  // second role ("former marketing manager") — those keep their comma.
+  const pair = raw.match(/^([^,()]{2,40}), ([A-Z][^,]+)$/);
+  let text =
+    pair && !/\b(student|retired|former|formerly)\b/i.test(raw)
+      ? `${pair[1]} of ${pair[2]}`
+      : raw;
+  // Lowercase the leading word unless it looks like an acronym or proper noun
+  // kept capitalized mid-sentence (e.g. "ER nurse").
+  if (/^[A-Z][a-z]/.test(text)) text = text[0].toLowerCase() + text.slice(1);
+  return ` — ${text}`;
+}
+
+function introLine(playerName: string, agent: AgentState, playerPresent: boolean): string {
+  const blurb = occupationBlurb(agent.occupation);
+  if (DEMO_MODE) {
+    return `You're watching ${agent.name}'s recorded conversations${blurb ? ` —${blurb.slice(2)}` : ""}.`;
+  }
+  if (!playerPresent) {
+    return `You strike up a conversation with ${agent.name}${blurb}.`;
+  }
+  const verb = isSecondPerson(playerName) ? "walk up to" : "walks up to";
+  return `${playerName} ${verb} ${agent.name}${blurb}.`;
+}
+
 /* ── ChatPanel ───────────────────────────────────────────────── */
 
 interface ChatPanelProps {
@@ -254,9 +300,21 @@ interface ChatPanelProps {
   onClose: () => void;
   /** Called when transcript updates (used to persist as a journal entry). */
   onTranscriptChange?: (agentId: string, messages: ChatMessage[]) => void;
+  /** True when a player sprite actually stands in this town — earns the
+   *  "walks up to" intro; otherwise the copy is spectator-honest. */
+  playerPresent?: boolean;
+  /** Demo replay: this resident's recorded speech lines (fills the panel
+   *  instead of an empty scroll area). */
+  recordedLines?: string[];
 }
 
-export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPanelProps) {
+export default function ChatPanel({
+  agent,
+  onClose,
+  onTranscriptChange,
+  playerPresent = false,
+  recordedLines = [],
+}: ChatPanelProps) {
   const { profile, chatMode, setChatMode } = useUserProfile();
   const { scenario, townMeta, optionColor, optionLabel, undecidedId } = useScenario();
   const audio = useAudio();
@@ -270,7 +328,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
       {
         id: "system-intro",
         role: "system",
-        content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${townMeta(agent.town).name}.`,
+        content: introLine(playerName, agent, playerPresent),
         timestamp: new Date().toISOString(),
       },
     ];
@@ -300,19 +358,19 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
   const lastAgentMsgIdRef = useRef<string | null>(null);
   onCloseRef.current = onClose;
 
+  // Escape closes the chat through the universal layer stack — only when
+  // the chat is the top-most open layer (journal/settings above it peel
+  // off first).
+  useLayerStack(!!agent, () => onCloseRef.current());
+
   // The live chat is a modal side panel: move focus in, keep keyboard focus
-  // inside, close on Escape, and restore the invoking control on exit.
+  // inside, and restore the invoking control on exit.
   useEffect(() => {
     if (!agent) return;
     restoreFocusRef.current = document.activeElement as HTMLElement | null;
     requestAnimationFrame(() => closeButtonRef.current?.focus());
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
       if (event.key !== "Tab" || !panelRef.current) return;
       const focusable = Array.from(
         panelRef.current.querySelectorAll<HTMLElement>(
@@ -354,7 +412,7 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
       const intro: ChatMessage = {
         id: "system-intro",
         role: "system",
-        content: `${playerName} approaches ${agent.name}, ${agent.occupation} in ${townMeta(agent.town).name}.`,
+        content: introLine(playerName, agent, playerPresent),
         timestamp: new Date().toISOString(),
       };
       setMessages([intro]);
@@ -681,8 +739,8 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
           id: turnTypingId,
           role: "system",
           content: turn === 0
-            ? `${profile.name} is thinking of what to ask…`
-            : `${profile.name} considers a follow-up…`,
+            ? `${profile.name} ${isSecondPerson(profile.name) ? "are" : "is"} thinking of what to ask…`
+            : `${profile.name} consider${isSecondPerson(profile.name) ? "" : "s"} a follow-up…`,
           timestamp: new Date().toISOString(),
         },
       ]);
@@ -824,6 +882,20 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
     setAutoRunning(false);
   }, [agent, profile, autoRunning]);
 
+  // Demo replay: the panel shows the resident's recorded speech instead of
+  // an empty scroll area with nothing but the install note.
+  const displayMessages = useMemo(() => {
+    if (!DEMO_MODE || !agent) return messages;
+    const recorded: ChatMessage[] = recordedLines.map((text, i) => ({
+      id: `recorded-${i}`,
+      role: "agent",
+      content: text,
+      timestamp: "",
+      agent_id: agent.id,
+    }));
+    return [...messages, ...recorded];
+  }, [messages, recordedLines, agent]);
+
   const topics = useMemo(() => (agent ? topicsForAgent(agent) : []), [agent]);
   const sprite = useMemo(
     () => (agent ? resolveAgentSprite(agent.id, scenario.id) : null),
@@ -951,7 +1023,13 @@ export default function ChatPanel({ agent, onClose, onTranscriptChange }: ChatPa
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
-          {messages.map((msg) => (
+          {DEMO_MODE && recordedLines.length === 0 && (
+            <p className="text-xs italic" style={{ color: "var(--township-ink-muted)" }}>
+              Nothing recorded from {agent.name.split(" ")[0]} yet — play the
+              timeline below and their lines will appear here.
+            </p>
+          )}
+          {displayMessages.map((msg) => (
             <div key={msg.id} className="flex flex-col">
               {msg.role === "agent" && (
                 <span style={{

@@ -32,8 +32,11 @@ export const LABEL_Y = 10;                // name tag below feet
 export const BUBBLE_TIP_Y = -(FRAME_H + 6); // speech-bubble pointer just above head
 export const WALK_FPS = 9;
 export const IDLE_FRAMES: Record<string, number> = { down: 1, left: 4, right: 7, up: 10 };
-/** Default side-by-side offset for a couple's companion body (perpendicular to facing). */
-export const COMPANION_OFFSET = 14;
+/** At-rest side-by-side offset for a couple's companion body (perpendicular
+ *  to facing). Bodies read ~26px wide at SPRITE_SCALE 1.6; 22px keeps the
+ *  pair shoulder-to-shoulder without the ~40% torso merge the old 14-16px
+ *  offset produced (Round-2 P1: Tyler & Megan fused at rest). */
+export const COMPANION_OFFSET = 22;
 
 export type Direction = "down" | "left" | "right" | "up";
 export type GestureKind = "nod" | "shake_head" | "shrug" | "laugh" | "point" | "none";
@@ -978,14 +981,16 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         case "right": ox = -18; oy = -4;  break;
       }
     } else {
-      // Side-by-side at rest, perpendicular to facing. A hint of southward
-      // offset keeps the pair from sharing one exact baseline (which made
-      // their outlines fuse into a single blob at rest).
+      // At-rest formation: the pair settles side-by-side, ~22px apart,
+      // both facing the same way. A hint of southward offset keeps the two
+      // outlines from sharing one exact baseline (which read as a single
+      // fused blob), and lets the painter's-order rule below put the
+      // companion consistently in front for down-facing rests.
       switch (dir) {
-        case "down":  ox = COMPANION_OFFSET + 2;    oy = 2;  break;
-        case "up":    ox = -(COMPANION_OFFSET + 2); oy = 2;  break;
-        case "left":  ox = COMPANION_OFFSET;        oy = -2; break;
-        case "right": ox = -COMPANION_OFFSET;       oy = -2; break;
+        case "down":  ox = COMPANION_OFFSET;    oy = 2;  break;
+        case "up":    ox = -COMPANION_OFFSET;   oy = 2;  break;
+        case "left":  ox = COMPANION_OFFSET;    oy = -2; break;
+        case "right": ox = -COMPANION_OFFSET;   oy = -2; break;
       }
     }
 
@@ -1235,6 +1240,13 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   /** Is this sprite a paired duo (composite couple agent)? */
   hasCouple(): boolean { return !!this.partnerInfo; }
+
+  /** World position of the trailing partner body (couples only) — the
+   *  occupancy system treats it as ground the pair occupies. */
+  getCompanionPoint(): { x: number; y: number } | null {
+    if (!this.companionSprite) return null;
+    return { x: this.x + this.companionSprite.x, y: this.y + this.companionSprite.y };
+  }
 
   /** Multi-layered proximity glow — shown when the player is nearby. */
   setProximityHighlight(active: boolean) {

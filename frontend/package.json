@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "predemo:build": "node scripts/stage-demo.mjs && node scripts/stage-legal.mjs",
     "demo:build": "VITE_DEMO_MODE=1 vite build --outDir dist-demo --base ./",
+    "postdemo:build": "node scripts/demo-404.mjs",
     "demo:preview": "vite preview --outDir dist-demo",
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:e2e": "playwright test"

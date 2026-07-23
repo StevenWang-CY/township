@@ -628,6 +628,61 @@ def cottage(m: MapCanvas, x: int, y: int, w: int = 6, h: int = 8, roof: str = "d
     m.collide(x, y, w, h)
 
 
+def church(
+    m: MapCanvas,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    variant: str = "clapboard",
+    roof: str = "slate",
+    garden: bool = False,
+) -> None:
+    """Small-town church: gabled slate-shingle nave, centered steeple with a
+    louvered belfry, flared slate cap and gold cross finial, arched double
+    door at the tower base, lancet windows flanking. ``variant`` picks the
+    wall material: white ``clapboard`` or gray ``stone``. Footprint w x h
+    with w >= 6 and h >= 7 (2 steeple rows + gabled roof + 3 wall courses)."""
+    if w < 6 or h < 7:
+        raise ValueError("church needs w >= 6 and h >= 7")
+    v = M.CHURCH_VARIANTS[variant]
+    m.reserve(x, y - 1, w, h + 1)
+    roof_h = h - 5
+    cx = x + (w - 2) // 2
+    # steeple: spire + belfry above the ridge line
+    m.stamp(
+        "buildings-top", TileStamp("ch_spire", ((M.mg("ch_spire_l"), M.mg("ch_spire_r")),)), cx, y
+    )
+    m.set("buildings-top", cx, y + 1, M.mg(f"ch_{v}_belfry_l"))
+    m.set("buildings-top", cx + 1, y + 1, M.mg(f"ch_{v}_belfry_r"))
+    # gabled nave roof, tower shaft punching through it
+    m.stamp("buildings-top", roof_stamp(roof, w, roof_h), x, y + 2)
+    for r in range(roof_h):
+        m.set("buildings-top", cx, y + 2 + r, M.mg(f"ch_{v}_tower_l"))
+        m.set("buildings-top", cx + 1, y + 2 + r, M.mg(f"ch_{v}_tower_r"))
+    # walls: two courses + a foundation course that grounds the building
+    wy = y + 2 + roof_h
+    for r, kind in enumerate(("wall", "wall", "wallb")):
+        for c in range(w):
+            side = "l" if c == 0 else ("r" if c == w - 1 else "m")
+            m.set("buildings-base", x + c, wy + r, M.mg(f"ch_{v}_{kind}_{side}"))
+    # lancet windows flanking the entrance
+    for lx in (x + 1, x + w - 2):
+        m.set("buildings-base", lx, wy, M.mg(f"ch_{v}_lan_t"))
+        m.set("buildings-base", lx, wy + 1, M.mg(f"ch_{v}_lan_b"))
+    # arched double door at the tower base
+    m.set("buildings-base", cx, wy + 1, M.mg(f"ch_{v}_door_tl"))
+    m.set("buildings-base", cx + 1, wy + 1, M.mg(f"ch_{v}_door_tr"))
+    m.set("buildings-base", cx, wy + 2, M.mg(f"ch_{v}_door_bl"))
+    m.set("buildings-base", cx + 1, wy + 2, M.mg(f"ch_{v}_door_br"))
+    m.collide(x, y, w, h)
+    if garden:  # modest side garden off the east wall
+        gx, gy = x + w + 1, y + h - 2
+        if m.inb(gx + 1, gy + 1):
+            m.stamp("deco-below", R.BUSH_ROUND, gx, gy)
+            m.flowers(gx + 1, gy + 1, n=4, spread=1)
+
+
 def diner(m: MapCanvas, x: int, y: int, w: int, h: int = 6, door_dx: int | None = None) -> None:
     """Roadside chrome diner: rounded chrome band + DINER letterboard +
     big glass window band + stainless walls with a glass door. Footprint
@@ -686,7 +741,7 @@ def interpret_landmarks(m: MapCanvas) -> None:
                 )
             m.flowers(x + w // 2, y + h - 2, n=6)
         elif lm.type == "church":
-            grand(m, x, y + max(0, h - 8), min(w, 8), min(h, 8), facade="stone_gray")
+            church(m, x, y + max(0, h - 8), max(6, min(w, 8)), max(7, min(h, 8)), garden=True)
         elif lm.type == "civic":
             grand(m, x, y, min(w, 9), min(h, 8), facade="stone_large", banners=True)
         elif lm.type == "transport":

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "scenario": "nj11-2026",
+  "image": {
+    "path": "overworld.png",
+    "path2x": "overworld@2x.png",
+    "width": 1100,
+    "height": 700
+  },
+  "clouds": {
+    "path": "overworld-clouds.png",
+    "path2x": "overworld-clouds@2x.png",
+    "tileable": true
+  },
+  "sites": [
+    {
+      "town_id": "dover",
+      "name": "Dover",
+      "x": 235,
+      "y": 330,
+      "clearing": {
+        "rx": 68,
+        "ry": 46
+      }
+    },
+    {
+      "town_id": "montclair",
+      "name": "Montclair",
+      "x": 925,
+      "y": 435,
+      "clearing": {
+        "rx": 68,
+        "ry": 46
+      }
+    },
+    {
+      "town_id": "parsippany",
+      "name": "Parsippany-Troy Hills",
+      "x": 630,
+      "y": 295,
+      "clearing": {
+        "rx": 68,
+        "ry": 46
+      }
+    },
+    {
+      "town_id": "randolph",
+      "name": "Randolph",
+      "x": 330,
+      "y": 525,
+      "clearing": {
+        "rx": 68,
+        "ry": 46
+      }
+    }
+  ]
+}

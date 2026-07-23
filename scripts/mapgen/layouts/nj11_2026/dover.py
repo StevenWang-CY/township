@@ -31,6 +31,7 @@ from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
     apron,
+    church,
     cottage,
     facade_wall,
     grand,
@@ -84,7 +85,7 @@ def compose(m: MapCanvas) -> None:
     storefront(m, 35, 16, 4, 6, facade="brick", roof="terracotta", sign=4, window=False)  # taqueria
     storefront(m, 39, 16, 4, 6, facade="cream", roof="terracotta", awning=True)  # barber
     # -- St. Mary's Church
-    grand(m, 48, 10, 8, 7, facade="stone_gray")
+    church(m, 48, 10, 8, 7, variant="stone")
     # -- Factory & warehouse district
     grand(m, 58, 14, 9, 8, facade="stone_large", windows=True)
     # brick smokestack rising above the roofline + rooftop vent

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { AgentSprite, LABEL_Y, BUBBLE_TIP_Y, SPRITE_SCALE } from "./AgentSprite";
+import { AgentSprite, LABEL_Y, SPRITE_SCALE } from "./AgentSprite";
 import type { Direction } from "./AgentSprite";
 
 /**
@@ -11,11 +11,12 @@ import type { Direction } from "./AgentSprite";
  */
 
 const PLAYER_SPEED = 160; // px per second
-// Conversational radius: how close the player needs to stand to an NPC for
-// the proximity prompt to appear AND for the dwell-auto-talk timer to start.
-// Retuned with SPRITE_SCALE 1.6 (was 110 at 2.2): ~1.6 body-heights away
-// still reads as "walking up to someone" without feeling finicky.
-const INTERACTION_RADIUS = 84;
+// THE conversational radius — the single distance at which the walk-up talk
+// card (rendered by CanvasOverlay, anchored to the NPC) appears and at which
+// pressing E starts the conversation. There used to be TWO radii (an
+// info-only card at 120 and an E-prompt at 84) with a dead band between
+// them where the card invited an interaction that silently no-oped.
+export const INTERACTION_RADIUS = 96;
 // NOTE: an earlier build auto-opened the chat after standing near an NPC for
 // 1.2s ("dwell-to-talk"). It hijacked the session — chats opened on spawn,
 // re-fired while exploring, froze movement, and silently swapped partners
@@ -52,9 +53,6 @@ export class PlayerSprite extends AgentSprite {
   private nearbySprite: AgentSprite | null = null;
   private wasMoving = false;
   private youBadge: Phaser.GameObjects.Container;
-  private interactPrompt: Phaser.GameObjects.Container;
-  private promptVisible = false;
-  private promptPulseTween?: Phaser.Tweens.Tween;
   public inputEnabled = true;
 
   // Touch joystick
@@ -113,25 +111,34 @@ export class PlayerSprite extends AgentSprite {
       } as Phaser.Types.Input.Keyboard.CursorKeys;
       this.wasd = kb.addKeys("W,A,S,D", false) as any;
       this.eKey = kb.addKey(KC.E, false);
-      kb.on("keydown-E", () => {
-        // Guard: if the user is typing in a text field, E is their input
-        // character, not an interaction command.
+      const tryInteract = () => {
+        // Guard: a key aimed at a focused control (typing in the chat input,
+        // Enter on a focused button/link) is never an interaction command.
         const active = document.activeElement;
-        const typing = !!active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || (active as HTMLElement).isContentEditable);
-        if (typing) return;
+        const busy = !!active && (
+          active.tagName === "INPUT"
+          || active.tagName === "TEXTAREA"
+          || active.tagName === "SELECT"
+          || active.tagName === "BUTTON"
+          || active.tagName === "A"
+          || (active as HTMLElement).isContentEditable
+        );
+        if (busy) return;
         this.onInteract();
-      });
+      };
+      // Keyboard parity: E and Enter both start the conversation.
+      kb.on("keydown-E", tryInteract);
+      kb.on("keydown-ENTER", tryInteract);
     }
 
     // ── "YOU" badge ─────────────────────────────────────────
     this.youBadge = this.createYouBadge(scene);
     this.add(this.youBadge);
 
-    // ── "Press E" interaction prompt ────────────────────────
-    this.interactPrompt = this.createInteractPrompt(scene);
-    this.interactPrompt.setVisible(false);
-    this.interactPrompt.setAlpha(0);
-    this.add(this.interactPrompt);
+    // NOTE: the old "Press E — Talk" capsule anchored over the PLAYER's head
+    // is gone. The one talk affordance is the NPC-anchored talk card drawn
+    // by CanvasOverlay at INTERACTION_RADIUS (E / tap / click all route
+    // through the same requestChat path).
 
     // ── Touch joystick (mobile) ─────────────────────────────
     if (typeof window !== "undefined" && "ontouchstart" in window) {
@@ -182,127 +189,6 @@ export class PlayerSprite extends AgentSprite {
     });
 
     return badge;
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // "Press E" Interaction Prompt
-  // ──────────────────────────────────────────────────────────────
-
-  private createInteractPrompt(scene: Phaser.Scene): Phaser.GameObjects.Container {
-    // Significantly larger + more aesthetic than v1 — the previous prompt was
-    // 52×20 with a 9px font that disappeared next to the NPC. This version is
-    // 86×26 with bigger key caps and a soft warm halo behind it.
-    const prompt = scene.add.container(0, BUBBLE_TIP_Y - 22);
-
-    // Soft warm halo (a layered glow that anchors the prompt visually so it
-    // never gets lost against the building behind the NPC).
-    const halo = scene.add.graphics();
-    halo.fillStyle(0xffe4b5, 0.16);
-    halo.fillCircle(0, 0, 32);
-    halo.fillStyle(0xffe4b5, 0.10);
-    halo.fillCircle(0, 0, 44);
-    prompt.add(halo);
-
-    // Capsule background — slightly larger, warmer black with a gold border.
-    const bg = scene.add.graphics();
-    const w = 66, h = 26, r = 13;
-    bg.fillStyle(0x0e0e0e, 0.88);
-    bg.fillRoundedRect(-w / 2, -h / 2, w, h, r);
-    // Inset highlight
-    bg.fillStyle(0xffffff, 0.05);
-    bg.fillRoundedRect(-w / 2 + 2, -h / 2 + 2, w - 4, 8, { tl: r - 2, tr: r - 2, bl: 0, br: 0 });
-    // Gold border
-    bg.lineStyle(1.2, 0xc4a35a, 0.85);
-    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, r);
-    prompt.add(bg);
-
-    // "E" key cap — chunkier, with a soft drop shadow.
-    const keyCap = scene.add.graphics();
-    const kx = -26, ky = -9, kw = 18, kh = 18;
-    keyCap.fillStyle(0x000000, 0.45);
-    keyCap.fillRoundedRect(kx, ky + 2, kw, kh, 4);
-    keyCap.fillStyle(0xffffff, 0.96);
-    keyCap.fillRoundedRect(kx, ky, kw, kh, 4);
-    keyCap.fillStyle(0xffffff, 0.25);
-    keyCap.fillRoundedRect(kx + 1, ky, kw - 2, 5, { tl: 3, tr: 3, bl: 0, br: 0 });
-    keyCap.lineStyle(0.8, 0xb8a983, 0.7);
-    keyCap.strokeRoundedRect(kx, ky, kw, kh, 4);
-    prompt.add(keyCap);
-
-    const eText = scene.add.text(kx + kw / 2, 0, "E", {
-      fontFamily: "Inter, monospace",
-      fontSize: "12px",
-      fontStyle: "bold",
-      color: "#1a1a1a",
-      resolution: 2,
-    });
-    eText.setOrigin(0.5, 0.5);
-    prompt.add(eText);
-
-    const talkText = scene.add.text(kx + kw + 6, 0, "Talk", {
-      fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-      fontSize: "11px",
-      fontStyle: "bold",
-      color: "#fff7e0",
-      resolution: 2,
-    });
-    talkText.setOrigin(0, 0.5);
-    prompt.add(talkText);
-
-    prompt.setDepth(500);
-    return prompt;
-  }
-
-  private showInteractPrompt() {
-    // Phones already support tapping a resident to open chat. An E-key chip
-    // has no useful input contract there and competes with the HUD, mini-map,
-    // and proximity card for a very small canvas.
-    if (this.scene.scale.width <= 600) return;
-    if (this.promptVisible) return;
-    this.promptVisible = true;
-    this.interactPrompt.setVisible(true);
-    this.interactPrompt.setScale(0.7);
-    this.interactPrompt.setAlpha(0);
-
-    this.scene.tweens.add({
-      targets: this.interactPrompt,
-      alpha: 1,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 180,
-      ease: "Back.easeOut",
-    });
-
-    this.promptPulseTween = this.scene.tweens.add({
-      targets: this.interactPrompt,
-      scaleX: { from: 0.97, to: 1.03 },
-      scaleY: { from: 0.97, to: 1.03 },
-      alpha: { from: 0.85, to: 1.0 },
-      duration: 900,
-      yoyo: true,
-      repeat: -1,
-      ease: "Sine.easeInOut",
-      delay: 200,
-    });
-  }
-
-  private hideInteractPrompt() {
-    if (!this.promptVisible) return;
-    this.promptVisible = false;
-    this.promptPulseTween?.stop();
-    this.promptPulseTween = undefined;
-
-    this.scene.tweens.add({
-      targets: this.interactPrompt,
-      alpha: 0,
-      scaleX: 0.8,
-      scaleY: 0.8,
-      duration: 120,
-      ease: "Quad.easeIn",
-      onComplete: () => {
-        this.interactPrompt.setVisible(false);
-      },
-    });
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -489,9 +375,6 @@ export class PlayerSprite extends AgentSprite {
       if (result) {
         this.nearbySprite = result.sprite;
         result.sprite.setProximityHighlight(true);
-        this.showInteractPrompt();
-      } else {
-        this.hideInteractPrompt();
       }
 
       // Emit to React
@@ -521,7 +404,6 @@ export class PlayerSprite extends AgentSprite {
   }
 
   override destroy(fromScene?: boolean) {
-    this.promptPulseTween?.stop();
     this.joystickGraphics?.destroy();
     super.destroy(fromScene);
   }

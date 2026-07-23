@@ -28,9 +28,10 @@ last produces the registry acceptance sheet. Town outputs are always isolated un
 | File | Role |
 |------|------|
 | `tiles.py` | Named-GID registry for the rpg tileset: `Blob` autotiles, `TileStamp` multi-tile objects, singles. Read its docstring first. |
-| `moderntiles.py` | Draws + quantizes the `township-modern` sheet (asphalt, sidewalk, road markings, street props) and exports `ASPHALT` / `SIDEWALK` blobs and prop GIDs with `firstgid` 10001. Contact sheet: `_inspect/modern_sheet.png`. |
-| `build_maps.py` | `MapCanvas` (layers, blob autotiler, stamps, road network, collision + anchor emitters), building recipes (`storefront`, `grand`, `cottage`), generic landmark interpreter, `.tmj` writer. |
+| `moderntiles.py` | Draws + quantizes the `township-modern` sheet (asphalt, sidewalk, road markings, street props, shingle-roof / chrome-diner / church kits) and exports `ASPHALT` / `SIDEWALK` blobs and prop GIDs with `firstgid` 10001. Contact sheet: `_inspect/modern_sheet.png`. |
+| `build_maps.py` | `MapCanvas` (layers, blob autotiler, stamps, road network, collision + anchor emitters), building recipes (`storefront`, `grand`, `cottage`, `church`, `diner`), generic landmark interpreter, `.tmj` writer. |
 | `render_preview.py` | Compositor for generated maps; approximates anchors with registry stamps so previews match the in-game look. |
+| `overworld.py` | District-Atlas pixel overworld: paints a per-scenario terrain page (grass, forests, water, ridgeline, roads), a translucent cloud-shadow layer, and the town-site coordinates JSON. Geography per scenario lives in its `GEOGRAPHY` dict; unknown scenarios get a deterministic generic layout. |
 | `layouts/<scenario>/<town>.py` | Optional hand-tuned layout per town; hyphens in both ids become underscores (for example `layouts/nj11_2026/dover.py`). |
 | `validate_registry.py`, `inspect_tiles.py` | Registry acceptance sheet and raw tileset inspection tools. |
 
@@ -56,6 +57,47 @@ Object layers:
 Tilesets: `rpg-tileset` at `firstgid` 1 (100 cols, 10000 tiles) and
 `township-modern` at `firstgid` 10001. Flip flags follow the Tiled top-3-bit
 convention (`tiles.FLIP_H/V/D`, mask with `GID_MASK`).
+
+## Overworld contract (District Atlas)
+
+`python3 -m scripts.mapgen.overworld --scenario <id>` (or `--all`) writes four
+assets plus one JSON into `frontend/public/assets/maps/<scenario-id>/`:
+
+| File | Contents |
+|------|----------|
+| `overworld.png` | 1100x700 opaque pixel terrain panel (@1x; every overworld pixel is a crisp 2x2 block, palette-quantized to `rpg-tileset.png`) |
+| `overworld@2x.png` | 2200x1400 nearest-neighbour upscale of the same frame |
+| `overworld-clouds.png` / `overworld-clouds@2x.png` | translucent cloud-shadow blobs on transparency, **tileable on both axes** — the frontend can wrap-drift the layer freely (respect reduced motion) |
+| `overworld-sites.json` | town-site coordinates for vignette/pin placement |
+
+`overworld-sites.json` schema (all pixel values are in the 1100x700 @1x
+space; multiply by 2 for the @2x assets):
+
+```json
+{
+  "version": 1,
+  "scenario": "nj11-2026",
+  "image":  { "path": "overworld.png", "path2x": "overworld@2x.png",
+              "width": 1100, "height": 700 },
+  "clouds": { "path": "overworld-clouds.png",
+              "path2x": "overworld-clouds@2x.png", "tileable": true },
+  "sites": [
+    {
+      "town_id": "dover",            // matches scenarios/<id>/towns/<town>.json
+      "name": "Dover",               // display name from the town payload
+      "x": 235, "y": 330,            // clearing center — put the vignette here
+      "clearing": { "rx": 68, "ry": 46 }  // flat-meadow ellipse radii around it
+    }
+  ]
+}
+```
+
+`sites` is sorted by `town_id` and contains one entry per town in the
+scenario package. The clearing ellipse is guaranteed flat meadow (no forest
+or water; a road may pass through), so a vignette of `2*rx x 2*ry` or
+smaller never covers terrain features that matter. Chrome (parchment frame,
+cartouche, compass, pins, hover cards) belongs to the frontend, never to
+these PNGs.
 
 ## Adding a town
 
@@ -116,8 +158,10 @@ art; towns without it retain the procedural renderer.
 ## Capability limits (do not fight the tileset)
 
 No modern vehicles/asphalt art exists in the rpg sheet (that is what
-`township-modern` adds), and there are no pitched-roof houses: buildings are
-composed as facade strips + flat deck/stone-pad roofs. The stone bridge is
+`township-modern` adds), and it has no pitched roofs, diners, or churches —
+those come from the `township-modern` kits (`shingle_stamp`, `diner_row`,
+and the church tiles the `church` recipe composes: steeple + belfry +
+lancets + arched door in clapboard/stone variants). The stone bridge is
 horizontal-only (flip for vertical). Some sibling prop tiles in the raw
 sheet are fully transparent — the registry already excludes them; never
 reach around `tiles.py` for raw GIDs.

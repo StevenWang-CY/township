@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { Link } from "react-router-dom";
 import OpinionChart from "./OpinionChart";
 import type {
   NewsReaction,
@@ -104,6 +105,16 @@ export default function GodsView({ ws }: GodsViewProps) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [scenariosLoading, setScenariosLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Results land below the fold; bring them into view when they arrive so
+  // an injection never LOOKS like it did nothing.
+  const resultsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!submitted || loading) return;
+    requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [submitted, loading]);
 
   // Live mode reads the API. The hosted replay reads the same scenario-package
   // JSON staged at build time, so this surface remains useful without implying
@@ -496,7 +507,7 @@ export default function GodsView({ ws }: GodsViewProps) {
 
       {/* Results */}
       {submitted && (
-        <div style={{ animation: "fade-in-up 0.4s ease-out" }}>
+        <div ref={resultsRef} style={{ animation: "fade-in-up 0.4s ease-out", scrollMarginTop: "72px" }}>
           {loading ? (
             <div className="text-center py-12">
               <div
@@ -511,16 +522,6 @@ export default function GodsView({ ws }: GodsViewProps) {
             <>
               {/* Before/After prediction widget. The response snapshot is
                   authoritative; live WS agents are only a legacy fallback. */}
-              {!hasLiveAgents && reactions.length > 0 && (
-                <div
-                  className="rounded-xl p-4 mb-6 text-center"
-                  style={{ background: "var(--card-bg)", border: "1px dashed var(--card-border)" }}
-                >
-                  <p className="text-sm" style={{ color: "var(--township-ink-muted)" }}>
-                    Run a simulation to see live opinions shift here.
-                  </p>
-                </div>
-              )}
               {(hasLiveAgents || opinionBefore) && projectedOpinions && (
                 <div className="prediction-widget">
                   <div className="prediction-widget-pair">
@@ -615,6 +616,19 @@ export default function GodsView({ ws }: GodsViewProps) {
                   <p className="text-sm" style={{ color: "var(--township-ink-muted)" }}>
                     No reactions yet. Make sure the simulation is running.
                   </p>
+                </div>
+              )}
+
+              {/* Where to next — an injection should never end in a dead end. */}
+              {reactions.length > 0 && (
+                <div className="gods-view-next" role="navigation" aria-label="Next steps">
+                  <span className="gods-view-next-label">Where to next?</span>
+                  <Link className="gods-view-next-cta" to={`/town/${scen.scenario.towns[0].id}`}>
+                    Watch the town →
+                  </Link>
+                  <Link className="gods-view-next-cta" to="/dashboard">
+                    Compare towns → Dashboard
+                  </Link>
                 </div>
               )}
             </>

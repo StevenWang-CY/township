@@ -44,7 +44,7 @@ def _stable_seed(label: str) -> int:
 T = 16
 MODERN_FIRSTGID = 10001
 MODERN_COLUMNS = 10
-MODERN_ROWS = 11
+MODERN_ROWS = 15
 MODERN_TILECOUNT = MODERN_COLUMNS * MODERN_ROWS
 MODERN_IMAGE = "frontend/public/assets/tilesets/township-modern.png"
 
@@ -154,6 +154,37 @@ for _j, _n in enumerate(
     IDS[_n] = 90 + _j
 
 
+#: rows 11-14 — church kit. Shared 2-wide slate spire (gold cross finial +
+#: flared cap), then per material variant — white clapboard ``cw`` / gray
+#: stone ``st`` — a tower shaft (rises through the nave roof), a louvered
+#: belfry, wall courses (l/m/r + foundation ``wallb`` course), a 1x2 lancet
+#: window, and a 2x2 arched double door.
+IDS["ch_spire_l"] = 110
+IDS["ch_spire_r"] = 111
+CHURCH_VARIANTS = {"clapboard": "cw", "stone": "st"}
+_CHURCH_PARTS = (
+    "tower_l",
+    "tower_r",
+    "belfry_l",
+    "belfry_r",
+    "wall_l",
+    "wall_m",
+    "wall_r",
+    "wallb_l",
+    "wallb_m",
+    "wallb_r",
+    "lan_t",
+    "lan_b",
+    "door_tl",
+    "door_tr",
+    "door_bl",
+    "door_br",
+)
+for _i, _v in enumerate(("cw", "st")):
+    for _j, _part in enumerate(_CHURCH_PARTS):
+        IDS[f"ch_{_v}_{_part}"] = 112 + _i * 16 + _j
+
+
 def mg(name: str) -> int:
     """Absolute GID of a modern tile."""
     return MODERN_FIRSTGID + IDS[name]
@@ -254,6 +285,7 @@ def diner_row(kind: str, w: int) -> tuple[int, ...]:
         row[lo + 1] = mg("diner_sign_b")
         return tuple(row)
     raise ValueError(f"unknown diner course: {kind!r}")
+
 
 MODERN_SINGLES: dict[str, int] = {
     n: mg(n)
@@ -378,6 +410,28 @@ CREAM_WALL = (241, 202, 158)  # matches the rpg cream facade fill
 CREAM_WALL_D = (227, 169, 125)
 SHUTTER_BLUE = (95, 109, 128)
 SHUTTER_BLUE_D = (66, 76, 94)
+
+# church kit materials: fill / course line / corner-board trim / shade.
+# "cw" is bright white clapboard, "st" a light warm ashlar — both sit well
+# clear of the dark castle-rubble facade the churches used to wear.
+CHURCH_TONES: dict[str, dict[str, tuple[int, int, int]]] = {
+    "cw": {
+        "fill": (238, 234, 222),
+        "line": (206, 200, 184),
+        "trim": (222, 217, 203),
+        "shade": (178, 172, 156),
+    },
+    "st": {
+        "fill": (172, 166, 154),
+        "line": (132, 126, 116),
+        "trim": (196, 190, 178),
+        "shade": (112, 107, 98),
+    },
+}
+LOUVER = (112, 92, 68)
+LOUVER_D = (58, 50, 42)
+GOLD = (216, 178, 74)
+GOLD_HI = (238, 208, 120)
 
 
 def _load_palette() -> list[tuple[int, int, int]]:
@@ -1245,7 +1299,199 @@ def _draw_tiles() -> dict[int, object]:
     for name, img in _shutter_quadrants().items():
         tiles_out[IDS[name]] = img
 
+    # --- church kit ----------------------------------------------------------
+    for name, img in _church_tiles().items():
+        tiles_out[IDS[name]] = img
+
     return tiles_out
+
+
+def _church_tiles() -> dict[str, object]:
+    """Draw the church kit as big composites and crop 16px tiles.
+
+    Every wall-material tile is FULLY OPAQUE (tile layers hold one gid per
+    cell, so transparent margins would let grass bleed through the facade);
+    only the spire — which stands above the roofline over open ground, like
+    a tree crown — keeps a transparent background.
+    """
+    from PIL import Image
+
+    S = SHINGLE_TONES["slate"]
+    out: dict[str, object] = {}
+
+    def big_img(w: int, h: int) -> object:
+        return Image.new("RGBA", (w, h), (0, 0, 0, 0))
+
+    def bpx(im, x, y, c) -> None:
+        if 0 <= x < im.width and 0 <= y < im.height:
+            im.putpixel((x, y), c if len(c) == 4 else (*c, 255))
+
+    def brect(im, x0, y0, x1, y1, c) -> None:
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                bpx(im, x, y, c)
+
+    def wall_bg(im, v: str, x0: int, y0: int, x1: int, y1: int) -> None:
+        """Seamless wall material (period 4 vertically, 16 horizontally)."""
+        t = CHURCH_TONES[v]
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                if v == "cw":  # clapboard siding: shadow line every 4 rows
+                    c = t["line"] if y % 4 == 3 else t["fill"]
+                else:  # ashlar: 8x4 blocks, staggered joints
+                    course = y // 4
+                    joint = (x + (4 if course % 2 else 0)) % 8 == 0
+                    c = t["line"] if (y % 4 == 3 or joint) else t["fill"]
+                bpx(im, x, y, c)
+
+    def edge_boards(im, v: str, y0: int, y1: int) -> None:
+        """1px outline + corner-board trim on the composite's l/r edges."""
+        t = CHURCH_TONES[v]
+        for y in range(y0, y1 + 1):
+            bpx(im, 0, y, K)
+            bpx(im, 1, y, t["trim"])
+            bpx(im, im.width - 1, y, K)
+            bpx(im, im.width - 2, y, t["shade"])
+
+    # -- shared spire pair (32x16, transparent bg) ---------------------------
+    sp = big_img(32, 16)
+    brect(sp, 14, 0, 17, 5, K)  # cross, outlined gold
+    brect(sp, 11, 1, 20, 3, K)
+    brect(sp, 15, 1, 16, 4, GOLD)
+    brect(sp, 12, 2, 19, 2, GOLD)
+    bpx(sp, 15, 1, GOLD_HI)
+    bpx(sp, 16, 1, GOLD_HI)
+    for i, y in enumerate(range(6, 12)):  # slate cone widening downward
+        half = 2 + i
+        x0, x1 = 15 - half, 16 + half
+        bpx(sp, x0, y, K)
+        bpx(sp, x1, y, K)
+        brect(sp, x0 + 1, y, 15, y, S["hi"])
+        brect(sp, 16, y, x1 - 1, y, S["base"])
+    brect(sp, 8, 12, 23, 12, K)  # cone shoulder
+    brect(sp, 9, 12, 15, 12, S["hi"])
+    brect(sp, 16, 12, 22, 12, S["base"])
+    brect(sp, 0, 13, 31, 13, K)  # flared cap eave, full tower width
+    brect(sp, 1, 13, 15, 13, S["hi"])
+    brect(sp, 16, 13, 30, 13, S["base"])
+    brect(sp, 0, 14, 31, 14, S["dark"])
+    bpx(sp, 0, 14, K)
+    bpx(sp, 31, 14, K)
+    brect(sp, 0, 15, 31, 15, K)
+    out["ch_spire_l"] = sp.crop((0, 0, 16, 16))
+    out["ch_spire_r"] = sp.crop((16, 0, 32, 16))
+
+    for v in ("cw", "st"):
+        t = CHURCH_TONES[v]
+
+        # -- belfry (32x16): twin louvered arches under the cap ---------------
+        bf = big_img(32, 16)
+        wall_bg(bf, v, 0, 0, 31, 15)
+        edge_boards(bf, v, 0, 15)
+        for ax in (6, 18):  # two 8-wide arched openings
+            brect(bf, ax + 2, 2, ax + 5, 2, K)  # arch crown
+            bpx(bf, ax + 1, 3, K)
+            bpx(bf, ax + 6, 3, K)
+            brect(bf, ax + 2, 3, ax + 5, 3, LOUVER_D)
+            brect(bf, ax, 4, ax, 12, K)
+            brect(bf, ax + 7, 4, ax + 7, 12, K)
+            brect(bf, ax + 1, 4, ax + 6, 12, LOUVER_D)
+            for ly in (5, 7, 9, 11):  # louver slats
+                brect(bf, ax + 1, ly, ax + 6, ly, LOUVER)
+            brect(bf, ax, 13, ax + 7, 13, K)  # sill
+            brect(bf, ax, 14, ax + 7, 14, t["trim"])
+        brect(bf, 2, 15, 29, 15, t["shade"])  # cornice shadow over the ridge
+        out[f"ch_{v}_belfry_l"] = bf.crop((0, 0, 16, 16))
+        out[f"ch_{v}_belfry_r"] = bf.crop((16, 0, 32, 16))
+
+        # -- tower shaft (32x16): plain body rising through the roof ----------
+        tw = big_img(32, 16)
+        wall_bg(tw, v, 0, 0, 31, 15)
+        edge_boards(tw, v, 0, 15)
+        out[f"ch_{v}_tower_l"] = tw.crop((0, 0, 16, 16))
+        out[f"ch_{v}_tower_r"] = tw.crop((16, 0, 32, 16))
+
+        # -- wall courses: l/m/r plus the foundation course -------------------
+        for kind in ("wall", "wallb"):
+            strip = big_img(48, 16)
+            wall_bg(strip, v, 0, 0, 47, 15)
+            if kind == "wallb":  # stone plinth grounds the building
+                brect(strip, 0, 12, 47, 12, t["shade"])
+                brect(strip, 0, 13, 47, 14, GRAY if v == "cw" else t["shade"])
+                brect(strip, 0, 14, 47, 14, CJOINT if v == "cw" else t["line"])
+                brect(strip, 0, 15, 47, 15, K)
+            edge_boards(strip, v, 0, 15)
+            out[f"ch_{v}_{kind}_l"] = strip.crop((0, 0, 16, 16))
+            out[f"ch_{v}_{kind}_m"] = strip.crop((16, 0, 32, 16))
+            out[f"ch_{v}_{kind}_r"] = strip.crop((32, 0, 48, 16))
+
+        # -- lancet window (16x32, on wall bg) ---------------------------------
+        ln = big_img(16, 32)
+        wall_bg(ln, v, 0, 0, 15, 31)
+        bpx(ln, 7, 2, K)  # pointed arch outline
+        bpx(ln, 8, 2, K)
+        bpx(ln, 6, 3, K)
+        bpx(ln, 9, 3, K)
+        bpx(ln, 5, 4, K)
+        bpx(ln, 10, 4, K)
+        brect(ln, 4, 5, 4, 25, K)
+        brect(ln, 11, 5, 11, 25, K)
+        brect(ln, 7, 3, 8, 3, TEAL)  # glass
+        brect(ln, 6, 4, 9, 4, TEAL)
+        brect(ln, 5, 5, 10, 21, TEAL)
+        brect(ln, 5, 22, 10, 25, TEAL_D)
+        brect(ln, 5, 14, 10, 14, WHITE)  # transom bar
+        for i in range(3):  # sparkle
+            bpx(ln, 6 + i, 10 - i, WHITE)
+            bpx(ln, 7 + i, 10 - i, WHITE)
+        brect(ln, 4, 26, 11, 26, K)
+        brect(ln, 3, 27, 12, 27, t["trim"])  # sill
+        brect(ln, 3, 28, 12, 28, t["shade"])
+        out[f"ch_{v}_lan_t"] = ln.crop((0, 0, 16, 16))
+        out[f"ch_{v}_lan_b"] = ln.crop((0, 16, 16, 32))
+
+        # -- arched double door (32x32, on wall bg + foundation) ---------------
+        dr = big_img(32, 32)
+        wall_bg(dr, v, 0, 0, 31, 31)
+        brect(dr, 0, 27, 31, 27, t["shade"])  # foundation continues
+        brect(dr, 0, 28, 31, 29, GRAY if v == "cw" else t["shade"])
+        brect(dr, 0, 30, 31, 30, CJOINT if v == "cw" else t["line"])
+        brect(dr, 0, 31, 31, 31, K)
+        # arch outline
+        brect(dr, 13, 2, 18, 2, K)
+        brect(dr, 10, 3, 12, 3, K)
+        brect(dr, 19, 3, 21, 3, K)
+        brect(dr, 8, 4, 9, 4, K)
+        brect(dr, 22, 4, 23, 4, K)
+        brect(dr, 7, 5, 7, 26, K)
+        brect(dr, 24, 5, 24, 26, K)
+        # fanlight over the transom
+        brect(dr, 13, 3, 18, 3, TEAL)
+        brect(dr, 10, 4, 21, 4, TEAL)
+        brect(dr, 8, 5, 23, 8, TEAL)
+        for x in (12, 15, 16, 19):  # radial muntins
+            bpx(dr, x, 5, WHITE)
+        brect(dr, 15, 6, 16, 8, WHITE)
+        brect(dr, 8, 9, 23, 9, K)  # transom bar
+        # double wooden doors with plank lines + gold handles
+        brect(dr, 8, 10, 23, 25, WOOD)
+        for x in (10, 13, 18, 21):
+            brect(dr, x, 10, x, 25, WOOD_D)
+        brect(dr, 15, 10, 16, 25, K)  # center stile
+        brect(dr, 8, 11, 23, 11, WOOD_D)
+        bpx(dr, 14, 17, GOLD)
+        bpx(dr, 14, 18, GOLD)
+        bpx(dr, 17, 17, GOLD)
+        bpx(dr, 17, 18, GOLD)
+        brect(dr, 8, 26, 23, 26, K)  # threshold
+        brect(dr, 6, 27, 25, 27, CURB_HI)  # stone step
+        brect(dr, 6, 28, 25, 28, CURB_MID)
+        out[f"ch_{v}_door_tl"] = dr.crop((0, 0, 16, 16))
+        out[f"ch_{v}_door_tr"] = dr.crop((16, 0, 32, 16))
+        out[f"ch_{v}_door_bl"] = dr.crop((0, 16, 16, 32))
+        out[f"ch_{v}_door_br"] = dr.crop((16, 16, 32, 32))
+
+    return out
 
 
 def generate() -> None:
@@ -1378,7 +1624,9 @@ def _render_contact_sheet(sheet) -> None:
         Hs, Ws = len(rows_), len(rows_[0])
         cols = [0] + [1 + i % (Ws - 2) for i in range(max(0, w - 2))] + ([Ws - 1] if w > 1 else [])
         rws = [0] + [1 + i % (Hs - 2) for i in range(max(0, h - 2))] + ([Hs - 1] if h > 1 else [])
-        return TileStamp(f"{stamp.name}_{w}x{h}", tuple(tuple(rows_[r][c] for c in cols) for r in rws))
+        return TileStamp(
+            f"{stamp.name}_{w}x{h}", tuple(tuple(rows_[r][c] for c in cols) for r in rws)
+        )
 
     def wall_rows(stamp, w: int, rows: list[int]) -> list[list[int]]:
         cols = [0] + [5 + (i % 2) for i in range(w - 2)] + [stamp.w - 1]

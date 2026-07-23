@@ -32,6 +32,7 @@ from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
     apron,
+    church,
     cottage,
     diner,
     grand,
@@ -130,7 +131,7 @@ def compose(m: MapCanvas) -> None:
     # -- civic north tier
     grand(m, 31, 8, 9, 8, facade="stone_large", windows=True)  # Town Hall
     grand(m, 47, 10, 10, 9, facade="stone_large", windows=True)  # High School
-    grand(m, 58, 16, 8, 7, facade="stone_gray")  # church
+    church(m, 58, 16, 8, 7, variant="clapboard")  # church
     # -- housing: cream colonials, slate-blue shingles, shutters
     cottage(m, 69, 15, 6, 8, roof="slate")  # colonial E
     cottage(m, 36, 29, 6, 7, roof="slate")  # cul-de-sac W

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import type Phaser from "phaser";
 import ProximityCard from "./ProximityCard";
+import { INTERACTION_RADIUS } from "../game/PlayerSprite";
 import type { AgentState } from "../types/messages";
 
 interface OverlayItem {
@@ -15,24 +16,33 @@ interface OverlayItem {
 interface CanvasOverlayProps {
   gameRef: React.RefObject<Phaser.Game | null>;
   getOverlayData: () => OverlayItem[];
-  /** Look up player world position (for proximity card). */
+  /** Look up player world position (for the talk card). */
   getPlayer?: () => { x: number; y: number } | null;
-  /** Resolve an agent's full state (for the proximity card). */
+  /** Resolve an agent's full state (for the talk card). */
   getAgent?: (id: string) => AgentState | undefined;
-  /** Look up trust for an agent (for the proximity card). */
+  /** Look up trust for an agent (for the talk card). */
   getTrust?: (id: string) => number;
-  /** Proximity threshold in world coordinates. */
+  /** Proximity threshold in world coordinates — matches the E-key radius. */
   proximityRadius?: number;
   /** Keep floating cards clear of fixed controls at the canvas bottom. */
   bottomInset?: number;
+  /** Start a conversation with this resident (talk-card action). */
+  onTalk?: (agentId: string) => void;
+  /** Hide the talk card entirely (e.g. while a chat panel is open). */
+  suppressed?: boolean;
 }
+
+/** How long the talk card lingers (disabled, fading) after the resident
+ *  steps out of range — so E never dies with zero feedback. */
+const CARD_LINGER_MS = 600;
 
 /**
  * Renders absolute-positioned DOM labels over the Phaser canvas.
  * Uses direct DOM manipulation via RAF for 60fps position sync
  * (bypasses React reconciler for transforms).
  *
- * Also renders a ProximityCard for the closest agent within proximityRadius.
+ * Also renders THE walk-up talk card: one NPC-anchored card at the same
+ * radius as the E key, carrying the talk action itself.
  */
 export function CanvasOverlay({
   gameRef,
@@ -40,8 +50,10 @@ export function CanvasOverlay({
   getPlayer,
   getAgent,
   getTrust,
-  proximityRadius = 120,
+  proximityRadius = INTERACTION_RADIUS,
   bottomInset = 12,
+  onTalk,
+  suppressed = false,
 }: CanvasOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const elementsMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -51,8 +63,21 @@ export function CanvasOverlay({
     screenX: number;
     screenY: number;
     anchorOffsetX: number;
+    stale: boolean;
   } | null>(null);
   const lastProxIdRef = useRef<string | null>(null);
+  const staleTimerRef = useRef<number | undefined>(undefined);
+
+  const clearProximity = useCallback(() => {
+    if (staleTimerRef.current) {
+      window.clearTimeout(staleTimerRef.current);
+      staleTimerRef.current = undefined;
+    }
+    if (lastProxIdRef.current) {
+      lastProxIdRef.current = null;
+      setProximity(null);
+    }
+  }, []);
 
   const syncPositions = useCallback(() => {
     const game = gameRef.current;
@@ -137,8 +162,8 @@ export function CanvasOverlay({
       }
     }
 
-    // ── Proximity card ────────────────────────────────────────
-    if (getPlayer) {
+    // ── Talk card (walk-up proximity) ─────────────────────────
+    if (getPlayer && !suppressed) {
       const player = getPlayer();
       if (player) {
         let bestId: string | null = null;
@@ -160,6 +185,10 @@ export function CanvasOverlay({
           }
         }
         if (bestId) {
+          if (staleTimerRef.current) {
+            window.clearTimeout(staleTimerRef.current);
+            staleTimerRef.current = undefined;
+          }
           const { sx, sy } = worldToScreen(bestX, bestY - 50);
           // The card is 240px wide on desktop and narrows on phones. Clamp
           // its center to the canvas—not the viewport—so it can never bleed
@@ -175,7 +204,7 @@ export function CanvasOverlay({
           const anchorOffsetX = sx - safeX;
           if (bestId !== lastProxIdRef.current) {
             lastProxIdRef.current = bestId;
-            setProximity({ agentId: bestId, screenX: safeX, screenY: safeY, anchorOffsetX });
+            setProximity({ agentId: bestId, screenX: safeX, screenY: safeY, anchorOffsetX, stale: false });
           } else {
             // smooth-update without recreating
             setProximity((prev) => {
@@ -185,11 +214,13 @@ export function CanvasOverlay({
                   screenX: safeX,
                   screenY: safeY,
                   anchorOffsetX,
+                  stale: false,
                 };
               }
-              // Only update if moved meaningfully
+              // Only update if moved meaningfully (or coming back in range)
               if (
-                Math.abs(prev.screenX - safeX) > 1
+                prev.stale
+                || Math.abs(prev.screenX - safeX) > 1
                 || Math.abs(prev.screenY - safeY) > 1
                 || Math.abs(prev.anchorOffsetX - anchorOffsetX) > 1
               ) {
@@ -198,25 +229,36 @@ export function CanvasOverlay({
                   screenX: safeX,
                   screenY: safeY,
                   anchorOffsetX,
+                  stale: false,
                 };
               }
               return prev;
             });
           }
-        } else if (lastProxIdRef.current) {
-          lastProxIdRef.current = null;
-          setProximity(null);
+        } else if (lastProxIdRef.current && !staleTimerRef.current) {
+          // The resident stepped out of range: linger briefly (faded, action
+          // disabled) so the affordance never vanishes mid-keypress.
+          setProximity((prev) => (prev && !prev.stale ? { ...prev, stale: true } : prev));
+          staleTimerRef.current = window.setTimeout(() => {
+            staleTimerRef.current = undefined;
+            lastProxIdRef.current = null;
+            setProximity(null);
+          }, CARD_LINGER_MS);
         }
       }
+    } else if (lastProxIdRef.current) {
+      // Chat open (or no player): no talk card at all.
+      clearProximity();
     }
 
     rafRef.current = requestAnimationFrame(syncPositions);
-  }, [gameRef, getOverlayData, getPlayer, proximityRadius, bottomInset]);
+  }, [gameRef, getOverlayData, getPlayer, proximityRadius, bottomInset, suppressed, clearProximity]);
 
   useEffect(() => {
     rafRef.current = requestAnimationFrame(syncPositions);
     return () => {
       cancelAnimationFrame(rafRef.current);
+      window.clearTimeout(staleTimerRef.current);
       // Clean up DOM elements
       elementsMapRef.current.forEach((el) => el.remove());
       elementsMapRef.current.clear();
@@ -239,6 +281,8 @@ export function CanvasOverlay({
           x={proximity.screenX}
           y={proximity.screenY}
           anchorOffsetX={proximity.anchorOffsetX}
+          stale={proximity.stale}
+          onTalk={onTalk ? () => onTalk(proxAgent.id) : undefined}
         />
       )}
     </>

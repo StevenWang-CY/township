@@ -10,14 +10,30 @@ interface ProximityCardProps {
   y: number;
   /** Horizontal distance from the clamped card center to the resident. */
   anchorOffsetX?: number;
+  /** Resident stepped out of range — card fades, action disabled. */
+  stale?: boolean;
+  /** Start the conversation (E / tap / click all land here). */
+  onTalk?: () => void;
 }
 
+const COARSE_POINTER =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(pointer: coarse)").matches;
+
+/**
+ * THE walk-up talk card. Anchored to the NPC (never the player), shown at
+ * the same radius the E key fires at, and it carries the action itself:
+ * one card, one radius, one obvious way to start talking.
+ */
 export default function ProximityCard({
   agent,
   trust = 0,
   x,
   y,
   anchorOffsetX = 0,
+  stale = false,
+  onTalk,
 }: ProximityCardProps) {
   const { townMeta, optionColor, optionLabel, undecidedId } = useScenario();
   const meta = townMeta(agent.town);
@@ -27,13 +43,13 @@ export default function ProximityCard({
 
   return (
     <div
-      className="proximity-card"
+      className={`proximity-card${stale ? " proximity-card--stale" : ""}`}
       style={{
         position: "absolute",
         left: x,
         top: y,
         transform: "translate(-50%, -100%)",
-        pointerEvents: "none",
+        pointerEvents: stale ? "none" : "auto",
         zIndex: 20,
       }}
     >
@@ -79,6 +95,24 @@ export default function ProximityCard({
             />
           </div>
         </div>
+        {onTalk && (
+          <button
+            type="button"
+            className="proximity-card-talk"
+            onClick={onTalk}
+            disabled={stale}
+            aria-label={`Talk to ${agent.name}`}
+          >
+            {COARSE_POINTER ? (
+              <span>Tap to talk</span>
+            ) : (
+              <>
+                <kbd>E</kbd>
+                <span>Talk</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
       <div
         className="proximity-card-tail"

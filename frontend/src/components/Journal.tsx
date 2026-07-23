@@ -10,6 +10,7 @@ import {
   playerCapabilityHeaders,
   registerPlayerCapability,
 } from "../lib/playerCapability";
+import { useLayerStack } from "../hooks/useLayerStack";
 
 interface JournalProps {
   open: boolean;
@@ -64,6 +65,9 @@ export default function Journal({ open, onClose }: JournalProps) {
     if (open) refresh();
   }, [open, refresh]);
 
+  // Escape closes via the universal layer stack (top-most layer only).
+  useLayerStack(open, () => onCloseRef.current());
+
   useEffect(() => {
     if (!open) return;
     previousFocusRef.current = document.activeElement instanceof HTMLElement
@@ -72,11 +76,6 @@ export default function Journal({ open, onClose }: JournalProps) {
     requestAnimationFrame(() => closeButtonRef.current?.focus());
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
       if (event.key !== "Tab") return;
       const focusable = Array.from(
         panelRef.current?.querySelectorAll<HTMLElement>(

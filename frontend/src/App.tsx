@@ -15,6 +15,7 @@ import ResponsibleUseNotice from "./components/ResponsibleUseNotice";
 import { DEMO_MODE } from "./demo/demoMode";
 import { eventsSince } from "./hooks/useWebSocket";
 import { appUrl } from "./lib/assetUrl";
+import { useLayerStack } from "./hooks/useLayerStack";
 
 // Phaser is the largest dependency in the app. Lazy-loading keeps it out of
 // the atlas/dashboard bundles; the landing town view streams it on demand.
@@ -108,25 +109,33 @@ function AppShell() {
     document.documentElement.classList.toggle("high-contrast", preferences.highContrast);
   }, [preferences.highContrast]);
 
+  // Escape closes the settings popover via the universal layer stack —
+  // only when it is the top-most open layer.
+  useLayerStack(settingsOpen, () => {
+    setSettingsOpen(false);
+    requestAnimationFrame(() => settingsButtonRef.current?.focus());
+  });
+
   useEffect(() => {
     if (!settingsOpen) return;
-    const close = (restoreFocus: boolean) => {
-      setSettingsOpen(false);
-      if (restoreFocus) requestAnimationFrame(() => settingsButtonRef.current?.focus());
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close(true);
-    };
     const onPointerDown = (event: PointerEvent) => {
-      if (!settingsWrapperRef.current?.contains(event.target as Node)) close(false);
+      if (!settingsWrapperRef.current?.contains(event.target as Node)) {
+        setSettingsOpen(false);
+      }
     };
-    window.addEventListener("keydown", onKeyDown);
     window.addEventListener("pointerdown", onPointerDown);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", onPointerDown);
     };
   }, [settingsOpen]);
+
+  // "Saved to your journal → View" toasts (TownView) open the drawer from
+  // outside the header via this app-level event.
+  useEffect(() => {
+    const openJournal = () => setJournalOpen(true);
+    window.addEventListener("township-open-journal", openJournal);
+    return () => window.removeEventListener("township-open-journal", openJournal);
+  }, []);
 
   const onResetProfile = () => {
     const message = DEMO_MODE

@@ -40,6 +40,7 @@ from mapgen import moderntiles as M
 from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
+    church,
     facade_wall,
     grand,
     path,
@@ -150,7 +151,7 @@ def compose(m: MapCanvas) -> None:
     # -- Harlow Elementary School (1968 brick, arch entry)
     grand(m, 41, 9, 11, 8, facade="brick", windows=True)
     # -- Harlow Congregational Church (1841, whitewashed)
-    grand(m, 56, 15, 7, 8, facade="cream", roof="stone")
+    church(m, 56, 15, 7, 8, variant="clapboard")
     # -- Harlow Firehouse (hand-composed: twin metal bays + red bunting),
     #    on the crossing's SE shoulder, fronting Crossing Road's sidewalk
     m.reserve(39, 28, 8, 8)

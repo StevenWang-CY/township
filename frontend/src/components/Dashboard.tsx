@@ -167,10 +167,13 @@ export default function Dashboard({ ws }: DashboardProps) {
     await startSimulation();
   }, [startSimulation, ws.simulationRunning]);
 
+  // After a replay kicks off, point at where it can actually be WATCHED.
+  const [replayStarted, setReplayStarted] = useState(false);
   const handleReplay = useCallback(async () => {
     setReplayLoading(true);
     try {
-      await fetch("/api/simulation/replay", { method: "POST" });
+      const res = await fetch("/api/simulation/replay", { method: "POST" });
+      if (res.ok) setReplayStarted(true);
     } catch { /* silent */ }
     setReplayLoading(false);
   }, []);
@@ -261,6 +264,18 @@ export default function Dashboard({ ws }: DashboardProps) {
   const consensusZones = summaryData?.consensus_zones || [];
   const faultLines = summaryData?.fault_lines || [];
 
+  // Scoreboard shell only exists when it has content: the demo's Recorded
+  // chip, or a real player's quest chips over a populated district. An idle
+  // live visit (no agents streaming, nothing running) must never open on a
+  // blank strip.
+  const showScoreboard =
+    DEMO_MODE || (profile !== null && (hasLiveAgents || ws.simulationRunning));
+
+  // True cold visit (live build, nothing has ever run): lead with the
+  // pixel-illustration hero instead of an empty sentiment card.
+  const preRun = !DEMO_MODE && !ws.simulationRunning && !hasLiveAgents && !hasOpinionData;
+  const heroTown = scen.scenario.towns[0];
+
   return (
     <div
       className="max-w-7xl mx-auto px-6 py-6"
@@ -319,7 +334,9 @@ export default function Dashboard({ ws }: DashboardProps) {
       )}
 
       {/* Scoreboard banner — Met/★ quest chrome exists only when a real
-          player walks the towns (never in the hosted replay). */}
+          player walks the towns (never in the hosted replay). Hidden
+          entirely when there is nothing to put in it. */}
+      {showScoreboard && (
       <div className="dashboard-scoreboard">
         <PlayerHUD
           compact
@@ -346,8 +363,56 @@ export default function Dashboard({ ws }: DashboardProps) {
           </div>
         )}
       </div>
+      )}
 
-      {/* Overall donut */}
+      {/* Pre-run hero — a fresh district opens on the town itself, not on
+          empty chart chrome. */}
+      {preRun ? (
+        <section className="dashboard-hero-empty" aria-label="No simulation has run yet">
+          {heroTown?.map?.preview_path && (
+            <img
+              className="dashboard-hero-empty-illustration pixel-frame"
+              src={appUrl(heroTown.map.preview_path)}
+              alt=""
+              aria-hidden="true"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            />
+          )}
+          <div className="dashboard-hero-empty-body">
+            <h2>The district is waiting</h2>
+            <p>
+              Nothing has been simulated yet. Start a run to watch the residents of{" "}
+              {towns.length} towns deliberate <em>{scen.scenario.question}</em> — or wander
+              into {heroTown?.name ?? "a town"} and meet them first.
+            </p>
+            <div className="dashboard-hero-empty-actions">
+              <button
+                type="button"
+                className="dashboard-hero-empty-start"
+                onClick={handleStart}
+                disabled={simStartLoading}
+                title={`Start a fresh ${scen.totalRounds}-round simulation`}
+              >
+                {simStartLoading ? "Starting…" : "Start Simulation"}
+              </button>
+              {heroTown && (
+                <button
+                  type="button"
+                  className="dashboard-hero-empty-visit"
+                  onClick={() => navigate(`/town/${heroTown.id}`)}
+                >
+                  Visit {heroTown.name} →
+                </button>
+              )}
+              {simStartError && (
+                <span className="dashboard-inline-error text-xs" role="alert">
+                  {simStartError}
+                </span>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : (
       <div
         className="dashboard-overview rounded-xl px-6 py-5 mb-6 flex items-center gap-8"
         style={{
@@ -455,10 +520,19 @@ export default function Dashboard({ ws }: DashboardProps) {
                 fontFamily: "var(--font-body)",
                 transition: "all 200ms ease",
               }}
-              title="Replay the last cached simulation run"
+              title="Replay the last cached simulation run — watched in the Town view"
             >
               {replayLoading ? "Replaying…" : "Replay last run"}
             </button>
+            {replayStarted && towns[0] && (
+              <button
+                type="button"
+                className="dashboard-watch-live"
+                onClick={() => navigate(`/town/${towns[0]}`)}
+              >
+                Replay started — watch it in the Town view →
+              </button>
+            )}
             {simStartError && (
               <span className="dashboard-inline-error text-xs" role="alert">
                 {simStartError}
@@ -468,6 +542,7 @@ export default function Dashboard({ ws }: DashboardProps) {
           )}
         </div>
       </div>
+      )}
 
       {/* Narrative recap — the payoff of a finished deliberation. */}
       {!DEMO_MODE && latestRun && (latestRun.markdown || latestRun.headline) && (() => {
@@ -776,7 +851,7 @@ export default function Dashboard({ ws }: DashboardProps) {
           className="dashboard-empty-state rounded-xl p-8 text-center"
           style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
         >
-          {allAgents.length === 0 && scen.scenario.towns[0]?.map?.preview_path && (
+          {allAgents.length === 0 && !preRun && scen.scenario.towns[0]?.map?.preview_path && (
             <img
               className="dashboard-empty-illustration pixel-frame"
               src={appUrl(scen.scenario.towns[0].map.preview_path)}

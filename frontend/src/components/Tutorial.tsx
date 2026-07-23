@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useLayerStack } from "../hooks/useLayerStack";
 
 const STORAGE_KEY = "township-tutorial-seen";
 
@@ -83,16 +84,14 @@ export default function Tutorial({ forceShow = false, onDismiss }: TutorialProps
     onDismiss?.();
   }, [onDismiss]);
 
+  // Escape dismisses via the universal layer stack (top-most layer only).
+  useLayerStack(open, dismiss);
+
   useEffect(() => {
     if (!open) return;
     restoreFocusRef.current = document.activeElement as HTMLElement | null;
     requestAnimationFrame(() => nextButtonRef.current?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        dismiss();
-        return;
-      }
       if (event.key !== "Tab" || !modalRef.current) return;
       const focusable = Array.from(
         modalRef.current.querySelectorAll<HTMLElement>(

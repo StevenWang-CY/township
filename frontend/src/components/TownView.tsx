@@ -20,10 +20,16 @@ import { readableInk } from "../lib/color";
 import { DEMO_MODE } from "../demo/demoMode";
 import { eventsSince, type WsState } from "../hooks/useWebSocket";
 import { playerCapabilityHeaders, registerPlayerCapability } from "../lib/playerCapability";
+import { useLayerStack } from "../hooks/useLayerStack";
+import { isInteractiveTarget } from "../lib/interactiveTarget";
 
 interface TownViewProps {
   ws: WsState;
 }
+
+/** Where a talk request came from. Walk-ups (E / talk-card tap) are already
+ *  standing next to the resident; every other origin approaches first. */
+type ChatOrigin = "walkup" | "sidebar" | "canvas" | "activity";
 
 /* ── Keyboard Hint Overlay ────────────────────────────────── */
 
@@ -88,21 +94,39 @@ export default function TownView({ ws }: TownViewProps) {
   const [sceneError, setSceneError] = useState<string | null>(null);
   const [sceneBootAttempt, setSceneBootAttempt] = useState(0);
   const [showKeyboardHint, setShowKeyboardHint] = useState(true);
+  // The keyboard hint must never mount UNDER the tutorial modal — its 5s
+  // auto-dismiss would expire unseen behind the backdrop.
+  const [tutorialDone, setTutorialDone] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("township-tutorial-seen") === "1";
+    } catch {
+      return true;
+    }
+  });
   const [debugOpen, setDebugOpen] = useState(false);
   const [listenOpen, setListenOpen] = useState(false);
   const [listenNearbyLandmark, setListenNearbyLandmark] = useState<string | null>(null);
   const [gossipToast, setGossipToast] = useState<string | null>(null);
   const gossipTimerRef = useRef<number | undefined>(undefined);
+  // Post-chat toast: journal confirmation or a gentle "meet someone else".
+  const [chatToast, setChatToast] = useState<{ kind: "journal" | "hint" } | null>(null);
+  const chatToastTimerRef = useRef<number | undefined>(undefined);
+  // Edge chip offering the conversation spotlight instead of stealing the
+  // player's camera (camera contract).
+  const [spotlightOffer, setSpotlightOffer] = useState<{ aId: string; bId: string } | null>(null);
   const lastProcessedCursor = useRef(0);
-  // Stable ref to openChat so Phaser event handlers (registered once in
+  // Stable ref to requestChat so Phaser event handlers (registered once in
   // the init effect) always call the latest implementation — and therefore
-  // capture preChatRef, snapshot opinion, and markAgentMet for in-canvas
-  // clicks just like sidebar clicks.
-  const openChatRef = useRef<(agentId: string) => void>(() => {});
+  // capture preChatRef + snapshot opinion for in-canvas clicks just like
+  // sidebar clicks.
+  const requestChatRef = useRef<(agentId: string, origin: ChatOrigin) => void>(() => {});
+  const chatApproachTimerRef = useRef<number | undefined>(undefined);
 
   // Pre-chat snapshots for met/persuaded + journal
   const preChatRef = useRef<{
     agentId: string;
+    agentName: string;
+    agentTown: TownId;
     opinion?: Opinion;
     trust: number;
   } | null>(null);
@@ -191,6 +215,10 @@ export default function TownView({ ws }: TownViewProps) {
   // replay's ephemeral guest is a preferences vessel — it must never appear
   // as a resident row, a sprite, or quest chrome.
   const hasPlayer = !DEMO_MODE && isOnboarded;
+  // Your resident lives in ONE town. Elsewhere you are a visitor watching
+  // from the overview camera — the sidebar, the map, and the input model all
+  // agree instead of spawning a ghost sprite into every town.
+  const playerInTown = hasPlayer && profile?.town === town;
 
   // Build a player AgentState for the sidebar
   const playerAgentState: AgentState | null = hasPlayer && profile && profile.town === town ? {
@@ -257,15 +285,24 @@ export default function TownView({ ws }: TownViewProps) {
         setSceneReady(true);
 
         activeScene.events.on("agent-clicked", (agentId: string) => {
-          openChatRef.current(agentId);
+          requestChatRef.current(agentId, "canvas");
         });
 
         activeScene.events.on("player-interact", (agentId: string) => {
-          openChatRef.current(agentId);
+          requestChatRef.current(agentId, "walkup");
         });
 
         activeScene.events.on("proximity-agent", (_agentId: string | null) => {
-          // Could show a UI indicator — for now proximity is handled in-game
+          // The NPC-anchored talk card in CanvasOverlay is the indicator.
+        });
+
+        // Camera contract: NPC conversations OFFER the spotlight via an
+        // edge chip instead of stealing the player's follow camera.
+        activeScene.events.on("spotlight-offer", (pair: { aId: string; bId: string }) => {
+          setSpotlightOffer(pair);
+        });
+        activeScene.events.on("spotlight-clear", () => {
+          setSpotlightOffer(null);
         });
 
         // Scenario data is authoritative for every opinion-ring color.
@@ -274,9 +311,10 @@ export default function TownView({ ws }: TownViewProps) {
         colors[scenRef.current.undecidedId] = scenRef.current.optionColor(scenRef.current.undecidedId);
         try { activeScene.setOptionColors(colors); } catch { /* ignore */ }
 
-        // Spawn player if onboarded (never in the hosted replay — the demo
-        // guest is not a resident and must not appear on the map)
-        if (!DEMO_MODE && isOnboarded && profile && !playerSpawnedRef.current) {
+        // Spawn player if onboarded AND this is their home town (never in
+        // the hosted replay — the demo guest is not a resident and must not
+        // appear on the map; never as a ghost visitor in other towns).
+        if (!DEMO_MODE && isOnboarded && profile && profile.town === town && !playerSpawnedRef.current) {
           activeScene.addPlayer(profile);
           playerSpawnedRef.current = true;
         }
@@ -313,12 +351,12 @@ export default function TownView({ ws }: TownViewProps) {
   /* ── Spawn player when profile becomes available ────────── */
 
   useEffect(() => {
-    if (DEMO_MODE || !isOnboarded || !profile || playerSpawnedRef.current) return;
+    if (DEMO_MODE || !isOnboarded || !profile || profile.town !== town || playerSpawnedRef.current) return;
     const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
     if (!scene?.scene?.isActive()) return;
     scene.addPlayer(profile);
     playerSpawnedRef.current = true;
-  }, [isOnboarded, profile]);
+  }, [isOnboarded, profile, town]);
 
   /* ── Toggle player input when chat opens/closes ─────────── */
 
@@ -335,14 +373,20 @@ export default function TownView({ ws }: TownViewProps) {
    * is silently locked out of movement — close the chat so the effect above
    * re-enables input. */
   useEffect(() => {
-    if (chatOpen && !selectedAgent) setChatOpen(false);
+    if (chatOpen && !selectedAgent) {
+      setChatOpen(false);
+      // The conversation still happened — finalize instead of dropping it.
+      finalizeChatRef.current();
+    }
   }, [chatOpen, selectedAgent]);
 
-  /* ── Cleanup gossip toast timer on unmount ───────────────── */
+  /* ── Cleanup transient timers on unmount ─────────────────── */
 
   useEffect(() => {
     return () => {
       if (gossipTimerRef.current) window.clearTimeout(gossipTimerRef.current);
+      if (chatToastTimerRef.current) window.clearTimeout(chatToastTimerRef.current);
+      if (chatApproachTimerRef.current) window.clearTimeout(chatApproachTimerRef.current);
     };
   }, []);
 
@@ -488,10 +532,13 @@ export default function TownView({ ws }: TownViewProps) {
     }
   }, []);
 
-  /* ── Debug overlay toggle (~) ──────────────────────────────── */
+  /* ── Bare-key shortcuts: debug overlay (~) + listen-in (T) ──
+   * Routed through the interactive-target guard so typing "t" or "~" in the
+   * chat input (or any focused control) never toggles page chrome. */
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isInteractiveTarget(e.target)) return;
       if (e.key === "`" || e.key === "~") {
         setDebugOpen((b) => !b);
       } else if (e.key === "t" || e.key === "T") {
@@ -503,6 +550,10 @@ export default function TownView({ ws }: TownViewProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [listenNearbyLandmark]);
+
+  // Listen-in panel joins the universal Escape stack (it previously could
+  // only be closed with its × button or by walking away).
+  useLayerStack(listenOpen, () => setListenOpen(false));
 
   const getClosestAgent = useCallback(() => {
     const player = getPlayer();
@@ -551,40 +602,91 @@ export default function TownView({ ws }: TownViewProps) {
 
   /* ── UI Callbacks ────────────────────────────────────────── */
 
-  const openChat = useCallback((agentId: string) => {
+  const showChatToast = useCallback((kind: "journal" | "hint") => {
+    window.clearTimeout(chatToastTimerRef.current);
+    setChatToast({ kind });
+    chatToastTimerRef.current = window.setTimeout(() => setChatToast(null), 5200);
+  }, []);
+
+  // Open the panel immediately (approach — if any — has already landed).
+  const openChatNow = useCallback((agentId: string) => {
     const ag = townAgents.find((a) => a.id === agentId);
     if (ag) {
       preChatRef.current = {
         agentId,
+        agentName: ag.name,
+        agentTown: ag.town,
         opinion: ag.opinion,
         trust: trustFor(agentId),
       };
-      markAgentMet(agentId);
     }
+    window.clearTimeout(chatToastTimerRef.current);
+    setChatToast(null);
     setSelectedAgentId(agentId);
     setChatOpen(true);
-  }, [townAgents, trustFor, markAgentMet]);
+  }, [townAgents, trustFor]);
 
-  // Keep the Phaser event handler ref in sync with the latest openChat so
-  // canvas clicks (agent-clicked / player-interact) take the SAME path as
-  // sidebar clicks — capturing pre-chat opinion + marking agent met.
-  useEffect(() => {
-    openChatRef.current = openChat;
-  }, [openChat]);
-
-  const handleCloseChat = useCallback(() => {
-    setChatOpen(false);
-
-    // On close, check for persuasion + write journal entry
-    const pre = preChatRef.current;
-    if (!pre) return;
-    const ag = townAgents.find((a) => a.id === pre.agentId);
-    if (!ag) {
-      preChatRef.current = null;
+  /**
+   * THE one way to start talking. Walk-up origins (E key / talk-card tap)
+   * open instantly — the player is already standing there. Remote origins
+   * (sidebar card, canvas click from afar, activity row) first make the
+   * spatial link: the resident glows, the player auto-walks up (or the
+   * spectator camera pans over), and the panel opens on arrival.
+   */
+  const requestChat = useCallback((agentId: string, origin: ChatOrigin = "canvas") => {
+    if (chatOpen && selectedAgentId === agentId) return;
+    const scene = sceneRef.current;
+    if (origin === "walkup" || !scene?.scene?.isActive()) {
+      openChatNow(agentId);
       return;
     }
+    let opened = false;
+    const openOnce = () => {
+      if (opened) return;
+      opened = true;
+      window.clearTimeout(chatApproachTimerRef.current);
+      openChatNow(agentId);
+    };
+    let started = false;
+    try {
+      started = scene.approachAgent(agentId, openOnce);
+    } catch {
+      started = false;
+    }
+    if (!started) {
+      openChatNow(agentId);
+      return;
+    }
+    // Failsafe: a stalled walk must never eat the click.
+    window.clearTimeout(chatApproachTimerRef.current);
+    chatApproachTimerRef.current = window.setTimeout(openOnce, 3200);
+  }, [chatOpen, selectedAgentId, openChatNow]);
+
+  // Keep the Phaser event handler ref in sync with the latest requestChat so
+  // canvas clicks (agent-clicked / player-interact) take the SAME path as
+  // sidebar clicks — capturing pre-chat opinion for the journal.
+  useEffect(() => {
+    requestChatRef.current = requestChat;
+  }, [requestChat]);
+
+  /**
+   * Finalize the conversation: persuasion check + journal write. Runs on
+   * EVERY way a chat ends — explicit close, town switch, route change,
+   * the safety auto-close — so no conversation is silently dropped.
+   * Idempotent (preChatRef is consumed on entry).
+   */
+  const finalizeChat = useCallback((opts?: { toast?: boolean }) => {
+    const pre = preChatRef.current;
+    preChatRef.current = null;
+    if (!pre) return;
+    const ag =
+      townAgents.find((a) => a.id === pre.agentId)
+      ?? ws.agents[pre.agentId]
+      ?? Object.values(ws.agentRoster).find((a) => a.id === pre.agentId)
+      ?? rosterAgents.find((a) => a.id === pre.agentId);
+
     const beforeOp = pre.opinion;
-    const afterOp = ag.opinion;
+    const afterOp = ag?.opinion ?? beforeOp;
     const candidateChanged = beforeOp?.candidate !== afterOp?.candidate;
     const confidenceJumped =
       (afterOp?.confidence ?? 0) - (beforeOp?.confidence ?? 0) >= 10;
@@ -592,14 +694,16 @@ export default function TownView({ ws }: TownViewProps) {
       markAgentPersuaded(pre.agentId);
     }
 
-    // Persist journal entry to backend (silent on error)
-    const transcript = lastChatTranscriptRef.current[pre.agentId] ?? [];
+    // Persist journal entry to backend (silent on error). The hosted replay
+    // has no journal backend and keeps no personal history.
+    const transcript = (lastChatTranscriptRef.current[pre.agentId] ?? [])
+      .filter((m) => m.role === "user" || m.role === "agent");
     const trustAfter = trustFor(pre.agentId);
     const playerId = profile?.playerId;
-    if (playerId && (transcript.length > 0 || candidateChanged || confidenceJumped)) {
+    if (!DEMO_MODE && playerId && (transcript.length > 0 || candidateChanged || confidenceJumped)) {
       void (async () => {
-        if (!DEMO_MODE && !await registerPlayerCapability(playerId)) return;
-        await fetch("/api/journal/entry", {
+        if (!await registerPlayerCapability(playerId)) return;
+        const res = await fetch("/api/journal/entry", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -608,10 +712,9 @@ export default function TownView({ ws }: TownViewProps) {
           body: JSON.stringify({
             user_id: playerId,
             agent_id: pre.agentId,
-            agent_name: ag.name,
-            town: ag.town,
+            agent_name: ag?.name ?? pre.agentName,
+            town: ag?.town ?? pre.agentTown,
             transcript: transcript
-              .filter((m) => m.role === "user" || m.role === "agent")
               .map((m) => ({ role: m.role, content: m.content, ts: m.timestamp })),
             opinion_before: beforeOp,
             opinion_after: afterOp,
@@ -619,16 +722,55 @@ export default function TownView({ ws }: TownViewProps) {
             trust_after: trustAfter,
           }),
         });
+        // Next-step affordance: the page you just wrote is one click away.
+        if (res.ok && opts?.toast) showChatToast("journal");
       })().catch((err) => {
         console.warn("[Township] journal POST failed:", err);
       });
     }
-    preChatRef.current = null;
-  }, [townAgents, profile?.playerId, trustFor, markAgentPersuaded]);
+  }, [townAgents, ws.agents, ws.agentRoster, rosterAgents, profile?.playerId, trustFor, markAgentPersuaded, showChatToast]);
+
+  const handleCloseChat = useCallback(() => {
+    setChatOpen(false);
+    // Gentle next step while the journal write settles; if the entry lands,
+    // the toast upgrades to "Saved to your journal".
+    const hadExchange = preChatRef.current
+      && (lastChatTranscriptRef.current[preChatRef.current.agentId] ?? [])
+        .some((m) => m.role === "user" || m.role === "agent");
+    if (!DEMO_MODE && !hadExchange) showChatToast("hint");
+    finalizeChat({ toast: true });
+  }, [finalizeChat, showChatToast]);
+
+  // Any unmount path (town-tab switch, route change) finalizes a live chat
+  // instead of silently dropping the journal entry + persuasion check.
+  const finalizeChatRef = useRef(finalizeChat);
+  useEffect(() => {
+    finalizeChatRef.current = finalizeChat;
+  }, [finalizeChat]);
+  useEffect(() => {
+    return () => {
+      finalizeChatRef.current();
+    };
+  }, [town]);
 
   const handleTranscriptUpdate = useCallback((agentId: string, msgs: ChatMessage[]) => {
     lastChatTranscriptRef.current[agentId] = msgs;
-  }, []);
+    // "Met" means an exchanged message, not a panel that flashed open.
+    if (msgs.some((m) => m.role === "user" || m.role === "agent")) {
+      markAgentMet(agentId);
+    }
+  }, [markAgentMet]);
+
+  // Recorded speech lines for the demo chat panel — the replay shows what
+  // this resident actually said instead of an empty scroll area.
+  const demoRecordedLines = useMemo(() => {
+    if (!DEMO_MODE || !selectedAgentId) return [];
+    return ws.events
+      .filter((e) => e.type === "agent_speech" && (e as any).agent_id === selectedAgentId)
+      .map((e: any) => e.text as string)
+      .slice(-12);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAgentId, ws.eventCursor]);
 
   // Filter agent-speech events that originated at the listen-in landmark
   const listenInSpeech = useMemo(() => {
@@ -710,7 +852,7 @@ export default function TownView({ ws }: TownViewProps) {
           )}
           <div className="canvas-vignette" />
 
-          {/* DOM overlay for agent/landmark labels + proximity card */}
+          {/* DOM overlay for agent/landmark labels + THE walk-up talk card */}
           <CanvasOverlay
             gameRef={gameRef}
             getOverlayData={getOverlayData}
@@ -718,6 +860,8 @@ export default function TownView({ ws }: TownViewProps) {
             getAgent={getAgent}
             getTrust={trustFor}
             bottomInset={12}
+            onTalk={(agentId) => requestChat(agentId, "walkup")}
+            suppressed={chatOpen}
           />
 
           {/* HUD top-left */}
@@ -749,6 +893,56 @@ export default function TownView({ ws }: TownViewProps) {
               {gossipToast}
             </div>
           )}
+
+          {/* Post-chat toast: journal confirmation or a gentle next step */}
+          {chatToast && !chatOpen && (
+            <div className="chat-after-toast" role="status">
+              {chatToast.kind === "journal" ? (
+                <>
+                  <span>Saved to your journal</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChatToast(null);
+                      window.dispatchEvent(new CustomEvent("township-open-journal"));
+                    }}
+                  >
+                    View
+                  </button>
+                </>
+              ) : (
+                <span>
+                  {playerInTown
+                    ? "Meet someone else — walk up and press E, or click any resident."
+                    : "Meet someone else — click any resident to strike up a conversation."}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Spotlight offer chip — the camera never leaves the player
+              without this explicit ask. */}
+          {spotlightOffer && playerInTown && !chatOpen && (() => {
+            const a = agentLookup.get(spotlightOffer.aId);
+            const b = agentLookup.get(spotlightOffer.bId);
+            if (!a || !b) return null;
+            return (
+              <div className="spotlight-chip" role="status">
+                <span className="spotlight-chip-dot" aria-hidden="true" />
+                <span className="spotlight-chip-label">
+                  {a.name.split(" ")[0]} &amp; {b.name.split(" ")[0]} are talking
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try { sceneRef.current?.borrowConversationSpotlight(); } catch { /* ignore */ }
+                  }}
+                >
+                  Watch
+                </button>
+              </div>
+            );
+          })()}
 
           {/* District Atlas affordance — the illustrated map now lives at
               /map; this parchment corner card is its doorway. */}
@@ -833,14 +1027,16 @@ export default function TownView({ ws }: TownViewProps) {
             </div>
           )}
 
-          {/* Keyboard hint overlay — only when a real player can move */}
-          {showKeyboardHint && hasPlayer && (
+          {/* Keyboard hint overlay — only when a real player can move HERE,
+              and never underneath the tutorial modal (its 5s auto-dismiss
+              would expire unseen behind the backdrop). */}
+          {showKeyboardHint && playerInTown && tutorialDone && (
             <KeyboardHint onDismiss={() => setShowKeyboardHint(false)} />
           )}
 
           {/* The hosted replay is immediately explorable without a player;
               movement onboarding belongs to the interactive local flow. */}
-          {hasPlayer && <Tutorial />}
+          {playerInTown && <Tutorial onDismiss={() => setTutorialDone(true)} />}
 
           {/* Debug overlay (toggled with ~) */}
           {debugOpen && (
@@ -895,7 +1091,7 @@ export default function TownView({ ws }: TownViewProps) {
               key={agent.id}
               agent={agent}
               compact
-              onClick={() => openChat(agent.id)}
+              onClick={() => requestChat(agent.id, "sidebar")}
               met={profile?.metAgents?.includes(agent.id)}
               persuaded={profile?.persuadedAgents?.includes(agent.id)}
               trust={trustFor(agent.id)}
@@ -923,11 +1119,34 @@ export default function TownView({ ws }: TownViewProps) {
                 }
               });
               return rows.slice(-5).reverse().map(({ key, evt }) => {
+                // Rows about a specific resident tap through to them —
+                // no dead ends in the activity rail.
+                const rowAgentId = "agent_id" in evt && agentLookup.has((evt as any).agent_id)
+                  ? (evt as any).agent_id as string
+                  : null;
+                const rowProps = rowAgentId
+                  ? {
+                      role: "button" as const,
+                      tabIndex: 0,
+                      title: `Talk to ${agentLookup.get(rowAgentId)?.name ?? "this resident"}`,
+                      onClick: () => requestChat(rowAgentId, "activity"),
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          requestChat(rowAgentId, "activity");
+                        }
+                      },
+                    }
+                  : {};
                 if (evt.type === "opinion_changed") {
                   const newC = (evt.new_opinion?.candidate as LeanId) || scen.undecidedId;
                   const stance = scen.optionColor(newC);
                   return (
-                    <div key={key} className="town-activity-row town-activity-row--shift flex items-center gap-1.5">
+                    <div
+                      key={key}
+                      className={`town-activity-row town-activity-row--shift flex items-center gap-1.5${rowAgentId ? " town-activity-row--link" : ""}`}
+                      {...rowProps}
+                    >
                       <span
                         className="town-activity-shift-dot w-1.5 h-1.5 rounded-full shrink-0"
                         style={{ background: stance }}
@@ -943,7 +1162,11 @@ export default function TownView({ ws }: TownViewProps) {
                   );
                 }
                 return (
-                  <div key={key} className="town-activity-row flex items-center gap-1.5">
+                  <div
+                    key={key}
+                    className={`town-activity-row flex items-center gap-1.5${rowAgentId ? " town-activity-row--link" : ""}`}
+                    {...rowProps}
+                  >
                     <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
                     <p style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
                       {eventLabel(evt, scen.optionLabel)}
@@ -970,6 +1193,8 @@ export default function TownView({ ws }: TownViewProps) {
           agent={selectedAgent}
           onClose={handleCloseChat}
           onTranscriptChange={handleTranscriptUpdate}
+          playerPresent={playerInTown}
+          recordedLines={demoRecordedLines}
         />
       )}
     </div>
