@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import OpinionChart from "./OpinionChart";
 import AgentCard from "./AgentCard";
@@ -11,6 +11,41 @@ import { useScenario } from "../hooks/useScenario";
 import { DEMO_MODE } from "../demo/demoMode";
 import { appUrl } from "../lib/assetUrl";
 import { readableInk } from "../lib/color";
+
+/** Narrative recap of a persisted run (see /api/runs). */
+interface RunRecap {
+  runId: string;
+  headline: string;
+  markdown: string | null;
+  endedAt?: string | null;
+}
+
+/** Minimal markdown split: "# Title" first line + prose paragraphs.
+ *  Blockquote paragraphs (the responsible-use notice) become styled notes;
+ *  bold markers are stripped rather than rendered. */
+function parseRecap(markdown: string): {
+  title: string | null;
+  paragraphs: Array<{ text: string; note: boolean }>;
+} {
+  const trimmed = markdown.trim();
+  const lines = trimmed.split("\n");
+  let title: string | null = null;
+  let body = trimmed;
+  if (lines[0]?.startsWith("# ")) {
+    title = lines[0].slice(2).trim();
+    body = lines.slice(1).join("\n").trim();
+  }
+  const paragraphs = body
+    .split(/\n{2,}/)
+    .map((p) => p.replace(/\n/g, " ").trim())
+    .filter(Boolean)
+    .map((p) => {
+      const note = p.startsWith(">");
+      const text = p.replace(/^(?:>\s*)+/, "").replace(/\*\*/g, "").trim();
+      return { text, note };
+    });
+  return { title, paragraphs };
+}
 
 interface DashboardProps {
   ws: {
@@ -56,15 +91,75 @@ export default function Dashboard({ ws }: DashboardProps) {
     refetchResults();
   }, [refetchResults]);
 
-  // When the simulation finishes (running → not running), refetch results.
+  // ── Narrative recap of the latest persisted run ──────────────
+  // The backend writes runs/<id>/summary.json (recap included) after every
+  // completed simulation; surface it here so a finished run has a payoff.
+  const [latestRun, setLatestRun] = useState<RunRecap | null>(null);
+  const [justCompleted, setJustCompleted] = useState(false);
+  const knownRunIdRef = useRef<string | null>(null);
+  const recapPollRef = useRef<number | undefined>(undefined);
+
+  const fetchLatestRun = useCallback(async (): Promise<RunRecap | null> => {
+    if (DEMO_MODE) return null;
+    try {
+      const list = await fetch("/api/runs").then((r) => (r.ok ? r.json() : null));
+      const newest = list?.runs?.[0];
+      if (!newest?.run_id) return null;
+      const detail = await fetch(`/api/runs/${encodeURIComponent(newest.run_id)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      return {
+        runId: newest.run_id,
+        headline: newest.headline || "",
+        markdown: detail?.recap_markdown ?? null,
+        endedAt: newest.ended_at ?? null,
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (DEMO_MODE) return;
+    let cancelled = false;
+    fetchLatestRun().then((run) => {
+      if (cancelled || !run) return;
+      knownRunIdRef.current = run.runId;
+      setLatestRun(run);
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(recapPollRef.current);
+    };
+  }, [fetchLatestRun]);
+
+  // When the simulation finishes (running → not running), refetch results
+  // and poll for the freshly persisted run's recap (it lands moments later).
   const [wasRunning, setWasRunning] = useState(false);
   useEffect(() => {
-    if (ws.simulationRunning) setWasRunning(true);
-    else if (wasRunning && !ws.simulationRunning) {
+    if (ws.simulationRunning) {
+      setWasRunning(true);
+      setJustCompleted(false);
+    } else if (wasRunning && !ws.simulationRunning) {
       setWasRunning(false);
       refetchResults();
+      setJustCompleted(true);
+      if (!DEMO_MODE) {
+        let attempts = 0;
+        const poll = async () => {
+          attempts += 1;
+          const run = await fetchLatestRun();
+          if (run && run.runId !== knownRunIdRef.current) {
+            knownRunIdRef.current = run.runId;
+            setLatestRun(run);
+            return;
+          }
+          if (attempts < 10) recapPollRef.current = window.setTimeout(poll, 1600);
+        };
+        recapPollRef.current = window.setTimeout(poll, 800);
+      }
     }
-  }, [ws.simulationRunning, wasRunning, refetchResults]);
+  }, [ws.simulationRunning, wasRunning, refetchResults, fetchLatestRun]);
 
   const handleStart = useCallback(async () => {
     if (ws.simulationRunning) return;
@@ -199,6 +294,30 @@ export default function Dashboard({ ws }: DashboardProps) {
         </p>
       </div>
 
+      {/* Completion announcement — a finished run must never end silently. */}
+      {justCompleted && !ws.simulationRunning && (
+        <div className="dashboard-complete-banner" role="status" aria-live="polite">
+          <span className="dashboard-complete-mark" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8.5l3.2 3.2L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <p>
+            <strong>{DEMO_MODE ? "Replay complete." : "Simulation complete."}</strong>{" "}
+            {hasOpinionData ? `${opinionTotal} residents have settled where they stand` : "The district has settled"}
+            {DEMO_MODE || !latestRun ? " — final tallies below." : " — the narrative recap is below."}
+          </p>
+          <button
+            type="button"
+            className="dashboard-complete-dismiss"
+            onClick={() => setJustCompleted(false)}
+            aria-label="Dismiss completion notice"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Scoreboard banner */}
       <div className="dashboard-scoreboard">
         <PlayerHUD compact totalAgents={allAgents.length || undefined} />
@@ -271,33 +390,55 @@ export default function Dashboard({ ws }: DashboardProps) {
             <p className="text-xs italic" style={{ color: "var(--township-ink-muted)" }}>
               Scrub the replay timeline below — seek to the final round to see where the district lands.
             </p>
+          ) : ws.simulationRunning ? (
+            /* Mid-run: honest progress plus a focal action — go watch it. */
+            <div className="dashboard-run-progress" role="status" aria-live="polite">
+              <div className="dashboard-run-progress-meter">
+                <span className="dashboard-run-progress-label">
+                  Round {ws.currentRound} of {ws.totalRounds || scen.totalRounds}
+                </span>
+                <div className="dashboard-run-progress-track" aria-hidden="true">
+                  <div
+                    className="dashboard-run-progress-fill"
+                    style={{
+                      width: `${Math.min(100, Math.max(6, (ws.currentRound / (ws.totalRounds || scen.totalRounds || 1)) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              {towns[0] && (
+                <button
+                  type="button"
+                  className="dashboard-watch-live"
+                  onClick={() => navigate(`/town/${towns[0]}`)}
+                >
+                  Watch it live in {townMeta(towns[0]).name} →
+                </button>
+              )}
+            </div>
           ) : (
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleStart}
-              disabled={ws.simulationRunning || simStartLoading}
+              disabled={simStartLoading}
               className="px-4 py-2 rounded-lg text-sm disabled:opacity-60"
               style={{
-                background: ws.simulationRunning ? "var(--civic-blue)" : "var(--gold-accent)",
-                color: ws.simulationRunning ? "var(--text-on-accent)" : "var(--text-on-gold)",
+                background: "var(--gold-accent)",
+                color: "var(--text-on-gold)",
                 fontFamily: "var(--font-display)",
                 fontWeight: 600,
                 letterSpacing: "0.5px",
                 transition: "all 200ms ease",
-                cursor: ws.simulationRunning ? "default" : "pointer",
-                boxShadow: ws.simulationRunning ? "none" : "0 2px 8px var(--gold-glow)",
+                cursor: "pointer",
+                boxShadow: "0 2px 8px var(--gold-glow)",
               }}
-              title={ws.simulationRunning ? "Simulation is running" : `Start a fresh ${scen.totalRounds}-round simulation`}
+              title={`Start a fresh ${scen.totalRounds}-round simulation`}
             >
-              {ws.simulationRunning
-                ? `Running… Round ${ws.currentRound}/${ws.totalRounds || scen.totalRounds}`
-                : simStartLoading
-                  ? "Starting…"
-                  : "Start Simulation"}
+              {simStartLoading ? "Starting…" : "Start Simulation"}
             </button>
             <button
               onClick={handleReplay}
-              disabled={ws.simulationRunning || replayLoading}
+              disabled={replayLoading}
               className="px-3 py-2 rounded-lg text-xs disabled:opacity-50"
               style={{
                 background: "transparent",
@@ -319,6 +460,45 @@ export default function Dashboard({ ws }: DashboardProps) {
           )}
         </div>
       </div>
+
+      {/* Narrative recap — the payoff of a finished deliberation. */}
+      {!DEMO_MODE && latestRun && (latestRun.markdown || latestRun.headline) && (() => {
+        const parsed = latestRun.markdown
+          ? parseRecap(latestRun.markdown)
+          : { title: latestRun.headline, paragraphs: [] as Array<{ text: string; note: boolean }> };
+        return (
+          <section className="dashboard-recap" aria-label="Narrative recap of the latest run">
+            <details className="dashboard-recap-details" open={justCompleted}>
+              <summary className="dashboard-recap-summary">
+                <span className="dashboard-recap-kicker">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3 2.5h7.5A2.5 2.5 0 0 1 13 5v8.5H5A2 2 0 0 1 3 11.5v-9Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                    <path d="M5.5 5.5h4.5M5.5 8h4.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+                  </svg>
+                  Narrative recap — latest run
+                </span>
+                <strong className="dashboard-recap-headline">
+                  {parsed.title || latestRun.headline || "How the deliberation unfolded"}
+                </strong>
+                <span className="dashboard-recap-caret" aria-hidden="true">▾</span>
+              </summary>
+              <div className="dashboard-recap-body">
+                {parsed.paragraphs.map((p, i) => (
+                  <p key={i} className={p.note ? "dashboard-recap-note" : undefined}>
+                    {p.text}
+                  </p>
+                ))}
+                <div className="dashboard-recap-footer">
+                  <span>{latestRun.runId}</span>
+                  <a href={`/api/runs/${encodeURIComponent(latestRun.runId)}/export`} download>
+                    Download run bundle (JSON)
+                  </a>
+                </div>
+              </div>
+            </details>
+          </section>
+        );
+      })()}
 
       {/* Town columns */}
       <div className="dashboard-town-grid mb-8">
@@ -385,6 +565,10 @@ export default function Dashboard({ ws }: DashboardProps) {
                       <span className="dashboard-town-issue-text">{issue}</span>
                     </div>
                   ))
+                ) : ws.simulationRunning ? (
+                  <p className="text-xs italic py-0.5 dashboard-working" style={{ color: "var(--township-ink-muted)" }}>
+                    Residents are deliberating — issues surface after round 1
+                  </p>
                 ) : (
                   <p className="text-xs italic py-0.5" style={{ color: "var(--township-ink-muted)" }}>
                     Run a simulation to surface issues.
@@ -419,6 +603,10 @@ export default function Dashboard({ ws }: DashboardProps) {
                 {item}
               </p>
             ))
+          ) : ws.simulationRunning ? (
+            <p className="text-sm italic dashboard-working" style={{ color: "var(--township-ink-muted)" }}>
+              Deliberation in progress — agreements land with the final summary
+            </p>
           ) : (
             <p className="text-sm italic" style={{ color: "var(--township-ink-muted)" }}>
               Run a simulation to surface points of agreement.
@@ -447,6 +635,10 @@ export default function Dashboard({ ws }: DashboardProps) {
                 {item}
               </p>
             ))
+          ) : ws.simulationRunning ? (
+            <p className="text-sm italic dashboard-working" style={{ color: "var(--township-ink-muted)" }}>
+              Deliberation in progress — fault lines land with the final summary
+            </p>
           ) : (
             <p className="text-sm italic" style={{ color: "var(--township-ink-muted)" }}>
               Run a simulation to surface disagreements.

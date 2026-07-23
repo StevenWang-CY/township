@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { AgentSprite, FRAME_H, LABEL_Y, BUBBLE_TIP_Y, IDLE_FRAMES, SPRITE_SCALE } from "./AgentSprite";
+import { AgentSprite, LABEL_Y, BUBBLE_TIP_Y, SPRITE_SCALE } from "./AgentSprite";
 import type { Direction } from "./AgentSprite";
 
 /**
@@ -16,10 +16,11 @@ const PLAYER_SPEED = 160; // px per second
 // Bumped from 80 to 110 — the previous radius required pixel-perfect approach
 // and made "walking up to someone" feel finicky.
 const INTERACTION_RADIUS = 110;
-// Auto-open chat after this many ms of standing within INTERACTION_RADIUS
-// AND not actively moving. Mimics natural NPC interactions in adventure games.
-// Set to 0 to disable.
-const DWELL_AUTO_TALK_MS = 1200;
+// NOTE: an earlier build auto-opened the chat after standing near an NPC for
+// 1.2s ("dwell-to-talk"). It hijacked the session — chats opened on spawn,
+// re-fired while exploring, froze movement, and silently swapped partners
+// when a closer NPC wandered by. Conversations are now strictly explicit:
+// press E, click/tap the resident, or use the proximity card.
 const LEGACY_PLAYER_SPRITE_SCALE = 4.4; // 16px frames × 4.4 ≈ 70px (matches 32px × 2.2)
 
 interface PlayerConfig {
@@ -53,13 +54,6 @@ export class PlayerSprite extends AgentSprite {
   private promptVisible = false;
   private promptPulseTween?: Phaser.Tweens.Tween;
   public inputEnabled = true;
-
-  // Dwell-to-auto-talk state: when the player stands within INTERACTION_RADIUS
-  // of an NPC AND is not actively moving, after DWELL_AUTO_TALK_MS we
-  // automatically open the chat. Cleared on any movement or when the agent
-  // leaves the radius.
-  private dwellStartMs = 0;
-  private dwellAutoFired = false;
 
   // Touch joystick
   private joystick: JoystickState = {
@@ -209,7 +203,7 @@ export class PlayerSprite extends AgentSprite {
 
     // Capsule background — slightly larger, warmer black with a gold border.
     const bg = scene.add.graphics();
-    const w = 86, h = 26, r = 13;
+    const w = 66, h = 26, r = 13;
     bg.fillStyle(0x0e0e0e, 0.88);
     bg.fillRoundedRect(-w / 2, -h / 2, w, h, r);
     // Inset highlight
@@ -222,7 +216,7 @@ export class PlayerSprite extends AgentSprite {
 
     // "E" key cap — chunkier, with a soft drop shadow.
     const keyCap = scene.add.graphics();
-    const kx = -34, ky = -9, kw = 18, kh = 18;
+    const kx = -26, ky = -9, kw = 18, kh = 18;
     keyCap.fillStyle(0x000000, 0.45);
     keyCap.fillRoundedRect(kx, ky + 2, kw, kh, 4);
     keyCap.fillStyle(0xffffff, 0.96);
@@ -252,18 +246,6 @@ export class PlayerSprite extends AgentSprite {
     });
     talkText.setOrigin(0, 0.5);
     prompt.add(talkText);
-
-    // Auto-talk dwell hint (tiny progress dots that fill as the player stands still).
-    // We draw three dots; PlayerSprite.update will tween their alpha based on dwell time.
-    const dotsContainer = scene.add.container(28, 0);
-    for (let i = 0; i < 3; i++) {
-      const d = scene.add.graphics();
-      d.fillStyle(0xc4a35a, 0.45);
-      d.fillCircle(i * 6, 0, 1.6);
-      dotsContainer.add(d);
-    }
-    dotsContainer.setName("dwellDots");
-    prompt.add(dotsContainer);
 
     prompt.setDepth(500);
     return prompt;
@@ -501,9 +483,6 @@ export class PlayerSprite extends AgentSprite {
         this.nearbySprite = null;
       }
       this.nearbyAgentId = newId;
-      // Reset the dwell timer whenever the nearby agent changes.
-      this.dwellStartMs = 0;
-      this.dwellAutoFired = false;
 
       if (result) {
         this.nearbySprite = result.sprite;
@@ -516,53 +495,11 @@ export class PlayerSprite extends AgentSprite {
       // Emit to React
       this.scene.events.emit("proximity-agent", newId);
     }
-
-    // Dwell-to-auto-talk: while standing still inside the radius, count up.
-    // Movement (this.wasMoving) resets the timer. Typing in a text field
-    // also pauses dwell so the chat can't reopen itself while the user types.
-    const activeEl = document.activeElement;
-    const typingNow = !!activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable);
-    if (
-      this.nearbyAgentId &&
-      this.inputEnabled &&
-      !this.wasMoving &&
-      !this.dwellAutoFired &&
-      !typingNow &&
-      DWELL_AUTO_TALK_MS > 0
-    ) {
-      const now = this.scene.time.now;
-      if (this.dwellStartMs === 0) {
-        this.dwellStartMs = now;
-      } else if (now - this.dwellStartMs >= DWELL_AUTO_TALK_MS) {
-        // Auto-open chat as if the player pressed E.
-        this.dwellAutoFired = true;
-        this.onInteract();
-      }
-      // Visual progress: the three dots in the prompt fill left-to-right so
-      // the player can see the auto-talk timer counting down.
-      this.renderDwellProgress((now - this.dwellStartMs) / DWELL_AUTO_TALK_MS);
-    } else {
-      if (this.wasMoving) {
-        // Reset while moving so the user can pass by without triggering.
-        this.dwellStartMs = 0;
-      }
-      this.renderDwellProgress(0);
-    }
   }
 
-  /** Fill the three dwell-progress dots left-to-right based on `progress` (0..1). */
-  private renderDwellProgress(progress: number) {
-    const dots = this.interactPrompt.getByName("dwellDots") as Phaser.GameObjects.Container | null;
-    if (!dots) return;
-    const p = Phaser.Math.Clamp(progress, 0, 1);
-    const children = dots.list as Phaser.GameObjects.GameObject[];
-    for (let i = 0; i < children.length; i++) {
-      // Each dot owns 1/N of the progress bar; alpha rises from 0.25 → 1.0
-      // as the bar fills past it.
-      const local = Phaser.Math.Clamp(p * children.length - i, 0, 1);
-      const alpha = 0.25 + 0.75 * local;
-      (children[i] as Phaser.GameObjects.Graphics).setAlpha(alpha);
-    }
+  /** Is the player actively moving this frame (keyboard/joystick)? */
+  override isWalking(): boolean {
+    return this.wasMoving;
   }
 
   // ──────────────────────────────────────────────────────────────

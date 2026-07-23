@@ -29,9 +29,20 @@ export interface UserProfile {
   playerId?: string;
 }
 
+/** Display/audio preferences that must work before onboarding too. */
+export interface DisplayPreferences {
+  audioEnabled: boolean;
+  audioAutoplay: boolean;
+  reducedMotion: boolean;
+  highContrast: boolean;
+}
+
 interface UserProfileContextValue {
   profile: UserProfile | null;
   isOnboarded: boolean;
+  /** Effective display/audio preferences: the profile's when onboarded,
+   *  otherwise the pre-onboarding guest preferences. Always usable. */
+  preferences: DisplayPreferences;
   setProfile: (p: UserProfile) => Promise<void>;
   clearProfile: () => void;
   chatMode: "manual" | "auto";
@@ -44,6 +55,31 @@ interface UserProfileContextValue {
 }
 
 const STORAGE_KEY = "township-user-profile";
+const GUEST_PREFS_KEY = "township-guest-prefs";
+
+const DEFAULT_PREFS: DisplayPreferences = {
+  audioEnabled: true,
+  audioAutoplay: false,
+  reducedMotion: false,
+  highContrast: false,
+};
+
+function readGuestPrefs(): DisplayPreferences {
+  try {
+    const raw = localStorage.getItem(GUEST_PREFS_KEY);
+    if (!raw) return DEFAULT_PREFS;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return DEFAULT_PREFS;
+    return {
+      audioEnabled: parsed.audioEnabled !== false,
+      audioAutoplay: parsed.audioAutoplay === true,
+      reducedMotion: parsed.reducedMotion === true,
+      highContrast: parsed.highContrast === true,
+    };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
 
 // The hosted replay has no accounts and writes no profile data. A small
 // in-memory guest lets first-time visitors use accessibility preferences,
@@ -149,6 +185,19 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
 
   const [chatMode, setChatMode] = useState<"manual" | "auto">("manual");
 
+  // Pre-onboarding guest preferences: the settings gear must work for a
+  // first-time visitor, so accessibility/audio toggles fall back to this
+  // small persisted store until a profile exists (then the profile wins).
+  const [guestPrefs, setGuestPrefs] = useState<DisplayPreferences>(readGuestPrefs);
+
+  const persistGuestPrefs = (next: DisplayPreferences) => {
+    setGuestPrefs(next);
+    if (DEMO_MODE) return;
+    try {
+      localStorage.setItem(GUEST_PREFS_KEY, JSON.stringify(next));
+    } catch { /* private mode — session-only prefs */ }
+  };
+
   // The staged scenario can change via ?scenario=. Keep the in-memory guest
   // rooted in that package rather than leaking the flagship's first town.
   useEffect(() => {
@@ -172,10 +221,10 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
       playerId: p.playerId ?? profile?.playerId ?? `player-${safeUUID()}`,
       metAgents: p.metAgents ?? profile?.metAgents ?? [],
       persuadedAgents: p.persuadedAgents ?? profile?.persuadedAgents ?? [],
-      audioEnabled: p.audioEnabled ?? profile?.audioEnabled ?? true,
-      audioAutoplay: p.audioAutoplay ?? profile?.audioAutoplay ?? false,
-      reducedMotion: p.reducedMotion ?? profile?.reducedMotion ?? false,
-      highContrast: p.highContrast ?? profile?.highContrast ?? false,
+      audioEnabled: p.audioEnabled ?? profile?.audioEnabled ?? guestPrefs.audioEnabled,
+      audioAutoplay: p.audioAutoplay ?? profile?.audioAutoplay ?? guestPrefs.audioAutoplay,
+      reducedMotion: p.reducedMotion ?? profile?.reducedMotion ?? guestPrefs.reducedMotion,
+      highContrast: p.highContrast ?? profile?.highContrast ?? guestPrefs.highContrast,
     };
     if (!DEMO_MODE && !await preparePlayerCapability()) {
       throw new Error("Private browser storage is unavailable.");
@@ -221,14 +270,33 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
   };
 
   const setAudioPreferences = ({ enabled, autoplay }: { enabled?: boolean; autoplay?: boolean }) => {
-    updateProfile({
-      ...(enabled !== undefined ? { audioEnabled: enabled } : {}),
-      ...(autoplay !== undefined ? { audioAutoplay: autoplay } : {}),
-    });
+    if (profile) {
+      updateProfile({
+        ...(enabled !== undefined ? { audioEnabled: enabled } : {}),
+        ...(autoplay !== undefined ? { audioAutoplay: autoplay } : {}),
+      });
+    } else {
+      persistGuestPrefs({
+        ...guestPrefs,
+        ...(enabled !== undefined ? { audioEnabled: enabled } : {}),
+        ...(autoplay !== undefined ? { audioAutoplay: autoplay } : {}),
+      });
+    }
   };
 
-  const setReducedMotion = (b: boolean) => updateProfile({ reducedMotion: b });
-  const setHighContrast = (b: boolean) => updateProfile({ highContrast: b });
+  const setReducedMotion = (b: boolean) =>
+    profile ? updateProfile({ reducedMotion: b }) : persistGuestPrefs({ ...guestPrefs, reducedMotion: b });
+  const setHighContrast = (b: boolean) =>
+    profile ? updateProfile({ highContrast: b }) : persistGuestPrefs({ ...guestPrefs, highContrast: b });
+
+  const preferences: DisplayPreferences = profile
+    ? {
+        audioEnabled: profile.audioEnabled !== false,
+        audioAutoplay: profile.audioAutoplay === true,
+        reducedMotion: profile.reducedMotion === true,
+        highContrast: profile.highContrast === true,
+      }
+    : guestPrefs;
 
   // Sync with storage changes from other tabs
   useEffect(() => {
@@ -251,6 +319,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
       value={{
         profile,
         isOnboarded: profile !== null,
+        preferences,
         setProfile,
         clearProfile,
         chatMode,

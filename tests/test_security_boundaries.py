@@ -106,6 +106,46 @@ def test_http_allows_configured_and_trusted_same_origin_mutations(monkeypatch):
     assert same_origin.status_code == 404
 
 
+def test_http_allows_loopback_origin_on_any_dev_port(monkeypatch):
+    """A Vite dev server on ANY localhost port may mutate — the CSRF gate
+    exists to stop remote origins, not the user's own machine."""
+    monkeypatch.setattr(backend_main, "ALLOWED_ORIGINS", ["http://localhost:5173"])
+
+    with TestClient(app) as client:
+        for origin in (
+            "http://localhost:5273",
+            "http://127.0.0.1:5273",
+            "http://[::1]:5273",
+            "http://localhost:39999",
+        ):
+            response = client.post(
+                "/api/chat/no-such-agent",
+                headers={"origin": origin},
+                json={"message": "hello"},
+            )
+            # 404 = passed the origin gate and reached the route.
+            assert response.status_code == 404, origin
+
+        # Remote origins stay blocked even with loopback trusted.
+        blocked = client.post(
+            "/api/chat/no-such-agent",
+            headers={"origin": "https://localhost.evil.example"},
+            json={"message": "hello"},
+        )
+        assert blocked.status_code == 403
+
+
+def test_websocket_allows_loopback_origin_on_any_dev_port(monkeypatch):
+    monkeypatch.setattr(backend_main, "ALLOWED_ORIGINS", ["http://localhost:5173"])
+
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/ws", headers={"origin": "http://localhost:5273"}
+        ) as socket:
+            socket.send_text("ping")
+            assert _receive_until_type(socket, "pong") == {"type": "pong"}
+
+
 def test_dns_rebinding_host_is_rejected_for_http_and_websocket():
     with TestClient(app) as client:
         http_response = client.post(

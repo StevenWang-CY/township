@@ -79,6 +79,8 @@ interface BubbleEntry {
   text: Phaser.GameObjects.Text;
   timer?: Phaser.Time.TimerEvent;
   height: number;
+  /** Extra upward shift applied when newer bubbles stack beneath this one. */
+  stackOffset: number;
 }
 
 export class AgentSprite extends Phaser.GameObjects.Container {
@@ -124,6 +126,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   protected spriteBaseScale = SPRITE_SCALE;
 
   private currentActivity: AgentActivity = "idle";
+  private reservedTarget: { x: number; y: number } | null = null;
   private currentGesture: GestureKind = "none";
   private partnerInfo?: { name: string; tint: number };
   /** Companion body sprite for couple agents — a real second body that
@@ -255,7 +258,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       resolution: 2,
     });
     this.nameLabel.setOrigin(0.5, 0);
-    this.nameLabel.setVisible(false); // Rendered by DOM CanvasOverlay instead
+    // Rendered in-canvas so the label can never detach from its sprite the
+    // way screen-space DOM labels did under a zoomed follow-camera. TownScene
+    // declutters labels each tick (pair lanes + crowd badges).
+    this.nameLabel.setVisible(!this.ambient);
     this.add(this.nameLabel);
 
     // ── Interaction ──────────────────────────────────────────
@@ -297,9 +303,45 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   // Public API
   // ────────────────────────────────────────────────────────────
 
+  /** Bubbles live at scene level (see showSpeechBubble) — above rooftops.
+   *  Anything anchored to the speaker must follow them frame-by-frame. */
+  static readonly BUBBLE_DEPTH = 6500;
+
   /** Called every frame by TownScene to keep depth sorted by Y. */
   syncDepth() {
     this.setDepth(100 + Math.floor(this.y));
+    // Keep scene-level speech bubbles glued to the speaker.
+    for (const bubble of this.bubbleQueue) {
+      bubble.group.setPosition(this.x, this.y - bubble.stackOffset);
+    }
+  }
+
+  /** Is this agent mid-walk (positional tween active)? */
+  isWalking(): boolean {
+    return this.isMoving;
+  }
+
+  /** In-flight walk target — other agents treat it as occupied ground. */
+  getReservedTarget(): { x: number; y: number } | null {
+    return this.reservedTarget;
+  }
+
+  /** Label declutter hooks (TownScene): stack a colliding pair into lanes. */
+  setLabelSlot(dy: number) {
+    this.nameLabel.setY(LABEL_Y + dy);
+  }
+
+  /** Label declutter hooks (TownScene): hide labels merged into a crowd badge. */
+  setLabelVisible(visible: boolean) {
+    this.nameLabel.setVisible(visible && !this.ambient);
+  }
+
+  /** Gentle position correction from the overlap-resolver (never mid-walk). */
+  nudgeTo(x: number, y: number) {
+    if (this.isMoving) return;
+    this.setPosition(x, y);
+    this.homeY = y;
+    this.syncDepth();
   }
 
   /**
@@ -323,6 +365,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
     this.isMoving = true;
     this.currentActivity = "walking";
+    this.reservedTarget = { x: tx, y: ty };
     this.stopIdleMotion();
     this.moveTween?.stop();
 
@@ -366,6 +409,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       },
       onComplete: () => {
         this.isMoving = false;
+        this.reservedTarget = null;
         this.setScale(1);
         this.shadowTween?.stop();
         this.groundShadow.setScale(1);
@@ -393,25 +437,34 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   }
 
   /** Pixel 9-slice speech bubble: parchment fill, 2px ink border, square
-   *  corners (2px notch), stepped tail. Keeps stacking + auto-flip. */
-  showSpeechBubble(text: string, duration?: number, sentiment: BubbleSentiment = "neutral") {
+   *  corners (2px notch), stepped tail. Keeps stacking + auto-flip.
+   *
+   *  `emphasis` renders the conversation-spotlight variant: larger type and
+   *  a wider measure so backend dialogue reads at gameplay distance instead
+   *  of as a tiny tooltip. */
+  showSpeechBubble(text: string, duration?: number, sentiment: BubbleSentiment = "neutral", emphasis = false) {
     const t = text.length > 140 ? text.slice(0, 137) + "…" : text;
     const dur = duration ?? Math.min(8000, Math.max(2000, t.length * 50));
 
-    const group = this.scene.add.container(0, 0);
+    // Scene-level, NOT a child of this container: container children share
+    // the speaker's y-sorted depth, which let the buildings-top roof layer
+    // (depth 5000) swallow any bubble whose speaker stood in front of a
+    // building. The group tracks the speaker from syncDepth() instead.
+    const group = this.scene.add.container(this.x, this.y);
     const bg = this.scene.add.graphics();
     const txt = this.scene.add.text(0, 0, t, {
       fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-      fontSize: "9px",
+      fontSize: emphasis ? "11px" : "10px",
+      fontStyle: emphasis ? "bold" : "normal",
       color: "#2c2416",
       align: "center",
-      wordWrap: { width: 135, useAdvancedWrap: true },
+      wordWrap: { width: emphasis ? 176 : 150, useAdvancedWrap: true },
       lineSpacing: 2,
       resolution: 3,
     });
     txt.setOrigin(0.5, 1);
 
-    const pad = 9;
+    const pad = emphasis ? 10 : 9;
     const bw = Math.ceil(Math.max(txt.width + pad * 2, 55));
     const bh = Math.ceil(txt.height + pad * 2);
     const camera = this.scene.cameras.main;
@@ -490,21 +543,21 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     txt.setX(bodyOffsetX);
 
     group.add([bg, txt]);
-    group.setDepth(400);
+    group.setDepth(AgentSprite.BUBBLE_DEPTH);
     const limitMotion = reducedMotion();
     group.setScale(limitMotion ? 1 : 0.55);
     group.setAlpha(limitMotion ? 1 : 0);
-    this.add(group);
 
     // Stack: push older bubbles up & dim them
     const stackOffset = bh + 6;
     for (const old of this.bubbleQueue) {
-      old.group.y -= stackOffset;
+      old.stackOffset += stackOffset;
       old.group.setAlpha(Math.max(0.4, old.group.alpha - 0.25));
     }
 
-    const entry: BubbleEntry = { group, bg, text: txt, height: bh };
+    const entry: BubbleEntry = { group, bg, text: txt, height: bh, stackOffset: 0 };
     this.bubbleQueue.push(entry);
+    this.syncDepth();
 
     if (!limitMotion) {
       this.scene.tweens.add({
@@ -595,6 +648,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
     this.setPosition(x, y);
     this.homeY = y;
+    this.reservedTarget = null;
     this.groundShadow.setScale(1);
     this.syncDepth();
     this.setOpinionColor(opinionColor, false);

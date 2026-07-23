@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useWebSocketContext } from "../context/WebSocketContext";
 import { useScenario } from "../hooks/useScenario";
@@ -329,7 +329,7 @@ function TownMarker({
 }) {
   const glowId = `town-glow-${pin.id}`;
   const gradId = `waypoint-grad-${pin.id}`;
-  const r = isHovered ? 16 : 13;
+  const r = isHovered ? 19 : 16;
   const detailLine = [
     meta.population ? `Pop. ${meta.population}` : "",
     meta.county ?? "",
@@ -381,14 +381,14 @@ function TownMarker({
       />
 
       {/* Outer pulsing ring */}
-      <circle cx={pin.cx} cy={pin.cy} r="20" fill="none" stroke={meta.color} strokeWidth="1" opacity="0.3">
-        {!motionIsReduced() && <animate attributeName="r" values="20;30;20" dur="3s" repeatCount="indefinite" />}
+      <circle cx={pin.cx} cy={pin.cy} r="24" fill="none" stroke={meta.color} strokeWidth="1" opacity="0.3">
+        {!motionIsReduced() && <animate attributeName="r" values="24;34;24" dur="3s" repeatCount="indefinite" />}
         {!motionIsReduced() && <animate attributeName="opacity" values="0.35;0;0.35" dur="3s" repeatCount="indefinite" />}
       </circle>
 
       {/* Second pulse (offset timing) */}
-      <circle cx={pin.cx} cy={pin.cy} r="18" fill="none" stroke={meta.color} strokeWidth="0.6" opacity="0.2">
-        {!motionIsReduced() && <animate attributeName="r" values="18;26;18" dur="3s" begin="1.5s" repeatCount="indefinite" />}
+      <circle cx={pin.cx} cy={pin.cy} r="21" fill="none" stroke={meta.color} strokeWidth="0.6" opacity="0.2">
+        {!motionIsReduced() && <animate attributeName="r" values="21;30;21" dur="3s" begin="1.5s" repeatCount="indefinite" />}
         {!motionIsReduced() && <animate attributeName="opacity" values="0.2;0;0.2" dur="3s" begin="1.5s" repeatCount="indefinite" />}
       </circle>
 
@@ -415,18 +415,18 @@ function TownMarker({
 
       {/* Inner diamond waypoint symbol */}
       <path
-        d={`M${pin.cx},${pin.cy - 5} L${pin.cx + 4},${pin.cy} L${pin.cx},${pin.cy + 5} L${pin.cx - 4},${pin.cy} Z`}
+        d={`M${pin.cx},${pin.cy - 6.5} L${pin.cx + 5},${pin.cy} L${pin.cx},${pin.cy + 6.5} L${pin.cx - 5},${pin.cy} Z`}
         fill="white" opacity="0.9"
       />
       {/* Inner dot */}
-      <circle cx={pin.cx} cy={pin.cy} r="1.5" fill="white" opacity="0.7" />
+      <circle cx={pin.cx} cy={pin.cy} r="1.8" fill="white" opacity="0.7" />
 
-      {/* ── Status pill: leader dot + met count, floating between pin and label ── */}
+      {/* ── Status pill: leader dot + labeled met count between pin and plate ── */}
       {(totalCount > 0 || leader) && (
         <g style={{ pointerEvents: "none" }}>
           <rect
-            x={pin.cx - 22} y={pin.cy + 14}
-            width="44" height="14" rx="7" ry="7"
+            x={pin.cx - 33} y={pin.cy + 19}
+            width="66" height="15" rx="7.5" ry="7.5"
             fill="rgba(255,255,255,0.96)"
             stroke={leaderColor ?? "rgba(196,180,154,0.55)"}
             strokeWidth="0.8"
@@ -434,7 +434,7 @@ function TownMarker({
           />
           {leader && leaderColor && (
             <circle
-              cx={pin.cx - 13} cy={pin.cy + 21}
+              cx={pin.cx - 24} cy={pin.cy + 26.5}
               r="2.8"
               fill={leaderColor}
             >
@@ -442,13 +442,13 @@ function TownMarker({
             </circle>
           )}
           <text
-            x={leader ? pin.cx + 5 : pin.cx}
-            y={pin.cy + 24}
+            x={leader ? pin.cx + 3 : pin.cx}
+            y={pin.cy + 29.5}
             textAnchor="middle" fontSize="8" fontWeight="700"
             fill="#2C2416"
             fontFamily="Inter, sans-serif"
           >
-            {metCount}/{totalCount}
+            {metCount}/{totalCount} met
           </text>
         </g>
       )}
@@ -456,8 +456,8 @@ function TownMarker({
       {/* ── Town label: full-width name plate; expands on hover with tagline + pop ── */}
       <g>
         <rect
-          x={pin.cx - 55} y={pin.cy + 34}
-          width="110" height={isHovered ? 50 : 24}
+          x={pin.cx - 58} y={pin.cy + 40}
+          width="116" height={isHovered ? 52 : 26}
           rx="6" ry="6"
           fill="rgba(255,255,255,0.93)"
           stroke={isHovered ? meta.color : "rgba(196,180,154,0.4)"}
@@ -468,8 +468,8 @@ function TownMarker({
 
         {/* Town name — full label width, no inline chips to collide with */}
         <text
-          x={pin.cx} y={pin.cy + 49}
-          textAnchor="middle" fontSize="12" fontWeight="600"
+          x={pin.cx} y={pin.cy + 57}
+          textAnchor="middle" fontSize="13" fontWeight="600"
           fill="#2C2416"
           fontFamily="var(--font-display)"
           letterSpacing="0.3"
@@ -482,7 +482,7 @@ function TownMarker({
           <>
             {meta.tagline && (
               <text
-                x={pin.cx} y={pin.cy + 64}
+                x={pin.cx} y={pin.cy + 72}
                 textAnchor="middle" fontSize="8" fontWeight="500"
                 fill={meta.color}
                 fontFamily="Inter, sans-serif"
@@ -493,7 +493,7 @@ function TownMarker({
             )}
             {detailLine && (
               <text
-                x={pin.cx} y={pin.cy + 76}
+                x={pin.cx} y={pin.cy + 84}
                 textAnchor="middle" fontSize="7" fontWeight="600"
                 fill="#8A7E6E"
                 fontFamily="Inter, sans-serif"
@@ -504,6 +504,69 @@ function TownMarker({
           </>
         )}
       </g>
+    </g>
+  );
+}
+
+/* ── Resident dots ────────────────────────────────────────────
+   Each town's roster rendered as tiny wandering villagers around its
+   waypoint, tinted by their current stance. The atlas reads as inhabited,
+   and the deliberation state is visible from the landing page. ── */
+
+function ResidentDots({
+  pin,
+  agents,
+  stanceColor,
+  motionReduced,
+}: {
+  pin: Pin;
+  agents: AgentState[];
+  stanceColor: (a: AgentState) => string;
+  motionReduced: boolean;
+}) {
+  const placed = useMemo(() => {
+    const rng = mulberry32(hashString(`dots:${pin.id}`));
+    const n = agents.length;
+    return agents.map((a, i) => {
+      // Upper arc around the pin — the pill + name plate own the space below.
+      const t = n <= 1 ? 0.5 : i / (n - 1);
+      const angle = Math.PI * (1.08 + 0.84 * t) + (rng() - 0.5) * 0.22;
+      const radius = 30 + rng() * 20;
+      return {
+        id: a.id,
+        x: pin.cx + Math.cos(angle) * radius,
+        y: pin.cy + Math.sin(angle) * radius * 0.8,
+        dx: (rng() - 0.5) * 9,
+        dy: (rng() - 0.5) * 7,
+        dur: 4.5 + rng() * 3.5,
+        begin: rng() * 3,
+      };
+    });
+  }, [pin, agents]);
+
+  return (
+    <g aria-hidden="true" style={{ pointerEvents: "none" }}>
+      {placed.map((p, i) => (
+        <g key={p.id}>
+          {!motionReduced && (
+            <animateTransform
+              attributeName="transform"
+              type="translate"
+              values={`0,0; ${p.dx},${p.dy}; 0,0`}
+              dur={`${p.dur}s`}
+              begin={`${p.begin}s`}
+              repeatCount="indefinite"
+            />
+          )}
+          <ellipse cx={p.x} cy={p.y + 3} rx="2.6" ry="1" fill="#2A2A2A" opacity="0.12" />
+          <circle
+            cx={p.x} cy={p.y} r="2.8"
+            fill={stanceColor(agents[i])}
+            stroke="white" strokeWidth="0.9"
+            opacity="0.95"
+          />
+        </g>
+      ))}
     </g>
   );
 }
@@ -615,6 +678,20 @@ function NJ11Terrain() {
       <House x={440} y={350} s={0.6} roofColor="#C8706E" />
       <House x={660} y={280} s={0.6} roofColor="#A07858" />
       <House x={320} y={340} s={0.55} roofColor="#B08060" />
+
+      {/* Mid-district hamlets — the open meadow between the four pins reads
+          as inhabited countryside instead of an empty oval. */}
+      <House x={560} y={350} s={0.65} roofColor="#B08060" />
+      <House x={588} y={332} s={0.55} roofColor="#C8706E" />
+      <Tree x={575} y={368} s={0.6} shade={1} />
+      <Tree x={540} y={318} s={0.55} shade={0} />
+      <House x={640} y={396} s={0.6} roofColor="#A07858" />
+      <Tree x={620} y={342} s={0.55} shade={2} />
+      <Tree x={390} y={330} s={0.6} shade={0} />
+      <House x={412} y={308} s={0.55} roofColor="#C8706E" />
+      <Tree x={470} y={158} s={0.55} shade={1} />
+      <House x={512} y={136} s={0.5} roofColor="#B08060" />
+      <PineTree x={432} y={122} s={0.5} />
 
       {/* ─── Layer 4: Water Features ───────────────────── */}
       {/* Rockaway River — clear, visible stroke */}
@@ -939,6 +1016,54 @@ export default function DistrictMap() {
   // Towns whose preview PNG 404'd — hide the image, keep the card.
   const [previewFailed, setPreviewFailed] = useState<Record<string, boolean>>({});
 
+  // Ambient life: rotate a short resident speech/thought bubble across the
+  // towns so the atlas shows the deliberation, not just its geography.
+  const [ambient, setAmbient] = useState<{
+    town: TownId; name: string; text: string; seq: number;
+  } | null>(null);
+  const ambientSourceRef = useRef<{ agents: AgentState[]; events: typeof ws.events }>({
+    agents: [], events: [],
+  });
+  ambientSourceRef.current = { agents: displayAgents, events: ws.events };
+  const hasAmbient = displayAgents.length > 0;
+  useEffect(() => {
+    if (!hasAmbient) {
+      setAmbient(null);
+      return;
+    }
+    let seq = Math.floor(Math.random() * 97);
+    const pick = () => {
+      const { agents, events } = ambientSourceRef.current;
+      if (agents.length === 0) return;
+      const agent = agents[seq % agents.length];
+      seq += 7; // co-prime stride: cycles all residents without reshuffling
+      // Prefer a real spoken line from the stream; otherwise the persona's
+      // top concern keeps the bubble honest to the scenario data.
+      let text: string | null = null;
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i];
+        if (e.type === "agent_speech" && e.agent_id === agent.id) {
+          text = e.text;
+          break;
+        }
+      }
+      if (!text) {
+        const concern = agent.opinion?.top_issues?.[0] ?? agent.top_concerns?.[0];
+        text = concern ? `thinking about ${concern}…` : agent.current_activity || agent.occupation;
+      }
+      if (text.length > 80) text = `${text.slice(0, 77).trimEnd()}…`;
+      setAmbient({
+        town: agent.town,
+        name: agent.name.split(" ")[0],
+        text,
+        seq,
+      });
+    };
+    pick();
+    const id = window.setInterval(pick, 4200);
+    return () => window.clearInterval(id);
+  }, [hasAmbient]);
+
   const metPerTown: Record<TownId, number> = useMemo(() => {
     const out: Record<TownId, number> = {};
     for (const t of townIds) out[t] = 0;
@@ -967,55 +1092,39 @@ export default function DistrictMap() {
 
   return (
     <div
-      className="flex flex-col items-center justify-center min-h-[calc(100vh-56px)] px-4 py-6"
+      className="flex flex-col items-center justify-center min-h-[calc(100vh-56px)] px-4 py-4"
       style={{ opacity: loaded ? 1 : 0, transition: "opacity 0.8s ease-out" }}
     >
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="text-center mb-4 max-w-2xl">
+      {/* ── Header ──────────────────────────────────────────────
+          The wordmark already lives in the app header, and the scenario
+          title sits on the atlas plaque — so this block leads with the one
+          thing nothing else on the page says: the question at stake. */}
+      <div className="text-center mb-3 max-w-3xl">
         <h1
-          className="text-4xl md:text-5xl mb-1 leading-tight"
+          className="leading-snug"
           style={{
             fontFamily: "var(--font-display)",
             fontWeight: 600,
+            fontSize: "clamp(16px, 1.5vw + 10px, 20px)",
             color: "var(--text-primary)",
-            letterSpacing: "2px",
+            letterSpacing: "0.4px",
             animation: "stagger-in 0.5s var(--ease-genshin) backwards",
             animationDelay: "0ms",
           }}
         >
-          Township
+          {scen.question}
         </h1>
-        {/* Ornamental separator */}
-        <svg width="140" height="12" viewBox="0 0 140 12" className="mx-auto mt-1 mb-2"
-          style={{ animation: "stagger-in 0.5s var(--ease-genshin) backwards", animationDelay: "75ms" }}>
-          <defs>
-            <linearGradient id="sep-fade" x1="0%" y1="50%" x2="100%" y2="50%">
-              <stop offset="0%" stopColor="var(--gold-accent)" stopOpacity="0" />
-              <stop offset="30%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
-              <stop offset="50%" stopColor="var(--gold-accent)" stopOpacity="0.5" />
-              <stop offset="70%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="var(--gold-accent)" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <line x1="0" y1="6" x2="140" y2="6" stroke="url(#sep-fade)" strokeWidth="1" />
-          <rect x="64" y="2" width="8" height="8" rx="1" transform="rotate(45 68 6)" fill="var(--gold-accent)" opacity="0.5" />
-        </svg>
         <p
-          className="text-sm mb-3"
+          className="text-sm mt-1"
           style={{
             fontFamily: "var(--font-body)",
-            fontWeight: 400,
-            letterSpacing: "3px",
-            fontVariant: "small-caps",
             color: "var(--text-muted)",
             animation: "stagger-in 0.5s var(--ease-genshin) backwards",
-            animationDelay: "150ms",
+            animationDelay: "120ms",
           }}
         >
-          {scen.title}
-        </p>
-        <p className="text-base" style={{ color: "var(--text-muted)" }}>
           Click a community to meet your AI neighbors
+          {dday ? ` · Decision day ${dday}` : ""}
         </p>
       </div>
 
@@ -1114,7 +1223,18 @@ export default function DistrictMap() {
             <GenericTerrain pins={pins} seedKey={scen.scenario.id} />
           )}
 
-          {/* ─── Layer 8: Town Markers ─────────────────────── */}
+          {/* ─── Layer 8: Resident dots + Town Markers ─────── */}
+          {pins.map((pin) => (
+            <ResidentDots
+              key={`dots-${pin.id}`}
+              pin={pin}
+              agents={displayAgents.filter((a) => a.town === pin.id)}
+              stanceColor={(a) =>
+                scen.optionColor((a.opinion?.candidate as LeanId) || scen.undecidedId)
+              }
+              motionReduced={motionReduced}
+            />
+          ))}
           {pins.map((pin) => (
             <TownMarker
               key={pin.id}
@@ -1133,7 +1253,9 @@ export default function DistrictMap() {
           ))}
 
           {/* ─── Layer 9: Compass Rose ─────────────────────── */}
-          <g style={{ transformOrigin: "905px 530px" }}>
+          {/* NOTE: no CSS transform-origin here — SMIL rotate(θ,cx,cy) already
+              encodes its pivot, and stacking both makes the rose orbit. */}
+          <g>
             {!motionReduced && (
               <animateTransform attributeName="transform" type="rotate" from="0 905 530" to="360 905 530" dur="120s" repeatCount="indefinite" />
             )}
@@ -1240,6 +1362,26 @@ export default function DistrictMap() {
           );
         })}
 
+        {/* ── Ambient resident speech bubble ──────────────────── */}
+        {ambient && hovered !== ambient.town && (() => {
+          const pin = pins.find((p) => p.id === ambient.town);
+          if (!pin) return null;
+          return (
+            <div
+              key={ambient.seq}
+              className="map-ambient-bubble"
+              aria-hidden="true"
+              style={{
+                left: `${(pin.cx / 1000) * 100}%`,
+                top: `${((pin.cy - 40) / 620) * 100}%`,
+              }}
+            >
+              <span className="map-ambient-bubble-name">{ambient.name}</span>
+              <span className="map-ambient-bubble-text">{ambient.text}</span>
+            </div>
+          );
+        })()}
+
         {/* ── Ambient Floating Particles ──────────────────────── */}
         <div className="ambient-particles">
           <span className="ambient-particle" style={{ left: "12%", bottom: "8%", animation: "particle-float-0 14s 0s infinite", opacity: 0.2 }} />
@@ -1289,7 +1431,7 @@ export default function DistrictMap() {
           fontSize: "14px",
           fontWeight: 600,
         }}>
-          {dday ? `${scen.title} — ${dday}` : scen.title}
+          {dday ? `Decision day — ${dday}` : scen.title}
         </p>
         <p className="mt-1" style={{
           fontFamily: "var(--font-body)",

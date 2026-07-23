@@ -109,14 +109,57 @@ _SHARE_WITH = [
     "my neighbors on the block",
     "my sister",
     "the folks at church",
+    "my coworkers on break",
+    "the parents at school pickup",
+    "whoever sits next to me on the train",
+    "the group chat, immediately",
 ]
 
-_NEWS_REASONING_TEMPLATES = [
-    "This lands close to home — with {concern} already squeezing us, news "
-    "like this changes the math for my family.",
-    "I read this twice. Anything touching {concern} touches my household, "
-    "so I can't just shrug it off.",
-    "Maybe it's overblown, but with {concern} on my mind it's hard not to take this personally.",
+# News reactions are composed from two independently-seeded pools — a hook
+# about the story itself and a stake connecting it to the agent's own life —
+# so no two residents read from the same script. When the story mentions a
+# recognizable civic topic, the hook names *that* topic (not a random persona
+# concern), which keeps a healthcare headline from drawing a college rant.
+
+_NEWS_TOPIC_HOOKS = [
+    "So {topic} is the story of the day — that never stays abstract around here.",
+    "News about {topic} travels fast on my street, and this reached me before lunch.",
+    "I read this twice; anything touching {topic} gets my full attention.",
+    "Half the town will have an opinion on this by dinner — {topic} always cuts close.",
+    "I try not to jump at every headline, but {topic} is never just a headline to me.",
+    "They can file this under {topic} policy; on my block it has faces and names.",
+    "Big promises about {topic} again — fine, I'm listening, warily.",
+    "I did not expect to spend today thinking about {topic}, and yet here we are.",
+]
+
+_NEWS_GENERIC_HOOKS = [
+    "This one traveled fast around town, and it found me quickly.",
+    "I sat with this for a minute before deciding how I felt about it.",
+    "There's plenty of noise in a season like this, but this cut through.",
+    "I don't chase every headline, but this one followed me home.",
+    "People will be chewing on this at the counter all week.",
+    "My first instinct was to shrug; my second was to worry.",
+]
+
+_NEWS_STAKES = [
+    "For my family it filters straight into {concern}, and that's what I vote on.",
+    "It lands on {concern} for me — the ledger I actually live with.",
+    "Whatever the intent, {concern} is where people like me feel it first.",
+    "I measure everything this season against {concern}, and this moves the needle.",
+    "Ask anyone at my table: {concern} is where this bites, and soon.",
+    "I'll be watching what it means for {concern} before I change a single plan.",
+    "Until someone explains what it does for {concern}, I'm holding my ground.",
+    "My decision runs through {concern}, and this just got added to that math.",
+]
+
+# Used when the story's topic IS the agent's own top concern — repeating the
+# same noun twice in one breath reads like a template, so speak to it directly.
+_NEWS_SAME_TOPIC_STAKES = [
+    "And that's not a headline to me — that's my week, every single week.",
+    "That's the exact thing I've been telling people I'd vote on.",
+    "My household already budgets around this, so yes, it matters to me.",
+    "I've waited for anyone to take this seriously — now show me the follow-through.",
+    "This isn't news to me; it's confirmation of what I've been living.",
 ]
 
 _TRUST_DELTAS = {"curious": 5, "agreeable": 3, "challenging": -2, "hostile": -10}
@@ -161,6 +204,24 @@ def _extract_concerns(system_prompt: str) -> list[str]:
         if len(concerns) >= 4:
             break
     return concerns or list(_GENERIC_CONCERNS)
+
+
+def _news_topic(news: str) -> str | None:
+    """The first recognizable civic topic mentioned by the story itself."""
+    lowered = (news or "").lower()
+    for keyword in _CIVIC_KEYWORDS:
+        if keyword in lowered:
+            return keyword
+    return None
+
+
+def _relevant_concern(concerns: list[str], news: str, seed: int) -> str:
+    """Prefer a persona concern the story actually touches; else seeded pick."""
+    lowered = (news or "").lower()
+    matching = [c for c in concerns if c.lower() in lowered]
+    if matching:
+        return _pick(matching, seed)
+    return _pick(concerns, seed)
 
 
 def _schema_props(tool: dict) -> dict:
@@ -261,11 +322,20 @@ class MockProvider:
             "impact_on_vote",
             ["strengthens_current", "weakens_current", "changes_mind", "no_effect"],
         )
-        concern = _pick(concerns, seed)
+        topic = _news_topic(news)
+        concern = _relevant_concern(concerns, news, seed)
+        if topic:
+            hook = _pick(_NEWS_TOPIC_HOOKS, seed >> 24).format(topic=topic)
+        else:
+            hook = _pick(_NEWS_GENERIC_HOOKS, seed >> 24)
+        if topic and (topic in concern.lower() or concern.lower() in topic):
+            stake = _pick(_NEWS_SAME_TOPIC_STAKES, seed >> 48)
+        else:
+            stake = _pick(_NEWS_STAKES, seed >> 48).format(concern=concern)
         result = {
             "emotional_response": _pick(emotions, seed >> 8),
             "impact_on_vote": _pick(impacts, seed >> 16),
-            "reasoning": _pick(_NEWS_REASONING_TEMPLATES, seed >> 24).format(concern=concern),
+            "reasoning": f"{hook} {stake}",
             "would_share_with": _pick(_SHARE_WITH, seed >> 32),
         }
         if "magnitude" in _schema_props(tool):

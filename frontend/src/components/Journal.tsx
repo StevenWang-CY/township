@@ -116,7 +116,14 @@ export default function Journal({ open, onClose }: JournalProps) {
         aria-labelledby="journal-title"
       >
         <div className="journal-header">
-          <h2 id="journal-title" className="journal-title">Journal</h2>
+          <div className="journal-header-titles">
+            <h2 id="journal-title" className="journal-title">Journal</h2>
+            <p className="journal-subtitle">
+              {entries.length === 0
+                ? "Conversations you finish are kept here"
+                : `${entries.length} conversation${entries.length === 1 ? "" : "s"} kept · private to this browser`}
+            </p>
+          </div>
           <div className="journal-header-actions">
             {!DEMO_MODE && (
               <button
@@ -170,6 +177,19 @@ export default function Journal({ open, onClose }: JournalProps) {
           )}
           {!loading && !error && entries.map((entry, i) => {
             const isOpen = !!expanded[i];
+            const dayLabelFor = (raw: string): string => {
+              const d = new Date(raw);
+              if (isNaN(d.getTime())) return "Earlier";
+              const today = new Date();
+              const yesterday = new Date(today);
+              yesterday.setDate(today.getDate() - 1);
+              if (d.toDateString() === today.toDateString()) return "Today";
+              if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+              return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+            };
+            const dayLabel = dayLabelFor(entry.created_at);
+            const prevDayLabel = i > 0 ? dayLabelFor(entries[i - 1].created_at) : null;
+            const showDayHeader = dayLabel !== prevDayLabel;
             const trustBefore = entry.trust_before ?? 0;
             const trustAfter = entry.trust_after ?? 0;
             const trustDelta = trustAfter - trustBefore;
@@ -191,8 +211,11 @@ export default function Journal({ open, onClose }: JournalProps) {
               .slice(0, 2);
 
             return (
+              <div key={`${entry.agent_id}-${i}-${entry.created_at}`} className="journal-entry-block">
+              {showDayHeader && (
+                <h3 className="journal-day-header">{dayLabel}</h3>
+              )}
               <article
-                key={`${entry.agent_id}-${i}-${entry.created_at}`}
                 className={`journal-entry ${shifted ? "journal-entry--shifted" : ""}`}
               >
                 <button
@@ -283,8 +306,22 @@ export default function Journal({ open, onClose }: JournalProps) {
                   </div>
                 )}
               </article>
+              </div>
             );
           })}
+
+          {/* A page or two shouldn't leave the drawer feeling abandoned:
+              close the list with a quiet invitation instead of blank cream. */}
+          {!loading && !error && entries.length > 0 && entries.length < 4 && (
+            <div className="journal-more-hint">
+              <span className="journal-more-hint-mark" aria-hidden="true">✎</span>
+              <p>
+                Every conversation you finish writes a page here — trust shifts,
+                opinion changes, full transcript. The rest of the town is still
+                out there.
+              </p>
+            </div>
+          )}
         </div>
       </aside>
     </>

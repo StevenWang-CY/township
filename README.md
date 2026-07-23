@@ -27,7 +27,7 @@
 
 <p align="center">
   <a href="https://stevenwang-cy.github.io/township/">
-    <img src="docs/media/hero.gif" alt="Township replaying a multi-round civic deliberation across a living pixel town" width="960">
+    <img src="docs/media/hero.gif" alt="A day in Dover: pixel residents stroll the town at golden hour, two neighbors meet on the lawn to talk about the election, and lamplit night falls" width="896">
   </a>
 </p>
 

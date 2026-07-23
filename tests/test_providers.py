@@ -379,6 +379,69 @@ def test_mock_react_to_news_fills_schema(fast_mock):
     assert payload["reasoning"] and payload["would_share_with"]
 
 
+def test_mock_news_reactions_vary_across_personas_and_track_the_story(fast_mock):
+    """God's View regression: reactions must not be near-verbatim template
+    repeats, and the reasoning must engage the story's actual topic instead
+    of a mismatched persona noun (Rabbi + healthcare news != college rant)."""
+    provider = fast_mock()
+    news = [
+        {
+            "role": "user",
+            "content": (
+                "BREAKING: Statewide healthcare premiums will rise 22% next "
+                "year, insurers confirmed this morning."
+            ),
+        }
+    ]
+    rosters = [
+        ("Carlos Restrepo", "healthcare, immigration, property taxes"),
+        ("Priya Raman", "schools funding, childcare, property taxes"),
+        ("David Goldstein", "college affordability, healthcare, housing"),
+        ("Maria Santos", "housing, rent, wages"),
+        ("Tom Whitfield", "small business, taxes, traffic"),
+        ("Aisha Bello", "childcare, healthcare, transit"),
+        ("Frank Novak", "property taxes, public safety, jobs"),
+        ("Lena Park", "transit, cost of living, schools"),
+        ("Omar Haddad", "jobs, wages, immigration"),
+        ("Grace Chen", "education, college, housing"),
+        ("Sal Marino", "small business, insurance, traffic"),
+        ("Ruth Adler", "healthcare, cost of living, transit"),
+    ]
+    reasonings = []
+    for persona_name, issues in rosters:
+        prompt = (
+            f"You are {persona_name}, a longtime resident of Dover, NJ.\n"
+            f"Top issues: {issues}"
+        )
+        result = run(provider.call_agent(prompt, news, tools=[react_to_news_tool]))
+        reasonings.append(result["tool_use"]["input"]["reasoning"])
+
+    # The whole cast must not read from one script.
+    assert len(set(reasonings)) >= 10, reasonings
+    # Every reaction engages the story's own topic — no mismatched nouns.
+    assert all("healthcare" in r for r in reasonings), reasonings
+
+
+def test_mock_news_reaction_prefers_concern_the_story_touches(fast_mock):
+    """When the story hits one of the agent's own issues, the stake line
+    speaks to that issue rather than an unrelated one."""
+    provider = fast_mock()
+    prompt = (
+        "You are Nadia Osei, a nurse in Morristown, NJ.\n"
+        "Top issues: childcare, transit, wages"
+    )
+    news = [
+        {
+            "role": "user",
+            "content": "BREAKING: County slashes transit funding for 2027.",
+        }
+    ]
+    result = run(provider.call_agent(prompt, news, tools=[react_to_news_tool]))
+    reasoning = result["tool_use"]["input"]["reasoning"]
+    assert "transit" in reasoning
+    assert "childcare" not in reasoning and "wages" not in reasoning
+
+
 def test_mock_classify_interaction_fills_schema(fast_mock):
     result = run(fast_mock().call_agent(CARLOS_PROMPT, USER_MSG, tools=[classify_interaction_tool]))
     payload = result["tool_use"]["input"]

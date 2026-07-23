@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
@@ -93,6 +94,17 @@ app = FastAPI(
 
 # CORS — origins come from ALLOWED_ORIGINS (comma-separated). Credentials are
 # disabled so an explicit origin list is honored by browsers.
+#
+# Loopback origins on ANY port (localhost, 127.0.0.0/8, [::1]) are always
+# trusted, in addition to the configured list. The threat this gate blocks is
+# a *remote* origin (https://evil.example) driving a locally running Township
+# server via the visitor's browser; a page served from the user's own loopback
+# interface is the user. Pinning specific dev ports added no protection and
+# silently 403'd every mutation whenever Vite ran on a non-default port.
+_LOOPBACK_ORIGIN_RE = re.compile(
+    r"^https?://(localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::\d+)?$",
+    re.IGNORECASE,
+)
 _DEFAULT_ORIGINS = "http://localhost:5173,http://localhost:4173,http://localhost:3000"
 ALLOWED_ORIGINS = [
     o.strip() for o in os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()
@@ -106,6 +118,7 @@ ALLOWED_HOSTS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=_LOOPBACK_ORIGIN_RE.pattern,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -141,12 +154,14 @@ def _host_allowed(host_header: str) -> bool:
 
 
 def _browser_origin_allowed(origin: str | None, request_host: str) -> bool:
-    """Accept configured browser origins or a trusted, exact same origin."""
+    """Accept loopback origins, configured origins, or a trusted same origin."""
     if not origin:
         return True  # Native/CLI clients do not normally send Origin.
     if "*" in ALLOWED_ORIGINS:
         return True
     normalized = origin.rstrip("/")
+    if _LOOPBACK_ORIGIN_RE.match(normalized):
+        return True  # The user's own machine — see the comment on the regex.
     if normalized in {allowed.rstrip("/") for allowed in ALLOWED_ORIGINS}:
         return True
 

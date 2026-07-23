@@ -38,6 +38,7 @@ function AppShell() {
   const {
     profile,
     isOnboarded,
+    preferences,
     clearProfile,
     setAudioPreferences,
     setReducedMotion,
@@ -56,9 +57,9 @@ function AppShell() {
   // preference itself should drive enable/disable. (Bug repro 2026-05-12.)
   const audio = useAudio();
   useEffect(() => {
-    audio.setEnabled(profile?.audioEnabled !== false);
+    audio.setEnabled(preferences.audioEnabled);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.audioEnabled]);
+  }, [preferences.audioEnabled]);
 
   // Play a SFX when interesting simulation events arrive.
   // Same dep-array discipline as above: only the event count drives this.
@@ -95,17 +96,17 @@ function AppShell() {
   // Apply reduced-motion attribute on <html>
   useEffect(() => {
     const root = document.documentElement;
-    if (profile?.reducedMotion) {
+    if (preferences.reducedMotion) {
       root.setAttribute("data-reduced-motion", "true");
     } else {
       root.removeAttribute("data-reduced-motion");
     }
-  }, [profile?.reducedMotion]);
+  }, [preferences.reducedMotion]);
 
   // Apply high-contrast class on <html>
   useEffect(() => {
-    document.documentElement.classList.toggle("high-contrast", !!profile?.highContrast);
-  }, [profile?.highContrast]);
+    document.documentElement.classList.toggle("high-contrast", preferences.highContrast);
+  }, [preferences.highContrast]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -151,6 +152,10 @@ function AppShell() {
           backdropFilter: "blur(var(--warm-glass-blur))",
           WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
           borderBottom: "1px solid var(--warm-glass-border)",
+          // The blur creates a stacking context at z-auto; without an explicit
+          // level the settings/nav dropdowns paint UNDER the disclosure bar
+          // (z-35) and page content. Keep below the journal drawer (60/65).
+          zIndex: 50,
         }}
       >
         <Link to="/" className="flex items-center gap-2.5 no-underline">
@@ -278,14 +283,14 @@ function AppShell() {
                 <path d="M9 1.5v2M9 14.5v2M2.5 9H.5M17.5 9h-2M4.4 4.4L3 3M15 15l-1.4-1.4M4.4 13.6L3 15M15 3l-1.4 1.4" />
               </svg>
             </button>
-            {settingsOpen && profile && (
+            {settingsOpen && (
               <div id="header-settings-menu" className="header-settings-menu" role="dialog" aria-label="Display and audio settings">
                 <h4 className="header-settings-title">Settings</h4>
                 <label className="header-settings-row">
                   <span>Audio</span>
                   <input
                     type="checkbox"
-                    checked={profile.audioEnabled !== false}
+                    checked={preferences.audioEnabled}
                     onChange={(e) => setAudioPreferences({ enabled: e.target.checked })}
                   />
                 </label>
@@ -293,7 +298,7 @@ function AppShell() {
                   <span>Auto-play voice</span>
                   <input
                     type="checkbox"
-                    checked={!!profile.audioAutoplay}
+                    checked={preferences.audioAutoplay}
                     onChange={(e) => setAudioPreferences({ autoplay: e.target.checked })}
                   />
                 </label>
@@ -301,7 +306,7 @@ function AppShell() {
                   <span>Reduced motion</span>
                   <input
                     type="checkbox"
-                    checked={!!profile.reducedMotion}
+                    checked={preferences.reducedMotion}
                     onChange={(e) => setReducedMotion(e.target.checked)}
                   />
                 </label>
@@ -309,13 +314,22 @@ function AppShell() {
                   <span>High contrast</span>
                   <input
                     type="checkbox"
-                    checked={!!profile.highContrast}
+                    checked={preferences.highContrast}
                     onChange={(e) => setHighContrast(e.target.checked)}
                   />
                 </label>
-                <button className="header-settings-reset" onClick={onResetProfile}>
-                  {DEMO_MODE ? "Reset demo preferences" : "Reset profile"}
-                </button>
+                {profile ? (
+                  <button className="header-settings-reset" onClick={onResetProfile}>
+                    {DEMO_MODE ? "Reset demo preferences" : "Reset profile"}
+                  </button>
+                ) : (
+                  <button
+                    className="header-settings-reset"
+                    onClick={() => { setSettingsOpen(false); navigate("/onboarding"); }}
+                  >
+                    Create your resident →
+                  </button>
+                )}
               </div>
             )}
           </div>

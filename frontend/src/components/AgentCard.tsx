@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentState, LeanId } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
@@ -30,6 +31,35 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
   const opinionLabel = optionLabel(candidateId);
   const confidence = agent.opinion?.confidence ?? 0;
 
+  // Opinion shifts are the payoff of the deliberation — give the row a pulse
+  // and a floating stance chip when this resident's candidate changes.
+  const prevCandidateRef = useRef(candidateId);
+  const [shiftFlash, setShiftFlash] = useState(false);
+  useEffect(() => {
+    if (prevCandidateRef.current === candidateId) return;
+    prevCandidateRef.current = candidateId;
+    setShiftFlash(true);
+    const timer = window.setTimeout(() => setShiftFlash(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [candidateId]);
+  const shiftClass = shiftFlash ? " resident-card--shift" : "";
+  const shiftBurst = shiftFlash ? (
+    <span
+      className="stance-burst"
+      aria-hidden="true"
+      style={{
+        color: candidateId === undecidedId
+          ? "var(--text-secondary)"
+          : readableInk(optionColor(candidateId), 5.5),
+        background: candidateId === undecidedId
+          ? "rgba(154,142,128,0.14)"
+          : withAlpha(optionColor(candidateId), "22"),
+      }}
+    >
+      → {opinionLabel}
+    </span>
+  ) : null;
+
   // Mondstadt-style opinion chrome derived from the scenario option color:
   // undecided stays a quiet warm-grey; decided options tint border + badge.
   const isUndecided = candidateId === undecidedId;
@@ -61,8 +91,9 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
     return (
       <button
         onClick={handleClick}
-        className="resident-card resident-card--compact flex items-center gap-2 px-2 py-1.5 w-full text-left"
+        className={`resident-card resident-card--compact${shiftClass} flex items-center gap-2 px-2 py-1.5 w-full text-left`}
         style={{
+          position: "relative",
           borderWidth: "0 0 1px",
           borderStyle: "solid",
           borderColor: "rgba(180,160,120,0.08)",
@@ -115,6 +146,7 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
         >
           {opinionLabel}
         </span>
+        {shiftBurst}
       </button>
     );
   }
@@ -122,14 +154,16 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
   return (
     <button
       onClick={handleClick}
-      className="resident-card rounded-xl p-4 text-left hover:scale-[1.02] active:scale-[0.99] w-full"
+      className={`resident-card${shiftClass} rounded-xl p-4 text-left hover:scale-[1.02] active:scale-[0.99] w-full`}
       style={{
+        position: "relative",
         background: "var(--card-bg)",
         border: "1px solid var(--card-border)",
         boxShadow: "var(--card-shadow)",
         transition: "all 250ms cubic-bezier(0.22, 1, 0.36, 1)",
       }}
     >
+      {shiftBurst}
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <SpritePortrait

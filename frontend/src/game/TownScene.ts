@@ -114,6 +114,8 @@ export class TownScene extends Phaser.Scene {
   private mapAnchors: MapAnchor[] = [];
   /** Landmark-name → grid-snapped label position from the map's label anchors. */
   private mapLabels: Map<string, { x: number; y: number }> = new Map();
+  /** In-canvas landmark name chips (tilemap towns; fallback towns draw their own). */
+  private landmarkLabelTexts: Phaser.GameObjects.Text[] = [];
   private townDataResolved = false;
   private playerSpawnPending: UserProfile | null = null;
 
@@ -135,6 +137,9 @@ export class TownScene extends Phaser.Scene {
   private convoVignette?: Phaser.GameObjects.Image;
   private convoZoomBase?: number;
   private convoFailsafe?: Phaser.Time.TimerEvent;
+  /** True while the spotlight camera has borrowed framing from the
+   *  player-follow camera (restored on spotlight clear or player movement). */
+  private convoFollowPaused = false;
 
   // Fixed-seed capture mode (?capture=1) — see the doc block at the top.
   private captureMode = false;
@@ -414,10 +419,164 @@ export class TownScene extends Phaser.Scene {
     });
     this.playerSprite?.updatePlayer(delta);
 
+    // The player always wins the camera: if they start walking while the
+    // conversation spotlight has it, hand framing straight back.
+    if (this.convoFollowPaused && this.playerSprite?.isWalking()) {
+      const cam = this.cameras.main;
+      this.convoFollowPaused = false;
+      cam.zoomTo(this.convoZoomBase ?? this.playerFollowZoom(), 320, "Sine.easeOut");
+      this.convoZoomBase = undefined;
+      cam.startFollow(this.playerSprite, true, 0.08, 0.08);
+    }
+
     // Player ↔ landmark collision
     if (this.playerSprite && this.collisionGroup) {
       this.physics.collide(this.playerSprite, this.collisionGroup);
     }
+
+    // Crowd hygiene, throttled to ~5 Hz: gently separate any bodies that
+    // still ended up overlapping, then declutter name labels (pair lanes,
+    // crowd badges, landmark-label occupancy).
+    this.crowdTickAccum += delta;
+    if (this.crowdTickAccum >= 200) {
+      this.crowdTickAccum = 0;
+      this.resolveBodyOverlaps();
+      this.declutterLabels();
+    }
+  }
+
+  /* ── Crowd hygiene: separation + label declutter ────────── */
+
+  private crowdTickAccum = 0;
+  private clusterBadges: Phaser.GameObjects.Text[] = [];
+
+  /**
+   * Gently push apart bodies that overlap on the ground plane. Walk targets
+   * are already occupancy-resolved; this catches the residual cases (two
+   * tweens crossing, replay snapshots, physics shoves) with a few px of
+   * drift per tick instead of a visible teleport.
+   */
+  private resolveBodyOverlaps() {
+    const MIN_DIST = 30;
+    const bodies = this.allBodies().filter((b) => b.active);
+    for (let i = 0; i < bodies.length; i++) {
+      const a = bodies[i];
+      if (a === this.playerSprite || a.isWalking()) continue;
+      for (let j = 0; j < bodies.length; j++) {
+        if (i === j) continue;
+        const b = bodies[j];
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const d = Math.hypot(dx, dy);
+        if (d >= MIN_DIST) continue;
+        // Deterministic tie-break for perfectly stacked sprites.
+        const nx = d > 0.01 ? dx / d : Math.cos(i * 2.39996);
+        const ny = d > 0.01 ? dy / d : Math.sin(i * 2.39996);
+        const push = Math.min(3, (MIN_DIST - d) * 0.5 + 0.5);
+        const tx = Phaser.Math.Clamp(a.x + nx * push, 40, 1160);
+        const ty = Phaser.Math.Clamp(a.y + ny * push, 40, 760);
+        // Accept the nudge unless it would push a free-standing body INTO
+        // scenery; a body already inside a collision rect may always move
+        // (that is its escape hatch).
+        if (!this.isBlocked(tx, ty, 2) || this.isBlocked(a.x, a.y, 2)) a.nudgeTo(tx, ty);
+      }
+    }
+  }
+
+  /**
+   * Keep name labels legible when residents gather — exactly the moment the
+   * simulation is most interesting. Pairs get stacked lanes; crowds of 3+
+   * collapse into a single "N residents" badge; landmark labels yield to
+   * anyone standing on them.
+   */
+  private declutterLabels() {
+    const residents = [...this.agentSprites.values()]
+      .filter((s) => s !== this.playerSprite && s.active);
+
+    // Greedy proximity clustering (n is small — a town has < 12 residents).
+    const assigned = new Array(residents.length).fill(false);
+    const clusters: number[][] = [];
+    for (let i = 0; i < residents.length; i++) {
+      if (assigned[i]) continue;
+      const group = [i];
+      assigned[i] = true;
+      for (let j = i + 1; j < residents.length; j++) {
+        if (assigned[j]) continue;
+        const dx = Math.abs(residents[i].x - residents[j].x);
+        const dy = Math.abs(residents[i].y - residents[j].y);
+        if (dx < 52 && dy < 34) {
+          group.push(j);
+          assigned[j] = true;
+        }
+      }
+      clusters.push(group);
+    }
+
+    let badgeIdx = 0;
+    for (const group of clusters) {
+      if (group.length === 1) {
+        residents[group[0]].setLabelVisible(true);
+        residents[group[0]].setLabelSlot(0);
+      } else if (group.length === 2) {
+        // Two lanes: the more southern sprite keeps the base lane (it draws
+        // in front); the other's label drops to a second lane.
+        const [p, q] = group;
+        const south = residents[p].y >= residents[q].y ? p : q;
+        const north = south === p ? q : p;
+        residents[south].setLabelVisible(true);
+        residents[south].setLabelSlot(0);
+        residents[north].setLabelVisible(true);
+        residents[north].setLabelSlot(11);
+      } else {
+        // Crowd: one badge instead of an unreadable stack of names.
+        let cx = 0;
+        let maxY = -Infinity;
+        for (const idx of group) {
+          residents[idx].setLabelVisible(false);
+          cx += residents[idx].x;
+          maxY = Math.max(maxY, residents[idx].y);
+        }
+        cx /= group.length;
+        const badge = this.obtainClusterBadge(badgeIdx++);
+        badge.setText(`${group.length} residents`);
+        badge.setPosition(Math.round(cx), Math.round(maxY + 12));
+        badge.setDepth(100 + Math.floor(maxY) + 1);
+        badge.setVisible(true);
+      }
+    }
+    for (let k = badgeIdx; k < this.clusterBadges.length; k++) {
+      this.clusterBadges[k].setVisible(false);
+    }
+
+    // Landmark labels yield to residents standing inside their bounds.
+    for (const label of this.landmarkLabelTexts) {
+      const lm = label.getData("lm") as LandmarkData | undefined;
+      if (!lm) continue;
+      let occupied = false;
+      for (const s of this.agentSprites.values()) {
+        if (s.x >= lm.x && s.x <= lm.x + lm.width && s.y >= lm.y && s.y <= lm.y + lm.height) {
+          occupied = true;
+          break;
+        }
+      }
+      label.setVisible(!occupied);
+    }
+  }
+
+  private obtainClusterBadge(idx: number): Phaser.GameObjects.Text {
+    while (this.clusterBadges.length <= idx) {
+      const badge = this.add.text(0, 0, "", {
+        fontFamily: "Inter, 'Helvetica Neue', sans-serif",
+        fontSize: "9px",
+        fontStyle: "bold",
+        color: "#fff7e0",
+        backgroundColor: "rgba(20,17,12,0.78)",
+        padding: { x: 5, y: 2 },
+        resolution: 3,
+      }).setOrigin(0.5, 0).setVisible(false);
+      this.clusterBadges.push(badge);
+    }
+    return this.clusterBadges[idx];
   }
 
   /* ── Agent Management (called from React / TownView) ──── */
@@ -441,6 +600,7 @@ export class TownScene extends Phaser.Scene {
     const spawn = this.findFreeNear(
       base.x + Phaser.Math.Between(-55, 55),
       base.y + Phaser.Math.Between(-35, 35),
+      { clearOf: 36 },
     );
     const sx = spawn.x;
     const sy = spawn.y;
@@ -522,8 +682,16 @@ export class TownScene extends Phaser.Scene {
       }
       const dx = ((hash & 0xff) / 255 - 0.5) * 54;
       const dy = (((hash >>> 8) & 0xff) / 255 - 0.5) * 36;
-      const x = precise ? recorded.x! : landmark.x + dx;
-      const y = precise ? recorded.y! : landmark.y + dy;
+      // Even authoritative recorded coordinates get occupancy-resolved: old
+      // event logs routinely stacked a whole meeting on one tile, which is
+      // the single worst craft signal a replay can show.
+      const slot = this.findFreeNear(
+        precise ? recorded.x! : landmark.x + dx,
+        precise ? recorded.y! : landmark.y + dy,
+        { clearOf: 34, exclude: sprite },
+      );
+      const x = slot.x;
+      const y = slot.y;
       const activity = agent.activity && agent.activity !== "walking"
         ? agent.activity
         : "idle";
@@ -541,7 +709,7 @@ export class TownScene extends Phaser.Scene {
     if (!sprite) return;
     // Prefer precise pixel coords when both are finite; else resolve by landmark.
     if (Number.isFinite(x) && Number.isFinite(y)) {
-      const t = this.findFreeNear(x as number, y as number);
+      const t = this.findFreeNear(x as number, y as number, { clearOf: 34, exclude: sprite });
       sprite.moveToPosition(t.x, t.y);
       return;
     }
@@ -549,6 +717,7 @@ export class TownScene extends Phaser.Scene {
     const t = this.findFreeNear(
       base.x + Phaser.Math.Between(-50, 50),
       base.y + Phaser.Math.Between(-35, 35),
+      { clearOf: 34, exclude: sprite },
     );
     sprite.moveToPosition(t.x, t.y);
   }
@@ -575,7 +744,11 @@ export class TownScene extends Phaser.Scene {
     const visible = [...this.agentSprites.values()]
       .reduce((total, agent) => total + agent.getSpeechBubbleCount(), 0);
     if (visible >= 2) return;
-    sprite.showSpeechBubble(text, duration);
+    // Lines spoken inside an active conversation get the spotlight variant —
+    // larger type on a wider measure so the dialogue reads as the scene's
+    // focal point rather than a stray tooltip.
+    const emphasis = sprite.getActivity() === "talking";
+    sprite.showSpeechBubble(text, duration, "neutral", emphasis);
   }
 
   updateAgentOpinion(agentId: string, candidate: string) {
@@ -669,13 +842,26 @@ export class TownScene extends Phaser.Scene {
       if (this.convoVignette) this.clearConversationSpotlight();
     });
 
-    // Gentle camera ease to the pair — skipped while the follow-camera owns
-    // framing (a spawned player).
+    // Gentle camera ease to the pair. With no player the scene camera simply
+    // pans. With a player present we briefly borrow the follow-camera —
+    // unless the player is a participant, is actively walking (never hijack
+    // movement), or has a chat panel open.
+    const cam = this.cameras.main;
     if (!this.playerSprite) {
-      const cam = this.cameras.main;
       if (this.convoZoomBase === undefined) this.convoZoomBase = cam.zoom;
       cam.pan(midX, midY, 520, "Sine.easeInOut");
       cam.zoomTo(this.convoZoomBase * 1.09, 520, "Sine.easeInOut");
+    } else {
+      const p = this.playerSprite;
+      const participant = a === p || b === p;
+      const chatOpen = !p.inputEnabled && !this.captureMode;
+      if (!participant && !chatOpen && !p.isWalking()) {
+        cam.stopFollow();
+        this.convoFollowPaused = true;
+        if (this.convoZoomBase === undefined) this.convoZoomBase = cam.zoom;
+        cam.pan(midX, midY, 620, "Sine.easeInOut");
+        cam.zoomTo(this.convoZoomBase * 1.12, 620, "Sine.easeInOut");
+      }
     }
   }
 
@@ -697,7 +883,26 @@ export class TownScene extends Phaser.Scene {
         });
       }
     }
-    if (!this.playerSprite && this.convoZoomBase !== undefined) {
+    if (this.convoFollowPaused && this.playerSprite) {
+      // Hand framing back to the player-follow camera.
+      this.convoFollowPaused = false;
+      const cam = this.cameras.main;
+      const p = this.playerSprite;
+      const zoom = this.convoZoomBase ?? this.playerFollowZoom();
+      this.convoZoomBase = undefined;
+      if (immediate || reducedMotion()) {
+        cam.setZoom(zoom);
+        cam.startFollow(p, true, 0.08, 0.08);
+      } else {
+        cam.zoomTo(zoom, 480, "Sine.easeInOut");
+        cam.pan(p.x, p.y, 480, "Sine.easeInOut");
+        this.time.delayedCall(500, () => {
+          if (this.playerSprite && !this.convoFollowPaused) {
+            cam.startFollow(this.playerSprite, true, 0.08, 0.08);
+          }
+        });
+      }
+    } else if (!this.playerSprite && this.convoZoomBase !== undefined) {
       const cam = this.cameras.main;
       const W = Number(this.game.config.width);
       const H = Number(this.game.config.height);
@@ -861,6 +1066,7 @@ export class TownScene extends Phaser.Scene {
         const t = this.findFreeNear(
           land.x + Phaser.Math.Between(-34, 34),
           land.y + Phaser.Math.Between(16, 40),
+          { clearOf: 34, exclude: s },
         );
         s.showEmote("surprise");
         if (motionOk) {
@@ -929,44 +1135,19 @@ export class TownScene extends Phaser.Scene {
     this.time.delayedCall(1000, () => cam.zoomTo(z, 700, "Sine.easeInOut"));
   }
 
-  /** Export all agent positions for the DOM overlay. */
+  /**
+   * Positions consumed by the DOM overlay. Name labels moved in-canvas
+   * (they could detach from their sprites under the zoomed follow-camera and
+   * collided when residents clustered), so agent entries are exported with
+   * `visible: false`: the overlay still needs their world coordinates for
+   * the proximity card, but must not draw duplicate DOM labels for them.
+   */
   getOverlayData(): { id: string; name: string; x: number; y: number; visible: boolean; type: "agent" | "landmark" }[] {
     const data: { id: string; name: string; x: number; y: number; visible: boolean; type: "agent" | "landmark" }[] = [];
-
-    // Agent labels
     this.agentSprites.forEach((sprite) => {
       const info = sprite.getOverlayInfo();
-      data.push({ ...info, type: "agent" });
+      data.push({ ...info, visible: false, type: "agent" });
     });
-
-    // Landmark labels — the generated map ships grid-snapped, centered label
-    // anchors; prefer those (they sit exactly on the building the tiles
-    // draw). Fall back to the town-JSON rect top for landmarks without one.
-    // Labels hide whenever an agent is standing inside the landmark's bounds
-    // so names never stack on top of characters.
-    for (const lm of this.landmarks) {
-      const anchor = this.mapLabels.get(lm.name);
-      const cx = anchor ? anchor.x : lm.x + lm.width / 2;
-      const cyTop = anchor ? anchor.y : lm.y - 8;
-      let occupied = false;
-      this.agentSprites.forEach((sprite) => {
-        if (
-          sprite.x >= lm.x && sprite.x <= lm.x + lm.width &&
-          sprite.y >= lm.y && sprite.y <= lm.y + lm.height
-        ) {
-          occupied = true;
-        }
-      });
-      data.push({
-        id: `lm-${lm.name}`,
-        name: lm.name,
-        x: cx,
-        y: cyTop,
-        visible: !occupied,
-        type: "landmark",
-      });
-    }
-
     return data;
   }
 
@@ -1010,7 +1191,9 @@ export class TownScene extends Phaser.Scene {
       return;
     }
 
-    // Spawn near the first landmark
+    // Spawn near the first landmark — but clear of the resident cluster that
+    // congregates there, so the first thing a new player does is walk toward
+    // the town rather than materialize inside a crowd.
     const firstLandmark = this.landmarks.find((l) => l.type !== "road") ?? this.landmarks[0];
     const base = firstLandmark
       ? { x: firstLandmark.x + firstLandmark.width / 2, y: firstLandmark.y + firstLandmark.height / 2 }
@@ -1018,16 +1201,32 @@ export class TownScene extends Phaser.Scene {
     const spawn = this.findFreeNear(
       base.x + Phaser.Math.Between(-30, 30),
       base.y + Phaser.Math.Between(-20, 20),
+      { clearOf: 80 },
     );
     const sx = spawn.x;
     const sy = spawn.y;
 
-    // Honor profile.spriteKey if it points to a loaded texture.
+    // Honor profile.spriteKey if it points to a loaded texture — EXCEPT the
+    // legacy 16-px "char-player" explorer, which belongs to a different art
+    // family and rendered at half the height of the chibi residents. Old
+    // profiles that stored it are remapped to a stable 32-px variant so the
+    // player and residents share one sprite family at one scale.
     let spriteKey: string | undefined;
-    if (profile.spriteKey && this.textures.exists(profile.spriteKey)) {
-      spriteKey = profile.spriteKey;
-    } else if (this.textures.exists("char-player")) {
-      spriteKey = "char-player";
+    const requested = profile.spriteKey;
+    if (requested && requested !== "char-player" && this.textures.exists(requested)) {
+      spriteKey = requested;
+    } else {
+      const variants = [1, 2, 3, 4, 5, 6]
+        .map((n) => `char-player-${n}`)
+        .filter((k) => this.textures.exists(k));
+      if (variants.length > 0) {
+        let h = 0;
+        const seed = profile.agentId || profile.name || "you";
+        for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+        spriteKey = variants[h % variants.length];
+      } else if (this.textures.exists("char-player")) {
+        spriteKey = "char-player"; // last-resort legacy fallback
+      }
     }
 
     this.playerSprite = new PlayerSprite(this, sx, sy, {
@@ -1048,9 +1247,18 @@ export class TownScene extends Phaser.Scene {
     // Camera follow with smooth lerp + closer zoom while a player is present.
     this.cameras.main.startFollow(this.playerSprite, true, 0.08, 0.08);
     this.cameras.main.setBounds(0, 0, Number(this.game.config.width), Number(this.game.config.height));
-    this.cameras.main.zoomTo(1.5, 600, "Sine.easeInOut");
+    this.cameras.main.zoomTo(this.playerFollowZoom(), 600, "Sine.easeInOut");
 
     this.events.emit("player-spawned");
+  }
+
+  /**
+   * Follow-camera zoom scaled to the canvas. The old fixed 1.5 framed ~260
+   * world-px on a 390-px phone — a wall of grass with one giant sprite. Wider
+   * canvases keep the intimate 1.5; phones pull back to show the town.
+   */
+  private playerFollowZoom(): number {
+    return Phaser.Math.Clamp(this.scale.width / 520, 0.75, 1.5);
   }
 
   getPlayerSprite(): PlayerSprite | null {
@@ -1113,7 +1321,7 @@ export class TownScene extends Phaser.Scene {
       const sp = this.agentSprites.get(agentId);
       if (!sp) return;
 
-      const target = this.pickWanderTarget();
+      const target = this.pickWanderTarget(sp);
       sp.moveToPosition(target.x, target.y, () => {
         // Occasionally show an idle thought after arriving.
         // Prefer the agent's own bank (from agent.idle_thoughts) over generic.
@@ -1133,17 +1341,18 @@ export class TownScene extends Phaser.Scene {
     });
   }
 
-  private pickWanderTarget(): { x: number; y: number } {
-    if (this.wanderPoints.length === 0) return this.findFreeNear(400, 400);
-    // Rejection-sample so NPCs stop walking into (through) buildings.
+  private pickWanderTarget(exclude?: AgentSprite): { x: number; y: number } {
+    if (this.wanderPoints.length === 0) return this.findFreeNear(400, 400, { clearOf: 34, exclude });
+    // Rejection-sample so NPCs stop walking into (through) buildings — or
+    // into each other (occupancy keeps wander targets a body-width apart).
     for (let attempt = 0; attempt < 10; attempt++) {
       const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
       const x = Phaser.Math.Clamp(pt.x + Phaser.Math.Between(-70, 70), 40, 1160);
       const y = Phaser.Math.Clamp(pt.y + Phaser.Math.Between(-45, 45), 40, 760);
-      if (!this.isBlocked(x, y)) return { x, y };
+      if (!this.isBlocked(x, y) && !this.isOccupied(x, y, 34, exclude)) return { x, y };
     }
     const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
-    return this.findFreeNear(pt.x, pt.y);
+    return this.findFreeNear(pt.x, pt.y, { clearOf: 34, exclude });
   }
 
   private addScatteredWaypoints(W: number, H: number) {
@@ -1189,8 +1398,8 @@ export class TownScene extends Phaser.Scene {
     b.setActivity("talking");
 
     const exchange = pickExchange(undefined, undefined);
-    a.showSpeechBubble(exchange.a, 2400);
-    this.time.delayedCall(1500, () => b.showSpeechBubble(exchange.b, 2400));
+    a.showSpeechBubble(exchange.a, 2400, "neutral", true);
+    this.time.delayedCall(1500, () => b.showSpeechBubble(exchange.b, 2400, "neutral", true));
     this.time.delayedCall(4200, () => {
       a.setActivity("idle");
       b.setActivity("idle");
@@ -1336,6 +1545,7 @@ export class TownScene extends Phaser.Scene {
       const t = this.findFreeNear(
         target.x + Phaser.Math.Between(-40, 40),
         target.y + Phaser.Math.Between(-30, 30),
+        { clearOf: 34, exclude: npc },
       );
       npc.moveToPosition(t.x, t.y, () => this.scheduleAmbientWander(npc, W, H));
     });
@@ -1683,7 +1893,12 @@ export class TownScene extends Phaser.Scene {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
     cam.setBounds(0, 0, W, H);
-    if (this.playerSprite) return;
+    if (this.playerSprite) {
+      // Keep the follow zoom proportional to the canvas across resizes /
+      // orientation changes (phones get a wider frame than desktops).
+      if (!this.convoFollowPaused) cam.setZoom(this.playerFollowZoom());
+      return;
+    }
     const zoom = Math.max(this.scale.width / W, this.scale.height / H);
     cam.setZoom(zoom);
     cam.centerOn(W / 2, H / 2);
@@ -1715,6 +1930,38 @@ export class TownScene extends Phaser.Scene {
 
     // Add a grid of "street corner" waypoints for richer wandering.
     this.addScatteredWaypoints(W, H);
+
+    this.buildLandmarkLabels();
+  }
+
+  /**
+   * In-canvas landmark name chips. World-space text can never detach from
+   * its building the way screen-space DOM labels did under the zoomed
+   * follow-camera, and it crops naturally at the camera edge instead of
+   * clipping mid-word against the canvas border.
+   */
+  private buildLandmarkLabels() {
+    for (const t of this.landmarkLabelTexts) t.destroy();
+    this.landmarkLabelTexts = [];
+    // Fallback towns already draw their labels into fallbackWorld.
+    if (!this.builtMap) return;
+    for (const lm of this.landmarks) {
+      if (lm.type === "road") continue;
+      const anchor = this.mapLabels.get(lm.name);
+      const x = anchor ? anchor.x : lm.x + lm.width / 2;
+      const y = anchor ? anchor.y : lm.y - 8;
+      const label = this.add.text(x, y, lm.name, {
+        fontFamily: "Inter, 'Helvetica Neue', sans-serif",
+        fontSize: "9px",
+        fontStyle: "bold",
+        color: "#f5ead2",
+        backgroundColor: "rgba(28,24,16,0.72)",
+        padding: { x: 5, y: 2 },
+        resolution: 3,
+      }).setOrigin(0.5, 0.5).setDepth(5500).setAlpha(0.94);
+      label.setData("lm", lm);
+      this.landmarkLabelTexts.push(label);
+    }
   }
 
   /* ── Collision-aware point picking ───────────────────────── */
@@ -1729,12 +1976,46 @@ export class TownScene extends Phaser.Scene {
     return false;
   }
 
-  /** Nearest open point to (x, y) — ring-samples outward until unblocked. */
-  private findFreeNear(x: number, y: number): { x: number; y: number } {
+  /** Every character body that occupies ground: residents, the player, and
+   *  ambient passers-by. Used for spawn/walk-target occupancy so sprites
+   *  never fuse into a single-tile pile. */
+  private allBodies(): AgentSprite[] {
+    return [...this.agentSprites.values(), ...this.ambientNPCs];
+  }
+
+  /** True when (x, y) is within `clearance` px of another body's position or
+   *  its in-flight walk target. */
+  private isOccupied(x: number, y: number, clearance: number, exclude?: AgentSprite): boolean {
+    for (const body of this.allBodies()) {
+      if (body === exclude || !body.active) continue;
+      if (Phaser.Math.Distance.Between(x, y, body.x, body.y) < clearance) return true;
+      const target = body.getReservedTarget();
+      if (target && Phaser.Math.Distance.Between(x, y, target.x, target.y) < clearance) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Nearest open point to (x, y) — ring-samples outward until unblocked.
+   * With `opts.clearOf`, points near another body (or a body's in-flight walk
+   * target) count as blocked too: characters land on per-spot slots instead
+   * of interpenetrating on one tile.
+   */
+  private findFreeNear(
+    x: number,
+    y: number,
+    opts?: { clearOf?: number; exclude?: AgentSprite },
+  ): { x: number; y: number } {
+    const clearOf = opts?.clearOf ?? 0;
+    const open = (px: number, py: number) =>
+      !this.isBlocked(px, py) && (clearOf <= 0 || !this.isOccupied(px, py, clearOf, opts?.exclude));
+
     const cx = Phaser.Math.Clamp(x, 40, 1160);
     const cy = Phaser.Math.Clamp(y, 40, 760);
-    if (!this.isBlocked(cx, cy)) return { x: cx, y: cy };
-    for (let radius = 24; radius <= 168; radius += 24) {
+    if (open(cx, cy)) return { x: cx, y: cy };
+    // Sub-tile slots first (18 px) so a crowd fans out around its meeting
+    // point, then widening rings until open ground is found.
+    for (const radius of [18, 32, 48, 72, 96, 120, 144, 168]) {
       // Try straight down first (doors face roads below buildings), then ring.
       const candidates: Array<{ x: number; y: number }> = [{ x: cx, y: cy + radius }];
       for (let i = 0; i < 8; i++) {
@@ -1744,7 +2025,7 @@ export class TownScene extends Phaser.Scene {
       for (const c of candidates) {
         const px = Phaser.Math.Clamp(c.x, 40, 1160);
         const py = Phaser.Math.Clamp(c.y, 40, 760);
-        if (!this.isBlocked(px, py)) return { x: px, y: py };
+        if (open(px, py)) return { x: px, y: py };
       }
     }
     return { x: cx, y: cy };

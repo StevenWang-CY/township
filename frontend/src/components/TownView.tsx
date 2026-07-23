@@ -14,8 +14,9 @@ import MiniMap from "./MiniMap";
 import Tutorial from "./Tutorial";
 import DebugOverlay from "./DebugOverlay";
 import { rosterAgentsFromPayload } from "./residentRoster";
-import type { AgentState, TownId, SimulationEvent, Opinion, ChatMessage } from "../types/messages";
+import type { AgentState, TownId, LeanId, SimulationEvent, Opinion, ChatMessage } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
+import { readableInk } from "../lib/color";
 import { DEMO_MODE } from "../demo/demoMode";
 import { eventsSince, type WsState } from "../hooks/useWebSocket";
 import { playerCapabilityHeaders, registerPlayerCapability } from "../lib/playerCapability";
@@ -875,18 +876,44 @@ export default function TownView({ ws }: TownViewProps) {
             Recent Activity
           </h3>
           <div className="flex flex-col gap-1 max-h-[120px] overflow-y-auto">
-            {ws.events
-              .filter((e) => "town" in e && (e as any).town === town)
-              .slice(-5)
-              .reverse()
-              .map((evt, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
-                  <p style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
-                    {eventLabel(evt)}
-                  </p>
-                </div>
-              ))}
+            {(() => {
+              // Stable absolute keys so a freshly-arrived row animates exactly once.
+              const rows: Array<{ key: number; evt: SimulationEvent }> = [];
+              ws.events.forEach((e, i) => {
+                if ("town" in e && (e as any).town === town) {
+                  rows.push({ key: ws.eventHistoryStart + i, evt: e });
+                }
+              });
+              return rows.slice(-5).reverse().map(({ key, evt }) => {
+                if (evt.type === "opinion_changed") {
+                  const newC = (evt.new_opinion?.candidate as LeanId) || scen.undecidedId;
+                  const stance = scen.optionColor(newC);
+                  return (
+                    <div key={key} className="town-activity-row town-activity-row--shift flex items-center gap-1.5">
+                      <span
+                        className="town-activity-shift-dot w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ background: stance }}
+                      />
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
+                        <strong style={{ color: "var(--text-primary)", fontWeight: 600 }}>{evt.agent_name}</strong>
+                        {" shifted → "}
+                        <strong style={{ color: readableInk(stance), fontWeight: 600 }}>
+                          {scen.optionLabel(newC)}
+                        </strong>
+                      </p>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={key} className="town-activity-row flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
+                    <p style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
+                      {eventLabel(evt, scen.optionLabel)}
+                    </p>
+                  </div>
+                );
+              });
+            })()}
             {ws.events.filter((e) => "town" in e && (e as any).town === town).length === 0 && (
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
@@ -913,14 +940,15 @@ export default function TownView({ ws }: TownViewProps) {
 
 /* ── Helper ────────────────────────────────────────────────── */
 
-function eventLabel(evt: SimulationEvent): string {
+function eventLabel(evt: SimulationEvent, optionLabel: (id: string) => string): string {
   switch (evt.type) {
     case "agent_moved":
       return `${evt.agent_name} moved to ${evt.to_location}`;
     case "agent_speech":
       return `${evt.agent_name}: "${evt.text.slice(0, 40)}..."`;
     case "opinion_changed":
-      return `${evt.agent_name} shifted to ${evt.new_opinion.candidate}`;
+      // Display label, never the raw option id ("Bond", not "bond").
+      return `${evt.agent_name} shifted to ${optionLabel(evt.new_opinion.candidate)}`;
     case "conversation_started":
       return `${evt.conversation.participant_names.join(" & ")} started talking`;
     default:

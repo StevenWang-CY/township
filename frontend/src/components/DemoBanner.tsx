@@ -23,7 +23,8 @@ export default function DemoBanner() {
   return (
     <div className="demo-banner" role="note">
       <span className="demo-banner-text">
-        You're watching a <strong>recorded deliberation</strong> — a published simulation artifact, replayed locally in your browser.
+        You're watching a <strong>recorded deliberation</strong>
+        <span className="demo-banner-text-detail"> — a published simulation artifact, replayed locally in your browser.</span>
       </span>
       <a
         className="demo-banner-star"
