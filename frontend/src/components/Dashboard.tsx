@@ -99,11 +99,16 @@ export default function Dashboard({ ws }: DashboardProps) {
   const knownRunIdRef = useRef<string | null>(null);
   const recapPollRef = useRef<number | undefined>(undefined);
 
+  const scenarioId = scen.scenario.id;
   const fetchLatestRun = useCallback(async (): Promise<RunRecap | null> => {
     if (DEMO_MODE) return null;
     try {
       const list = await fetch("/api/runs").then((r) => (r.ok ? r.json() : null));
-      const newest = list?.runs?.[0];
+      // Only surface runs of the scenario this dashboard is showing — a
+      // Millbrook recap under the NJ-11 header reads as a data leak.
+      const newest = list?.runs?.find(
+        (r: { scenario_id?: string }) => !r.scenario_id || r.scenario_id === scenarioId,
+      );
       if (!newest?.run_id) return null;
       const detail = await fetch(`/api/runs/${encodeURIComponent(newest.run_id)}`)
         .then((r) => (r.ok ? r.json() : null))
@@ -117,7 +122,7 @@ export default function Dashboard({ ws }: DashboardProps) {
     } catch {
       return null;
     }
-  }, []);
+  }, [scenarioId]);
 
   useEffect(() => {
     if (DEMO_MODE) return;
@@ -379,9 +384,11 @@ export default function Dashboard({ ws }: DashboardProps) {
             />
           )}
           <div className="dashboard-hero-empty-body">
-            <h2>The district is waiting</h2>
+            <h2>{latestRun ? "The district is quiet" : "The district is waiting"}</h2>
             <p>
-              Nothing has been simulated yet. Start a run to watch the residents of{" "}
+              {latestRun
+                ? "No simulation is running — the last run's recap is below. Start a fresh run to watch the residents of "
+                : "Nothing has been simulated yet. Start a run to watch the residents of "}
               {towns.length} towns deliberate <em>{scen.scenario.question}</em> — or wander
               into {heroTown?.name ?? "a town"} and meet them first.
             </p>

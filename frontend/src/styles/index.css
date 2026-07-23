@@ -4059,6 +4059,9 @@ html.high-contrast {
   border-radius: 6px;
   margin: 0 -4px;
   padding: 1px 4px;
+  /* WCAG 2.5.8 target size: these rows are real tap targets ("Talk to …"),
+     so they must present at least a 24px-tall hit area on their own. */
+  min-height: 24px;
   transition: background 150ms ease;
 }
 
@@ -4861,7 +4864,9 @@ html.high-contrast {
 .journal-subtitle {
   margin: 0;
   font: 400 11px var(--font-body);
-  color: var(--text-muted);
+  /* One step darker than --text-muted: 11px body copy on the parchment panel
+     (#EDE4D3) needs the secondary ink to clear WCAG AA 4.5:1 (4.97 vs 4.36). */
+  color: var(--text-secondary);
 }
 
 .journal-entry-block {

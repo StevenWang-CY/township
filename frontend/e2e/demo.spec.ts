@@ -15,10 +15,14 @@ function watchRuntimeErrors(page: Page): string[] {
 }
 
 async function openMap(page: Page, scenario?: string) {
+  // The landing route ("/") is now the living town; the illustrated District
+  // Atlas lives at /map. Every staged scenario ships mapgen overworld assets,
+  // so the atlas interior is the pixel overworld with HTML town markers.
   const query = scenario ? `?scenario=${encodeURIComponent(scenario)}` : "";
-  await page.goto(`/${query}#/`);
-  await expect(page.getByRole("heading", { level: 1, name: "Township" })).toBeVisible();
+  await page.goto(`/${query}#/map`);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await expect(page.locator(".district-town-cards")).toBeVisible();
+  await expect(page.locator(".atlas-site").first()).toBeVisible();
   // The atlas intentionally fades in. Axe must inspect the settled colors;
   // scanning mid-transition measures text blended against the background and
   // reports contrast values that do not exist in the resting interface.
@@ -281,7 +285,7 @@ test("the zero-backend district map loads without runtime errors", async ({ page
   const errors = watchRuntimeErrors(page);
 
   await openMap(page);
-  await expect(page.locator(".district-map-pin")).toHaveCount(4);
+  await expect(page.locator(".atlas-site")).toHaveCount(4);
   await expect(page.getByText("The NJ-11 Special Election", { exact: true }).first()).toBeVisible();
   // Let lazy images, the replay feed, and animation setup settle before the
   // error assertion so late resource/render failures are included.
@@ -385,7 +389,7 @@ test("keyboard users can identify landmarks, enter a town, and operate the repla
   await expect(page.getByRole("navigation")).toBeVisible();
   await expect(page.getByRole("main")).toBeVisible();
 
-  const doverPin = page.locator('.district-map-pin[aria-label^="Dover."]');
+  const doverPin = page.locator('.atlas-site[aria-label^="Dover."]');
   await doverPin.focus();
   await expect(doverPin).toBeFocused();
   await page.keyboard.press("Enter");
@@ -502,14 +506,24 @@ test("seeking beyond the live window and backward reconciles rendered replay sta
     return { x, y, clock, weather, opinion: candidate };
   };
 
+  // The scene renders recorded coordinates through its anti-pile gathering
+  // formation: residents converging on one ~72px cell fan out over stable
+  // elliptical ring slots (TownScene.GATHER_RINGS, max rx=100 / ry=66) around
+  // the first arrival's exact spot. A reconciled sprite therefore stands
+  // WITHIN that formation envelope of its recorded coordinate — never across
+  // the map at stale pre-seek state — while opinion, clock, weather, speech,
+  // and spotlight reconcile exactly.
+  const FORMATION_ENVELOPE_X = 72 + 100 + 2;
+  const FORMATION_ENVELOPE_Y = 72 + 66 + 2;
   const assertRenderedAt = async (position: number) => {
     const expected = expectedAt(position);
     await expect.poll(async () => {
       const snapshot = await renderedReplaySnapshot(page);
       const rendered = snapshot?.agents[agent.id];
       return snapshot && rendered ? {
-        x: rendered.x,
-        y: rendered.y,
+        withinFormationEnvelope:
+          Math.abs(rendered.x - expected.x!) <= FORMATION_ENVELOPE_X &&
+          Math.abs(rendered.y - expected.y!) <= FORMATION_ENVELOPE_Y,
         opinion: rendered.opinion,
         speechBubbles: rendered.speechBubbles,
         clock: snapshot.clock,
@@ -517,8 +531,7 @@ test("seeking beyond the live window and backward reconciles rendered replay sta
         conversationSpotlight: snapshot.conversationSpotlight,
       } : null;
     }).toEqual({
-      x: expected.x,
-      y: expected.y,
+      withinFormationEnvelope: true,
       opinion: expected.opinion,
       speechBubbles: 0,
       clock: expected.clock,
@@ -557,15 +570,30 @@ test("the dashboard surface passes automated WCAG A/AA checks", async ({ page })
   await expect(page.locator("[data-stance-id]").first()).toBeVisible();
   await seekReplayToEnd(page);
   await page.waitForTimeout(750);
-  const replayBarCollisions = await page.evaluate(() => {
+  // The demo shell docks the replay bar BELOW a separately scrollable <main>.
+  // Content scrolled out of the viewport is clipped by main, not obscured by
+  // the bar — so only the VISIBLE portion of an issue row may ever intersect
+  // the bar, and main itself must end above the bar at every scroll position.
+  const replayBarGeometry = await page.evaluate(() => {
     const bar = document.querySelector(".demo-timeline")?.getBoundingClientRect();
-    if (!bar) return ["missing replay bar"];
-    return [...document.querySelectorAll(".dashboard-town-issue")]
+    const main = document.querySelector("main")?.getBoundingClientRect();
+    if (!bar || !main) return { collisions: ["missing replay bar or main"], mainBottom: 0, barTop: -1 };
+    const collisions = [...document.querySelectorAll(".dashboard-town-issue")]
       .map((node) => node.getBoundingClientRect())
+      .map((rect) => ({
+        top: Math.max(rect.top, main.top),
+        bottom: Math.min(rect.bottom, main.bottom),
+      }))
+      .filter((rect) => rect.bottom > rect.top)
       .filter((rect) => rect.top < bar.bottom && rect.bottom > bar.top)
       .map((rect) => `${Math.round(rect.top)}-${Math.round(rect.bottom)}`);
+    return { collisions, mainBottom: main.bottom, barTop: bar.top };
   });
-  expect(replayBarCollisions, "the replay bar obscures town issue rows").toEqual([]);
+  expect(replayBarGeometry.collisions, "the replay bar obscures town issue rows").toEqual([]);
+  expect(
+    replayBarGeometry.mainBottom,
+    "the scrollable dashboard viewport must end above the docked replay bar",
+  ).toBeLessThanOrEqual(replayBarGeometry.barTop + 1);
   await expectAxeClean(page, "district dashboard");
 });
 
@@ -622,16 +650,23 @@ test("390px mobile map and town do not create horizontal page scrolling", async 
   })).toBeGreaterThanOrEqual(4);
   await expectNoHorizontalPageOverflow(page);
   await expect(page.locator(".keyboard-hint")).toBeHidden();
-  const proximityCard = page.locator(".proximity-card");
-  await expect(proximityCard).toBeVisible({ timeout: 15_000 });
-  const cardBounds = await proximityCard.boundingBox();
-  const canvasBounds = await page.locator(".town-canvas-wrapper").boundingBox();
-  expect(cardBounds).not.toBeNull();
-  expect(canvasBounds).not.toBeNull();
-  expect(cardBounds!.x).toBeGreaterThanOrEqual(canvasBounds!.x - 1);
-  expect(cardBounds!.x + cardBounds!.width).toBeLessThanOrEqual(
-    canvasBounds!.x + canvasBounds!.width + 1,
-  );
+  // The hosted replay spawns no player sprite, so the walk-up ProximityCard
+  // never exists here; the demo's talk surface is the resident rail card →
+  // recorded-conversation panel. On a 390px phone that panel must open, fit
+  // the viewport edge-to-edge, and add no horizontal scrolling.
+  const residentCard = page.locator("button.resident-card--compact").first();
+  await expect(residentCard).toBeVisible({ timeout: 15_000 });
+  await residentCard.click();
+  const chatPanel = page.locator(".chat-panel");
+  await expect(chatPanel).toBeVisible({ timeout: 10_000 });
+  const panelBounds = await chatPanel.boundingBox();
+  const viewport = page.viewportSize();
+  expect(panelBounds).not.toBeNull();
+  expect(panelBounds!.x).toBeGreaterThanOrEqual(-1);
+  expect(panelBounds!.x + panelBounds!.width).toBeLessThanOrEqual(viewport!.width + 1);
+  await expectNoHorizontalPageOverflow(page);
+  await page.keyboard.press("Escape");
+  await expect(chatPanel).toBeHidden();
   const shellBounds = await page.evaluate(() => {
     const main = document.querySelector("main")?.getBoundingClientRect();
     const timeline = document.querySelector(".demo-timeline")?.getBoundingClientRect();

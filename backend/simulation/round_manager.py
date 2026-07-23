@@ -32,6 +32,21 @@ from ..tools.schemas import build_tools
 logger = logging.getLogger(__name__)
 
 
+def clip_text(text: str, limit: int) -> str:
+    """Truncate for display events at a word boundary with an ellipsis.
+
+    Replay UIs render these strings verbatim; a hard slice leaves mid-word
+    stubs like "so we'r" in transcripts.
+    """
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    space = cut.rfind(" ")
+    if space > limit // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:") + "…"
+
+
 class RoundManager:
     """Core simulation engine. Runs rounds of agent deliberation for a single town.
 
@@ -449,7 +464,7 @@ class RoundManager:
                             agent_id=speaker.agent_id,
                             agent_name=speaker.definition.name,
                             town=town,
-                            text=response_text[:150],
+                            text=clip_text(response_text, 150),
                             location=location,
                             sentiment=sentiment,
                             gesture=gesture,
@@ -488,7 +503,7 @@ class RoundManager:
             await self.event_bus.publish(
                 ConversationEndedEvent(
                     conversation_id=convo_id,
-                    summary="; ".join(key_takeaways.values())[:200],
+                    summary=clip_text("; ".join(key_takeaways.values()), 200),
                 )
             )
         except Exception:  # pragma: no cover — defensive
@@ -570,7 +585,7 @@ class RoundManager:
                         agent_id=agent.agent_id,
                         agent_name=agent.definition.name,
                         town=agent.definition.town,
-                        text=f"Re: {news['headline'][:50]}... - {reasoning[:100]}",
+                        text=f"Re: {clip_text(news['headline'], 50)} — {clip_text(reasoning, 100)}",
                         location=agent.current_location,
                         sentiment=sentiment,
                     )
@@ -922,7 +937,7 @@ class RoundManager:
                             agent_id=speaker.agent_id,
                             agent_name=speaker.definition.name,
                             town=speaker.definition.town,
-                            text=response_text[:150],
+                            text=clip_text(response_text, 150),
                             location=location,
                             sentiment=sentiment,
                             gesture=gesture,
@@ -963,7 +978,7 @@ class RoundManager:
             await self.event_bus.publish(
                 ConversationEndedEvent(
                     conversation_id=convo_id,
-                    summary="; ".join(key_takeaways.values())[:200],
+                    summary=clip_text("; ".join(key_takeaways.values()), 200),
                 )
             )
         except Exception:  # pragma: no cover
@@ -982,7 +997,7 @@ class RoundManager:
                     to_town=agent_b.definition.town,
                     from_agent=agent_a.agent_id,
                     to_agent=agent_b.agent_id,
-                    message=takeaway_a[:120],
+                    message=clip_text(takeaway_a, 120),
                 )
             )
             await self.event_bus.publish(
@@ -991,7 +1006,7 @@ class RoundManager:
                     to_town=agent_a.definition.town,
                     from_agent=agent_b.agent_id,
                     to_agent=agent_a.agent_id,
-                    message=takeaway_b[:120],
+                    message=clip_text(takeaway_b, 120),
                 )
             )
         except Exception:  # pragma: no cover

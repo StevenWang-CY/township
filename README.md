@@ -27,7 +27,7 @@
 
 <p align="center">
   <a href="https://stevenwang-cy.github.io/township/">
-    <img src="docs/media/hero.gif" alt="The living town of Dover from above: pixel residents go about their routines, two neighbors stop to talk through the election, then dusk settles and lamplit night falls" width="896">
+    <img src="docs/media/hero.gif" alt="The living town of Dover from above: residents go about their routines, the camera closes on two neighbors talking through the election in readable speech bubbles, one changes their mind with a burst of confetti, then dusk settles and lamplit night falls" width="896">
   </a>
 </p>
 
@@ -37,10 +37,10 @@ context, and news beats. The Python engine runs a configurable sequence of
 `seed → converse → news → opinion → decide`; a typed event stream brings every
 walk, conversation, reaction, and opinion shift to a React + Phaser world.
 
-It is designed for research, education, media literacy, and agent development.
-It is also deliberately easy to inspect: personas are Markdown, scenarios are
-JSON, runs are portable event logs, and a deterministic mock makes the complete
-pipeline work without credentials or network access.
+It is designed for research, education, media literacy, and agent development,
+and it is deliberately easy to inspect: personas are Markdown, scenarios are JSON,
+runs are portable event logs, and a deterministic mock runs the whole pipeline
+without credentials.
 
 > [!IMPORTANT]
 > **Township is a simulation, not a poll.** Its outputs do not measure real
@@ -51,14 +51,24 @@ pipeline work without credentials or network access.
 
 <table>
   <tr>
-    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/demo-player/01-map.png" alt="Township's scenario-first civic atlas"></a></td>
-    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/demo-player/02-town-replay.png" alt="Residents deliberating in Township's Dover pixel town"></a></td>
-    <td width="33%" align="center"><a href="docs/nj11-retrospective.md"><img src="docs/media/demo-player/04-dashboard-end.png" alt="Township's final cross-town deliberation dashboard"></a></td>
+    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/scene/atlas-nj11.png" alt="The District Atlas: a pixel overworld built from the towns' own tileset, with framed town vignettes, nameplates, and a hover card showing Montclair's leading option"></a></td>
+    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/demo-player/03-timeline-seek.png" alt="The replay player paused mid-conversation in Dover, the camera close enough that a resident's recorded line is readable in its speech bubble, with the timeline transport below"></a></td>
+    <td width="33%" align="center"><img src="docs/media/live/chat.png" alt="Chatting with Maria Santos in Dover: the visitor asks what candidates should understand about Dover and she answers in her own voice beside the live town canvas"></td>
   </tr>
   <tr>
-    <td align="center"><strong>A scenario becomes a place</strong><br><sub>Towns, residents, options, context, and news live in one package.</sub></td>
-    <td align="center"><strong>Deliberation becomes visible</strong><br><sub>Routines, weather, meetings, replay, and opinion shifts.</sub></td>
-    <td align="center"><strong>The record stays inspectable</strong><br><sub>Portable evidence, cost accounting, and an honest retrospective.</sub></td>
+    <td align="center"><strong>Open the storybook atlas</strong><br><sub>The overworld is drawn from the towns' own tiles; hover a town for its cast and leading option.</sub></td>
+    <td align="center"><strong>Scrub the recorded run</strong><br><sub>Pause any beat of a replay and read the dialogue where it happened.</sub></td>
+    <td align="center"><strong>Talk to a resident</strong><br><sub>They answer in voice, remember you, and warm up — or don't.</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="docs/media/live/gods-view-after.png" alt="God's View results after injecting a healthcare-premium scenario: current versus projected opinion donuts and per-resident reaction cards for Dover and Montclair"></td>
+    <td width="33%" align="center"><img src="docs/media/live/dashboard-live.png" alt="The district dashboard mid-run: a round progress bar, live district-wide sentiment counts, per-town stance donuts, and top issues while the simulation streams"></td>
+    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/scene/dover-night.png" alt="Dover at night in the replay player: lit windows, lamplight, and residents still out on the streets"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Ask "what if"</strong><br><sub>God's View injects a hypothetical and shows every resident's reaction, before and after.</sub></td>
+    <td align="center"><strong>Watch the district live</strong><br><sub>Stances shift town by town mid-run; a narrative recap lands when it ends.</sub></td>
+    <td align="center"><strong>Stay past dusk</strong><br><sub>One world clock drives lighting, routines, windows, and lamplight in every town.</sub></td>
   </tr>
 </table>
 
@@ -73,20 +83,18 @@ pipeline work without credentials or network access.
   phase and powers offline tests. The Pages demo replays committed runs with no
   backend and no API calls.
 - **Live and replay share one path.** Both publish the same discriminated event
-  union, so a saved run drives the same pixel town and charts as live inference.
+  union, so a saved run drives the same pixel town and charts as live inference —
+  and successful persistence leaves each run under `runs/` as a portable event
+  log, structured summary, and (when generation succeeds) narrative recap.
 - **Bring the model you trust.** Bedrock, Anthropic, OpenAI, OpenRouter, Ollama,
   LM Studio, and the built-in mock implement one provider contract.
-- **Runs are research artifacts.** Successful best-effort persistence publishes a
-  complete event log and structured summary under `runs/`, plus a narrative recap
-  when recap generation succeeds.
 - **Human-readable agents.** Each resident is one Markdown file with structured
   frontmatter, prose voice, routines, concerns, goals, and relationships.
 
 ### Meet a few residents
 
-These fictional composites are authored as people rather than demographic rows.
-Their pixel portraits are cropped from the same directional sprite sheets that
-walk through the live town.
+Fictional composites authored as people rather than demographic rows, with
+portraits cropped from the sprite sheets that walk through the live town.
 
 <table>
   <tr>
@@ -115,10 +123,9 @@ SCENARIO=millbrook-budget make demo
 
 Open [localhost:8001](http://localhost:8001). `make demo` builds and serves the
 complete app with the deterministic mock provider: offline, free, and with no
-`.env` file required. Use `make dev` instead when you want backend/frontend hot
-reload on ports 8001 and 5173. If [`uv`](https://docs.astral.sh/uv/) is installed,
-`make install` honors the committed lock exactly; pip remains the supported
-fallback.
+`.env` file required. Use `make dev` for backend/frontend hot reload on ports
+8001 and 5173. If [`uv`](https://docs.astral.sh/uv/) is installed, `make install`
+honors the committed lock exactly; pip remains the supported fallback.
 
 Prefer the terminal?
 
@@ -133,23 +140,20 @@ next commands:
 ```bash
 township scenarios
 township replay --demo --scenario nj11-2026
-township serve --scenario millbrook-budget --provider mock
 ```
 
-The Python wheel is intentionally API/headless-only; it includes the CLI and
-scenario packages, not the compiled web UI. Use the Docker image for a packaged
-full application, or run the frontend from this source checkout.
-
-The [hosted demo](https://stevenwang-cy.github.io/township/) is a static replay
-player. It makes zero network model calls and clearly labels recorded runs; use a
-local backend for live chat, new simulations, voice, and God's View injections.
+The Python wheel is intentionally API/headless-only (CLI + scenario packages,
+no compiled web UI); use the Docker image or this source checkout for the full
+application. The [hosted demo](https://stevenwang-cy.github.io/township/) is a
+static replay player — zero network model calls, recorded runs clearly labeled;
+live chat, new simulations, voice, and God's View need a local backend.
 
 ## What you can explore
 
 | Surface | What it reveals |
 |---|---|
 | **Living town** | The landing view: routines, weather, time of day, conversations, gossip, gestures, and opinion ripples rendered in Phaser |
-| **District atlas** | Each town's setting, cast, demographics, and live balance of agent stances |
+| **District atlas** | A storybook pixel overworld drawn from the towns' own tileset — vignettes, nameplates, and each town's cast and leading option |
 | **Resident chat** | In-character conversation with private relationship context, trust, voice hooks, and a capability-protected personal journal |
 | **Dashboard** | Cross-town patterns, issue fault lines, conversations, and stance trajectories |
 | **God's View** | A transparent intervention sandbox for asking how agents react to a hypothetical development |
@@ -168,12 +172,10 @@ flowchart LR
     Q --> E
 ```
 
-The frontend's simulation timeline sees exactly what the event log sees; REST
-supplies validated scenario vocabulary and explicit roster/town snapshots.
+The frontend's simulation timeline sees exactly what the event log sees;
 Pydantic event models in the backend mirror a TypeScript discriminated union in
-the frontend, guarded by a contract test. That makes recorded, live, headless,
-and visual runs different views of the same simulation—not separate products
-that can silently drift.
+the frontend, guarded by a contract test. Recorded, live, headless, and visual
+runs are different views of the same simulation—not products that can drift.
 
 Read the [architecture guide](docs/architecture.md) for the prompt pipeline,
 wire contract, persistence model, cost accounting, and module-by-module tour.
@@ -220,10 +222,8 @@ configured credential before falling back—loudly—to `mock`.
 | Ollama | `ollama` | Local OpenAI-compatible endpoint |
 | LM Studio | `lmstudio` | Local OpenAI-compatible endpoint |
 
-Source/development installs and the Docker image include the OpenAI client. A plain
-Python wheel install needs `pip install 'township[openai]'` before using OpenAI,
-OpenRouter, Ollama, or LM Studio.
-
+Source installs and the Docker image include the OpenAI client; a plain wheel
+install needs `pip install 'township[openai]'` for the OpenAI-compatible four.
 Concurrency, model IDs, prompt caching, endpoints, CORS, and deployment options
 are documented in [Deployment](docs/deployment.md) and [`.env.example`](.env.example).
 Secrets belong only in environment variables.
@@ -275,8 +275,8 @@ the claims are reproducible.
 ## Contributing
 
 Personas are the best first contribution: they need empathy and local texture,
-not Python. Scenarios add whole new civic worlds. Engine, research, frontend, art,
-accessibility, and documentation work are equally welcome.
+not Python. Scenarios add whole new civic worlds; engine, research, frontend,
+art, accessibility, and documentation work are equally welcome.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md), choose a
 [`good first issue`](https://github.com/StevenWang-CY/township/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22),

@@ -32,18 +32,28 @@ def main() -> int:
             max(1, round(first.height * TARGET_WIDTH / first.width / 2) * 2),
         )
 
+    # Identical consecutive captures (hold frames) collapse into a single GIF
+    # frame with a longer duration — same rhythm, far smaller file.
     frames: list[Image.Image] = []
+    durations: list[int] = []
+    previous_bytes: bytes | None = None
     for path in paths:
+        raw = path.read_bytes()
+        if raw == previous_bytes:
+            durations[-1] += 190
+            continue
+        previous_bytes = raw
         with Image.open(path) as source:
             frame = source.convert("RGB").resize(target_size, Image.Resampling.LANCZOS)
             frames.append(frame.quantize(colors=72, method=Image.Quantize.MEDIANCUT))
+            durations.append(190)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     frames[0].save(
         output,
         save_all=True,
         append_images=frames[1:],
-        duration=190,
+        duration=durations,
         loop=0,
         optimize=True,
         disposal=2,
