@@ -15,7 +15,7 @@
 import Phaser from "phaser";
 import { AgentSprite, LABEL_Y, type BubbleSentiment, type Direction, type GestureKind } from "./AgentSprite";
 import type { Pt } from "./NavGrid";
-import { drawPixelPlate, reducedMotion } from "./pixelTextures";
+import { PIXEL_FONT, drawPixelPlate, pixelText, reducedMotion } from "./pixelTextures";
 
 export type ConversationKind = "backend" | "encounter";
 
@@ -334,15 +334,8 @@ export class ConversationChoreographer {
 
   private showTopic(convo: Convo, topic: string) {
     if (this.plates.filter((p) => p.kind === "topic").length >= MAX_PLATES) return;
-    const label = (topic.length > 30 ? `${topic.slice(0, 29)}…` : topic).toUpperCase();
-    const txt = this.host.scene.add.text(0, 0, label, {
-      fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-      fontSize: "7px",
-      fontStyle: "bold",
-      color: "#5a4a34",
-      resolution: 3,
-    }).setOrigin(0.5, 0.5);
-    txt.setLetterSpacing(0.8);
+    const label = topic.length > 30 ? `${topic.slice(0, 29)}…` : topic;
+    const txt = this.caption(label, 0x5a4a34);
     const w = Math.ceil(txt.width + 14);
     const h = 14;
     const g = this.host.scene.add.graphics();
@@ -358,14 +351,7 @@ export class ConversationChoreographer {
   private showTakeaway(convo: Convo, summary: string) {
     if (this.plates.filter((p) => p.kind === "takeaway").length >= MAX_PLATES) return;
     const body = summary.length > 96 ? `${summary.slice(0, 95)}…` : summary;
-    const header = this.host.scene.add.text(0, 0, "TAKEAWAY", {
-      fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-      fontSize: "7px",
-      fontStyle: "bold",
-      color: "#8a7a5c",
-      resolution: 3,
-    }).setOrigin(0.5, 0);
-    header.setLetterSpacing(0.8);
+    const header = this.caption("TAKEAWAY", 0x8a7a5c).setOrigin(0.5, 0);
     const txt = this.host.scene.add.text(0, 0, body, {
       fontFamily: "Inter, 'Helvetica Neue', sans-serif",
       fontSize: "9px",
@@ -400,6 +386,21 @@ export class ConversationChoreographer {
         onComplete: () => this.destroyPlate(plate),
       });
     });
+  }
+
+  /** Small-caps caption in the pixel font (web type where it is missing). */
+  private caption(text: string, ink: number): Phaser.GameObjects.BitmapText | Phaser.GameObjects.Text {
+    const scene = this.host.scene;
+    if (scene.cache.bitmapFont.has(PIXEL_FONT)) {
+      return scene.add.bitmapText(0, 0, PIXEL_FONT, pixelText(text)).setTint(ink).setOrigin(0.5, 0.5);
+    }
+    return scene.add.text(0, 0, text.toUpperCase(), {
+      fontFamily: "Inter, 'Helvetica Neue', sans-serif",
+      fontSize: "7px",
+      fontStyle: "bold",
+      color: `#${ink.toString(16).padStart(6, "0")}`,
+      resolution: 3,
+    }).setOrigin(0.5, 0.5);
   }
 
   private revealPlate(group: Phaser.GameObjects.Container, alpha: number) {

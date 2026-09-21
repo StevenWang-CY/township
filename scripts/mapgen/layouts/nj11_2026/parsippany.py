@@ -44,6 +44,7 @@ from mapgen.build_maps import (
     MapCanvas,
     cottage,
     grand,
+    noticeboard,
     pad_stamp,
     path,
     path_rect,
@@ -218,16 +219,16 @@ def compose(m: MapCanvas) -> None:
     # -- corporate campus: biggest block in town, glass row added below
     grand(m, 51, 7, 12, 9, facade="stone_large", windows=True, door="metal")
     # -- public library
-    grand(m, 23, 31, 9, 6, facade="stone_large", windows=True)
+    grand(m, 23, 31, 9, 6, facade="stone_large", windows=True, landmark="Public Library")
     # -- residential cottages
-    cottage(m, 9, 31, 6, 8)
-    cottage(m, 16, 31, 6, 8)
+    cottage(m, 9, 31, 6, 8, landmark="Residential Area")
+    cottage(m, 16, 31, 6, 8, landmark="Residential Area")
     # -- NJ Transit shelter: striped awning over a brick waiting room,
     # door opening south onto the platform
     storefront(m, 41, 26, 6, 6, facade="brick", roof="cedar", awning=True)
     # -- community center + school on the shared esplanade
     storefront(m, 55, 26, 8, 7, facade="stone_small", roof="deck_light", sign=1)
-    grand(m, 64, 26, 8, 7, facade="brick")
+    grand(m, 64, 26, 8, 7, facade="brick", landmark="Community Center")
 
     # ================= paint the road network =================
     m.paint_roads()
@@ -319,7 +320,7 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.BUSH_ROUND, 7, 19)
 
     # ================= library plaza =================
-    m.set("deco-below", 24, 37, M.mg("newsbox"))
+    noticeboard(m, 24, 37, landmark="Public Library")
     m.collide(24.2, 37.3, 0.6, 0.7)
     m.set("deco-below", 30, 37, M.mg("bench_h"))
     m.collide(30, 37, 1, 1)
@@ -335,8 +336,6 @@ def compose(m: MapCanvas) -> None:
     path(m, lane)
     m.fill("ground-detail", 6, 24, 2, 1, R.PATH_TAN.fill)  # Route 46 mouth
     m.fill("ground-detail", 32, 39, 1, 2, R.PATH_TAN.fill)  # Vail Rd mouth
-    m.anchor("smoke", 10, 31)
-    m.anchor("smoke", 17, 31)
     m.stamp("deco-below", R.BUSH_ROUND, 3, 33)
     m.stamp("deco-below", R.BUSH_ROUND, 3, 36)
     m.stamp("deco-below", R.PLANTER_PURPLE, 22, 34)

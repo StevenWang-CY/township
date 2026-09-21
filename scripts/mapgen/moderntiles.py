@@ -44,7 +44,7 @@ def _stable_seed(label: str) -> int:
 T = 16
 MODERN_FIRSTGID = 10001
 MODERN_COLUMNS = 10
-MODERN_ROWS = 15
+MODERN_ROWS = 17
 MODERN_TILECOUNT = MODERN_COLUMNS * MODERN_ROWS
 MODERN_IMAGE = "frontend/public/assets/tilesets/township-modern.png"
 
@@ -185,6 +185,36 @@ for _i, _v in enumerate(("cw", "st")):
         IDS[f"ch_{_v}_{_part}"] = 112 + _i * 16 + _j
 
 
+#: rows 15-16 — civic kit: the election made visible. A two-tile yard sign
+#: (white board over a wooden stake — the board is tinted at runtime with a
+#: resident's option color), a 2x2 notice-board kiosk (cedar mini-roof over a
+#: cork board the runtime pins headlines to), a VOTE HERE board, a ballot
+#: box, stanchion + rope for the polling queue, a plain banner (1x2, tinted
+#: at runtime) and a bunting strip, a 1x1 opaque shop window, a chimney
+#: stack that sits above a shingle ridge, and an unlit park brazier.
+for _j, _n in enumerate(
+    (
+        "yard_post",
+        "yard_board",
+        "notice_tl",
+        "notice_tr",
+        "notice_bl",
+        "notice_br",
+        "vote_board",
+        "ballot_box",
+        "stanchion",
+        "rope_h",
+        "banner_plain_t",
+        "banner_plain_b",
+        "bunting_h",
+        "win_small",
+        "chimney",
+        "brazier",
+    )
+):
+    IDS[_n] = 150 + _j
+
+
 def mg(name: str) -> int:
     """Absolute GID of a modern tile."""
     return MODERN_FIRSTGID + IDS[name]
@@ -287,6 +317,25 @@ def diner_row(kind: str, w: int) -> tuple[int, ...]:
     raise ValueError(f"unknown diner course: {kind!r}")
 
 
+#: Civic kit stamps (see rows 15-16 above).
+YARD_SIGN = TileStamp("yard_sign", ((mg("yard_board"),), (mg("yard_post"),)))
+VOTE_SIGN = TileStamp("vote_sign", ((mg("vote_board"),), (mg("yard_post"),)))
+NOTICE_BOARD = TileStamp(
+    "notice_board",
+    ((mg("notice_tl"), mg("notice_tr")), (mg("notice_bl"), mg("notice_br"))),
+)
+BANNER_PLAIN = TileStamp("banner_plain", ((mg("banner_plain_t"),), (mg("banner_plain_b"),)))
+SMALL_WINDOW = TileStamp("win_small", ((mg("win_small"),),))
+#: Church lancet windows per wall variant (1x2, glass on the wall art).
+CH_LANCET = {
+    v: TileStamp(f"ch_{v}_lancet", ((mg(f"ch_{v}_lan_t"),), (mg(f"ch_{v}_lan_b"),)))
+    for v in CHURCH_VARIANTS.values()
+}
+#: Diner glass band tiles (each is a 1x1 window for the night-glow pass).
+DINER_WINDOWS = tuple(
+    TileStamp(n, ((mg(n),),)) for n in ("diner_win_l", "diner_win_m", "diner_win_r")
+)
+
 MODERN_SINGLES: dict[str, int] = {
     n: mg(n)
     for n in (
@@ -309,6 +358,16 @@ MODERN_SINGLES: dict[str, int] = {
         "bollard",
         "rail_h",
         "rail_x",
+        "yard_post",
+        "yard_board",
+        "vote_board",
+        "ballot_box",
+        "stanchion",
+        "rope_h",
+        "bunting_h",
+        "win_small",
+        "chimney",
+        "brazier",
     )
 }
 
@@ -1298,6 +1357,374 @@ def _draw_tiles() -> dict[int, object]:
 
     for name, img in _shutter_quadrants().items():
         tiles_out[IDS[name]] = img
+
+    # --- civic kit ------------------------------------------------------------
+    # Yard sign: a white board (tinted at runtime) over a wooden stake. The
+    # board carries two faint "text" dashes so a tinted sign still reads as
+    # a printed sign, not a colored rectangle.
+    def yard_post(p):
+        p.grid(
+            [
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                ".......oo.......",
+                ".......wd.......",
+                ".......wd.......",
+                ".......wd.......",
+                ".......wd.......",
+                ".......wd.......",
+                ".......wd.......",
+                ".......oo.......",
+                "......ssss......",
+                "................",
+            ],
+            {"o": K, "w": WOOD, "d": WOOD_D, "s": SHADOW},
+        )
+
+    make("yard_post", yard_post)
+
+    def yard_board(p):
+        p.grid(
+            [
+                "................",
+                "................",
+                "................",
+                "..oooooooooooo..",
+                "..oWWWWWWWWWWo..",
+                "..oWWggggggWWo..",
+                "..oWWWWWWWWWWo..",
+                "..oWWgggggggWo..",
+                "..oWWWWWWWWWWo..",
+                "..oWWggggWWWWo..",
+                "..oWWWWWWWWWWo..",
+                "..oooooooooooo..",
+                ".......oo.......",
+                ".......oo.......",
+                "................",
+                "................",
+            ],
+            {"o": K, "W": (250, 248, 240), "g": GRAY_HI},
+        )
+
+    make("yard_board", yard_board)
+
+    # Notice board kiosk (2x2): cedar mini-roof, cork board in a wood frame,
+    # two posts. The cork is left plain — the runtime pins headline sheets.
+    def _notice(p, quadrant):
+        cedar = SHINGLE_TONES["cedar"]
+        art_top = [
+            "..oooooooooooooooooooooooooooo..",
+            ".ohhhhhhhhhhhhhhhhhhhhhhhhhhhho.",
+            "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
+            "obbbbbbbbdbbbbbbbdbbbbbbbbdbbbbo",
+            "olllllllllllllllllllllllllllllllo",
+            "oooooooooooooooooooooooooooooooo",
+            ".oFFFFFFFFFFFFFFFFFFFFFFFFFFFFo.",
+            ".oFccccccccccccccccccccccccccFo.",
+            ".oFcccCcccccccCccccccccCcccccFo.",
+            ".oFccccccccccccccccccccccccccFo.",
+            ".oFcccccccCcccccccccCccccccccFo.",
+            ".oFccccccccccccccccccccccccccFo.",
+            ".oFcccCccccccccccCcccccccCcccFo.",
+            ".oFccccccccccccccccccccccccccFo.",
+            ".oFFFFFFFFFFFFFFFFFFFFFFFFFFFFo.",
+            ".oooooooooooooooooooooooooooooo.",
+        ]
+        art_bot = [
+            ".oFFFFFFFFFFFFFFFFFFFFFFFFFFFFo.",
+            ".oFccccccccccccccccccccccccccFo.",
+            ".oFccccCcccccccccCccccccCccccFo.",
+            ".oFccccccccccccccccccccccccccFo.",
+            ".oFFFFFFFFFFFFFFFFFFFFFFFFFFFFo.",
+            ".oooooooooooooooooooooooooooooo.",
+            "....owd..................owd....",
+            "....owd..................owd....",
+            "....owd..................owd....",
+            "....owd..................owd....",
+            "....owd..................owd....",
+            "....owd..................owd....",
+            "....owd..................owd....",
+            "...sssss................sssss...",
+            "................................",
+            "................................",
+        ]
+        cmap = {
+            "o": K,
+            "h": cedar["hi"],
+            "b": cedar["base"],
+            "d": cedar["dark"],
+            "l": cedar["line"],
+            "F": WOOD,
+            "c": (176, 128, 84),
+            "C": (150, 106, 66),
+            "w": WOOD,
+            "s": SHADOW,
+        }
+        cmap["d"] = cedar["dark"] if quadrant[0] == "t" else WOOD_D
+        art = art_top if quadrant[0] == "t" else art_bot
+        ox = 0 if quadrant[1] == "l" else 16
+        rows = [row[ox : ox + 16] for row in art]
+        p.grid(rows, cmap)
+
+    for q in ("tl", "tr", "bl", "br"):
+        make(f"notice_{q}", lambda p, q=q: _notice(p, q))
+
+    # VOTE HERE board: a white board with red 3x5 lettering, over a stake.
+    FONT3x5 = {
+        "V": ["#.#", "#.#", "#.#", "#.#", ".#."],
+        "O": ["###", "#.#", "#.#", "#.#", "###"],
+        "T": ["###", ".#.", ".#.", ".#.", ".#."],
+        "E": ["###", "#..", "##.", "#..", "###"],
+        "H": ["#.#", "#.#", "###", "#.#", "#.#"],
+        "R": ["##.", "#.#", "##.", "#.#", "#.#"],
+    }
+
+    def vote_board(p):
+        p.rect(0, 1, 15, 14, K)
+        p.rect(1, 2, 14, 13, (250, 248, 240))
+        p.rect(1, 13, 14, 13, CJOINT)
+        for row_i, word in enumerate(("VOTE", "HERE")):
+            for ci, ch in enumerate(word):
+                glyph = FONT3x5[ch]
+                for gy, grow in enumerate(glyph):
+                    for gx, gch in enumerate(grow):
+                        if gch == "#":
+                            p.px(2 + ci * 3 + gx, 3 + row_i * 6 + gy, RED if row_i == 0 else BLUE)
+        p.rect(7, 15, 8, 15, K)
+
+    make("vote_board", vote_board)
+
+    # Ballot box: a civic-blue box with a dark slot on a wooden stand.
+    def ballot_box(p):
+        p.grid(
+            [
+                "................",
+                "................",
+                "....oooooooo....",
+                "...ohhhhhhhho...",
+                "...ohbbbbbbho...",
+                "...ohbooooBho...",
+                "...ohbbbbbbho...",
+                "...obbbbbbbbo...",
+                "...obbbbbbbbo...",
+                "...obbbbbbbbo...",
+                "....oooooooo....",
+                ".....owwwwo.....",
+                ".....owddwo.....",
+                ".....oo..oo.....",
+                "....ssssssss....",
+                "................",
+            ],
+            {"o": K, "h": BLUE_HI, "b": BLUE, "B": BLUE_HI, "w": WOOD, "d": WOOD_D, "s": SHADOW},
+        )
+
+    make("ballot_box", ballot_box)
+
+    def stanchion(p):
+        p.grid(
+            [
+                "................",
+                "................",
+                "................",
+                ".......oo.......",
+                "......ohho......",
+                "......ohgo......",
+                ".......oo.......",
+                ".......go.......",
+                ".......go.......",
+                ".......go.......",
+                ".......go.......",
+                ".......go.......",
+                "......oggo......",
+                ".....oggggo.....",
+                ".....ssssss.....",
+                "................",
+            ],
+            {"o": K, "h": GRAY_HI, "g": GRAY, "s": SHADOW},
+        )
+
+    make("stanchion", stanchion)
+
+    def rope_h(p):
+        p.grid(
+            [
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "oo............oo",
+                "rroo........oorr",
+                "..rroooooooorr..",
+                "....rrrrrrrr....",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+            ],
+            {"o": K, "r": RED_HI},
+        )
+
+    make("rope_h", rope_h)
+
+    # Plain hanging banner (1x2): gold rod, white cloth (tinted at runtime),
+    # swallow-tail hem.
+    def banner_plain_t(p):
+        p.grid(
+            [
+                "................",
+                "..GGGGGGGGGGGG..",
+                "...oooooooooo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+            ],
+            {"o": K, "G": GOLD, "W": (250, 248, 240)},
+        )
+
+    make("banner_plain_t", banner_plain_t)
+
+    def banner_plain_b(p):
+        p.grid(
+            [
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWWWWWWo...",
+                "...oWWWooWWWo...",
+                "...oWWo..oWWo...",
+                "...oWo....oWo...",
+                "...oo......oo...",
+                "................",
+                "................",
+                "................",
+            ],
+            {"o": K, "W": (250, 248, 240)},
+        )
+
+    make("banner_plain_b", banner_plain_b)
+
+    # Bunting strip: a dark string with three white pennants (tinted at
+    # runtime), tiling horizontally along a wall row.
+    def bunting_h(p):
+        p.grid(
+            [
+                "................",
+                "oooooooooooooooo",
+                "oWWWoo.oWWWoo.oW",
+                "oWWWo..oWWWo..oW",
+                ".oWo....oWo....o",
+                ".oWo....oWo....o",
+                "..o......o......",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+            ],
+            {"o": K, "W": (250, 248, 240)},
+        )
+
+    make("bunting_h", bunting_h)
+
+    # Small opaque window (1x1): stone surround, teal glass, mullion, sparkle.
+    def win_small(p):
+        p.rect(0, 0, 15, 15, CURB_MID)
+        p.rect(1, 1, 14, 1, CURB_HI)
+        p.rect(0, 0, 15, 0, K)
+        p.rect(0, 15, 15, 15, K)
+        p.rect(0, 0, 0, 15, K)
+        p.rect(15, 0, 15, 15, K)
+        p.rect(2, 2, 13, 12, K)
+        p.rect(3, 3, 12, 11, TEAL)
+        p.rect(3, 10, 12, 11, TEAL_D)
+        p.rect(7, 3, 8, 11, K)
+        p.rect(3, 6, 12, 7, K)
+        for i in range(3):
+            p.px(4 + i, 5 - i, WHITE)
+        p.rect(2, 13, 13, 13, CURB_HI)
+        p.rect(2, 14, 13, 14, CJOINT)
+
+    make("win_small", win_small)
+
+    # Chimney stack (transparent bg): brick stack with a stone cap, drawn in
+    # the row above a shingle ridge so it pokes above the roofline.
+    def chimney(p):
+        p.grid(
+            [
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "......oooo......",
+                ".....ohhhho.....",
+                "......orro......",
+                "......oRro......",
+                "......orRo......",
+                "......orro......",
+                "......oRro......",
+                "......orro......",
+            ],
+            {"o": K, "h": CURB_HI, "r": (156, 78, 58), "R": (186, 96, 70)},
+        )
+
+    make("chimney", chimney)
+
+    # Park brazier: an iron bowl on three legs, unlit (the runtime lights it).
+    def brazier(p):
+        p.grid(
+            [
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "....oooooooo....",
+                "...ogggggggggo..",
+                "....ogggggggo...",
+                ".....ooooooo....",
+                "......o..o......",
+                ".....o....o.....",
+                "....o......o....",
+                "...oo......oo...",
+                "...ssssssssss...",
+                "................",
+            ],
+            {"o": K, "g": GRAY, "s": SHADOW},
+        )
+
+    make("brazier", brazier)
 
     # --- church kit ----------------------------------------------------------
     for name, img in _church_tiles().items():

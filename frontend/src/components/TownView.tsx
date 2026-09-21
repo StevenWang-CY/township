@@ -271,6 +271,7 @@ export default function TownView({ ws }: TownViewProps) {
         townId: town,
         mapPath: meta.map?.path,
         reducedMotion: Boolean(profile?.reducedMotion),
+        population: Number(meta.population) || undefined,
       });
     } catch {
       sceneRef.current = null;

@@ -224,41 +224,328 @@ export function drawPixelPlate(
   g.fillRect(x + w - 2, y + 2, 2, h - 4);
 }
 
-/* ── Scene-wide overlays ───────────────────────────────────────────────── */
+/* ── Ordered-dither light + shade ──────────────────────────────────────── */
 
-/** 256px radial vignette (transparent centre → dark edges). Scaled to fit. */
-export function ensureVignetteTexture(scene: Phaser.Scene): string {
-  const key = "px-vignette";
+const BAYER4 = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+];
+
+/**
+ * A radial disc drawn with a Bayer 4x4 ordered dither in `block`-px cells:
+ * the pixel-art answer to a soft radial gradient. `alphaAt(t)` maps the
+ * normalised distance from the centre (0..1) to a target alpha; each cell
+ * is either fully painted or skipped, so the falloff reads as dither rings
+ * instead of a blur.
+ */
+export function ensureDitheredDiscTexture(
+  scene: Phaser.Scene,
+  key: string,
+  size: number,
+  rgb: [number, number, number],
+  alphaAt: (t: number) => number,
+  block = 2,
+): string {
   if (scene.textures.exists(key)) return key;
-  const S = 256;
-  const canvas = scene.textures.createCanvas(key, S, S);
+  const canvas = scene.textures.createCanvas(key, size, size);
   if (!canvas) return key;
   const ctx = canvas.context;
-  const grd = ctx.createRadialGradient(S / 2, S / 2, S * 0.28, S / 2, S / 2, S * 0.62);
-  grd.addColorStop(0, "rgba(12, 10, 20, 0)");
-  grd.addColorStop(1, "rgba(12, 10, 20, 0.55)");
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, S, S);
+  const half = size / 2;
+  for (let y = 0; y < size; y += block) {
+    for (let x = 0; x < size; x += block) {
+      const t = Math.min(1, Math.hypot(x + block / 2 - half, y + block / 2 - half) / half);
+      const a = Math.max(0, Math.min(1, alphaAt(t)));
+      const bx = (x / block) & 3;
+      const by = (y / block) & 3;
+      // Four brightness bands: the threshold decides whether this cell paints
+      // at all; the band decides how solid it is.
+      if (a * 16 <= BAYER4[by][bx]) continue;
+      const band = a > 0.75 ? 1 : a > 0.5 ? 0.8 : a > 0.25 ? 0.62 : 0.45;
+      ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${band})`;
+      ctx.fillRect(x, y, block, block);
+    }
+  }
   canvas.refresh();
   return key;
 }
 
-/** 64px soft warm radial glow for lit windows at night. */
+/** 256px dithered vignette (clear centre → dark dithered edges). Scaled to fit. */
+export function ensureVignetteTexture(scene: Phaser.Scene): string {
+  return ensureDitheredDiscTexture(
+    scene,
+    "px-vignette",
+    256,
+    [12, 10, 20],
+    (t) => (t < 0.45 ? 0 : ((t - 0.45) / 0.55) * 0.6),
+    4,
+  );
+}
+
+/** 48px warm dithered halo for lit windows at night. */
 export function ensureWindowGlowTexture(scene: Phaser.Scene): string {
-  const key = "px-window-glow";
+  return ensureDitheredDiscTexture(scene, "px-window-glow", 48, [255, 200, 120], (t) => (1 - t) ** 1.6 * 0.9, 2);
+}
+
+/** 40px dithered lamp glow (tinted per town at use). */
+export function ensureLampGlowTexture(scene: Phaser.Scene): string {
+  return ensureDitheredDiscTexture(scene, "px-lamp-glow", 40, [255, 255, 255], (t) => (1 - t) ** 1.4, 2);
+}
+
+/* ── Pixel ambience sprites ────────────────────────────────────────────── */
+
+function paintRows(scene: Phaser.Scene, key: string, rows: string[], palette: Record<string, string>): string {
   if (scene.textures.exists(key)) return key;
-  const S = 64;
-  const canvas = scene.textures.createCanvas(key, S, S);
+  const w = rows[0].length;
+  const h = rows.length;
+  const canvas = scene.textures.createCanvas(key, w, h);
   if (!canvas) return key;
   const ctx = canvas.context;
-  const grd = ctx.createRadialGradient(S / 2, S / 2, 2, S / 2, S / 2, S / 2);
-  grd.addColorStop(0, "rgba(255, 214, 138, 0.9)");
-  grd.addColorStop(0.5, "rgba(255, 190, 110, 0.32)");
-  grd.addColorStop(1, "rgba(255, 180, 100, 0)");
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, S, S);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = palette[rows[y][x]];
+      if (!c) continue;
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
   canvas.refresh();
   return key;
+}
+
+/** Three checker-dithered smoke puffs (6 / 8 / 11 px). */
+export function ensureSmokePuffTextures(scene: Phaser.Scene): [string, string, string] {
+  const keys: [string, string, string] = ["px-smoke-6", "px-smoke-8", "px-smoke-11"];
+  const sizes = [6, 8, 11];
+  keys.forEach((key, i) => {
+    if (scene.textures.exists(key)) return;
+    const S = sizes[i];
+    const canvas = scene.textures.createCanvas(key, S, S);
+    if (!canvas) return;
+    const ctx = canvas.context;
+    const r = S / 2;
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const d = Math.hypot(x + 0.5 - r, y + 0.5 - r) / r;
+        if (d > 1) continue;
+        const solid = d < 0.55 || (x + y) % 2 === 0;
+        if (!solid) continue;
+        ctx.fillStyle = d < 0.55 ? "rgba(246, 243, 236, 1)" : "rgba(226, 222, 212, 0.85)";
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+    canvas.refresh();
+  });
+  return keys;
+}
+
+/** 2x2 petal / speck, white — tint at use. */
+export function ensurePetalTexture(scene: Phaser.Scene): string {
+  const key = "px-petal";
+  if (scene.textures.exists(key)) return key;
+  const canvas = scene.textures.createCanvas(key, 2, 2);
+  if (canvas) {
+    canvas.context.fillStyle = "#ffffff";
+    canvas.context.fillRect(0, 0, 2, 2);
+    canvas.refresh();
+  }
+  return key;
+}
+
+/** Three 1px ripple rings (r = 4, 6, 8) that a ripple cycles through. */
+export function ensureRippleTextures(scene: Phaser.Scene): [string, string, string] {
+  const keys: [string, string, string] = ["px-ripple-4", "px-ripple-6", "px-ripple-8"];
+  [4, 6, 8].forEach((r, i) => {
+    const key = keys[i];
+    if (scene.textures.exists(key)) return;
+    const S = r * 2 + 2;
+    const canvas = scene.textures.createCanvas(key, S, S);
+    if (!canvas) return;
+    const ctx = canvas.context;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+    // Bresenham-ish ring: every cell whose distance rounds to r.
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const d = Math.hypot(x + 0.5 - S / 2, (y + 0.5 - S / 2) * 1.6);
+        if (Math.abs(d - r) < 0.7) ctx.fillRect(x, y, 1, 1);
+      }
+    }
+    canvas.refresh();
+  });
+  return keys;
+}
+
+/** Two-frame falling leaf (5x3) in a colour — flat and tilted. */
+export function ensureLeafTextures(scene: Phaser.Scene, color: number): [string, string] {
+  const hex = `#${color.toString(16).padStart(6, "0")}`;
+  const dark = `#${Math.max(0, (color >> 16) - 40).toString(16).padStart(2, "0")}${Math.max(0, ((color >> 8) & 255) - 40).toString(16).padStart(2, "0")}${Math.max(0, (color & 255) - 40).toString(16).padStart(2, "0")}`;
+  const a = paintRows(scene, `px-leaf-${hex}-a`, [".###.", "##.##", ".###."], { "#": hex, ".": "" });
+  const b = paintRows(scene, `px-leaf-${hex}-b`, ["..##.", ".#.#.", "##..."], { "#": dark, ".": "" });
+  return [a, b];
+}
+
+/** Two-frame bird silhouette (7x5): wings up / wings down. */
+export function ensureBirdTextures(scene: Phaser.Scene): [string, string] {
+  const ink = "#2b2f3a";
+  const up = paintRows(scene, "px-bird-up", ["#.....#", ".#...#.", "..#.#..", "...#...", "......."], { "#": ink });
+  const down = paintRows(scene, "px-bird-down", [".......", "...#...", "..###..", ".#...#.", "#.....#"], { "#": ink });
+  return [up, down];
+}
+
+/** Two-frame mallard (10x7): head up / head dipped. */
+export function ensureDuckTextures(scene: Phaser.Scene): [string, string] {
+  const pal = { "h": "#2f6b3a", "b": "#7a5a3a", "B": "#9a7a52", "e": "#1c1c1c", "k": "#d9a441", "w": "#f2ecd8" };
+  const a = paintRows(scene, "px-duck-a", [
+    ".......hh.",
+    "......hhhk",
+    "......eh..",
+    ".wbbbbbh..",
+    "wbBBBBbb..",
+    ".bbbbbbb..",
+    "..bbbbb...",
+  ], pal);
+  const b = paintRows(scene, "px-duck-b", [
+    "..........",
+    "..........",
+    ".......hh.",
+    ".wbbbbhhhk",
+    "wbBBBBbeh.",
+    ".bbbbbbb..",
+    "..bbbbb...",
+  ], pal);
+  return [a, b];
+}
+
+/* ── Pixel type: a hand-authored 5x7 uppercase font ────────────────────── */
+
+const FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:'-!?&/";
+
+const GLYPHS: Record<string, string[]> = {
+  A: [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  B: ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+  C: [".####", "#....", "#....", "#....", "#....", "#....", ".####"],
+  D: ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+  E: ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+  F: ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+  G: [".####", "#....", "#....", "#.###", "#...#", "#...#", ".####"],
+  H: ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  I: ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"],
+  J: ["..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."],
+  K: ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+  L: ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+  M: ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
+  N: ["#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#", "#...#"],
+  O: [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+  P: ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+  Q: [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+  R: ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+  S: [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+  T: ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+  U: ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+  V: ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+  W: ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"],
+  X: ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+  Y: ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+  Z: ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+  "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+  "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+  "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+  "3": ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+  "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+  "5": ["#####", "#....", "#....", "####.", "....#", "....#", "####."],
+  "6": [".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."],
+  "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+  "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+  "9": [".###.", "#...#", "#...#", ".####", "....#", "....#", ".###."],
+  " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."],
+  ".": [".....", ".....", ".....", ".....", ".....", ".##..", ".##.."],
+  ",": [".....", ".....", ".....", ".....", ".##..", ".##..", ".#..."],
+  ":": [".....", ".##..", ".##..", ".....", ".##..", ".##..", "....."],
+  "'": [".##..", ".##..", ".#...", ".....", ".....", ".....", "....."],
+  "-": [".....", ".....", ".....", "#####", ".....", ".....", "....."],
+  "!": ["..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#.."],
+  "?": [".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."],
+  "&": [".##..", "#..#.", "#..#.", ".##..", "#.#.#", "#..#.", ".##.#"],
+  "/": ["....#", "...#.", "...#.", "..#..", ".#...", ".#...", "#...."],
+};
+
+export const PIXEL_FONT = "px-font";
+export const PIXEL_FONT_OUTLINED = "px-font-o";
+/** Advance per glyph (5 px + 1 px gap). */
+export const PIXEL_FONT_ADVANCE = 6;
+
+/**
+ * Register the two bitmap fonts: `px-font` (5x7 in a 6x8 cell, white — tint
+ * at use) and `px-font-o` (the same glyphs with a baked 1 px dark outline in
+ * an 8x10 cell, for names and captions that sit on busy tiles). Textured
+ * quads never antialias, so labels stay crisp at any integer scale.
+ */
+export function ensurePixelFont(scene: Phaser.Scene): void {
+  if (scene.cache.bitmapFont.has(PIXEL_FONT)) return;
+  const n = FONT_CHARS.length;
+  const plain = scene.textures.createCanvas(`${PIXEL_FONT}-atlas`, n * 6, 8);
+  const outlined = scene.textures.createCanvas(`${PIXEL_FONT_OUTLINED}-atlas`, n * 8, 10);
+  if (!plain || !outlined) return;
+  const pc = plain.context;
+  const oc = outlined.context;
+  for (let i = 0; i < n; i++) {
+    const rows = GLYPHS[FONT_CHARS[i]] ?? GLYPHS["?"];
+    // Outline pass first (dark), then the glyph on top of both atlases.
+    oc.fillStyle = "#1b1812";
+    for (let y = 0; y < 7; y++) {
+      for (let x = 0; x < 5; x++) {
+        if (rows[y][x] !== "#") continue;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) oc.fillRect(i * 8 + 1 + x + dx, 1 + y + dy, 1, 1);
+        }
+      }
+    }
+    pc.fillStyle = "#ffffff";
+    oc.fillStyle = "#ffffff";
+    for (let y = 0; y < 7; y++) {
+      for (let x = 0; x < 5; x++) {
+        if (rows[y][x] !== "#") continue;
+        pc.fillRect(i * 6 + x, y, 1, 1);
+        oc.fillRect(i * 8 + 1 + x, 1 + y, 1, 1);
+      }
+    }
+  }
+  plain.refresh();
+  outlined.refresh();
+  scene.cache.bitmapFont.add(PIXEL_FONT, Phaser.GameObjects.RetroFont.Parse(scene, {
+    image: `${PIXEL_FONT}-atlas`,
+    width: 6,
+    height: 8,
+    chars: FONT_CHARS,
+    charsPerRow: n,
+    "offset.x": 0,
+    "offset.y": 0,
+    "spacing.x": 0,
+    "spacing.y": 0,
+    lineSpacing: 0,
+  }));
+  scene.cache.bitmapFont.add(PIXEL_FONT_OUTLINED, Phaser.GameObjects.RetroFont.Parse(scene, {
+    image: `${PIXEL_FONT_OUTLINED}-atlas`,
+    width: 8,
+    height: 10,
+    chars: FONT_CHARS,
+    charsPerRow: n,
+    "offset.x": 0,
+    "offset.y": 0,
+    "spacing.x": 0,
+    "spacing.y": 0,
+    lineSpacing: 0,
+  }));
+}
+
+/** Text the pixel font can render: uppercase, unknown glyphs → "?". */
+export function pixelText(text: string): string {
+  return text
+    .toUpperCase()
+    .split("")
+    .map((ch) => (FONT_CHARS.includes(ch) ? ch : ch === "’" ? "'" : ch === "—" || ch === "–" ? "-" : "?"))
+    .join("");
 }
 
 /* ── Deterministic RNG for the capture pipeline ────────────────────────── */

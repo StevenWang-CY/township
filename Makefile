@@ -17,7 +17,7 @@ else
 PYTHON ?= $(UV) run --locked --extra dev python
 endif
 
-.PHONY: help install dev dev-backend dev-frontend test test-e2e lint format build demo demo-build demo-preview capture-setup capture-media sim docker
+.PHONY: help install dev dev-backend dev-frontend test test-e2e lint format build demo demo-build demo-preview capture-setup capture-media sim docker maps
 
 help: ## Show this help
 	@printf "\n  \033[1mTownship\033[0m — AI residents deliberating in a living pixel town\n\n"
@@ -73,6 +73,17 @@ demo-build: ## Build the zero-backend demo player (stages scenarios/*/demo cache
 
 demo-preview: ## Serve the built demo player locally (run 'make demo-build' first)
 	cd frontend && npm run demo:preview
+
+maps: ## Regenerate the tileset, every town map + preview, the atlases, and the frontend tile metadata
+	$(PYTHON) -m scripts.mapgen.moderntiles
+	@for dir in scenarios/*/; do \
+		id=$$(basename "$$dir"); \
+		if [ -d "$$dir/towns" ]; then $(PYTHON) -m scripts.mapgen.build_maps --scenario "$$id" --all --preview; fi; \
+	done
+	$(PYTHON) -m scripts.mapgen.overworld --all
+	$(PYTHON) scripts/mapgen/export_window_gids.py
+	$(PYTHON) scripts/mapgen/export_road_gids.py
+	$(PYTHON) scripts/mapgen/validate_registry.py
 
 capture-setup: ## Install Playwright Chromium for automated product captures
 	cd frontend && npx playwright install chromium

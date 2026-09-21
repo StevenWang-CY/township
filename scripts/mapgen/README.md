@@ -9,14 +9,20 @@ plus a generated modern extension sheet (`township-modern.png`). Maps are
 ## Pipeline
 
 ```
+make maps                                   # everything below, for every scenario
 python3 -m scripts.mapgen.moderntiles
 python3 -m scripts.mapgen.build_maps --scenario nj11-2026 --town dover --preview
 python3 -m scripts.mapgen.render_preview --scenario nj11-2026 dover --labels
+python3 scripts/mapgen/export_window_gids.py   # windowGids.json + stampDefs.json
+python3 scripts/mapgen/export_road_gids.py     # roadGids.json (nav-grid ground kinds)
 python3 scripts/mapgen/validate_registry.py
 ```
 
 The first command regenerates the shared `township-modern.png` extension sheet; the
-last produces the registry acceptance sheet. Town outputs are always isolated under
+exporters serialize registry facts the frontend must never hardcode (window
+panes for the dusk glow, prop stamps for `SceneAmbience` / the civic layer,
+sidewalk / road / ballast GIDs for the walkability grid); the last produces the
+registry acceptance sheet. Town outputs are always isolated under
 `frontend/public/assets/maps/<scenario-id>/`:
 
 - `<scenario-id>/<town-id>.tmj` — the map `TownScene` loads
@@ -51,8 +57,30 @@ Object layers:
 - `anchors` — point objects TownScene turns into live sprites. `x/y` is the
   sprite's bottom-center. String properties:
   - `kind`: one of `lamp | tree | flower | smoke | water-foam | windmill | label`
+    or the civic kinds `yardsign | noticeboard | pollplace | banner | bunting |
+    brazier` (see below)
   - `stamp` (trees): registry stamp name, e.g. `tree_light`, `tree_fruit_a`
   - `text` (labels): display text; the object `name` carries the landmark name
+  - `mode` (smoke): `hearth` chimneys only smoke at dawn and dusk; anchors
+    without a mode (factory stacks) smoke all day
+  - `seat` / `home` (yardsign): a stable seat index and the dwelling's landmark
+  - `mount` (banner), `span` (bunting): where the runtime hangs civic cloth
+
+### Civic anchors (the election made visible)
+
+`emit_civic_anchors()` runs after every layout / generic interpretation and
+derives the election's furniture from scenario data instead of hand placement:
+
+| kind | where it comes from | what the runtime does with it |
+|------|---------------------|-------------------------------|
+| `yardsign` | two lawn cells beside every `cottage()` (one beside a narrow `storefront(yard=True)` row house) | a white sign the town scene tints with the resident's stance once opinions are revealed |
+| `noticeboard` | `noticeboard(m, x, y, landmark=…)` in a layout, or one per `park` in the generic interpreter | the round's headlines pinned as pixel sheets, the final tally board |
+| `pollplace` + 2 `banner` + `bunting` | the landmark whose town JSON declares `"role": "polling_place"` (fallback: a `civic`-typed landmark, then a name containing "town hall" / "municipal"); the building must have been drawn with `landmark=<name>` so its door is registered | the polling station on decision day (VOTE HERE sign, ballot box, queue rope), facade banners tinted toward the leader, bunting in the winner's color |
+| `brazier` | a free lawn cell in the first `park` | lit on results night |
+
+Every recipe (`storefront`, `grand`, `cottage`, `church`, `diner`) accepts
+`landmark=` to register its door; cottages and `storefront(yard=True)` are
+dwellings. Shingle-roofed recipes also get a `chimney` + hearth smoke anchor.
 
 Tilesets: `rpg-tileset` at `firstgid` 1 (100 cols, 10000 tiles) and
 `township-modern` at `firstgid` 10001. Flip flags follow the Tiled top-3-bit

@@ -1,11 +1,13 @@
 import Phaser from "phaser";
 import { playEmote, type EmoteKey } from "./EmoteRegistry";
 import {
+  PIXEL_FONT_OUTLINED,
   ensureBallotTexture,
   ensureRingTextures,
   ensureShadowTexture,
   ensureSquareTexture,
   ensureZzTexture,
+  pixelText,
   reducedMotion,
 } from "./pixelTextures";
 import type { Pt } from "./NavGrid";
@@ -137,7 +139,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   private ringA: Phaser.GameObjects.Image;
   private ringB: Phaser.GameObjects.Image;
   private ringShimmerTimer?: Phaser.Time.TimerEvent;
-  protected nameLabel: Phaser.GameObjects.Text;
+  /** Pixel-type nameplate (falls back to web type where the font is not
+   *  registered, e.g. the onboarding stage). */
+  protected nameLabel: Phaser.GameObjects.BitmapText | Phaser.GameObjects.Text;
 
   // Bubble stacking
   private bubbleQueue: BubbleEntry[] = [];
@@ -307,16 +311,20 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     }
 
     // ── Name tag ─────────────────────────────────────────────
-    const first = cfg.name.split(/[\s"'&]/)[0];
-    this.nameLabel = scene.add.text(0, LABEL_Y, first, {
-      fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-      fontSize: "9px",
-      fontStyle: "bold",
-      color: "#ffffff",
-      stroke: "#111111",
-      strokeThickness: 3,
-      resolution: 2,
-    });
+    const first = cfg.name.split(/[\s"'&]/)[0].slice(0, 10);
+    if (scene.cache.bitmapFont.has(PIXEL_FONT_OUTLINED)) {
+      this.nameLabel = scene.add.bitmapText(0, LABEL_Y, PIXEL_FONT_OUTLINED, pixelText(first));
+    } else {
+      this.nameLabel = scene.add.text(0, LABEL_Y, first, {
+        fontFamily: "Inter, 'Helvetica Neue', sans-serif",
+        fontSize: "9px",
+        fontStyle: "bold",
+        color: "#ffffff",
+        stroke: "#111111",
+        strokeThickness: 3,
+        resolution: 2,
+      });
+    }
     this.nameLabel.setOrigin(0.5, 0);
     // Rendered in-canvas so the label can never detach from its sprite the
     // way screen-space DOM labels did under a zoomed follow-camera. TownScene
@@ -342,13 +350,13 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         this.applyLabelMode();
         if (this.isMoving) return;
         scene.tweens.add({ targets: this, scaleX: 1.05, scaleY: 1.05, duration: 130, ease: "Sine.easeOut" });
-        this.nameLabel.setColor("#FFD700");
+        this.setLabelHighlight(true);
       });
       this.on("pointerout", () => {
         this.labelHover = false;
         this.applyLabelMode();
         scene.tweens.add({ targets: this, scaleX: 1, scaleY: 1, duration: 130, ease: "Sine.easeOut" });
-        this.nameLabel.setColor("#ffffff");
+        this.setLabelHighlight(false);
       });
       this.on("pointerdown", () => {
         if (!this.isPlayer) {
@@ -392,6 +400,23 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   /** In-flight walk target — other agents treat it as occupied ground. */
   getReservedTarget(): { x: number; y: number } | null {
     return this.reservedTarget;
+  }
+
+  /** Gold nameplate while hovered; ink-white otherwise. */
+  private setLabelHighlight(on: boolean) {
+    if (this.nameLabel instanceof Phaser.GameObjects.BitmapText) {
+      if (on) this.nameLabel.setTint(0xf2c94c);
+      else this.nameLabel.clearTint();
+    } else {
+      this.nameLabel.setColor(on ? "#FFD700" : "#ffffff");
+    }
+  }
+
+  /** Integer scale for the nameplate (TownScene doubles labels when the
+   *  camera zooms out so pixel type stays crisp and legible). */
+  setLabelScale(scale: number) {
+    this.nameLabel.setScale(scale);
+    this.labelDot?.setScale(scale);
   }
 
   /**

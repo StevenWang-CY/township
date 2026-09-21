@@ -37,6 +37,7 @@ from mapgen.build_maps import (
     cottage,
     facade_wall,
     grand,
+    noticeboard,
     pad_stamp,
     path,
     storefront,
@@ -134,20 +135,22 @@ def compose(m: MapCanvas) -> None:
     m.pave(23, 20, 2, 2)  # stoop paths across the front gardens
     m.pave(30, 20, 2, 2)
     # -- Town Hall: brick arch, civic banners, paved forecourt
-    grand(m, 35, 12, 8, 7, facade="brick", banners=True)
+    grand(m, 35, 12, 8, 7, facade="brick", landmark="Town Hall")
     m.pave(37, 19, 4, 3)
     # -- Brownstone rowhouses with stoops (railings added after paint).
     #    Front walk spans the whole frontage (row 21) and reaches west to
     #    meet the Anderson Park path mouth at cols 55-56.
-    cottage(m, 60, 13, 6, 8)
-    cottage(m, 66, 13, 6, 8, roof="deck_dark")
+    cottage(m, 60, 13, 6, 8, landmark="Anderson Park")
+    cottage(m, 66, 13, 6, 8, roof="deck_dark", landmark="Anderson Park")
     m.pave(57, 21, 15, 1)
     # -- Watchung Plaza: cafe + tudor bookshop over a shared plaza
     storefront(m, 31, 28, 6, 7, facade="cream", awning=True)  # cafe
     tudor_shop(m, 38, 28, 6, door_dx=3, sign=0)  # bookshop
     m.pave(30, 35, 11, 5)
     # -- Public Library
-    grand(m, 19, 28, 8, 7, facade="stone_small", roof="stone", windows=True)
+    grand(
+        m, 19, 28, 8, 7, facade="stone_small", roof="stone", windows=True, landmark="Public Library"
+    )
     m.pave(20, 35, 7, 2)
     # -- St. Paul Baptist Church
     church(m, 8, 32, 8, 8, variant="clapboard")
@@ -259,7 +262,7 @@ def compose(m: MapCanvas) -> None:
     m.tree(43, 39, stamp="tree_round_small")
 
     # ================= library frontage =================
-    m.set("deco-below", 19, 36, M.mg("newsbox"))
+    noticeboard(m, 19, 36, landmark="Public Library")
     m.collide(19.2, 36.3, 0.6, 0.7)
     m.set("deco-below", 24, 36, M.mg("bench_h"))
     m.collide(24, 36, 1, 1)

@@ -91,6 +91,46 @@ def _anchor_props(obj: dict) -> dict:
     return {p["name"]: p["value"] for p in obj.get("properties", [])}
 
 
+_windmill_frame = None
+
+
+def draw_windmill(canvas: Image.Image, px: float, py: float) -> None:
+    """Frame 0 of the windmill sheet at the runtime's 0.42 scale, bottom-centred."""
+    global _windmill_frame
+    if _windmill_frame is None:
+        sheet = Image.open(REPO_ROOT / "frontend/public/assets/spritesheets/windmill.png").convert(
+            "RGBA"
+        )
+        frame = sheet.crop((0, 0, 208, 208))
+        size = round(208 * 0.42)
+        _windmill_frame = frame.resize((size, size), Image.NEAREST)
+    f = _windmill_frame
+    canvas.alpha_composite(f, (int(px - f.width / 2), int(py - f.height)))
+
+
+def draw_smoke(canvas: Image.Image, px: float, py: float) -> None:
+    """Three rising, growing dithered puffs — the at-rest look of the
+    scene's pixel smoke stream."""
+    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    for i, size in enumerate((4, 5, 6)):
+        ox = int(px - size / 2 + i * 2)
+        oy = int(py - 6 - i * 8 - size)
+        for yy in range(size):
+            for xx in range(size):
+                if (xx + yy) % 2 == 0 or i == 0:
+                    layer.putpixel((ox + xx, oy + yy), (230, 227, 218, 150 - i * 35))
+    canvas.alpha_composite(layer)
+
+
+def draw_foam(canvas: Image.Image, px: float, py: float) -> None:
+    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    for dx, dy in ((-10, -2), (0, 3), (9, -4)):
+        for yy in range(2):
+            for xx in range(2):
+                layer.putpixel((int(px + dx + xx), int(py + dy + yy)), (255, 255, 255, 150))
+    canvas.alpha_composite(layer)
+
+
 def _validated_id(value: str, *, label: str) -> str:
     if not isinstance(value, str) or PACKAGE_ID_RE.fullmatch(value) is None:
         raise ValueError(f"{label} must use lowercase letters, numbers, and single hyphens")
@@ -136,11 +176,20 @@ def render(town_id: str, scenario: str = "nj11-2026", labels: bool = False) -> P
         elif kind == "flower":
             draw_stamp(canvas, R.FLOWER_PATCH, obj["x"], obj["y"])
         elif kind == "water-foam":
-            pass  # shimmer only exists in-scene
+            draw_foam(canvas, obj["x"], obj["y"])
         elif kind == "smoke":
-            pass
+            # hearth smoke only rises at dawn/dusk in the scene; previews
+            # show the always-on stacks (factory, diner griddle)
+            if props.get("mode", "always") != "hearth":
+                draw_smoke(canvas, obj["x"], obj["y"])
         elif kind == "windmill":
-            draw_stamp(canvas, R.POST_WOOD_A, obj["x"], obj["y"])
+            draw_windmill(canvas, obj["x"], obj["y"])
+        elif kind == "yardsign":
+            draw_stamp(canvas, M.YARD_SIGN, obj["x"], obj["y"])
+        elif kind == "banner":
+            draw_stamp(canvas, M.BANNER_PLAIN, obj["x"], obj["y"])
+        # noticeboard / pollplace / bunting / brazier: the kiosk and brazier
+        # are tiles already; the polling dressing only exists on decision day
 
     if "buildings-top" in layers:
         draw_layer(canvas, layers["buildings-top"])

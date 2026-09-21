@@ -43,6 +43,7 @@ from mapgen.build_maps import (
     church,
     facade_wall,
     grand,
+    noticeboard,
     path,
     path_rect,
     storefront,
@@ -149,7 +150,7 @@ def compose(m: MapCanvas) -> None:
     # -- Rocco's Slice House
     storefront(m, 29, 15, 6, 6, facade="brick", awning=True)
     # -- Harlow Elementary School (1968 brick, arch entry)
-    grand(m, 41, 9, 11, 8, facade="brick", windows=True)
+    grand(m, 41, 9, 11, 8, facade="brick", windows=True, landmark="Harlow Elementary School")
     # -- Harlow Congregational Church (1841, whitewashed)
     church(m, 56, 15, 7, 8, variant="clapboard")
     # -- Harlow Firehouse (hand-composed: twin metal bays + red bunting),
@@ -164,9 +165,45 @@ def compose(m: MapCanvas) -> None:
     m.collide(39, 29, 8, 7)
     # -- Fairview homes: flat deck roofs over plain brick/cream fronts with
     #    a real door + window each, matching the town's building language
-    storefront(m, 9, 34, 6, 7, facade="cream", roof="deck_light", door_dx=3, sign=None)
-    storefront(m, 16, 34, 6, 7, facade="brick", roof="deck_dark", door_dx=3, sign=None)
-    storefront(m, 26, 34, 6, 7, facade="cream", roof="stone", door_dx=3, sign=None)
+    storefront(
+        m,
+        9,
+        34,
+        6,
+        7,
+        facade="cream",
+        roof="deck_light",
+        door_dx=3,
+        sign=None,
+        yard=True,
+        landmark="Fairview Subdivision",
+    )
+    storefront(
+        m,
+        16,
+        34,
+        6,
+        7,
+        facade="brick",
+        roof="deck_dark",
+        door_dx=3,
+        sign=None,
+        yard=True,
+        landmark="Fairview Subdivision",
+    )
+    storefront(
+        m,
+        26,
+        34,
+        6,
+        7,
+        facade="cream",
+        roof="stone",
+        door_dx=3,
+        sign=None,
+        yard=True,
+        landmark="Fairview Subdivision",
+    )
 
     # ================= paint the road network =================
     m.paint_roads(crosswalks=False)
@@ -197,7 +234,7 @@ def compose(m: MapCanvas) -> None:
     m.collide(15.1, 19.3, 0.8, 0.7)
     m.set("deco-below", 21, 19, M.mg("planter_box"))
     m.collide(21.1, 19.3, 0.8, 0.7)
-    m.set("deco-below", 27, 19, M.mg("newsbox"))
+    noticeboard(m, 27, 18, landmark="Harlow Plaza")
     m.collide(27.2, 19.3, 0.6, 0.7)
     m.set("deco-below", 9, 19, M.mg("mailbox"))
     m.collide(9.2, 19.2, 0.6, 0.8)

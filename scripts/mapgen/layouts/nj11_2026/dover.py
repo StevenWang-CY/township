@@ -35,6 +35,7 @@ from mapgen.build_maps import (
     cottage,
     facade_wall,
     grand,
+    noticeboard,
     pad_stamp,
     path,
     path_rect,
@@ -80,12 +81,22 @@ def compose(m: MapCanvas) -> None:
 
     # ================= buildings (reserve before paint_roads) =============
     # -- storefront row, north of Blackwell, doors on the sidewalk
-    storefront(m, 22, 16, 6, 6, facade="brick", roof="terracotta", awning=True)  # La Finca
+    storefront(
+        m,
+        22,
+        16,
+        6,
+        6,
+        facade="brick",
+        roof="terracotta",
+        awning=True,
+        landmark="La Finca Restaurant",
+    )
     storefront(m, 31, 16, 4, 6, facade="cream", roof="terracotta", awning=True)  # bodega
     storefront(m, 35, 16, 4, 6, facade="brick", roof="terracotta", sign=4, window=False)  # taqueria
     storefront(m, 39, 16, 4, 6, facade="cream", roof="terracotta", awning=True)  # barber
     # -- St. Mary's Church
-    church(m, 48, 10, 8, 7, variant="stone")
+    church(m, 48, 10, 8, 7, variant="stone", landmark="St. Mary's Church")
     # -- Factory & warehouse district
     grand(m, 58, 14, 9, 8, facade="stone_large", windows=True)
     # brick smokestack rising above the roofline + rooftop vent
@@ -94,12 +105,14 @@ def compose(m: MapCanvas) -> None:
     m.stamp("buildings-top", R.METAL_GRATE, 59, 14)
     storefront(m, 67, 16, 4, 6, facade="stone_small", roof="stone", window=False)
     # -- Public housing cottages
-    cottage(m, 8, 7, 6, 8)
-    cottage(m, 15, 7, 6, 8)
+    cottage(m, 8, 7, 6, 8, landmark="Public Housing")
+    cottage(m, 15, 7, 6, 8, landmark="Public Housing")
     # -- Public Library
-    grand(m, 34, 29, 9, 6, facade="stone_large", windows=True)
+    grand(m, 34, 29, 9, 6, facade="stone_large", windows=True, landmark="Public Library")
     # -- Dover Station
-    grand(m, 6, 31, 9, 7, facade="stone_large", roof="stone", door="metal")
+    grand(
+        m, 6, 31, 9, 7, facade="stone_large", roof="stone", door="metal", landmark="Dover Station"
+    )
     m.stamp("buildings-base", R.SIGNS_WALL[3], 7, 35)
 
     # ================= paint the road network =================
@@ -201,8 +214,7 @@ def compose(m: MapCanvas) -> None:
     # ================= library frontage =================
     apron(m, 37, 35, 3, 1)
     path_rect(m, 38, 36, 2, 2)  # doorstep lane to the park loop
-    m.set("deco-below", 33, 34, M.mg("newsbox"))
-    m.collide(33, 34, 1, 1)
+    noticeboard(m, 32, 35, landmark="Town Park")
     m.stamp("deco-below", R.SIGNS_STANDING[0], 43, 33)
     m.collide(43, 34, 2, 1)
 

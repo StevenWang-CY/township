@@ -39,11 +39,14 @@ import { arrivalFacing, deriveActivity } from "./DayPart";
 import { landmarksFor } from "../hooks/useTownData";
 import { WeatherScene } from "./WeatherScene";
 import {
+  PIXEL_FONT_OUTLINED,
   ensureNewspaperTexture,
+  ensurePixelFont,
   ensureSquareTexture,
   ensureVignetteTexture,
   ensureWindowGlowTexture,
   mulberry32,
+  pixelText,
   reducedMotion,
 } from "./pixelTextures";
 import windowGids from "./windowGids.json";
@@ -130,7 +133,13 @@ export class TownScene extends Phaser.Scene {
   /** Landmark-name → grid-snapped label position from the map's label anchors. */
   private mapLabels: Map<string, { x: number; y: number }> = new Map();
   /** In-canvas landmark name chips (tilemap towns; fallback towns draw their own). */
-  private landmarkLabelTexts: Phaser.GameObjects.Text[] = [];
+  private landmarkLabelTexts: Phaser.GameObjects.Container[] = [];
+  /** World scale applied to every in-world label so each font texel covers
+   *  a whole number of screen pixels at the current camera zoom. */
+  private labelScale = 1;
+  private labelZoom = 0;
+  /** Town population from the scenario (busier sky, more passers-by). */
+  private population = 0;
   private townDataResolved = false;
   private playerSpawnPending: UserProfile | null = null;
   /** Round-robin cursor for landmark-fallback spawns (see addAgent). */
@@ -208,10 +217,13 @@ export class TownScene extends Phaser.Scene {
     reducedMotion?: boolean;
     /** Start in the composed town-overview camera (default when no player). */
     overview?: boolean;
+    /** Town population (scenario data) — scales ambient life. */
+    population?: number;
   }) {
     this.scenarioId = data.scenarioId;
     this.townId = data.townId;
     this.mapPath = data.mapPath ?? null;
+    this.population = Number.isFinite(data.population) ? Number(data.population) : 0;
     this.reducedMotionRequested = Boolean(data.reducedMotion);
     this.overviewRequested = data.overview ?? true;
     // Inline fallback until the scenario town payload resolves.
@@ -319,6 +331,9 @@ export class TownScene extends Phaser.Scene {
     // preview the night pass without waiting on the world clock.
     (window as unknown as { __townshipScene?: TownScene }).__townshipScene = this;
 
+    // Pixel type for every in-world label (names, landmark chips, captions).
+    ensurePixelFont(this);
+
     // Conversation choreography — closures give it the private helpers it
     // needs without widening the scene's public surface.
     this.choreo = new ConversationChoreographer({
@@ -384,14 +399,8 @@ export class TownScene extends Phaser.Scene {
     // Ambient background passers-by
     this.spawnAmbientNPCs();
 
-    // Ambient birds flying across sky
-    this.scheduleBirds(W, H);
-
     // Town title banner
     this.buildTitleBanner(W);
-
-    // Per-town flavor effects (papel-picado, ducks, dogs, etc.)
-    this.addTownFlavor(this.townId);
 
     // ── Living details driven by the map's anchor layer (trees, lamps,
     // flowers, smoke, water shimmer, windmill, petal drift).
@@ -411,8 +420,10 @@ export class TownScene extends Phaser.Scene {
       this.mapAnchors,
       W,
       H,
+      { population: this.population },
     );
     this.ambience.setHour(this.worldClock.hour);
+    this.ambience.setPartOfDay(this.worldClock.partOfDay());
 
     // Register + launch the Weather scene in parallel
     if (!this.scene.get("WeatherScene")) {
@@ -482,6 +493,7 @@ export class TownScene extends Phaser.Scene {
       // SceneAmbience owns lamp glow + night tint; refresh at top of each hour.
       if (this.worldClock.hour !== prevHour) {
         this.ambience?.setHour(this.worldClock.hour);
+        this.ambience?.setPartOfDay(this.worldClock.partOfDay());
         this.refreshDayParts();
       }
     }
@@ -504,6 +516,7 @@ export class TownScene extends Phaser.Scene {
     });
     this.playerSprite?.updatePlayer(delta);
     this.choreo.update();
+    this.syncLabelScale();
 
     // The player always wins the camera: if they start walking while the
     // conversation spotlight has it, hand framing straight back.
@@ -1298,6 +1311,7 @@ export class TownScene extends Phaser.Scene {
     this.refreshSkyOverlay();
     if (applyRoutines && !DEMO_MODE) this.tickRoutines();
     this.ambience?.setHour(this.worldClock.hour);
+    this.ambience?.setPartOfDay(this.worldClock.partOfDay());
     this.refreshDayParts();
   }
 
@@ -2031,7 +2045,9 @@ export class TownScene extends Phaser.Scene {
   private spawnAmbientNPCs() {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
-    const count = 4;
+    // A town of 3,850 gets a couple of passers-by; a town of 40,000 a small
+    // street's worth.
+    const count = Phaser.Math.Clamp(2 + Math.floor(this.population / 15000), 2, 8);
     const names = [...this.characterKeys];
     if (names.length === 0) return;
 
@@ -2078,51 +2094,6 @@ export class TownScene extends Phaser.Scene {
       );
       npc.moveToPosition(t.x, t.y, () => this.scheduleAmbientWander(npc, W, H));
     });
-  }
-
-  /* ── Birds (ambient sky life) ───────────────────────────── */
-
-  private scheduleBirds(W: number, H: number) {
-    const launchBird = () => {
-      const fromLeft = Math.random() < 0.5;
-      const y = Phaser.Math.Between(40, H / 3);
-      const x0 = fromLeft ? -20 : W + 20;
-      const x1 = fromLeft ? W + 20 : -20;
-
-      const bird = this.add.graphics();
-      bird.lineStyle(2, 0x334455, 0.55);
-      bird.lineBetween(-5, 0, 0, -3);
-      bird.lineBetween(0, -3, 5, 0);
-      bird.setPosition(x0, y);
-      // Birds fly over the rooftops (buildings-top is 5000), under the sky tint.
-      bird.setDepth(5450);
-
-      const duration = Phaser.Math.Between(6000, 12000);
-
-      this.tweens.add({
-        targets: bird,
-        scaleY: -1,
-        duration: 280,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.easeInOut",
-      });
-      this.tweens.add({
-        targets: bird,
-        x: x1,
-        y: y + Phaser.Math.Between(-20, 20),
-        duration,
-        ease: "Sine.easeInOut",
-        onComplete: () => bird.destroy(),
-      });
-
-      const nextDelay = Phaser.Math.Between(3000, 9000);
-      this.time.delayedCall(nextDelay, launchBird);
-    };
-
-    for (let i = 0; i < 3; i++) {
-      this.time.delayedCall(Phaser.Math.Between(1000, 5000), launchBird);
-    }
   }
 
   /* ── Tilemap / Landmark layout ─────────────────────────── */
@@ -2206,7 +2177,7 @@ export class TownScene extends Phaser.Scene {
         if (name) this.mapLabels.set(name, { x, y });
         continue;
       }
-      this.mapAnchors.push({ kind, x, y, stamp: props.stamp });
+      this.mapAnchors.push({ kind, x, y, stamp: props.stamp, name: o.name || undefined, props });
     }
 
     this.builtMap = map;
@@ -2714,23 +2685,72 @@ export class TownScene extends Phaser.Scene {
     this.landmarkLabelTexts = [];
     // Fallback towns already draw their labels into fallbackWorld.
     if (!this.builtMap) return;
+    const pixelFont = this.cache.bitmapFont.has(PIXEL_FONT_OUTLINED);
     for (const lm of this.landmarks) {
       if (lm.type === "road") continue;
       const anchor = this.mapLabels.get(lm.name);
-      const x = anchor ? anchor.x : lm.x + lm.width / 2;
-      const y = anchor ? anchor.y : lm.y - 8;
-      const label = this.add.text(x, y, lm.name, {
-        fontFamily: "Inter, 'Helvetica Neue', sans-serif",
-        fontSize: "9px",
-        fontStyle: "bold",
-        color: "#f5ead2",
-        backgroundColor: "rgba(28,24,16,0.72)",
-        padding: { x: 5, y: 2 },
-        resolution: 3,
-      }).setOrigin(0.5, 0.5).setDepth(5500).setAlpha(0.94);
-      label.setData("lm", lm);
-      this.landmarkLabelTexts.push(label);
+      const x = Math.round(anchor ? anchor.x : lm.x + lm.width / 2);
+      const y = Math.round(anchor ? anchor.y : lm.y - 8);
+      // A dark parchment-ink plate behind pixel caps — the same material as
+      // the resident nameplates, so the town reads as one sign-painter.
+      const txt = pixelFont
+        ? this.add.bitmapText(0, 0, PIXEL_FONT_OUTLINED, pixelText(lm.name)).setOrigin(0.5, 0.5)
+        : this.add.text(0, 0, lm.name, {
+          fontFamily: "Inter, 'Helvetica Neue', sans-serif",
+          fontSize: "9px",
+          fontStyle: "bold",
+          color: "#f5ead2",
+          resolution: 3,
+        }).setOrigin(0.5, 0.5);
+      const plate = this.add.image(0, 0, "__WHITE")
+        .setTint(0x1c1810)
+        .setAlpha(0.72)
+        .setDisplaySize(Math.ceil(txt.width) + 6, Math.ceil(txt.height) + 2);
+      const chip = this.add.container(x, y, [plate, txt]).setDepth(5500).setAlpha(0.94);
+      chip.setScale(this.labelScale);
+      chip.setData("lm", lm);
+      chip.setData("w", Math.ceil(txt.width) + 6);
+      chip.setData("h", Math.ceil(txt.height) + 2);
+      this.landmarkLabelTexts.push(chip);
     }
+    // Neighbouring landmarks (a restaurant beside a bodega row) get chips
+    // that would overlap: stagger the later one a line lower.
+    const placed: Phaser.GameObjects.Container[] = [];
+    for (const chip of [...this.landmarkLabelTexts].sort((a, b) => a.y - b.y || a.x - b.x)) {
+      const w = chip.getData("w") as number;
+      const h = chip.getData("h") as number;
+      for (let guard = 0; guard < 4; guard++) {
+        const clash = placed.find((other) => {
+          const ow = other.getData("w") as number;
+          const oh = other.getData("h") as number;
+          return Math.abs(other.x - chip.x) < (w + ow) / 2 + 4 && Math.abs(other.y - chip.y) < (h + oh) / 2 + 2;
+        });
+        if (!clash) break;
+        chip.y = clash.y + h + 3;
+      }
+      placed.push(chip);
+    }
+  }
+
+  /* ── Label scale ─────────────────────────────────────────── */
+
+  /**
+   * Pixel type is only crisp when a font texel covers a whole number of
+   * screen pixels. Labels live in world space, so their world scale is
+   * k / zoom with k an integer: one screen pixel per texel in the composed
+   * overview, two under the follow and spotlight zooms — the same on-screen
+   * size the old vector labels had, never a fractional resample.
+   */
+  private syncLabelScale() {
+    const zoom = this.cameras.main?.zoom ?? 1;
+    if (Math.abs(zoom - this.labelZoom) < 0.002) return;
+    this.labelZoom = zoom;
+    const k = Phaser.Math.Clamp(Math.round(zoom), 1, 3);
+    const want = k / zoom;
+    this.labelScale = want;
+    for (const chip of this.landmarkLabelTexts) chip.setScale(want);
+    this.agentSprites.forEach((sprite) => sprite.setLabelScale(want));
+    for (const npc of this.ambientNPCs) npc.setLabelScale(want);
   }
 
   /* ── Navigation grid ─────────────────────────────────────── */
@@ -2922,193 +2942,6 @@ export class TownScene extends Phaser.Scene {
     else if (h >= 19.5 || h < 5) g = 1;
     else if (h >= 5 && h < 7) g = 1 - (h - 5) / 2;
     for (const w of this.windowGlows) w.obj.setAlpha(w.max * g);
-  }
-
-  /* ── Per-town flavor — papel-picado, ducks, dogs, leaves ── */
-
-  private addTownFlavor(town: TownId) {
-    if (this.scenarioId !== "nj11-2026") return;
-    const W = Number(this.game.config.width);
-    const H = Number(this.game.config.height);
-    switch (town) {
-      case "dover": return this.addDoverFlavor(W, H);
-      case "montclair": return this.addMontclairFlavor(W, H);
-      case "parsippany": return this.addParsippanyFlavor(W, H);
-      case "randolph": return this.addRandolphFlavor(W, H);
-    }
-  }
-
-  private addDoverFlavor(W: number, H: number) {
-    // NOTE: the papel-picado bunting (strung between two random landmark
-    // roofs) was dropped with the move to real tilemaps — over baked pixel
-    // buildings the unstrung triangles read as floating confetti.
-
-    // Reduced motion keeps the map, residents, and authored tile details but
-    // omits all continuously scheduled decorative motion.
-    if (this.reducedMotionRequested || reducedMotion()) return;
-
-    // Salsa music notes ♪ near "Bodega Row"
-    const bodega = this.landmarkPositions.get("Bodega Row") ?? this.landmarkPositions.get("La Finca Restaurant");
-    if (bodega) {
-      this.time.addEvent({
-        delay: 4500, loop: true,
-        callback: () => {
-          const note = this.add.text(bodega.x + Phaser.Math.Between(-20, 20), bodega.y - 8, "♪", {
-            fontFamily: "serif", fontSize: "14px", color: "#d97706", resolution: 2,
-          });
-          note.setOrigin(0.5, 1).setDepth(120);
-          this.tweens.add({
-            targets: note, y: note.y - 40, alpha: 0,
-            duration: 2200, ease: "Sine.easeOut", onComplete: () => note.destroy(),
-          });
-        },
-      });
-    }
-
-    // Terracotta leaves stream from upper-left
-    this.time.addEvent({
-      delay: 1700, loop: true,
-      callback: () => this.spawnLeaf(W, H, [0xc0792a, 0xd9794b, 0xe0a86b]),
-    });
-  }
-
-  private addMontclairFlavor(W: number, H: number) {
-    // Falling sugar maple leaves — saturated reds & oranges
-    if (!(this.reducedMotionRequested || reducedMotion())) {
-      this.time.addEvent({
-        delay: 1100, loop: true,
-        callback: () => this.spawnLeaf(W, H, [0xb9302a, 0xe25e3b, 0xd8a14a, 0xa84c6c]),
-      });
-    }
-
-    // Pride / HHNHHF lawn signs near Town Hall
-    const hall = this.landmarkPositions.get("Town Hall");
-    if (hall) {
-      for (let i = 0; i < 2; i++) {
-        const sign = this.add.graphics();
-        const off = i === 0 ? -22 : 22;
-        sign.fillStyle(0xffffff, 0.95);
-        sign.fillRoundedRect(-8, -10, 16, 12, 2);
-        sign.fillStyle(0x4a3aaf, 1); sign.fillRect(-7, -9, 14, 3);
-        sign.fillStyle(0xc23b8b, 1); sign.fillRect(-7, -6, 14, 3);
-        sign.fillStyle(0x2da8a8, 1); sign.fillRect(-7, -3, 14, 3);
-        sign.fillStyle(0x2c2416, 1); sign.fillRect(-1, 1, 2, 6);
-        sign.setPosition(hall.x + off, hall.y + 32).setDepth(60);
-      }
-    }
-  }
-
-  private addParsippanyFlavor(W: number, H: number) {
-    if (this.reducedMotionRequested || reducedMotion()) return;
-
-    // Duck flies across Lake Parsippany every 30s
-    const lake = this.landmarkPositions.get("Lake Parsippany");
-    if (lake) {
-      const fly = () => {
-        const duck = this.add.graphics();
-        duck.fillStyle(0x2f2417, 1);
-        duck.fillEllipse(0, 0, 12, 6);
-        duck.fillEllipse(6, -3, 5, 4);
-        duck.lineStyle(2, 0xb88a52, 1);
-        // Airborne — above the rooftops.
-        duck.setDepth(5450).setPosition(-20, lake.y);
-        this.tweens.add({
-          targets: duck, x: W + 20,
-          duration: 8000, ease: "Sine.easeInOut",
-          onUpdate: () => duck.setY(lake.y + Math.sin(duck.x / 60) * 18),
-          onComplete: () => duck.destroy(),
-        });
-      };
-      this.time.addEvent({ delay: 30000, loop: true, callback: fly });
-      this.time.delayedCall(4000, fly);
-    }
-
-    // Lawnmower NPC pacing in front of a residential landmark
-    const res = this.landmarks.find((l) => l.type === "housing");
-    if (res) {
-      const mower = this.add.graphics();
-      mower.fillStyle(0xb14c2a, 1); mower.fillRect(-8, -4, 16, 8);
-      mower.fillStyle(0x222222, 1); mower.fillCircle(-6, 4, 3); mower.fillCircle(6, 4, 3);
-      mower.setDepth(55).setPosition(res.x + 10, res.y + res.height + 8);
-      this.tweens.add({
-        targets: mower, x: res.x + res.width - 10,
-        duration: 6000, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
-        onUpdate: () => mower.setDepth(55 + mower.y),
-      });
-    }
-  }
-
-  private addRandolphFlavor(W: number, H: number) {
-    if (this.reducedMotionRequested || reducedMotion()) return;
-
-    // Two golden retrievers chasing each other in Hedden Park
-    const park = this.landmarkPositions.get("Hedden Park") ?? this.landmarks.find((l) => l.type === "park");
-    if (park) {
-      const cx = (park as any).x ?? (park as { x: number }).x;
-      const cy = (park as any).y ?? (park as { y: number }).y;
-      for (let i = 0; i < 2; i++) {
-        const dog = this.add.graphics();
-        dog.fillStyle(0xe0b87c, 1);
-        dog.fillEllipse(0, 0, 12, 7);
-        dog.fillEllipse(6, -2, 5, 5);
-        dog.fillStyle(0x7a5836, 1);
-        dog.fillCircle(8, -3, 1.5);
-        dog.lineStyle(2, 0xe0b87c, 1);
-        dog.lineBetween(-6, 0, -10, -2);
-        dog.setDepth(60).setPosition(cx + i * 30, cy);
-        const orbit = () => {
-          const tx = cx + Phaser.Math.Between(-40, 40);
-          const ty = cy + Phaser.Math.Between(-30, 30);
-          this.tweens.add({
-            targets: dog, x: tx, y: ty,
-            duration: Phaser.Math.Between(1100, 2200),
-            ease: "Sine.easeInOut",
-            onUpdate: () => dog.setDepth(60 + dog.y),
-            onComplete: orbit,
-          });
-        };
-        orbit();
-      }
-    }
-
-    // Kid soccer-ball bouncing near "Sports Fields"
-    const sports = this.landmarkPositions.get("Sports Fields");
-    if (sports) {
-      const ball = this.add.graphics();
-      ball.fillStyle(0xffffff, 1); ball.fillCircle(0, 0, 4);
-      ball.lineStyle(1, 0x222222, 0.6); ball.strokeCircle(0, 0, 4);
-      ball.setPosition(sports.x, sports.y).setDepth(60);
-      this.tweens.add({
-        targets: ball, y: ball.y - 18,
-        duration: 380, yoyo: true, repeat: -1, ease: "Sine.easeOut",
-      });
-      this.tweens.add({
-        targets: ball, x: sports.x + 40,
-        duration: 1200, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
-      });
-    }
-  }
-
-  private spawnLeaf(W: number, H: number, palette: number[]) {
-    const leaf = this.add.graphics();
-    const color = palette[Math.floor(Math.random() * palette.length)];
-    leaf.fillStyle(color, 0.85);
-    leaf.fillEllipse(0, 0, 6, 3);
-    leaf.lineStyle(0.6, 0x000000, 0.18);
-    leaf.strokeEllipse(0, 0, 6, 3);
-    const startX = Phaser.Math.Between(-30, W * 0.3);
-    // Falling from the sky — drifts over rooftops.
-    leaf.setPosition(startX, -10).setDepth(5440);
-    const endX = startX + Phaser.Math.Between(120, 240);
-    this.tweens.add({
-      targets: leaf, x: endX, y: H + 12,
-      duration: Phaser.Math.Between(8000, 13000),
-      ease: "Linear",
-      onUpdate: () => {
-        leaf.setRotation(leaf.rotation + 0.02);
-      },
-      onComplete: () => leaf.destroy(),
-    });
   }
 
   private buildTitleBanner(_W: number) {

@@ -36,6 +36,7 @@ from mapgen.build_maps import (
     cottage,
     diner,
     grand,
+    noticeboard,
     path,
     storefront,
 )
@@ -121,7 +122,7 @@ def compose(m: MapCanvas) -> None:
 
     # ================= buildings (reserve before paint_roads) =============
     # -- the diner + VFW set-piece corner
-    diner(m, 2, 17, 7, 6)  # Randolph Diner, chrome kit
+    diner(m, 2, 17, 7, 6, landmark="Randolph Diner")  # Randolph Diner, chrome kit
     # VFW hall: brick front under terracotta shingles (the old brick-arch
     # "fort" recomposed as a hall with a door, flags stay)
     storefront(m, 14, 15, 8, 8, facade="brick", roof="terracotta", sign=None)
@@ -129,13 +130,13 @@ def compose(m: MapCanvas) -> None:
     storefront(m, 28, 17, 6, 6, facade="brick", roof="slate", sign=0)  # finance
     storefront(m, 37, 17, 5, 6, facade="cream", awning=True)  # boutique
     # -- civic north tier
-    grand(m, 31, 8, 9, 8, facade="stone_large", windows=True)  # Town Hall
+    grand(m, 31, 8, 9, 8, facade="stone_large", windows=True, landmark="Town Hall")
     grand(m, 47, 10, 10, 9, facade="stone_large", windows=True)  # High School
     church(m, 58, 16, 8, 7, variant="clapboard")  # church
     # -- housing: cream colonials, slate-blue shingles, shutters
-    cottage(m, 69, 15, 6, 8, roof="slate")  # colonial E
-    cottage(m, 36, 29, 6, 7, roof="slate")  # cul-de-sac W
-    cottage(m, 47, 29, 6, 7, roof="slate")  # cul-de-sac E
+    cottage(m, 69, 15, 6, 8, roof="slate", landmark="Residential Cul-de-sacs")  # colonial E
+    cottage(m, 36, 29, 6, 7, roof="slate", landmark="Residential Cul-de-sacs")  # cul-de-sac W
+    cottage(m, 47, 29, 6, 7, roof="slate", landmark="Residential Cul-de-sacs")  # cul-de-sac E
 
     # ================= tan paths / trails (before paint_roads) ============
     # sports-fields path from Main Road to the gate
@@ -314,7 +315,7 @@ def compose(m: MapCanvas) -> None:
     m.anchor("flower", 50, 47)
     m.flowers(52, 47, n=5, spread=2)
     m.lamp(60, 27)
-    m.set("deco-below", 63, 27, M.mg("newsbox"))
+    noticeboard(m, 63, 27, landmark="Hedden Park")
     m.collide(63.2, 27.3, 0.6, 0.7)
     # woods
     park_trees = [

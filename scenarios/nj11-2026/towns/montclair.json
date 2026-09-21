@@ -25,7 +25,7 @@
     { "name": "Bloomfield Ave", "x": 100, "y": 380, "width": 1000, "height": 30, "color": "#D4A574", "type": "road", "description": "Commercial strip, main thoroughfare" },
     { "name": "Bay Street Station", "x": 900, "y": 550, "width": 140, "height": 90, "color": "#8B7355", "type": "transport", "description": "NJ Transit commuter rail station" },
     { "name": "Art Museum", "x": 200, "y": 180, "width": 150, "height": 120, "color": "#6B5CE7", "type": "building", "description": "Montclair Art Museum, cultural center" },
-    { "name": "Town Hall", "x": 550, "y": 200, "width": 130, "height": 100, "color": "#C9B896", "type": "building", "description": "Montclair municipal government" },
+    { "name": "Town Hall", "x": 550, "y": 200, "width": 130, "height": 100, "color": "#C9B896", "type": "building", "role": "polling_place", "description": "Montclair municipal government" },
     { "name": "Public Library", "x": 350, "y": 500, "width": 120, "height": 80, "color": "#A0C4E8", "type": "building", "description": "Montclair Public Library" },
     { "name": "Anderson Park", "x": 750, "y": 150, "width": 200, "height": 160, "color": "#7CB87C", "type": "park", "description": "Public park with sculptures and bandshell" },
     { "name": "St. Paul Baptist", "x": 150, "y": 550, "width": 110, "height": 90, "color": "#C9B896", "type": "church", "description": "Historic Black church" },

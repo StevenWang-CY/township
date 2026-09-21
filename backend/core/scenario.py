@@ -305,6 +305,10 @@ class LandmarkSpec(BaseModel):
     type: str
     color: str
     description: str | None = None
+    #: Civic role the map generator and the town scene act on. Today only
+    #: ``"polling_place"`` is meaningful: that landmark hosts the election's
+    #: polling station (VOTE HERE sign, ballot box, banners, results bunting).
+    role: str | None = None
 
     @field_validator("name", "type")
     @classmethod

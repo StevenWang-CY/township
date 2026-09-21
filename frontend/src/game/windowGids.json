@@ -1,5 +1,5 @@
 {
-  "_generated": "scripts/mapgen/export_window_gids.py \u2014 do not edit",
+  "_generated": "scripts/mapgen/export_window_gids.py — do not edit",
   "tileSize": 16,
   "windows": [
     {
@@ -39,6 +39,104 @@
           "y": 4,
           "w": 8,
           "h": 5
+        }
+      ]
+    },
+    {
+      "name": "window_shutter",
+      "topLeftGid": 10103,
+      "w": 2,
+      "h": 2,
+      "panes": [
+        {
+          "x": 10,
+          "y": 4,
+          "w": 12,
+          "h": 21
+        }
+      ]
+    },
+    {
+      "name": "win_small",
+      "topLeftGid": 10164,
+      "w": 1,
+      "h": 1,
+      "panes": [
+        {
+          "x": 3,
+          "y": 3,
+          "w": 10,
+          "h": 9
+        }
+      ]
+    },
+    {
+      "name": "ch_cw_lancet",
+      "topLeftGid": 10123,
+      "w": 1,
+      "h": 2,
+      "panes": [
+        {
+          "x": 5,
+          "y": 3,
+          "w": 6,
+          "h": 23
+        }
+      ]
+    },
+    {
+      "name": "ch_st_lancet",
+      "topLeftGid": 10139,
+      "w": 1,
+      "h": 2,
+      "panes": [
+        {
+          "x": 5,
+          "y": 3,
+          "w": 6,
+          "h": 23
+        }
+      ]
+    },
+    {
+      "name": "diner_win_l",
+      "topLeftGid": 10097,
+      "w": 1,
+      "h": 1,
+      "panes": [
+        {
+          "x": 1,
+          "y": 3,
+          "w": 14,
+          "h": 9
+        }
+      ]
+    },
+    {
+      "name": "diner_win_m",
+      "topLeftGid": 10098,
+      "w": 1,
+      "h": 1,
+      "panes": [
+        {
+          "x": 1,
+          "y": 3,
+          "w": 14,
+          "h": 9
+        }
+      ]
+    },
+    {
+      "name": "diner_win_r",
+      "topLeftGid": 10099,
+      "w": 1,
+      "h": 1,
+      "panes": [
+        {
+          "x": 1,
+          "y": 3,
+          "w": 14,
+          "h": 9
         }
       ]
     }

@@ -81,6 +81,7 @@
     },
     {
       "name": "Millbrook Town Hall",
+      "role": "polling_place",
       "x": 500,
       "y": 280,
       "width": 140,

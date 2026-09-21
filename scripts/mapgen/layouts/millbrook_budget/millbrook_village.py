@@ -42,6 +42,7 @@ from mapgen.build_maps import (
     MapCanvas,
     apron,
     grand,
+    noticeboard,
     path,
     path_rect,
     storefront,
@@ -104,7 +105,17 @@ def compose(m: MapCanvas) -> None:
 
     # ================= buildings (reserve before paint_roads) =============
     # -- Millbrook Town Hall: white clapboard, 1874
-    grand(m, 32, 17, 9, 7, facade="cream", roof="deck_light", windows=True)
+    grand(
+        m,
+        32,
+        17,
+        9,
+        7,
+        facade="cream",
+        roof="deck_light",
+        windows=True,
+        landmark="Millbrook Town Hall",
+    )
     # -- The Wheelhouse Diner, corner of Mill & Main
     storefront(m, 16, 17, 7, 6, facade="brick", awning=True)
     # -- Corbin's Hardware
@@ -114,9 +125,42 @@ def compose(m: MapCanvas) -> None:
     # -- Millbrook Free Library (Carnegie-style brick)
     grand(m, 40, 30, 8, 7, facade="brick", roof="stone", windows=True)
     # -- Chestnut Row: three attached mill row houses
-    storefront(m, 4, 30, 4, 6, facade="brick", roof="deck_dark", window=False)
-    storefront(m, 8, 30, 4, 6, facade="cream", roof="deck_light", window=False)
-    storefront(m, 12, 30, 4, 6, facade="brick", roof="deck_dark", window=False)
+    storefront(
+        m,
+        4,
+        30,
+        4,
+        6,
+        facade="brick",
+        roof="deck_dark",
+        window=False,
+        yard=True,
+        landmark="Chestnut Row",
+    )
+    storefront(
+        m,
+        8,
+        30,
+        4,
+        6,
+        facade="cream",
+        roof="deck_light",
+        window=False,
+        yard=True,
+        landmark="Chestnut Row",
+    )
+    storefront(
+        m,
+        12,
+        30,
+        4,
+        6,
+        facade="brick",
+        roof="deck_dark",
+        window=False,
+        yard=True,
+        landmark="Chestnut Row",
+    )
 
     # ================= paint the road network =================
     m.paint_roads()
@@ -272,7 +316,7 @@ def compose(m: MapCanvas) -> None:
     apron(m, 18, 23, 2, 1)
     m.stamp("deco-below", R.SIGNS_STANDING[1], 21, 21)  # utensils board
     m.collide(21, 22, 2, 1)
-    m.set("deco-below", 23, 16, M.mg("newsbox"))
+    noticeboard(m, 23, 15, landmark="Millbrook Farmers Market")
     m.collide(23.2, 16.3, 0.6, 0.7)
     # side patio: two stools under the west window
     m.fill("ground-detail", 13, 19, 3, 3, R.STONE_FLOOR_FILL)

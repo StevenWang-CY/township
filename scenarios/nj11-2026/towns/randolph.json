@@ -24,7 +24,7 @@
   "character": "Hathaway's literal home base. Affluent, family-oriented, predominantly white but diversifying. Highest median income of the four towns. Republican-leaning but not monolithically so.",
   "landmarks": [
     { "name": "Main Road", "x": 100, "y": 400, "width": 1000, "height": 30, "color": "#D4A574", "type": "road", "description": "Winding main road through Randolph" },
-    { "name": "Town Hall", "x": 500, "y": 200, "width": 140, "height": 110, "color": "#C9B896", "type": "building", "description": "Brick municipal building with American flag" },
+    { "name": "Town Hall", "x": 500, "y": 200, "width": 140, "height": 110, "color": "#C9B896", "type": "building", "role": "polling_place", "description": "Brick municipal building with American flag" },
     { "name": "High School", "x": 800, "y": 180, "width": 180, "height": 130, "color": "#A0B8C8", "type": "building", "description": "Randolph High School campus" },
     { "name": "Commercial Strip", "x": 300, "y": 280, "width": 200, "height": 60, "color": "#D4B896", "type": "building", "description": "Local shops, finance office, diner" },
     { "name": "Sports Fields", "x": 200, "y": 550, "width": 200, "height": 140, "color": "#90C890", "type": "park", "description": "Soccer fields and baseball diamond" },

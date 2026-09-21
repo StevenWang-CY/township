@@ -219,6 +219,12 @@ class MapCanvas:
         self.road_mask: set[tuple[int, int]] = set()
         self.paved: set[tuple[int, int]] = set()  # extra sidewalk cells
         self.reserved: set[tuple[int, int]] = set()  # no sidewalk/deco here
+        #: Dwellings (cottages, row houses): each gets yard-sign anchors on
+        #: its lawn so residents' stances can show on their own front yard.
+        self.homes: list[dict] = []
+        #: Landmark name → building front geometry (door + wall row), so the
+        #: civic post-pass can dress a polling place without re-deriving it.
+        self.fronts: dict[str, dict] = {}
         self.landmarks: dict[str, Landmark] = {}
         for lm in town.get("landmarks", []):
             self.landmarks[lm["name"]] = Landmark(
@@ -386,6 +392,41 @@ class MapCanvas:
     def lamp(self, x: int, y: int) -> None:
         self.anchor("lamp", x, y)
         self.collide(x + 0.25, y + 0.25, 0.5, 0.75)
+
+    def register_front(
+        self,
+        landmark: str | None,
+        x: int,
+        y: int,
+        w: int,
+        h: int,
+        door_x: int,
+        door_y: int,
+        wall_row: int,
+    ) -> None:
+        """Remember a building's front so ``emit_civic_anchors`` can place
+        banners beside its door and a polling station on its apron."""
+        if not landmark:
+            return
+        self.fronts[landmark] = {
+            "x": x,
+            "y": y,
+            "w": w,
+            "h": h,
+            "door_x": door_x,
+            "door_y": door_y,
+            "wall_row": wall_row,
+        }
+
+    def chimney(self, x: int, y: int, mode: str = "hearth") -> None:
+        """A chimney stack in the row above a shingle ridge plus a smoke
+        anchor. ``mode="hearth"`` smoke only rises at dawn and dusk (when a
+        home is warm); ``"always"`` is the factory stack."""
+        if not self.inb(x, y) or y < 0:
+            return
+        if self.get("buildings-top", x, y) == 0:
+            self.set("buildings-top", x, y, M.mg("chimney"))
+        self.anchor("smoke", x, y - 0.35, mode=mode)
 
     # -- roads --------------------------------------------------------------
 
@@ -557,9 +598,14 @@ def storefront(
     sign: int | None = None,
     awning: bool = False,
     window: bool = True,
+    landmark: str | None = None,
+    yard: bool = False,
+    chimney: bool = True,
 ) -> None:
     """Commercial building: flat roof pad + 3-row facade strip + door.
-    Total footprint w x h, door on the south wall. h >= 6 reads best."""
+    Total footprint w x h, door on the south wall. h >= 6 reads best.
+    ``landmark`` registers the front for the civic post-pass; ``yard``
+    marks the building as a dwelling (row houses) that gets yard signs."""
     m.reserve(x, y - 1, w, h + 1)
     roof_h = max(2, h - 3)
     m.stamp("buildings-top", roof_stamp(roof, w, roof_h), x, y)
@@ -573,6 +619,17 @@ def storefront(
         for wx in [x + 1] if w < 7 else [x + 1, x + w - 3]:
             if not (wx <= x + dd + 1 and x + dd <= wx + 1):
                 m.stamp("buildings-base", M.WINDOW, wx, y + roof_h + 1)
+    elif w >= 4:
+        # Plain fronts still get a small window each side of the door so
+        # every shop ignites at dusk.
+        for wx in (x + 1, x + w - 2):
+            if wx < x + dd or wx > x + dd + 1:
+                m.stamp("buildings-base", M.SMALL_WINDOW, wx, y + roof_h + 1)
+    if chimney and roof != "stone" and w >= 5:
+        m.chimney(x + w - 2, y - 1)
+    m.register_front(landmark, x, y, w, h, x + dd, y + h - 1, y + roof_h)
+    if yard and landmark:
+        m.homes.append({"x": x, "y": y, "w": w, "h": h, "landmark": landmark})
     if awning:
         # hangs over the top of the shopfront, door row stays visible
         m.stamp("buildings-top", awning_strip(w), x, y + roof_h - 1)
@@ -593,9 +650,11 @@ def grand(
     banners: bool = False,
     windows: bool = False,
     door: str = "wood",
+    landmark: str | None = None,
 ) -> None:
     """Civic-scale building: full 6-row arched facade + roof rows above.
-    Archless facades get a centered door stamp. h >= 6."""
+    Archless facades get a centered door stamp. h >= 6. ``landmark``
+    registers the front (door + wall row) for the civic post-pass."""
     m.reserve(x, y - 1, w, h + 1)
     roof_h = h - 6
     if roof_h > 0:
@@ -615,12 +674,24 @@ def grand(
         m.stamp("buildings-base", M.WINDOW, x + 1, y + roof_h + 3)
         m.stamp("buildings-base", M.WINDOW, x + w - 3, y + roof_h + 3)
     m.collide(x, y, w, h)
+    door_x = x + (w - aw) // 2 if arch else x + (w - 2) // 2
+    m.register_front(landmark, x, y, w, h, door_x, y + h - 1, y + roof_h + 1)
 
 
-def cottage(m: MapCanvas, x: int, y: int, w: int = 6, h: int = 8, roof: str = "deck_light") -> None:
+def cottage(
+    m: MapCanvas,
+    x: int,
+    y: int,
+    w: int = 6,
+    h: int = 8,
+    roof: str = "deck_light",
+    landmark: str | None = None,
+    chimney: bool = True,
+) -> None:
     """Colonial house: pitched shingle roof over a cream clapboard front —
     paired shutter windows upstairs, centered door below. Footprint w x h,
-    h >= 6, w >= 6 keeps the paired windows."""
+    h >= 6, w >= 6 keeps the paired windows. Every cottage is a dwelling:
+    it gets a hearth chimney and yard-sign anchors on its lawn."""
     m.reserve(x, y - 1, w, h + 1)
     roof_h = max(2, h - 4)
     m.stamp("buildings-top", roof_stamp(roof, w, roof_h), x, y)
@@ -629,6 +700,10 @@ def cottage(m: MapCanvas, x: int, y: int, w: int = 6, h: int = 8, roof: str = "d
         m.stamp("buildings-base", M.SHUTTER_WINDOW, wx, y + roof_h)
     m.building_stamp(R.DOOR_WOOD, x + (w - 2) // 2, y + roof_h + 2, top_rows=1)
     m.collide(x, y, w, h)
+    if chimney:
+        m.chimney(x + w - 2, y - 1)
+    m.register_front(landmark, x, y, w, h, x + (w - 2) // 2, y + h - 1, y + roof_h)
+    m.homes.append({"x": x, "y": y, "w": w, "h": h, "landmark": landmark or ""})
 
 
 def church(
@@ -640,6 +715,7 @@ def church(
     variant: str = "clapboard",
     roof: str = "slate",
     garden: bool = False,
+    landmark: str | None = None,
 ) -> None:
     """Small-town church: gabled slate-shingle nave, centered steeple with a
     louvered belfry, flared slate cap and gold cross finial, arched double
@@ -679,6 +755,7 @@ def church(
     m.set("buildings-base", cx, wy + 2, M.mg(f"ch_{v}_door_bl"))
     m.set("buildings-base", cx + 1, wy + 2, M.mg(f"ch_{v}_door_br"))
     m.collide(x, y, w, h)
+    m.register_front(landmark, x, y, w, h, cx, y + h - 1, wy)
     if garden:  # modest side garden off the east wall
         gx, gy = x + w + 1, y + h - 2
         if m.inb(gx + 1, gy + 1):
@@ -686,7 +763,15 @@ def church(
             m.flowers(gx + 1, gy + 1, n=4, spread=1)
 
 
-def diner(m: MapCanvas, x: int, y: int, w: int, h: int = 6, door_dx: int | None = None) -> None:
+def diner(
+    m: MapCanvas,
+    x: int,
+    y: int,
+    w: int,
+    h: int = 6,
+    door_dx: int | None = None,
+    landmark: str | None = None,
+) -> None:
     """Roadside chrome diner: rounded chrome band + DINER letterboard +
     big glass window band + stainless walls with a glass door. Footprint
     w x h, w >= 4, h >= 5."""
@@ -698,6 +783,7 @@ def diner(m: MapCanvas, x: int, y: int, w: int, h: int = 6, door_dx: int | None 
     dd = door_dx if door_dx is not None else (w - 1) // 2
     m.stamp("buildings-base", M.DINER_DOOR, x + dd, y + h - 2)
     m.collide(x, y, w, h)
+    m.register_front(landmark, x, y, w, h, x + dd, y + h - 1, y + 3)
 
 
 def apron(m: MapCanvas, x: int, y: int, w: int = 2, h: int = 1, material: str = "sidewalk") -> None:
@@ -712,6 +798,113 @@ def path(m: MapCanvas, cells: set[tuple[int, int]]) -> None:
 
 def path_rect(m: MapCanvas, x: int, y: int, w: int, h: int) -> None:
     path(m, {(xx, yy) for xx in range(x, x + w) for yy in range(y, y + h)})
+
+
+def noticeboard(m: MapCanvas, x: int, y: int, landmark: str = "") -> None:
+    """A 2x2 notice-board kiosk (top-left at x, y) on deco-below. The board
+    row blocks movement; the runtime pins each round's headlines to it."""
+    m.stamp("deco-below", M.NOTICE_BOARD, x, y)
+    m.collide(x + 0.1, y + 0.6, 1.8, 1.2)
+    m.anchor("noticeboard", x + 0.5, y + 1, name=landmark)
+
+
+def _grass_gids() -> set[int]:
+    out: set[int] = set(R.GRASS_LIGHT.fill)
+    for value in R.GRASS_LIGHT.edge_tiles().values():
+        if isinstance(value, int):
+            if value:
+                out.add(value)
+        else:
+            out.update(g for g in value if g)
+    return out
+
+
+def emit_civic_anchors(m: MapCanvas) -> None:
+    """Post-pass after a layout: the election's furniture, derived from
+    scenario data rather than hand-placed.
+
+    * ``pollplace`` (+ two facade ``banner`` anchors and a ``bunting`` span)
+      at every landmark whose town JSON declares ``"role": "polling_place"``
+      (falling back to a ``civic``-typed landmark, then a name matching
+      "town hall" / "municipal").
+    * ``yardsign`` — two lawn cells beside every dwelling, so residents'
+      stances can show on their own front yards. Grass only, never on a
+      path or sidewalk; a stable ``seat`` index survives rebuilds.
+    * ``brazier`` — one in the first park, for the results night.
+    """
+    lawn = _grass_gids()
+
+    def free_lawn(cx: int, cy: int) -> bool:
+        if not m.inb(cx, cy) or (cx, cy) in m.road_mask or (cx, cy) in m.paved:
+            return False
+        if m.get("deco-below", cx, cy) or m.get("buildings-base", cx, cy):
+            return False
+        if m.get("buildings-top", cx, cy):
+            return False
+        detail = m.get("ground-detail", cx, cy)
+        return detail == 0 or detail in lawn
+
+    seat = 0
+    for home in m.homes:
+        x, y, w, h = home["x"], home["y"], home["w"], home["h"]
+        candidates = [
+            (x - 1, y + h - 1),
+            (x + w, y + h - 1),
+            (x - 1, y + h - 2),
+            (x + w, y + h - 2),
+            (x, y + h),
+            (x + w - 1, y + h),
+        ]
+        # Two signs on a detached house's lawn; one in front of a narrow row
+        # house, so an attached terrace doesn't become a picket line.
+        limit = 2 if w >= 6 else 1
+        placed = 0
+        for cx, cy in candidates:
+            if placed >= limit:
+                break
+            if not free_lawn(cx, cy):
+                continue
+            m.anchor("yardsign", cx, cy, seat=str(seat), home=home["landmark"])
+            m.collide(cx + 0.3, cy + 0.45, 0.4, 0.5)
+            seat += 1
+            placed += 1
+
+    polling = [
+        lm for lm in m.landmarks.values() if str(lm.raw.get("role", "")).lower() == "polling_place"
+    ]
+    if not polling:
+        polling = [lm for lm in m.landmarks.values() if lm.type == "civic"]
+    if not polling:
+        polling = [
+            lm for lm in m.landmarks.values() if re.search(r"town hall|municipal", lm.name, re.I)
+        ]
+    for lm in polling[:1]:
+        front = m.fronts.get(lm.name)
+        if not front:
+            print(f"  ! polling place {lm.name!r} has no registered building front; skipped")
+            continue
+        dx, dy, wall = front["door_x"], front["door_y"], front["wall_row"]
+        m.anchor("pollplace", dx + 0.5, dy + 1, name=lm.name)
+        for bx in (dx - 1, dx + 2):
+            if front["x"] <= bx < front["x"] + front["w"]:
+                m.anchor("banner", bx, wall + 1, name=lm.name, mount="facade")
+        m.anchor(
+            "bunting",
+            front["x"] + front["w"] / 2 - 0.5,
+            wall,
+            name=lm.name,
+            span=str(front["w"]),
+        )
+
+    parks = [lm for lm in m.landmarks.values() if lm.type == "park"]
+    for lm in parks[:1]:
+        cx, cy = lm.x + lm.w // 2, lm.y + lm.h // 2
+        for ox, oy in ((0, 2), (2, 2), (-2, 2), (0, -2), (3, 0), (-3, 0), (0, 3)):
+            if free_lawn(cx + ox, cy + oy) and (cx + ox, cy + oy) not in m.reserved:
+                m.set("deco-below", cx + ox, cy + oy, M.mg("brazier"))
+                m.collide(cx + ox + 0.25, cy + oy + 0.4, 0.5, 0.5)
+                m.anchor("brazier", cx + ox, cy + oy, name=lm.name)
+                break
 
 
 # ---------------------------------------------------------------------------
@@ -736,6 +929,7 @@ def interpret_landmarks(m: MapCanvas) -> None:
             m.meadow(x, y, lm.w, lm.h)
             m.stamp("deco-below", R.WELL, x + w // 2 - 2, y + h // 2 - 2)
             m.collide(x + w // 2 - 2, y + h // 2 - 1, 4, 3)
+            noticeboard(m, x + 1, y + h - 3, landmark=lm.name)
             for _i in range(3):
                 m.tree(
                     x + 1 + m.rng.randrange(max(1, lm.w - 4)),
@@ -744,15 +938,23 @@ def interpret_landmarks(m: MapCanvas) -> None:
                 )
             m.flowers(x + w // 2, y + h - 2, n=6)
         elif lm.type == "church":
-            church(m, x, y + max(0, h - 8), max(6, min(w, 8)), max(7, min(h, 8)), garden=True)
+            church(
+                m,
+                x,
+                y + max(0, h - 8),
+                max(6, min(w, 8)),
+                max(7, min(h, 8)),
+                garden=True,
+                landmark=lm.name,
+            )
         elif lm.type == "civic":
-            grand(m, x, y, min(w, 9), min(h, 8), facade="stone_large", banners=True)
+            grand(m, x, y, min(w, 9), min(h, 8), facade="stone_large", landmark=lm.name)
         elif lm.type == "transport":
-            grand(m, x, y, min(w, 8), min(h, 7), facade="stone_small")
+            grand(m, x, y, min(w, 8), min(h, 7), facade="stone_small", landmark=lm.name)
         elif lm.type == "housing":
             n = max(1, lm.w // 6)
             for i in range(n):
-                cottage(m, x + i * 6, y, 5, min(6, h))
+                cottage(m, x + i * 6, y, 5, min(6, h), landmark=lm.name)
         elif lm.type in ("building", "commercial"):
             storefront(
                 m,
@@ -763,6 +965,7 @@ def interpret_landmarks(m: MapCanvas) -> None:
                 facade=m.rng.choice(("brick", "cream")),
                 sign=m.rng.randrange(5),
                 awning=m.rng.random() < 0.5,
+                landmark=lm.name,
             )
     m.paint_roads()
 
@@ -903,6 +1106,7 @@ def build_town(scenario: str, town_id: str, out_dir: Path = MAPS_DIR) -> Path:
         mod.compose(m)
     else:
         interpret_landmarks(m)
+    emit_civic_anchors(m)
     out = _map_output_path(out_dir, scenario, town_id)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(to_tmj(m), separators=(",", ":")))

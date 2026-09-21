@@ -32,6 +32,7 @@ when recap generation succeeds; completed artifacts are served via `/api/runs`.
 - `make dev` — backend on :8001 + Vite on :5173; `make dev-backend` / `make dev-frontend` for one side
 - `make test` — `pytest -q` plus `npx tsc --noEmit`; no API keys needed
 - `make lint` / `make format` — ruff over `backend` and `tests`
+- `make maps` — regenerate the custom tileset, every town `.tmj` + preview, the atlases, and the frontend tile metadata (`windowGids.json`, `stampDefs.json`, `roadGids.json`) after touching `scripts/mapgen/` or a town's landmarks
 - `make demo` — zero-key server via the mock provider; then `make sim` starts a run (`TOWN=dover` for one town)
 - `township run --provider mock` — headless simulation, printing the recap and run directory when available; `township replay --run-id <id>` replays a persisted run; `township new-scenario <id>` / `new-agent` scaffold packages and personas
 - `LLM_PROVIDER=mock` forces the deterministic mock anywhere (valid values: bedrock, anthropic, openai, openrouter, ollama, lmstudio, mock); unset, the factory auto-detects from whichever API key is present and falls back to mock — loudly

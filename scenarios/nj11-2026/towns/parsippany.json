@@ -30,7 +30,7 @@
     { "name": "Public Library", "x": 350, "y": 500, "width": 120, "height": 80, "color": "#A0C4E8", "type": "building", "description": "Parsippany Public Library" },
     { "name": "Residential Area", "x": 150, "y": 500, "width": 160, "height": 120, "color": "#C4B5A0", "type": "housing", "description": "Suburban split-level residential subdivisions" },
     { "name": "NJ Transit Stop", "x": 700, "y": 500, "width": 100, "height": 60, "color": "#8B7355", "type": "transport", "description": "Park-and-ride bus stop" },
-    { "name": "Community Center", "x": 900, "y": 450, "width": 130, "height": 90, "color": "#A0C4B0", "type": "building", "description": "Community programming and recreation center" }
+    { "name": "Community Center", "x": 900, "y": 450, "width": 130, "height": 90, "color": "#A0C4B0", "type": "building", "role": "polling_place", "description": "Community programming and recreation center" }
   ],
   "color_theme": {
     "primary": "#E8A245",

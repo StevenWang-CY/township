@@ -182,6 +182,12 @@ What the engine actually reads:
 - **`accent_color`** — the town's color on the wire (`Scenario.town_color`, used by `backend/core/wire.py` for agent roster colors) and on the district map.
 - **`landmarks[].name`** — conversation locations. The engine picks a random landmark for each conversation and writes it into memories ("Talked with Cass Malone at The Wheelhouse Diner...").
 - **`landmarks[].x/y`** — coordinates for `agent_moved` events, which the Phaser scene animates.
+- **`landmarks[].role`** — optional civic role. `"polling_place"` marks the one
+  landmark that hosts the election: the map generator dresses its door with a
+  polling station (VOTE HERE sign, ballot box, queue rope) and banners that the
+  town scene tints with the leading option, and residents walk there to vote on
+  decision day. Without it the generator falls back to a `civic`-typed landmark,
+  then to a name containing "town hall" or "municipal".
 - **`demographics.population`** — surfaced by `GET /api/scenario` town cards.
 - **`map`** — optional authored-map metadata. It must be exactly `kind: "tiled"`
   plus `assets/maps/<scenario-id>/<town-id>.tmj` and

@@ -31,6 +31,7 @@
   "landmarks": [
     {
       "name": "Harlow Elementary School",
+      "role": "polling_place",
       "x": 650,
       "y": 140,
       "width": 180,
