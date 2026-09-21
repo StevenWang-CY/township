@@ -277,7 +277,7 @@ test("a scenario can reuse NJ ids without inheriting NJ presentation art", async
       };
     }).__townshipScene;
     return scene?.agentSprites?.get("carlos-restrepo")?.bodySprite?.texture?.key ?? null;
-  })).toBe("char-Tamara_Taylor");
+  })).toMatch(/^char-(?!Carlos_Gomez$)(?!custom-)(?!Adam_Smith$)(?!Wolfgang_Schulz$)/);
   expect(leakedArtRequests).toEqual([]);
 });
 

@@ -36,7 +36,7 @@ import {
   ALL_ACCESSORY_SHEETS,
   ALL_CHARACTER_KEYS,
   ALL_CUSTOM_SHEETS,
-  resolveAgentSprite,
+  resolveAgentSprite, passerbyPool,
 } from "./spriteCustomization";
 import { composeTownAmbience, type AmbienceHandle, type MapAnchor } from "./SceneAmbience";
 import { CivicLayer, type CivicEnv, type CivicResident } from "./CivicLayer";
@@ -416,7 +416,9 @@ export class TownScene extends Phaser.Scene {
     this.createPlayerAnimations();
 
     // Ambient background passers-by
-    this.spawnAmbientNPCs();
+    // Passers-by dress against the roster, so they spawn once the residents
+    // are in (syncReplayState) — or after a beat if no roster ever arrives.
+    this.time.delayedCall(3000, () => this.ensureAmbientNPCs());
 
     // Town title banner
     this.buildTitleBanner(W);
@@ -902,6 +904,7 @@ export class TownScene extends Phaser.Scene {
       color: agent.color ?? townAccent(this.townId),
       town: agent.town,
       stance: this.stanceFor(agent.opinion?.candidate, agent.opinion?.confidence),
+      occupation: agent.occupation,
       spriteKey: custom.spriteKey,
       customKey: custom.customKey,
       accessoryKey: custom.accessoryKey,
@@ -993,6 +996,7 @@ export class TownScene extends Phaser.Scene {
       );
       this.agentOpinions.set(agent.id, agent.opinion?.candidate ?? "");
     }
+    if (agents.length > 0) this.ensureAmbientNPCs();
     // Everyone faces their gathering's centroid once all slots are settled
     // (mid-loop the group sizes are still growing).
     for (const sprite of this.agentSprites.values()) {
@@ -2262,19 +2266,31 @@ export class TownScene extends Phaser.Scene {
 
   private ambientNPCs: AgentSprite[] = [];
 
+  private ambientSpawned = false;
+
+  private ensureAmbientNPCs() {
+    if (this.ambientSpawned || !this.scene.isActive()) return;
+    this.ambientSpawned = true;
+    this.spawnAmbientNPCs();
+  }
+
   private spawnAmbientNPCs() {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
     // A town of 3,850 gets a couple of passers-by; a town of 40,000 a small
     // street's worth.
     const count = Phaser.Math.Clamp(2 + Math.floor(this.population / 15000), 2, 8);
-    const names = [...this.characterKeys];
-    if (names.length === 0) return;
+    // Strangers wear bodies none of this town's residents wear, drawn in a
+    // stable order per town so a reload shows the same faces on the street.
+    const residents = [...this.agentSprites.keys()].filter((id) => id !== this.playerSprite?.agentId);
+    const pool = passerbyPool(this.scenarioId, residents).filter((k) => this.textures.exists(k));
+    if (pool.length === 0) return;
+    const rng = mulberry32(0x5eed ^ [...this.townId].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7));
+    const deck = [...pool].sort(() => rng() - 0.5);
 
     for (let i = 0; i < count; i++) {
-      const charName = names[Math.floor(Math.random() * names.length)];
-      const key = `char-${charName}`;
-      if (!this.textures.exists(key)) continue;
+      const key = deck[i % deck.length];
+      const charName = key.slice(5);
 
       const spawn = this.findFreeNear(
         Phaser.Math.Between(80, W - 80),

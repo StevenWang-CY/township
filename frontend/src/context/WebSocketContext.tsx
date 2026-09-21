@@ -1,10 +1,23 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useWebSocket as useWebSocketRaw } from "../hooks/useWebSocket";
 import type { WsState } from "../hooks/useWebSocket";
 import { useDemoFeed } from "../hooks/useDemoFeed";
 import { DemoPlayerContext } from "../demo/DemoPlayerContext";
 import { DEMO_MODE } from "../demo/demoMode";
 import { useScenarioContext } from "./ScenarioContext";
+import { registerRosterArt } from "../game/spriteCustomization";
+
+/**
+ * Give every resident of a non-NJ scenario a distinct body before anything
+ * draws them: the canvas and the sidebar portraits both resolve art through
+ * the same registry, so registering here (above both) keeps them in step.
+ */
+function useRosterArt(scenarioId: string, state: WsState) {
+  const rosterKey = Object.keys(state.agentRoster).sort().join("|");
+  useMemo(() => {
+    if (rosterKey) registerRosterArt(scenarioId, rosterKey.split("|"));
+  }, [scenarioId, rosterKey]);
+}
 
 /**
  * Provider for a single, app-wide WebSocket connection.
@@ -27,6 +40,8 @@ const WebSocketContext = createContext<WsState | null>(null);
 
 function LiveWebSocketProvider({ children }: { children: ReactNode }) {
   const ws = useWebSocketRaw();
+  const scen = useScenarioContext();
+  useRosterArt(scen.scenario.id, ws);
   return <WebSocketContext.Provider value={ws}>{children}</WebSocketContext.Provider>;
 }
 
@@ -34,6 +49,7 @@ function DemoFeedProvider({ children }: { children: ReactNode }) {
   const scen = useScenarioContext();
   // Wait for the scenario bootstrap so the feed matches the active scenario id.
   const { state, player } = useDemoFeed(scen.scenario.id, !scen.loading);
+  useRosterArt(scen.scenario.id, state);
   return (
     <WebSocketContext.Provider value={state}>
       <DemoPlayerContext.Provider value={player}>{children}</DemoPlayerContext.Provider>

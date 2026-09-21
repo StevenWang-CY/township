@@ -2,7 +2,10 @@ import Phaser from "phaser";
 import { playEmote, type EmoteKey } from "./EmoteRegistry";
 import {
   FX_DEPTH,
+  PIXEL_FONT,
+  PIXEL_FONT_ADVANCE,
   PIXEL_FONT_OUTLINED,
+  drawPixelPlate,
   ensureBallotTexture,
   ensureRingTextures,
   ensureShadowTexture,
@@ -94,6 +97,8 @@ export interface AgentConfig {
   opinionColor?: string;
   /** Initial stance (option, color, confidence). */
   stance?: StanceState;
+  /** Shown on the hover chip beside the full name. */
+  occupation?: string;
   spriteKey?: string;
   /**
    * Baked palette-swap sheet (scripts/mapgen/outfits.py). Preferred over
@@ -183,6 +188,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   public agentName: string;
   public townId: string;
   private agentColor: string;
+  private occupation: string;
+  /** "Full Name · Occupation" pixel plate while hovered. */
+  private hoverChip?: Phaser.GameObjects.Container;
   private stance: StanceState;
   /** "I voted" sticker at the shoulder once a ballot is cast. */
   private votedBadge?: Phaser.GameObjects.Image;
@@ -222,6 +230,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.agentName = cfg.name;
     this.townId = cfg.town;
     this.agentColor = cfg.color;
+    this.occupation = cfg.occupation ?? "";
     this.stance = cfg.stance ?? {
       optionId: "",
       color: cfg.opinionColor ?? "#FFFFFF",
@@ -311,6 +320,11 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         else this.add(this.companionSprite);
       }
 
+      if (this.ambient) {
+        // Passers-by sit a shade back from the residents: slightly grey,
+        // slightly translucent, so the roster reads as the cast.
+        for (const layer of [this.bodySprite, this.accessorySprite]) layer?.setTint(0xd0d0d0).setAlpha(0.9);
+      }
       for (const layer of [this.bodySprite, this.accessorySprite, this.companionSprite]) {
         if (layer) this.baseTints.set(layer, layer.isTinted ? layer.tintTopLeft : null);
       }
@@ -372,6 +386,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         // Hover always re-promotes a decluttered dot back to the full name.
         this.labelHover = true;
         this.applyLabelMode();
+        this.showHoverChip();
         if (this.isMoving) return;
         scene.tweens.add({ targets: this, scaleX: 1.05, scaleY: 1.05, duration: 130, ease: "Sine.easeOut" });
         this.setLabelHighlight(true);
@@ -379,6 +394,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       this.on("pointerout", () => {
         this.labelHover = false;
         this.applyLabelMode();
+        this.hideHoverChip();
         scene.tweens.add({ targets: this, scaleX: 1, scaleY: 1, duration: 130, ease: "Sine.easeOut" });
         this.setLabelHighlight(false);
       });
@@ -414,6 +430,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     for (const bubble of this.bubbleQueue) {
       bubble.group.setPosition(this.x, this.y - bubble.stackOffset);
     }
+    if (this.hoverChip) this.hoverChip.setPosition(this.x, this.y - FRAME_H - 14 - this.hoverChip.getData("h"));
   }
 
   /** Is this agent mid-walk (positional tween active)? */
@@ -424,6 +441,41 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   /** In-flight walk target — other agents treat it as occupied ground. */
   getReservedTarget(): { x: number; y: number } | null {
     return this.reservedTarget;
+  }
+
+  /**
+   * Hover identity: "FULL NAME · OCCUPATION" on a parchment plate above the
+   * head. Scene-level (not a container child) so it never scales with the
+   * hover lift and sits above every neighbour.
+   */
+  private showHoverChip() {
+    this.hideHoverChip();
+    if (this.isPlayer || !this.scene.cache.bitmapFont.has(PIXEL_FONT)) return;
+    // Two lines: the full name, then the occupation (clipped on a word edge
+    // so the plate stays narrower than a speech bubble).
+    const occupation = this.occupation.replace(/\s+/g, " ").trim();
+    const clip = (text: string, max: number) => {
+      if (text.length <= max) return text;
+      const cut = text.slice(0, max - 1);
+      const edge = cut.lastIndexOf(" ");
+      return `${(edge > max * 0.5 ? cut.slice(0, edge) : cut).trimEnd()}-`;
+    };
+    const lines = [pixelText(clip(this.agentName, 24))];
+    if (occupation) lines.push(pixelText(clip(occupation, 24)));
+    const w = 12 + Math.max(...lines.map((l) => l.length)) * PIXEL_FONT_ADVANCE;
+    const h = 6 + lines.length * 9 + 3;
+    const g = this.scene.add.graphics();
+    drawPixelPlate(g, -w / 2, 0, w, h, { shadow: 0.12, ink: 0x7a6a50, fill: 0xf3e9d3 });
+    const texts = lines.map((line, i) =>
+      this.scene.add.bitmapText(-w / 2 + 6, 4 + i * 9, PIXEL_FONT, line).setTint(i === 0 ? 0x3a3226 : 0x7a6a50));
+    this.hoverChip = this.scene.add.container(this.x, this.y - FRAME_H - 14 - h, [g, ...texts])
+      .setDepth(AgentSprite.BUBBLE_DEPTH - 2);
+    this.hoverChip.setData("h", h);
+  }
+
+  private hideHoverChip() {
+    this.hoverChip?.destroy();
+    this.hoverChip = undefined;
   }
 
   /** Gold nameplate while hovered; ink-white otherwise. */
@@ -1858,6 +1910,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.companionSprite?.destroy();
     this.companionShadow?.destroy();
     this.votedBadge?.destroy();
+    this.hoverChip?.destroy();
     super.destroy(fromScene);
   }
 }

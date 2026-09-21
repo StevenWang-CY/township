@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -65,6 +66,23 @@ class RoundManager:
         self.scenario = scenario
         self.town_data = scenario.towns
         self._tool_registry = build_tools(scenario)
+        # Social bookkeeping: who talked to whom (per town, per round) so
+        # pairing can avoid repeats, the in-world clock each town is on, and
+        # a draw counter so seeded picks differ within a round.
+        self._recent_pairs: dict[str, dict[int, set[frozenset[str]]]] = {}
+        self._round_clock: dict[str, tuple[int, int]] = {}
+        self._current_round: dict[str, int] = {}
+        self._draws = 0
+
+    # ── Seeded randomness ───────────────────────────────────────────
+    #
+    # Every choice the engine makes (pairs, meeting places, topics) is drawn
+    # from a generator seeded by (scenario, town, round, purpose): two runs of
+    # the same package under the mock provider make the same choices, and
+    # towns running concurrently no longer interleave one global stream.
+
+    def _rng(self, purpose: str, town: str, round_num: int) -> random.Random:
+        return random.Random(f"{self.scenario.id}|{town}|{round_num}|{purpose}")
 
     def _tools(self, names: list[str]) -> list[dict]:
         return [self._tool_registry[n] for n in names if n in self._tool_registry]
@@ -124,6 +142,8 @@ class RoundManager:
         )
 
         hour, minute = spec.clock_tuple()
+        self._round_clock[town] = (hour, minute)
+        self._current_round[town] = round_num
         await self.event_bus.publish(
             WorldClockTickEvent(
                 hour=hour,
@@ -321,7 +341,7 @@ class RoundManager:
 
     async def _run_conversation_round(self, agents: list[AgentState], round_num: int) -> int:
         """Pair agents randomly, run discussions at town locations. Returns number of conversations."""
-        pairs = self._random_pairs(agents, count=max(1, len(agents) // 2))
+        pairs = self._random_pairs(agents, count=max(1, len(agents) // 2), round_num=round_num)
         logger.info(f"Running conversation round {round_num} with {len(pairs)} pairs")
 
         tasks = []
@@ -334,7 +354,9 @@ class RoundManager:
     async def _run_conversation(self, agent_a: AgentState, agent_b: AgentState, round_num: int):
         """Run a 3-exchange conversation between two agents."""
         town = agent_a.definition.town
-        location = self._pick_location(town)
+        location = self._meeting_place(
+            town, agent_a, agent_b, self._round_clock.get(town), round_num
+        )
         from_a = agent_a.current_location
         from_b = agent_b.current_location
         agent_a.current_location = location
@@ -371,14 +393,7 @@ class RoundManager:
         )
 
         # Pick a conversation topic based on shared concerns
-        shared_concerns = set(agent_a.definition.top_concerns) & set(
-            agent_b.definition.top_concerns
-        )
-        if shared_concerns:
-            topic = random.choice(list(shared_concerns))
-        else:
-            all_concerns = agent_a.definition.top_concerns + agent_b.definition.top_concerns
-            topic = random.choice(all_concerns)
+        topic = self._pick_topic(agent_a, agent_b, town, round_num)
 
         # Build a wire-format Conversation that matches the frontend interface
         convo_id = uuid.uuid4().hex[:8]
@@ -804,9 +819,9 @@ class RoundManager:
                 used_agents.add(agent_a.agent_id)
                 used_agents.add(agent_b.agent_id)
 
-        # Fallback: pair remaining unmatched agents across towns randomly
+        # Fallback: pair remaining unmatched agents across towns (seeded)
         remaining = [a for a in all_agents if a.agent_id not in used_agents]
-        random.shuffle(remaining)
+        self._rng("cross-town", "*", 0).shuffle(remaining)
 
         chance_connection = (
             f"They met by chance at {self.scenario.config.cross_town_meeting_place} and "
@@ -838,14 +853,7 @@ class RoundManager:
         agent_b.state = CivicAgentState.DISCUSSING
 
         # Pick a conversation topic based on shared concerns
-        shared_concerns = set(agent_a.definition.top_concerns) & set(
-            agent_b.definition.top_concerns
-        )
-        if shared_concerns:
-            topic = random.choice(list(shared_concerns))
-        else:
-            all_concerns = agent_a.definition.top_concerns + agent_b.definition.top_concerns
-            topic = random.choice(all_concerns)
+        topic = self._pick_topic(agent_a, agent_b, "*", round_num)
 
         convo_id = uuid.uuid4().hex[:8]
         await self.event_bus.publish(
@@ -1015,30 +1023,186 @@ class RoundManager:
         except Exception:  # pragma: no cover
             pass
 
-    def _random_pairs(self, agents: list[AgentState], count: int = 3) -> list[tuple]:
-        """Create random conversation pairs from agent list."""
+    # ── Who talks to whom, and where ────────────────────────────────
+
+    @staticmethod
+    def _relationship_strength(agent_a: AgentState, agent_b: AgentState) -> float:
+        """Strongest declared tie between two residents (0 when none).
+
+        Persona relationships name the other resident by id or by display
+        name; both spellings are honoured, case-insensitively.
+        """
+        best = 0.0
+        for src, dst in ((agent_a, agent_b), (agent_b, agent_a)):
+            keys = {dst.agent_id.lower(), dst.definition.name.lower()}
+            for rel in src.definition.relationships:
+                target = str(rel.get("agent", "")).strip().lower()
+                if target in keys:
+                    try:
+                        best = max(best, float(rel.get("strength", 0.5)))
+                    except (TypeError, ValueError):
+                        best = max(best, 0.5)
+        return best
+
+    def _recently_paired(self, town: str, key: frozenset[str], round_num: int) -> bool:
+        history = self._recent_pairs.get(town, {})
+        return any(key in history.get(r, set()) for r in (round_num - 1, round_num - 2))
+
+    def _random_pairs(
+        self, agents: list[AgentState], count: int = 3, round_num: int = 0
+    ) -> list[tuple]:
+        """Pair residents for a conversation round.
+
+        Greedy maximum-weight matching over the authored social graph:
+        declared relationships and shared concerns pull two people together,
+        having just talked in the last two rounds pushes them apart, and a
+        small seeded jitter keeps the town from repeating itself exactly.
+        The name survives from the uniform-random era.
+        """
         if len(agents) < 2:
             return []
+        town = agents[0].definition.town
+        rng = self._rng("pairs", town, round_num)
+        ordered = sorted(agents, key=lambda a: a.agent_id)
+        scored: list[tuple[float, str, str, AgentState, AgentState]] = []
+        for i, a in enumerate(ordered):
+            for b in ordered[i + 1 :]:
+                key = frozenset((a.agent_id, b.agent_id))
+                shared = set(a.definition.top_concerns) & set(b.definition.top_concerns)
+                weight = 1.0
+                weight += 2.0 * self._relationship_strength(a, b)
+                weight += 0.5 * len(shared)
+                if self._recently_paired(town, key, round_num):
+                    weight -= 1.5
+                weight += 0.5 * rng.random()
+                scored.append((weight, a.agent_id, b.agent_id, a, b))
+        scored.sort(key=lambda row: (-row[0], row[1], row[2]))
 
-        shuffled = list(agents)
-        random.shuffle(shuffled)
-
-        pairs = []
-        for i in range(0, len(shuffled) - 1, 2):
-            pairs.append((shuffled[i], shuffled[i + 1]))
+        used: set[str] = set()
+        pairs: list[tuple[AgentState, AgentState]] = []
+        for _, id_a, id_b, a, b in scored:
+            if id_a in used or id_b in used:
+                continue
+            pairs.append((a, b))
+            used.update((id_a, id_b))
             if len(pairs) >= count:
                 break
 
+        history = self._recent_pairs.setdefault(town, {}).setdefault(round_num, set())
+        for a, b in pairs:
+            history.add(frozenset((a.agent_id, b.agent_id)))
         return pairs
 
+    def _pick_topic(
+        self, agent_a: AgentState, agent_b: AgentState, town: str, round_num: int
+    ) -> str:
+        shared = sorted(set(agent_a.definition.top_concerns) & set(agent_b.definition.top_concerns))
+        rng = self._rng(f"topic:{agent_a.agent_id}:{agent_b.agent_id}", town, round_num)
+        if shared:
+            return rng.choice(shared)
+        return rng.choice(agent_a.definition.top_concerns + agent_b.definition.top_concerns)
+
+    @staticmethod
+    def _routine_stop(agent: AgentState, clock: tuple[int, int] | None) -> str | None:
+        """Where the persona's routine has them at ``clock`` (the latest stop
+        at or before that time; the day's last stop before its first)."""
+        entries = agent.definition.routine
+        if not entries:
+            return None
+        if clock is None:
+            return str(entries[0].get("location") or "") or None
+        target = clock[0] * 60 + clock[1]
+        best: tuple[int, str] | None = None
+        latest: tuple[int, str] | None = None
+        for entry in entries:
+            try:
+                hh, mm = str(entry.get("time", "")).split(":")
+                minutes = int(hh) * 60 + int(mm)
+            except ValueError:
+                continue
+            location = str(entry.get("location") or "").strip()
+            if not location:
+                continue
+            if minutes <= target and (best is None or minutes > best[0]):
+                best = (minutes, location)
+            if latest is None or minutes > latest[0]:
+                latest = (minutes, location)
+        chosen = best or latest
+        return chosen[1] if chosen else None
+
+    _MIDDAY_PLACES = re.compile(
+        r"restaurant|diner|caf[eé]|bodega|library|coffee|deli|pizz|bakery|market|grill",
+        re.IGNORECASE,
+    )
+    _EVENING_PLACES = re.compile(
+        r"park|church|temple|congregational|station|transit|green|commons|square|plaza",
+        re.IGNORECASE,
+    )
+    _MIDDAY_TYPES = {"restaurant", "cafe", "library", "shop", "commercial"}
+    _EVENING_TYPES = {"park", "church", "religious", "transport", "transit"}
+
+    def _meeting_place(
+        self,
+        town: str,
+        agent_a: AgentState,
+        agent_b: AgentState,
+        clock: tuple[int, int] | None,
+        round_num: int = 0,
+    ) -> str:
+        """Where two residents meet, read off their routines and the clock.
+
+        Both at the same stop → they talk there. Otherwise the hour picks a
+        kind of place — lunch spots through the afternoon, parks, churches
+        and the station in the evening — preferring one of the pair's own
+        stops when it fits, then the initiator's stop, then any landmark.
+        """
+        stop_a = self._routine_stop(agent_a, clock)
+        stop_b = self._routine_stop(agent_b, clock)
+        known = lambda name: name is not None and self._get_landmark(town, name) is not None  # noqa: E731
+        if stop_a and stop_a == stop_b and known(stop_a):
+            return stop_a
+
+        hour = clock[0] if clock else 12
+        if 11 <= hour < 17:
+            pattern, types = self._MIDDAY_PLACES, self._MIDDAY_TYPES
+        elif hour >= 17:
+            pattern, types = self._EVENING_PLACES, self._EVENING_TYPES
+        else:
+            pattern, types = None, set()
+
+        if pattern is not None:
+            fits = lambda lm: bool(  # noqa: E731
+                pattern.search(str(lm.get("name", ""))) or str(lm.get("type", "")).lower() in types
+            )
+            for stop in (stop_a, stop_b):
+                lm = self._get_landmark(town, stop) if stop else None
+                if lm is not None and fits(lm):
+                    return str(lm["name"])
+            pool = sorted(
+                str(lm["name"])
+                for lm in self.town_data.get(town, {}).get("landmarks", [])
+                if fits(lm)
+            )
+            if pool:
+                rng = self._rng(f"meet:{agent_a.agent_id}:{agent_b.agent_id}", town, round_num)
+                return rng.choice(pool)
+
+        for stop in (stop_a, stop_b):
+            if stop and known(stop):
+                return stop
+        return self._pick_location(town)
+
     def _pick_location(self, town: str) -> str:
-        """Pick a random landmark location for a conversation."""
+        """Pick a landmark for an arrival or a conversation with no better
+        anchor. Seeded per (town, round, draw) so it stays deterministic."""
+        self._draws += 1
+        rng = self._rng(f"location:{self._draws}", town, self._current_round.get(town, 0))
         town_info = self.town_data.get(town, {})
         landmarks = town_info.get("landmarks", [])
         if landmarks:
-            return random.choice(landmarks)["name"]
+            return rng.choice(landmarks)["name"]
         # Fallback locations
-        return random.choice(["Town Center", "Main Street", "Community Center", "Local Park"])
+        return rng.choice(["Town Center", "Main Street", "Community Center", "Local Park"])
 
     def _get_landmark(self, town: str, location_name: str) -> dict | None:
         """Get landmark data by name."""

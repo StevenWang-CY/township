@@ -575,7 +575,9 @@ def test_conversation_movement_preserves_origin(runtime, monkeypatch):
     origin_b = agent_b.current_location
     destination = scenario.towns[town]["landmarks"][1]["name"]
     manager = RoundManager(provider, bus, scenario)
-    monkeypatch.setattr(manager, "_pick_location", lambda _town: destination)
+    # Conversations now meet where the pair's routines put them; pin the
+    # meeting place so the test asserts the movement contract, not the map.
+    monkeypatch.setattr(manager, "_meeting_place", lambda *_args, **_kw: destination)
 
     asyncio.run(manager._run_conversation(agent_a, agent_b, round_num=1))
     moved = [event for event in bus.get_event_log() if event.type == "agent_moved"]

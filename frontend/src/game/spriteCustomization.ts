@@ -176,6 +176,34 @@ export const FALLBACK_SPRITES = [
   "char-Tamara_Taylor",
 ];
 
+/** Smallville sheets that are cats in costume, never residents. */
+export const CAT_SHEETS: ReadonlySet<string> = new Set(["char-Adam_Smith", "char-Wolfgang_Schulz"]);
+
+/**
+ * Every human body sheet (the named Smallville set plus the split folk
+ * sheets): the pool scenario-agnostic rosters and passers-by draw from.
+ */
+export const HUMAN_BODIES: string[] = [
+  "char-Abigail_Chen", "char-Arthur_Burton", "char-Ayesha_Khan", "char-Carlos_Gomez",
+  "char-Carmen_Ortiz", "char-Eddy_Lin", "char-Francisco_Lopez", "char-Giorgio_Rossi",
+  "char-Hailey_Johnson", "char-Isabella_Rodriguez", "char-Jane_Moreno", "char-Jennifer_Moore",
+  "char-John_Lin", "char-Klaus_Mueller", "char-Latoya_Williams", "char-Maria_Lopez",
+  "char-Mei_Lin", "char-Rajiv_Patel", "char-Ryan_Park", "char-Sam_Moore", "char-Tamara_Taylor",
+  "char-Tom_Moreno", "char-Yuriko_Yamamoto",
+  "char-folk-0", "char-folk-1", "char-folk-2", "char-folk-3", "char-folk-4", "char-folk-5",
+  "char-folk-6", "char-folk-7",
+];
+
+/** Mild, garment-safe tints (the documented hints above plus three neutrals). */
+const MILD_TINTS = [0xd6ac82, 0xbcd4dc, 0xb8c0d8, 0xd9c2cc, 0xc6d2b4, 0xd1c8b0, 0xc4b8a6, 0xd6cdb8];
+
+/** Neutral accessory overlays, keyed by the only body each is aligned to. */
+const NEUTRAL_ACCESSORIES: Record<string, string> = {
+  "char-Tom_Moreno": "acc-cap-Tom_Moreno",
+  "char-Klaus_Mueller": "acc-glasses-Klaus_Mueller",
+  "char-Francisco_Lopez": "acc-hardhat-Francisco_Lopez",
+};
+
 /** Distinct list of body texture keys to preload (base + partner bodies). */
 export const ALL_CHARACTER_KEYS: string[] = Array.from(
   new Set([
@@ -184,6 +212,7 @@ export const ALL_CHARACTER_KEYS: string[] = Array.from(
       .map((c) => c.partner?.spriteKey)
       .filter((k): k is string => !!k),
     ...FALLBACK_SPRITES,
+    ...HUMAN_BODIES,
   ]),
 );
 
@@ -223,8 +252,84 @@ export function resolveAgentSprite(
 ): SpriteCustomization {
   const direct = scenarioId === "nj11-2026" ? AGENT_CUSTOMIZATION[agentId] : undefined;
   if (direct) return direct;
-  // Stable hash to pick a deterministic fallback (so reloads don't reshuffle).
+  // A registered roster (see registerRosterArt) gives every resident of a
+  // scenario a distinct body + mild tint; otherwise a stable hash picks a
+  // generic body so reloads never reshuffle.
+  const assigned = scenarioId ? rosterArt.get(scenarioId)?.[agentId] : undefined;
+  if (assigned) return assigned;
+  return { spriteKey: FALLBACK_SPRITES[hashId(agentId) % FALLBACK_SPRITES.length] };
+}
+
+function hashId(id: string): number {
   let h = 0;
-  for (let i = 0; i < agentId.length; i++) h = (h * 31 + agentId.charCodeAt(i)) >>> 0;
-  return { spriteKey: FALLBACK_SPRITES[h % FALLBACK_SPRITES.length] };
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+/* ── Scenario-agnostic outfits ─────────────────────────────── */
+
+/**
+ * Deterministic, collision-free art for a roster: ids sorted, each hashed
+ * onto the human body pool and bumped past bodies already taken, with a
+ * mild tint from the documented palette and a neutral accessory where one
+ * is aligned to that body. The same roster always yields the same table,
+ * so the canvas and the sidebar portraits agree.
+ */
+export function assignTownSprites(roster: string[]): Record<string, SpriteCustomization> {
+  const ids = [...new Set(roster)].sort();
+  const taken = new Set<string>();
+  const out: Record<string, SpriteCustomization> = {};
+  for (const id of ids) {
+    const h = hashId(id);
+    let idx = h % HUMAN_BODIES.length;
+    // Bump past taken bodies; once every body is used, allow repeats but
+    // vary the tint so twins still read apart.
+    let tries = 0;
+    while (taken.has(HUMAN_BODIES[idx]) && tries < HUMAN_BODIES.length) { idx = (idx + 1) % HUMAN_BODIES.length; tries++; }
+    const spriteKey = HUMAN_BODIES[idx];
+    const repeat = taken.has(spriteKey);
+    taken.add(spriteKey);
+    const tint = MILD_TINTS[((h >>> 8) + (repeat ? 3 : 0)) % MILD_TINTS.length];
+    const accessory = NEUTRAL_ACCESSORIES[spriteKey];
+    out[id] = {
+      spriteKey,
+      tint,
+      ...(accessory && (h >>> 16) % 3 === 0 ? { accessoryKey: accessory } : {}),
+    };
+  }
+  return out;
+}
+
+const rosterArt = new Map<string, Record<string, SpriteCustomization>>();
+const rosterKeys = new Map<string, string>();
+
+/**
+ * Register a scenario's full roster once its ids are known (the socket
+ * provider does this from simulation_started / the API roster). NJ-11
+ * keeps its authored table; every other scenario gets `assignTownSprites`.
+ * Idempotent for the same roster.
+ */
+export function registerRosterArt(scenarioId: string, roster: string[]): void {
+  if (!scenarioId || scenarioId === "nj11-2026" || roster.length === 0) return;
+  const key = [...new Set(roster)].sort().join("|");
+  if (rosterKeys.get(scenarioId) === key) return;
+  rosterArt.set(scenarioId, assignTownSprites(roster));
+  rosterKeys.set(scenarioId, key);
+}
+
+/**
+ * Body sheets for ambient passers-by: every human body not worn by one of
+ * this town's residents (or their partners), so a stranger never twins a
+ * neighbour. Falls back to the whole pool when a town uses everything.
+ */
+export function passerbyPool(scenarioId: string, residentIds: string[]): string[] {
+  const worn = new Set<string>();
+  for (const id of residentIds) {
+    const c = resolveAgentSprite(id, scenarioId);
+    worn.add(c.customKey ?? c.spriteKey);
+    worn.add(c.spriteKey);
+    if (c.partner?.spriteKey) worn.add(c.partner.spriteKey);
+  }
+  const pool = HUMAN_BODIES.filter((k) => !worn.has(k) && !CAT_SHEETS.has(k));
+  return pool.length >= 2 ? pool : HUMAN_BODIES.filter((k) => !CAT_SHEETS.has(k));
 }
