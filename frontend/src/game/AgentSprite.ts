@@ -7,6 +7,7 @@ import {
   ensureSquareTexture,
   reducedMotion,
 } from "./pixelTextures";
+import type { Pt } from "./NavGrid";
 
 /**
  * Spritesheet layout: 96 × 128 px → 3 cols × 4 rows → 12 frames (32×32 each)
@@ -31,6 +32,15 @@ export const SHADOW_Y = 3;                // px below feet (container y=0 = feet
 export const LABEL_Y = 10;                // name tag below feet
 export const BUBBLE_TIP_Y = -(FRAME_H + 6); // speech-bubble pointer just above head
 export const WALK_FPS = 9;
+/** Shared walking speed (px/s) for residents AND the player — one town, one
+ *  gait. Residents used to average ~263 px/s against the player's 160. */
+export const WALK_SPEED = 110;
+/** Speed at which the 9 fps three-frame cycle shows no foot slide for a
+ *  ~51 px body; anims.timeScale scales the stride with actual speed. */
+export const STRIDE_BASE_SPEED = 96;
+/** Quadratic ease-in / ease-out caps at either end of a walk (px). Every
+ *  leg in between runs at constant speed so feet never slide. */
+const EASE_CAP_PX = 24;
 export const IDLE_FRAMES: Record<string, number> = { down: 1, left: 4, right: 7, up: 10 };
 /** At-rest side-by-side offset for a couple's companion body (perpendicular
  *  to facing). Bodies read ~26px wide at SPRITE_SCALE 1.6; 22px keeps the
@@ -53,6 +63,16 @@ export type AgentActivity =
   | "voting";
 
 export type BubbleSentiment = "positive" | "negative" | "neutral";
+
+/** Route a walk through the town's nav grid; null → straight line. */
+export type PathResolver = (from: Pt, to: Pt) => Pt[] | null;
+
+export interface MoveOptions {
+  /** Facing to settle into on arrival (default: the last leg's direction). */
+  arriveFacing?: Direction;
+  /** Walking speed override in px/s (default WALK_SPEED × per-resident gait). */
+  speed?: number;
+}
 
 export interface AgentConfig {
   id: string;
@@ -92,6 +112,15 @@ interface BubbleEntry {
   stackOffset: number;
 }
 
+/** One constant-ease tween leg of a walk (see walkPath). */
+interface WalkSegment {
+  x: number;
+  y: number;
+  dir: Direction;
+  ease: string;
+  duration: number;
+}
+
 export class AgentSprite extends Phaser.GameObjects.Container {
   // Layered sprite stack
   protected bodySprite?: Phaser.GameObjects.Sprite;
@@ -113,6 +142,15 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   protected idleTween?: Phaser.Tweens.Tween;
   protected shadowTween?: Phaser.Tweens.Tween;
   private moveTween?: Phaser.Tweens.Tween;
+  private nudgeTween?: Phaser.Tweens.Tween;
+  private pathResolver: PathResolver | null = null;
+  /** Remaining tween segments of the current walk (see walkPath). */
+  private walkSegments: WalkSegment[] = [];
+  private walkOnComplete?: () => void;
+  private walkArriveFacing?: Direction;
+  private walkDir?: Direction;
+  /** ±8% per-resident gait variation from a stable id hash (capture-safe). */
+  private gaitJitter = 1;
 
   // Proximity highlight layers
   private proxGlow?: Phaser.GameObjects.Graphics;
@@ -161,6 +199,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.opinionColor = cfg.opinionColor ?? "#FFFFFF";
     this.homeY = y;
     this.ambient = !!cfg.ambient;
+    let gaitHash = 2166136261;
+    for (const ch of cfg.id) gaitHash = Math.imul(gaitHash ^ ch.charCodeAt(0), 16777619) >>> 0;
+    this.gaitJitter = 0.92 + (gaitHash % 17) / 100;
 
     // ── Opinion ring — chunky pixel ground ellipse at the feet,
     //    2-frame shimmer. Sits UNDER the shadow like a native tile marker.
@@ -328,6 +369,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   /** Called every frame by TownScene to keep depth sorted by Y. */
   syncDepth() {
     this.setDepth(100 + Math.floor(this.y));
+    // A walk whose tween was destroyed from outside (capture staging kills
+    // tweens wholesale) must not leave the resident frozen mid-stride.
+    if (this.isMoving && this.moveTween?.isDestroyed()) this.stopWalk(true);
     // Keep scene-level speech bubbles glued to the speaker.
     for (const bubble of this.bubbleQueue) {
       bubble.group.setPosition(this.x, this.y - bubble.stackOffset);
@@ -379,93 +423,236 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.labelDot.setVisible(true);
   }
 
-  /** Gentle position correction from the overlap-resolver (never mid-walk). */
+  /** Gentle position correction from the overlap-resolver (never mid-walk):
+   *  a 120 ms stepped micro-slide instead of a teleport. */
   nudgeTo(x: number, y: number) {
     if (this.isMoving) return;
-    this.setPosition(x, y);
-    this.homeY = y;
-    this.syncDepth();
+    if (reducedMotion()) {
+      this.setPosition(x, y);
+      this.homeY = y;
+      this.syncDepth();
+      return;
+    }
+    this.nudgeTween?.stop();
+    this.nudgeTween = this.scene.tweens.add({
+      targets: this,
+      x,
+      y,
+      duration: 120,
+      ease: "Stepped",
+      easeParams: [3],
+      onUpdate: () => {
+        this.homeY = this.y;
+        this.syncDepth();
+      },
+    });
+  }
+
+  /** Inject the town's pathfinder. Without one, walks are straight lines
+   *  (the onboarding stage, tests). */
+  setPathResolver(resolver: PathResolver | null) {
+    this.pathResolver = resolver;
   }
 
   /**
-   * Smoothly move to world position (tx, ty).
-   * Plays the correct walk animation, shadow squish, and calls onComplete when done.
+   * Walk to world position (tx, ty) along the nav grid — or a straight line
+   * when no resolver is installed — then settle into idle and call
+   * onComplete. The signature is unchanged for every existing caller.
    */
-  moveToPosition(tx: number, ty: number, onComplete?: () => void) {
-    const dx = tx - this.x;
-    const dy = ty - this.y;
-    const dist = Math.hypot(dx, dy);
+  moveToPosition(tx: number, ty: number, onComplete?: () => void, opts?: MoveOptions) {
+    const dist = Math.hypot(tx - this.x, ty - this.y);
     if (dist < 6) {
+      if (opts?.arriveFacing) {
+        this.currentDirection = opts.arriveFacing;
+        this.playIdle(opts.arriveFacing);
+      }
+      onComplete?.();
+      return;
+    }
+    let path: Pt[] | null = null;
+    if (this.pathResolver) {
+      try {
+        path = this.pathResolver({ x: this.x, y: this.y }, { x: tx, y: ty });
+      } catch {
+        path = null;
+      }
+    }
+    if (!path || path.length === 0) path = [{ x: tx, y: ty }];
+    this.walkPath(path, onComplete, opts);
+  }
+
+  /**
+   * Walk a waypoint path (world px). Each leg is a constant-speed Linear
+   * tween with per-leg facing; only the first and last EASE_CAP_PX get a
+   * quadratic ease-in / ease-out, so departures and arrivals settle while
+   * the stride never slides mid-walk. The walk cycle's timeScale follows the
+   * actual speed.
+   */
+  walkPath(path: Pt[], onComplete?: () => void, opts?: MoveOptions) {
+    if (path.length === 0) {
+      onComplete?.();
+      return;
+    }
+    this.stopWalk(false);
+    this.nudgeTween?.stop();
+    this.nudgeTween = undefined;
+
+    const speed = Math.max(20, (opts?.speed ?? WALK_SPEED) * this.gaitJitter);
+    const segments: WalkSegment[] = [];
+    let px = this.x;
+    let py = this.y;
+    for (let i = 0; i < path.length; i++) {
+      const p = path[i];
+      const dx = p.x - px;
+      const dy = p.y - py;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.5) continue;
+      const dir: Direction = Math.abs(dx) > Math.abs(dy)
+        ? (dx > 0 ? "right" : "left")
+        : (dy > 0 ? "down" : "up");
+      const first = segments.length === 0;
+      const last = i === path.length - 1;
+      const capIn = first && len >= (last ? 64 : 40);
+      const capOut = last && len >= (first ? 64 : 40);
+      const ux = dx / len;
+      const uy = dy / len;
+      let travelled = 0;
+      if (capIn) {
+        segments.push({
+          x: px + ux * EASE_CAP_PX,
+          y: py + uy * EASE_CAP_PX,
+          dir,
+          ease: "Quad.easeIn",
+          duration: (2 * EASE_CAP_PX / speed) * 1000,
+        });
+        travelled = EASE_CAP_PX;
+      }
+      const linearEnd = len - (capOut ? EASE_CAP_PX : 0);
+      if (linearEnd > travelled + 0.5) {
+        segments.push({
+          x: capOut ? px + ux * linearEnd : p.x,
+          y: capOut ? py + uy * linearEnd : p.y,
+          dir,
+          ease: "Linear",
+          duration: ((linearEnd - travelled) / speed) * 1000,
+        });
+      }
+      if (capOut) {
+        segments.push({
+          x: p.x,
+          y: p.y,
+          dir,
+          ease: "Quad.easeOut",
+          duration: (2 * EASE_CAP_PX / speed) * 1000,
+        });
+      }
+      px = p.x;
+      py = p.y;
+    }
+    if (segments.length === 0) {
       onComplete?.();
       return;
     }
 
-    // Pick the dominant direction for facing
-    this.currentDirection =
-      Math.abs(dx) > Math.abs(dy)
-        ? dx > 0 ? "right" : "left"
-        : dy > 0 ? "down" : "up";
-
     this.isMoving = true;
     this.currentActivity = "walking";
-    this.reservedTarget = { x: tx, y: ty };
+    const dest = path[path.length - 1];
+    this.reservedTarget = { x: dest.x, y: dest.y };
+    this.walkSegments = segments;
+    this.walkOnComplete = onComplete;
+    this.walkArriveFacing = opts?.arriveFacing;
+    this.walkDir = undefined;
     this.stopIdleMotion();
-    this.moveTween?.stop();
 
-    // Walk animation — frameRate scales with stride length so long sprints
-    // cycle the legs faster than short hops.
-    this.playWalk(this.currentDirection);
-    const frameRate = Phaser.Math.Clamp(6 + dist / 220, 5, 14);
-    if (this.bodySprite?.anims) this.bodySprite.anims.timeScale = frameRate / WALK_FPS;
-    if (this.accessorySprite?.anims) this.accessorySprite.anims.timeScale = frameRate / WALK_FPS;
-    if (this.companionSprite?.anims) this.companionSprite.anims.timeScale = frameRate / WALK_FPS;
-
-    // Shadow stride — hint of weight shift, not a trampoline hop.
-    // Duration roughly matches the 9 fps × 3-frame walk cycle (~333 ms).
-    const squishDur = Phaser.Math.Clamp(320 + dist * 0.15, 360, 460);
+    const timeScale = speed / STRIDE_BASE_SPEED;
+    for (const layer of this.animLayers()) {
+      if (layer.anims) layer.anims.timeScale = timeScale;
+    }
+    // Shadow stride — a hint of weight shift in time with the walk cycle
+    // (three frames at 9 fps ≈ 333 ms), never a trampoline hop.
     if (!reducedMotion()) {
       this.shadowTween = this.scene.tweens.add({
         targets: this.groundShadow,
-        scaleX: 1.18,
-        scaleY: 0.88,
-        duration: squishDur,
+        scaleX: 1.14,
+        scaleY: 0.9,
+        duration: 340 / timeScale,
         yoyo: true,
         repeat: -1,
         ease: "Sine.easeInOut",
         delay: 30,
       });
     }
+    this.runNextSegment();
+  }
 
-    // Duration: short hops feel responsive (280 ms min), long walks remain
-    // leisurely. The previous 600 ms floor made 8 px steps look like sliding.
-    const duration = Phaser.Math.Clamp(dist * 3.8, 280, 2800);
-
+  private runNextSegment() {
+    const seg = this.walkSegments.shift();
+    if (!seg) {
+      this.finishWalk();
+      return;
+    }
+    if (seg.dir !== this.walkDir) {
+      this.walkDir = seg.dir;
+      this.currentDirection = seg.dir;
+      this.playWalk(seg.dir);
+    }
     this.moveTween = this.scene.tweens.add({
       targets: this,
-      x: tx,
-      y: ty,
-      duration,
-      ease: "Sine.easeInOut",
+      x: seg.x,
+      y: seg.y,
+      duration: Math.max(16, seg.duration),
+      ease: seg.ease,
       onUpdate: () => {
         this.syncDepth();
         this.homeY = this.y;
       },
       onComplete: () => {
-        this.isMoving = false;
-        this.reservedTarget = null;
-        this.setScale(1);
-        this.shadowTween?.stop();
-        this.groundShadow.setScale(1);
-        // Reset animation timeScale to default after a walk.
-        if (this.bodySprite?.anims) this.bodySprite.anims.timeScale = 1;
-        if (this.accessorySprite?.anims) this.accessorySprite.anims.timeScale = 1;
-        if (this.companionSprite?.anims) this.companionSprite.anims.timeScale = 1;
-        this.playIdle(this.currentDirection);
-        this.currentActivity = "idle";
-        this.beginIdle();
-        onComplete?.();
+        if (!this.isMoving) return;
+        this.runNextSegment();
       },
     });
+  }
+
+  private finishWalk() {
+    const done = this.walkOnComplete;
+    const facing = this.walkArriveFacing ?? this.currentDirection;
+    this.stopWalk(false);
+    this.currentDirection = facing;
+    this.playIdle(facing);
+    this.currentActivity = "idle";
+    this.beginIdle();
+    done?.();
+  }
+
+  /** Halt any in-flight walk immediately. No arrival callback fires; with
+   *  `idle` the resident settles into its idle pose where it stands. */
+  protected stopWalk(idle = true) {
+    const wasMoving = this.isMoving;
+    if (this.moveTween && !this.moveTween.isDestroyed()) this.moveTween.stop();
+    this.moveTween = undefined;
+    this.walkSegments = [];
+    this.walkOnComplete = undefined;
+    this.walkArriveFacing = undefined;
+    this.walkDir = undefined;
+    this.isMoving = false;
+    this.reservedTarget = null;
+    this.shadowTween?.stop();
+    this.shadowTween = undefined;
+    this.groundShadow.setScale(1);
+    for (const layer of this.animLayers()) {
+      if (layer.anims) layer.anims.timeScale = 1;
+    }
+    if (idle && wasMoving) {
+      this.playIdle(this.currentDirection);
+      this.currentActivity = "idle";
+      this.beginIdle();
+    }
+  }
+
+  /** Every animated sprite layer whose walk cycle must share one stride. */
+  private animLayers(): Phaser.GameObjects.Sprite[] {
+    return [this.bodySprite, this.accessorySprite, this.companionSprite]
+      .filter((layer): layer is Phaser.GameObjects.Sprite => !!layer);
   }
 
   /** Turn to face a target without moving. */
@@ -672,11 +859,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     opinionColor: string,
     activity: AgentActivity,
   ) {
-    this.moveTween?.stop();
-    this.moveTween = undefined;
-    this.shadowTween?.stop();
-    this.shadowTween = undefined;
-    this.isMoving = false;
+    this.stopWalk(false);
+    this.nudgeTween?.stop();
+    this.nudgeTween = undefined;
     this.scene.tweens.killTweensOf(this.leadLayers());
     this.stopIdleMotion();
     this.clearActivityFx();
@@ -788,6 +973,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   setActivity(activity: AgentActivity, force = false) {
     if (!force && activity === this.currentActivity) return;
+    // A non-walking activity always wins over an in-flight walk; leaving
+    // isMoving stuck true used to disable overlap nudges for good.
+    if (activity !== "walking" && this.isMoving) this.stopWalk(false);
     this.clearActivityFx();
     this.stopIdleMotion();
     this.currentActivity = activity;
@@ -1335,7 +1523,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   override destroy(fromScene?: boolean) {
     this.idleTween?.stop();
     this.shadowTween?.stop();
-    this.moveTween?.stop();
+    if (this.moveTween && !this.moveTween.isDestroyed()) this.moveTween.stop();
+    this.nudgeTween?.stop();
     this.companionTween?.stop();
     this.ringShimmerTimer?.remove(false);
     for (const b of this.bubbleQueue) {

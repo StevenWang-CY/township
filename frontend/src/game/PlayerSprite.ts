@@ -1,6 +1,7 @@
 import Phaser from "phaser";
-import { AgentSprite, LABEL_Y, SPRITE_SCALE } from "./AgentSprite";
-import type { Direction } from "./AgentSprite";
+import { AgentSprite, LABEL_Y, SPRITE_SCALE, WALK_SPEED } from "./AgentSprite";
+import type { Direction, MoveOptions } from "./AgentSprite";
+import { WORLD_H, WORLD_MARGIN, WORLD_W, type Pt } from "./NavGrid";
 
 /**
  * Player-controlled character extending AgentSprite.
@@ -10,7 +11,9 @@ import type { Direction } from "./AgentSprite";
  * proximity-based NPC interaction.
  */
 
-const PLAYER_SPEED = 160; // px per second
+// Residents and the player share WALK_SPEED (AgentSprite) so nobody visibly
+// outruns anybody; holding Shift sprints.
+const RUN_MULT = 1.45;
 // THE conversational radius — the single distance at which the walk-up talk
 // card (rendered by CanvasOverlay, anchored to the NPC) appears and at which
 // pressing E starts the conversation. There used to be TWO radii (an
@@ -307,6 +310,19 @@ export class PlayerSprite extends AgentSprite {
 
     const moving = Math.abs(vx) > 0.08 || Math.abs(vy) > 0.08;
 
+    // A scripted walk (tap-to-walk, approach) drives the body along a path
+    // until it lands; any direct input takes control back immediately.
+    if (this.isMoving) {
+      if (moving) {
+        this.stopWalk(true);
+      } else {
+        this.syncDepth();
+        this.checkProximity();
+        return;
+      }
+    }
+    const speed = WALK_SPEED * (this.cursors?.shift?.isDown ? RUN_MULT : 1);
+
     if (moving) {
       // Stop idle tween if we were standing
       if (!this.wasMoving) {
@@ -329,12 +345,12 @@ export class PlayerSprite extends AgentSprite {
 
       // Velocity-based movement (respects physics collision)
       if (body) {
-        body.setVelocity(vx * PLAYER_SPEED, vy * PLAYER_SPEED);
+        body.setVelocity(vx * speed, vy * speed);
       } else {
         // Fallback: direct position (no physics body)
-        const speed = PLAYER_SPEED * (_delta / 1000);
-        this.x = Phaser.Math.Clamp(this.x + vx * speed, 40, 1160);
-        this.y = Phaser.Math.Clamp(this.y + vy * speed, 40, 760);
+        const step = speed * (_delta / 1000);
+        this.x = Phaser.Math.Clamp(this.x + vx * step, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
+        this.y = Phaser.Math.Clamp(this.y + vy * step, WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
       }
       this.homeY = this.y;
 
@@ -382,9 +398,37 @@ export class PlayerSprite extends AgentSprite {
     }
   }
 
-  /** Is the player actively moving this frame (keyboard/joystick)? */
+  /** Is the player moving — by input this frame or along a scripted path? */
   override isWalking(): boolean {
-    return this.wasMoving;
+    return this.wasMoving || this.isMoving;
+  }
+
+  /** Scripted walks (tap-to-walk, approach) move the container by tween;
+   *  the Arcade body is parked meanwhile so it cannot fight the path, and
+   *  re-armed on arrival or interruption. */
+  override walkPath(path: Pt[], onComplete?: () => void, opts?: MoveOptions) {
+    const body = this.body as Phaser.Physics.Arcade.Body | undefined;
+    if (body) {
+      body.setVelocity(0, 0);
+      body.enable = false;
+    }
+    this.wasMoving = false;
+    super.walkPath(path, () => {
+      this.armBody();
+      onComplete?.();
+    }, opts);
+  }
+
+  protected override stopWalk(idle = true) {
+    super.stopWalk(idle);
+    this.armBody();
+  }
+
+  private armBody() {
+    const body = this.body as Phaser.Physics.Arcade.Body | undefined;
+    if (!body || body.enable) return;
+    body.enable = true;
+    body.setVelocity(0, 0);
   }
 
   // ──────────────────────────────────────────────────────────────

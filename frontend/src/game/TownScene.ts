@@ -46,6 +46,8 @@ import {
 } from "./pixelTextures";
 import windowGids from "./windowGids.json";
 import { DEMO_MODE } from "../demo/demoMode";
+import { GROUND_COST, NavGrid, WORLD_H, WORLD_MARGIN, WORLD_W, truncatePath, type Pt } from "./NavGrid";
+import roadGids from "./roadGids.json";
 
 /** Authored art is declared by scenario data, never inferred from a town id. */
 export function hasAuthoredTownMap(mapPath?: string | null): boolean {
@@ -174,6 +176,11 @@ export class TownScene extends Phaser.Scene {
 
   // The built tilemap (kept for the window-glow scan).
   private builtMap?: Phaser.Tilemaps.Tilemap;
+  /** Walkability grid + A* over the collision layer (rebuilt with the map). */
+  private navGrid?: NavGrid;
+  /** Installed on every body so walks route around buildings and water. */
+  private readonly pathResolver = (from: Pt, to: Pt): Pt[] | null =>
+    this.navGrid?.findPath(from, to) ?? null;
   // Scenario towns do not have to ship a Tiled map. This procedural layer is
   // rebuilt from their authoritative landmark rectangles when no map exists.
   private fallbackWorld?: Phaser.GameObjects.Container;
@@ -401,8 +408,8 @@ export class TownScene extends Phaser.Scene {
       this.addPlayer(p);
     }
 
-    // Tap-to-walk on mobile (FIX 15): pointer-down on the scene tweens the
-    // player toward the tap point. Capped at 400 px.
+    // Tap-to-walk on mobile (FIX 15): pointer-down on the scene walks the
+    // player toward the tap point along the nav grid. Capped at 480 px.
     this.input.on("pointerdown", (p: Phaser.Input.Pointer, targets: any[]) => {
       // Skip if pointer was over an interactive target (agent click etc.)
       if (targets && targets.length > 0) return;
@@ -415,14 +422,18 @@ export class TownScene extends Phaser.Scene {
       const cam = this.cameras.main;
       const wx = p.worldX ?? cam.scrollX + p.x / cam.zoom;
       const wy = p.worldY ?? cam.scrollY + p.y / cam.zoom;
-      const dx = wx - player.x;
-      const dy = wy - player.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 20) return;
-      const capped = Math.min(dist, 400);
-      const tx = player.x + (dx / dist) * capped;
-      const ty = player.y + (dy / dist) * capped;
-      player.moveToPosition(tx, ty);
+      // Tapping a building walks to its door; open ground walks to the
+      // nearest walkable spot. Either way the route respects walls, unlike
+      // the old straight tween that let a tap pass through them.
+      const hit = this.landmarks.find((l) =>
+        l.type !== "road" && wx >= l.x && wx <= l.x + l.width && wy >= l.y && wy <= l.y + l.height);
+      const dest = (hit ? this.landmarkPositions.get(hit.name) : undefined)
+        ?? this.navGrid?.nearestWalkable(wx, wy, 64)
+        ?? { x: wx, y: wy };
+      if (Phaser.Math.Distance.Between(player.x, player.y, dest.x, dest.y) < 20) return;
+      const from = { x: player.x, y: player.y };
+      const path = this.navGrid?.findPath(from, dest) ?? [dest];
+      player.walkPath(truncatePath(from, path, 480));
     });
   }
 
@@ -501,12 +512,18 @@ export class TownScene extends Phaser.Scene {
   private resolveBodyOverlaps() {
     const MIN_DIST = 30;
     const bodies = this.allBodies().filter((b) => b.active);
+    // Walkers land on occupancy-resolved targets, the player owns their own
+    // ground, and a conversation formation is deliberately tighter than
+    // MIN_DIST — none of them get pushed.
+    const pushable = (s: AgentSprite) =>
+      s !== this.playerSprite && !s.isWalking() && s.getActivity() !== "talking";
     for (let i = 0; i < bodies.length; i++) {
-      const a = bodies[i];
-      if (a === this.playerSprite || a.isWalking()) continue;
-      for (let j = 0; j < bodies.length; j++) {
-        if (i === j) continue;
+      for (let j = i + 1; j < bodies.length; j++) {
+        const a = bodies[i];
         const b = bodies[j];
+        const pa = pushable(a);
+        const pb = pushable(b);
+        if (!pa && !pb) continue;
         const dx = a.x - b.x;
         const dy = a.y - b.y;
         // Elliptical metric: y-sorted tall sprites tolerate more vertical
@@ -518,15 +535,20 @@ export class TownScene extends Phaser.Scene {
         // Deterministic tie-break for perfectly stacked sprites.
         const nx = d > 0.01 ? dx / d : Math.cos(i * 2.39996);
         const ny = d > 0.01 ? dy / d : Math.sin(i * 2.39996);
-        const push = Math.min(3, (MIN_DIST - d) * 0.5 + 0.5);
-        const tx = Phaser.Math.Clamp(a.x + nx * push, 40, 1160);
-        const ty = Phaser.Math.Clamp(a.y + ny * push, 40, 760);
-        // Accept the nudge unless it would push a free-standing body INTO
-        // scenery; a body already inside a collision rect may always move
-        // (that is its escape hatch).
-        if (!this.isBlocked(tx, ty, 2) || this.isBlocked(a.x, a.y, 2)) a.nudgeTo(tx, ty);
+        const push = Math.min(3, (MIN_DIST - d) * 0.5 + 0.5) * (pa && pb ? 0.5 : 1);
+        if (pa) this.nudgeBody(a, nx * push, ny * push);
+        if (pb) this.nudgeBody(b, -nx * push, -ny * push);
       }
     }
+  }
+
+  /** Apply a resolver nudge unless it would push a free-standing body INTO
+   *  scenery; a body already inside a collision rect may always move (that
+   *  is its escape hatch). */
+  private nudgeBody(s: AgentSprite, dx: number, dy: number) {
+    const tx = Phaser.Math.Clamp(s.x + dx, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
+    const ty = Phaser.Math.Clamp(s.y + dy, WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
+    if (!this.isBlocked(tx, ty, 2) || this.isBlocked(s.x, s.y, 2)) s.nudgeTo(tx, ty);
   }
 
   /**
@@ -802,6 +824,7 @@ export class TownScene extends Phaser.Scene {
       partner: custom.partner,
     });
 
+    sprite.setPathResolver(this.pathResolver);
     this.agentSprites.set(agent.id, sprite);
     this.agentOpinions.set(agent.id, agent.opinion?.candidate ?? "");
 
@@ -1491,6 +1514,7 @@ export class TownScene extends Phaser.Scene {
       town: profile.town,
       spriteKey,
     });
+    this.playerSprite.setPathResolver(this.pathResolver);
     // Automated product captures need stable composition; pausing player
     // input also prevents proximity dwell from opening a random chat panel.
     if (this.captureMode) this.playerSprite.inputEnabled = false;
@@ -1616,12 +1640,13 @@ export class TownScene extends Phaser.Scene {
       const entry = rec.routine.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
       if (!entry) continue;
       if (rec.lastRoutineTime === entry.time) continue;
+      // Consume the slot only once the location resolves: a persona whose
+      // routine named a landmark the map spells differently used to lose
+      // that stop forever.
+      const location = this.resolveLandmarkName(entry.location);
+      if (!location) continue;
       rec.lastRoutineTime = entry.time;
-
-      // If the target location is recognized, move there.
-      if (this.landmarkPositions.has(entry.location)) {
-        this.moveAgent(id, entry.location);
-      }
+      this.moveAgent(id, location);
     }
   }
 
@@ -1664,8 +1689,8 @@ export class TownScene extends Phaser.Scene {
     // into each other (occupancy keeps wander targets a body-width apart).
     for (let attempt = 0; attempt < 10; attempt++) {
       const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
-      const x = Phaser.Math.Clamp(pt.x + Phaser.Math.Between(-70, 70), 40, 1160);
-      const y = Phaser.Math.Clamp(pt.y + Phaser.Math.Between(-45, 45), 40, 760);
+      const x = Phaser.Math.Clamp(pt.x + Phaser.Math.Between(-70, 70), WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
+      const y = Phaser.Math.Clamp(pt.y + Phaser.Math.Between(-45, 45), WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
       if (!this.isBlocked(x, y) && !this.isOccupied(x, y, WANDER_CLEARANCE, exclude)) return { x, y };
     }
     const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
@@ -1845,6 +1870,7 @@ export class TownScene extends Phaser.Scene {
         spriteKey: key,
         ambient: true,
       });
+      npc.setPathResolver(this.pathResolver);
       this.ambientNPCs.push(npc);
 
       this.scheduleAmbientWander(npc, W, H);
@@ -1998,6 +2024,7 @@ export class TownScene extends Phaser.Scene {
     }
 
     this.builtMap = map;
+    this.buildNavGrid();
   }
 
   /**
@@ -2138,6 +2165,7 @@ export class TownScene extends Phaser.Scene {
     seal.lineStyle(1, accent, 0.24);
     seal.strokeCircle(W / 2, H / 2, 36);
     this.fallbackWorld.add(seal);
+    this.buildNavGrid();
   }
 
   /**
@@ -2476,11 +2504,9 @@ export class TownScene extends Phaser.Scene {
     const H = Number(this.game.config.height);
 
     for (const lm of this.landmarks) {
-      const cx = lm.x + lm.width / 2;
-      const cy = lm.y + lm.height / 2;
-      // Landmark centers often sit inside a building's collision rect; nudge
-      // the walk-target out to open ground (the door apron faces the road).
-      const pos = this.findFreeNear(cx, cy);
+      // Buildings resolve to their door apron, open landmarks to walkable
+      // interior ground — never a geometric centre inside a wall.
+      const pos = this.deriveEntrance(lm);
       this.landmarkPositions.set(lm.name, pos);
       if (lm.type !== "road") this.wanderPoints.push(pos);
     }
@@ -2519,6 +2545,89 @@ export class TownScene extends Phaser.Scene {
       label.setData("lm", lm);
       this.landmarkLabelTexts.push(label);
     }
+  }
+
+  /* ── Navigation grid ─────────────────────────────────────── */
+
+  /**
+   * (Re)build the walkability grid from the current collision rects. The
+   * ground cost comes from the tilemap: paved tiles (asphalt, sidewalk,
+   * paths, plazas — registry-driven via roadGids.json) cost 1, grass 1.4,
+   * rail ballast 2.6, so walkers favour sidewalks and level crossings
+   * without ever being forced onto them.
+   */
+  private buildNavGrid() {
+    const paved = new Set<number>(roadGids.paved);
+    const rough = new Set<number>(roadGids.rough);
+    const T = roadGids.tileSize;
+    const detail = this.builtMap?.getLayer("ground-detail")?.tilemapLayer;
+    const ground = this.builtMap?.getLayer("ground")?.tilemapLayer;
+    const roads = this.landmarks.filter((l) => l.type === "road");
+    const costAt = (px: number, py: number): number => {
+      if (detail || ground) {
+        const tx = Math.floor(px / T);
+        const ty = Math.floor(py / T);
+        const d = detail?.getTileAt(tx, ty)?.index ?? -1;
+        const g = ground?.getTileAt(tx, ty)?.index ?? -1;
+        if (paved.has(d) || (d <= 0 && paved.has(g))) return GROUND_COST.paved;
+        if (rough.has(d)) return GROUND_COST.rough;
+        return GROUND_COST.grass;
+      }
+      // Procedural towns: their road landmarks are the only paving.
+      for (const r of roads) {
+        if (px >= r.x && px <= r.x + r.width && py >= r.y && py <= r.y + r.height) return GROUND_COST.paved;
+      }
+      return GROUND_COST.grass;
+    };
+    this.navGrid = new NavGrid(this.collisionRects, costAt);
+  }
+
+  /**
+   * Where a resident actually goes when "at" a landmark. Buildings resolve
+   * to their door apron — the first walkable row below the footprint,
+   * preferring the paved cell on that row — and open landmarks (parks,
+   * water, roads) to their nearest walkable interior point. The old
+   * geometric-centre nudge often landed on the wrong side of a building.
+   */
+  private deriveEntrance(lm: LandmarkData): { x: number; y: number } {
+    const cx = lm.x + lm.width / 2;
+    const cy = lm.y + lm.height / 2;
+    const grid = this.navGrid;
+    if (!grid) return this.findFreeNear(cx, cy);
+    const type = lm.type.toLowerCase();
+    if (/park|water|road|green|garden|field|lake|river|plaza|square|commons/.test(type)) {
+      return grid.nearestWalkable(cx, cy, 160) ?? this.findFreeNear(cx, cy);
+    }
+    // Footprint = collision rects that mostly lie inside the landmark rect
+    // (so a lamppost on the apron never drags the door downward).
+    let bottom = -Infinity;
+    for (const r of this.collisionRects) {
+      const ox = Math.max(0, Math.min(r.x + r.w, lm.x + lm.width) - Math.max(r.x, lm.x));
+      const oy = Math.max(0, Math.min(r.y + r.h, lm.y + lm.height) - Math.max(r.y, lm.y));
+      if (ox * oy >= 0.5 * r.w * r.h) bottom = Math.max(bottom, r.y + r.h);
+    }
+    if (!Number.isFinite(bottom)) {
+      return grid.nearestWalkable(cx, cy, 160) ?? this.findFreeNear(cx, cy);
+    }
+    for (let y = bottom + 10; y <= bottom + 58; y += 8) {
+      if (!grid.isWalkable(cx, y)) continue;
+      if (grid.costAt(cx, y) === GROUND_COST.paved) return { x: cx, y };
+      for (const dx of [8, -8, 16, -16, 24, -24, 32, -32, 40, -40, 48, -48]) {
+        if (grid.costAt(cx + dx, y) === GROUND_COST.paved) return { x: cx + dx, y };
+      }
+      return { x: cx, y };
+    }
+    return grid.nearestWalkable(cx, bottom + 16, 160) ?? this.findFreeNear(cx, cy);
+  }
+
+  /** Exact landmark name, else a case-insensitive match, else undefined. */
+  private resolveLandmarkName(name: string): string | undefined {
+    if (this.landmarkPositions.has(name)) return name;
+    const needle = name.trim().toLowerCase();
+    for (const key of this.landmarkPositions.keys()) {
+      if (key.toLowerCase() === needle) return key;
+    }
+    return undefined;
   }
 
   /* ── Collision-aware point picking ───────────────────────── */
@@ -2570,8 +2679,8 @@ export class TownScene extends Phaser.Scene {
     const open = (px: number, py: number) =>
       !this.isBlocked(px, py) && (clearOf <= 0 || !this.isOccupied(px, py, clearOf, opts?.exclude));
 
-    const cx = Phaser.Math.Clamp(x, 40, 1160);
-    const cy = Phaser.Math.Clamp(y, 40, 760);
+    const cx = Phaser.Math.Clamp(x, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
+    const cy = Phaser.Math.Clamp(y, WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
     if (open(cx, cy)) return { x: cx, y: cy };
     // Sub-tile slots first (18 px) so a crowd fans out around its meeting
     // point, then widening rings until open ground is found.
@@ -2583,8 +2692,8 @@ export class TownScene extends Phaser.Scene {
         candidates.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
       }
       for (const c of candidates) {
-        const px = Phaser.Math.Clamp(c.x, 40, 1160);
-        const py = Phaser.Math.Clamp(c.y, 40, 760);
+        const px = Phaser.Math.Clamp(c.x, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
+        const py = Phaser.Math.Clamp(c.y, WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
         if (open(px, py)) return { x: px, y: py };
       }
     }
