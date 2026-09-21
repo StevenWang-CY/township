@@ -127,8 +127,13 @@ function reduceWithEventLimit(
           };
         }
 
-        case "simulation_ended":
-          return { ...base, simulationRunning: false };
+        case "simulation_ended": {
+          // The decide phase emits no event of its own in older recordings:
+          // by the end of the run every resident has cast their ballot.
+          const agents: Record<string, AgentState> = {};
+          for (const [id, a] of Object.entries(state.agents)) agents[id] = { ...a, decided: true };
+          return { ...base, agents, simulationRunning: false };
+        }
 
         case "round_started":
           return {
@@ -140,7 +145,14 @@ function reduceWithEventLimit(
         case "round_ended": {
           const summaries = { ...state.townSummaries };
           for (const s of evt.summary) summaries[s.town] = s;
-          return { ...base, townSummaries: summaries };
+          let agents = state.agents;
+          if (evt.decided_agent_ids && evt.decided_agent_ids.length > 0) {
+            agents = { ...state.agents };
+            for (const id of evt.decided_agent_ids) {
+              if (agents[id]) agents[id] = { ...agents[id], decided: true };
+            }
+          }
+          return { ...base, townSummaries: summaries, agents };
         }
 
         case "agent_moved":
@@ -248,11 +260,22 @@ function reduceWithEventLimit(
           return base;
         }
 
-        case "news_reaction":
+        case "news_reaction": {
+          const r = evt.reaction;
+          const mood: AgentState["mood"] = r.emotional_response === "hopeful"
+            ? "positive"
+            : r.emotional_response === "angry" || r.emotional_response === "anxious"
+              ? "negative"
+              : "neutral";
+          const agents = state.agents[r.agent_id]
+            ? { ...state.agents, [r.agent_id]: { ...state.agents[r.agent_id], mood } }
+            : state.agents;
           return {
             ...base,
+            agents,
             newsReactions: [...state.newsReactions, evt.reaction].slice(-50),
           };
+        }
 
         case "cross_town_gossip":
           // Just record into the events stream — consumers handle UI side-effects.

@@ -133,6 +133,7 @@ class RoundManager:
         )
 
         news_by_id = self.scenario.news_by_id
+        decided_ids: list[str] = []
         for phase in spec.phases:
             if phase == "seed":
                 await self._run_seed_round(agent_states, round_num)
@@ -155,11 +156,13 @@ class RoundManager:
                 for agent in agent_states:
                     if agent.state != CivicAgentState.ERROR:
                         agent.state = CivicAgentState.DECIDED
+                        decided_ids.append(agent.agent_id)
 
         await self.event_bus.publish(
             RoundEndedEvent(
                 round=round_num,
                 town=town,
+                decided_agent_ids=decided_ids,
                 summary=[
                     town_summary_to_wire(
                         self._build_town_summary(

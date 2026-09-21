@@ -272,6 +272,10 @@ class RoundEndedEvent(BaseModel):
     town: str | None = None
     # Wire-format TownSummary dicts (see backend/core/wire.py::town_summary_to_wire)
     summary: list[dict] = Field(default_factory=list)
+    # Residents who cast their ballot in this round's ``decide`` phase. Additive:
+    # the frontend also derives decisions from the final summary, so recordings
+    # made before this field existed still replay the election.
+    decided_agent_ids: list[str] = Field(default_factory=list)
 
 
 class AgentMovedEvent(BaseModel):

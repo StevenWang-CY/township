@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { FX_DEPTH, ensureEmoteGlyphTexture, reducedMotion, type EmoteGlyphName } from "./pixelTextures";
 
 /**
  * Centralized emote/particle catalog. Each `EmoteKey` maps to a small recipe
@@ -17,12 +18,15 @@ export type EmoteKey =
   | "joy"
   | "confusion"
   | "heart"
+  | "sweat"
   | "reflecting"
   | "opinion_changed";
 
 export interface EmoteRecipe {
   glyph?: string;
   glyphColor?: string;
+  /** Pixel-art glyph texture (preferred over the Unicode glyph when set). */
+  pixelGlyph?: EmoteGlyphName;
   particleColor: number;
   particleCount: number;
   durationMs: number;
@@ -35,11 +39,12 @@ export const EMOTE_REGISTRY: Record<EmoteKey, EmoteRecipe> = {
   agree:        { glyph: "✓",  glyphColor: "#15803D", particleColor: 0x86efac, particleCount: 6,  durationMs: 700,  rise: 14 },
   disagree:     { glyph: "!?", glyphColor: "#A16207", particleColor: 0xfde68a, particleCount: 6,  durationMs: 700,  rise: 14 },
   surprise:     { glyph: "!",  glyphColor: "#1f2937", particleColor: 0xffffff, particleCount: 12, durationMs: 600,  rise: 18, shake: true },
-  anger:        { glyph: "✸",  glyphColor: "#b91c1c", particleColor: 0xfca5a5, particleCount: 10, durationMs: 700,  rise: 8 },
+  anger:        { pixelGlyph: "anger", particleColor: 0xfca5a5, particleCount: 8, durationMs: 700,  rise: 8 },
   joy:          { glyph: "✨", glyphColor: "#ca8a04", particleColor: 0xfde68a, particleCount: 16, durationMs: 900,  rise: 22 },
-  confusion:    { glyph: "?",  glyphColor: "#475569", particleColor: 0xcbd5e1, particleCount: 4,  durationMs: 900,  rise: 14 },
+  confusion:    { pixelGlyph: "confusion", particleColor: 0xcbd5e1, particleCount: 4,  durationMs: 900,  rise: 14 },
   heart:        { glyph: "♥",  glyphColor: "#ec4899", particleColor: 0xfbcfe8, particleCount: 6,  durationMs: 1100, rise: 24 },
-  reflecting:   { glyph: "…",  glyphColor: "#666666", particleColor: 0xcbd5e1, particleCount: 0,  durationMs: 3000, rise: 8 },
+  sweat:        { pixelGlyph: "sweat", particleColor: 0x9cc4ee, particleCount: 0,  durationMs: 900,  rise: -6 },
+  reflecting:   { pixelGlyph: "dots", particleColor: 0xcbd5e1, particleCount: 0,  durationMs: 3000, rise: 8 },
   opinion_changed: { particleColor: 0xffffff, particleCount: 10, durationMs: 800, gravityY: 80 },
 };
 
@@ -62,35 +67,58 @@ function ensureParticleTexture(scene: Phaser.Scene) {
  * so callers can chain follow-ups.
  *
  * `tint` optionally overrides the recipe's particle color (used by
- * `opinion_changed` to match the candidate color).
+ * `opinion_changed` to match the candidate color); `count` scales the
+ * burst and `alpha` fades the glyph for quieter reactions.
  */
 export function playEmote(
   scene: Phaser.Scene,
   key: EmoteKey,
   x: number,
   y: number,
-  options?: { tint?: number },
+  options?: { tint?: number; count?: number; alpha?: number },
 ): number {
   const r = EMOTE_REGISTRY[key];
   if (!r) return 0;
+  if (reducedMotion()) return r.durationMs;
+  const particleCount = options?.count ?? r.particleCount;
 
   // Particles
-  if (r.particleCount > 0) {
+  if (particleCount > 0) {
     ensureParticleTexture(scene);
     const emitter = scene.add.particles(x, y, "emote-particle", {
       speed: { min: 35, max: 95 },
       angle: { min: 215, max: 325 },
       lifespan: r.durationMs,
-      quantity: r.particleCount,
+      quantity: particleCount,
       tint: options?.tint ?? r.particleColor,
       scale: { start: 1.4, end: 0 },
       alpha: { start: 1, end: 0 },
       gravityY: r.gravityY ?? 40,
       emitting: false,
     });
-    emitter.setDepth(500);
-    emitter.explode(r.particleCount);
+    emitter.setDepth(FX_DEPTH);
+    emitter.explode(particleCount);
     scene.time.delayedCall(r.durationMs + 200, () => emitter.destroy());
+  }
+
+  // Pixel glyph — a 2x-scaled canvas texture with a stepped rise.
+  if (r.pixelGlyph) {
+    const img = scene.add.image(x, y, ensureEmoteGlyphTexture(scene, r.pixelGlyph))
+      .setOrigin(0.5, 1)
+      .setScale(2)
+      .setDepth(FX_DEPTH)
+      .setAlpha(options?.alpha ?? 1);
+    const rise = r.rise ?? 14;
+    scene.tweens.add({
+      targets: img,
+      y: y - rise,
+      duration: r.durationMs + 200,
+      ease: "Stepped",
+      easeParams: [6],
+    });
+    scene.time.delayedCall(r.durationMs - 120, () => {
+      scene.tweens.add({ targets: img, alpha: 0, duration: 220, onComplete: () => img.destroy() });
+    });
   }
 
   // Glyph
@@ -103,13 +131,14 @@ export function playEmote(
       resolution: 2,
     });
     txt.setOrigin(0.5, 1);
-    txt.setDepth(510);
+    txt.setDepth(FX_DEPTH);
     txt.setAlpha(0);
     txt.setScale(0.6);
+    const targetAlpha = options?.alpha ?? 1;
     const rise = r.rise ?? 14;
     scene.tweens.add({
       targets: txt,
-      alpha: 1,
+      alpha: targetAlpha,
       scaleX: 1,
       scaleY: 1,
       duration: 140,

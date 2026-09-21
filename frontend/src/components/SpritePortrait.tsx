@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { appUrl } from "../lib/assetUrl";
 import { resolveAgentSprite } from "../game/spriteCustomization";
 import { useScenario } from "../hooks/useScenario";
+import { ringStyleForTier, type StanceTier } from "../lib/stance";
 
 export interface SpritePortraitProps {
   agentId: string;
@@ -19,6 +20,9 @@ export interface SpritePortraitProps {
    * outside it via the .pixel-portrait utility. Omit for a plain frame.
    */
   ringColor?: string;
+  /** Confidence tier: the ring's weight mirrors the canvas ring (dotted
+   *  while undecided, faint while leaning, heavy once firm). */
+  ringTier?: StanceTier;
   /** "pixel" (default): rounded-square gold pixel frame. "circle": legacy. */
   shape?: "pixel" | "circle";
 }
@@ -97,6 +101,7 @@ export default function SpritePortrait({
   size = 64,
   frame = 0,
   ringColor,
+  ringTier,
   shape = "pixel",
 }: SpritePortraitProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -193,7 +198,12 @@ export default function SpritePortrait({
         background: failed
           ? color
           : "radial-gradient(140% 120% at 32% 24%, #FBF2DD 0%, #F1E2C2 58%, #E4CFA4 100%)",
-        border: ringColor ? `2px solid ${ringColor}` : undefined,
+        border: ringColor
+          ? (() => {
+            const ring = ringStyleForTier(ringTier ?? "likely", ringColor);
+            return `${ring.borderWidth}px ${ring.borderStyle} ${ringTier ? ring.borderColor : ringColor}`;
+          })()
+          : undefined,
         // Inner hairline keeps the opinion ring crisp against the parchment.
         boxShadow: ringColor ? "inset 0 0 0 1px rgba(255,252,244,0.85)" : undefined,
         overflow: "hidden",

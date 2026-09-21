@@ -62,6 +62,12 @@ def test_single_town_five_round_mock_sim(mock_orchestrator):
     assert started_rounds == [0, 1, 2, 3, 4]
     assert ended_rounds == [0, 1, 2, 3, 4]
 
+    # The decide phase names its voters on the wire: every Dover resident in
+    # the final round, nobody before it.
+    ended_events = _events_of(bus, "round_ended")
+    assert [e.decided_agent_ids for e in ended_events[:-1]] == [[], [], [], []]
+    assert sorted(ended_events[-1].decided_agent_ids) == sorted(a.agent_id for a in dover_agents)
+
     # Every round_started precedes its round_ended.
     log = bus.get_event_log()
     for rnd in range(5):

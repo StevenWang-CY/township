@@ -1,16 +1,19 @@
 import Phaser from "phaser";
 import { playEmote, type EmoteKey } from "./EmoteRegistry";
 import {
+  FX_DEPTH,
   PIXEL_FONT_OUTLINED,
   ensureBallotTexture,
   ensureRingTextures,
   ensureShadowTexture,
   ensureSquareTexture,
+  ensureVotedBadgeTexture,
   ensureZzTexture,
   pixelText,
   reducedMotion,
 } from "./pixelTextures";
 import type { Pt } from "./NavGrid";
+import { stanceTier, type StanceChange, type StanceState } from "../lib/stance";
 
 /**
  * Spritesheet layout: 96 × 128 px → 3 cols × 4 rows → 12 frames (32×32 each)
@@ -67,6 +70,9 @@ export type AgentActivity =
   | "voting";
 
 export type BubbleSentiment = "positive" | "negative" | "neutral";
+/** How a resident took a news item (backend NewsReaction vocabulary). */
+export type EmotionalResponse = "angry" | "hopeful" | "anxious" | "indifferent" | "confused";
+export type VoteImpact = "strengthens_current" | "weakens_current" | "changes_mind" | "no_effect";
 
 /** Route a walk through the town's nav grid; null → straight line. */
 export type PathResolver = (from: Pt, to: Pt) => Pt[] | null;
@@ -84,7 +90,10 @@ export interface AgentConfig {
   initials: string;
   color: string;
   town: string;
+  /** @deprecated pass `stance`; a bare color still maps to a likely stance. */
   opinionColor?: string;
+  /** Initial stance (option, color, confidence). */
+  stance?: StanceState;
   spriteKey?: string;
   /**
    * Baked palette-swap sheet (scripts/mapgen/outfits.py). Preferred over
@@ -174,7 +183,14 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   public agentName: string;
   public townId: string;
   private agentColor: string;
-  private opinionColor: string;
+  private stance: StanceState;
+  /** "I voted" sticker at the shoulder once a ballot is cast. */
+  private votedBadge?: Phaser.GameObjects.Image;
+  private decidedOption: string | null = null;
+  /** Most recent news reaction (for the snapshot + hover chrome). */
+  private lastMood: { kind: EmotionalResponse; at: number } | null = null;
+  /** Restores per-layer tints after a reaction flash. */
+  private baseTints: Map<Phaser.GameObjects.Sprite, number | null> = new Map();
   public usingSpritesheet = false;
   public currentDirection: Direction = "down";
   protected isMoving = false;
@@ -206,7 +222,12 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.agentName = cfg.name;
     this.townId = cfg.town;
     this.agentColor = cfg.color;
-    this.opinionColor = cfg.opinionColor ?? "#FFFFFF";
+    this.stance = cfg.stance ?? {
+      optionId: "",
+      color: cfg.opinionColor ?? "#FFFFFF",
+      confidence: 60,
+      undecided: !cfg.opinionColor || cfg.opinionColor === "#FFFFFF",
+    };
     this.homeY = y;
     this.ambient = !!cfg.ambient;
     let gaitHash = 2166136261;
@@ -290,6 +311,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         else this.add(this.companionSprite);
       }
 
+      for (const layer of [this.bodySprite, this.accessorySprite, this.companionSprite]) {
+        if (layer) this.baseTints.set(layer, layer.isTinted ? layer.tintTopLeft : null);
+      }
       // Sync accessory frame whenever the body anim advances.
       this.bodySprite.on(Phaser.Animations.Events.ANIMATION_UPDATE, () => this.syncOverlayFrame());
       this.bodySprite.on("framechange", () => this.syncOverlayFrame());
@@ -793,6 +817,16 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     bg.fillRect(bx + 2, bodyTop + bh - 2, bw - 4, 2);   // bottom
     bg.fillRect(bx, bodyTop + 2, 2, bh - 4);            // left
     bg.fillRect(bx + bw - 2, bodyTop + 2, 2, bh - 4);   // right
+    // Sentiment: a negative line gets a dark rule under the text; a
+    // positive one a bright highlight below the top edge. Fill stays
+    // parchment so a contentious town never turns pink.
+    if (sentiment === "negative") {
+      bg.fillStyle(0x8a4a42, 0.5);
+      bg.fillRect(bx + 4, bodyTop + bh - 4, bw - 8, 2);
+    } else if (sentiment === "positive") {
+      bg.fillStyle(0xfbf6e8, 0.95);
+      bg.fillRect(bx + 4, bodyTop + 2, bw - 8, 2);
+    }
     // Stepped pixel tail. Its length is derived from the actual flipped /
     // unflipped gap so it always reaches the head instead of floating a few
     // pixels away near the top edge of the map.
@@ -867,29 +901,204 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     });
   }
 
-  setOpinionColor(color: string, emphasize = false) {
-    const changed = color !== this.opinionColor;
-    this.opinionColor = color;
+  /**
+   * Set the resident's stance and play the beat the change deserves:
+   * `tick` — a confidence tier moved: ring pulse only;
+   * `settle` — a first stance (or back to undecided): ring morph + ballot;
+   * `flip` — a different option: morph + confetti + ballot.
+   */
+  setStance(next: StanceState, mode: StanceChange = "silent") {
+    this.stance = { ...next };
     this.applyRing();
-    if ((!changed && !emphasize) || this.ambient || color === "#FFFFFF") return;
-
-    if (reducedMotion()) return;
-
+    if (this.ambient || mode === "silent" || reducedMotion()) return;
+    const ringAlpha = this.restingIndoors ? 0.35 : 1;
+    if (mode === "tick") {
+      this.scene.tweens.add({
+        targets: [this.ringA, this.ringB],
+        scaleX: { from: 1.18, to: 1 },
+        scaleY: { from: 1.18, to: 1 },
+        alpha: { from: 0.5, to: ringAlpha },
+        duration: 260,
+        ease: "Stepped",
+        easeParams: [3],
+      });
+      return;
+    }
     // Ring color-morph pulse: the fresh ring lands with a chunky, stepped
     // settle instead of a smooth vector ripple.
     this.scene.tweens.add({
       targets: [this.ringA, this.ringB],
       scaleX: { from: 1.45, to: 1 },
       scaleY: { from: 1.45, to: 1 },
-      alpha: { from: 0.4, to: 1 },
+      alpha: { from: 0.4, to: ringAlpha },
       duration: 420,
       ease: "Stepped",
       easeParams: [5],
     });
-
-    const c = Phaser.Display.Color.HexStringToColor(color).color;
-    this.burstConfetti(c);
+    if (next.undecided) return;
+    const c = Phaser.Display.Color.HexStringToColor(next.color).color;
+    if (mode === "flip") this.burstConfetti(c);
     this.dropBallot(c);
+  }
+
+  /** @deprecated Back-compat for scripted captures: a bare color maps to a
+   *  likely stance; `emphasize` plays the full flip beat. */
+  setOpinionColor(color: string, emphasize = false) {
+    const undecided = !color || color === "#FFFFFF";
+    this.setStance(
+      { optionId: undecided ? "" : this.stance.optionId, color, confidence: 60, undecided },
+      emphasize && !undecided ? "flip" : "silent",
+    );
+  }
+
+  getStance(): StanceState { return { ...this.stance }; }
+  getStanceTier() { return stanceTier(this.stance); }
+  getMood(): EmotionalResponse | null { return this.lastMood?.kind ?? null; }
+  isDecided(): boolean { return this.decidedOption !== null; }
+
+  /**
+   * A ballot was cast: a cream "I voted" sticker with an option-colored check
+   * appears at the shoulder. `stamp` pops it in and drops a ballot; `silent`
+   * is the replay-seek path. `null` clears it.
+   */
+  setDecided(optionId: string | null, mode: "silent" | "stamp" = "silent") {
+    if (optionId === null) {
+      this.decidedOption = null;
+      this.votedBadge?.destroy();
+      this.votedBadge = undefined;
+      return;
+    }
+    const already = this.decidedOption !== null;
+    this.decidedOption = optionId;
+    if (this.ambient) return;
+    const key = ensureVotedBadgeTexture(this.scene, this.stance.undecided ? "#7a6a50" : this.stance.color);
+    if (!this.votedBadge) {
+      // Lapel height, right shoulder: a sticker on the coat, not a sign
+      // over the face. Native 10x8 px so it stays a small paper square at
+      // overview zoom and only reads as "voted" when you lean in.
+      this.votedBadge = this.scene.add.image(9, -Math.round(FRAME_H * 0.42 * this.spriteBaseScale), key);
+      this.add(this.votedBadge);
+    } else {
+      this.votedBadge.setTexture(key);
+    }
+    this.votedBadge.setVisible(!this.restingIndoors);
+    if (mode === "stamp" && !already && !reducedMotion()) {
+      this.votedBadge.setScale(2);
+      this.scene.tweens.add({
+        targets: this.votedBadge,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 240,
+        ease: "Stepped",
+        easeParams: [3],
+      });
+      const c = Phaser.Display.Color.HexStringToColor(this.stance.undecided ? "#c9c2b4" : this.stance.color).color;
+      this.dropBallot(c);
+    }
+  }
+
+  /**
+   * React to a news item the way the simulation says the resident took it.
+   * Small, legible, and quiet: a pixel glyph, a beat of posture, and — via
+   * `impact` — a ring cue when the news moved their vote.
+   */
+  react(kind: EmotionalResponse, impact?: VoteImpact) {
+    this.lastMood = { kind, at: this.scene.time.now };
+    if (this.ambient || reducedMotion()) return;
+    const layers = this.leadLayers();
+    const base = this.spriteBaseScale;
+    const headY = this.emoteY();
+    switch (kind) {
+      case "angry": {
+        playEmote(this.scene, "anger", this.x + 8, headY - 2);
+        // Two short red frames on the body, then a 2 px stepped shake.
+        for (const layer of layers) layer.setTint(0xffa090);
+        this.scene.time.delayedCall(110, () => this.restoreTints());
+        this.scene.time.delayedCall(220, () => { for (const layer of layers) layer.setTint(0xffa090); });
+        this.scene.time.delayedCall(330, () => this.restoreTints());
+        this.scene.tweens.add({
+          targets: layers,
+          x: { from: -2, to: 2 },
+          duration: 90,
+          yoyo: true,
+          repeat: 2,
+          ease: "Stepped",
+          easeParams: [2],
+          onComplete: () => { for (const layer of layers) layer.x = this.leanDx; },
+        });
+        break;
+      }
+      case "anxious": {
+        playEmote(this.scene, "sweat", this.x + 12, headY + 10);
+        this.scene.tweens.add({
+          targets: layers,
+          scaleY: { from: base, to: base * 0.96 },
+          duration: 320,
+          yoyo: true,
+          hold: 300,
+          ease: "Stepped",
+          easeParams: [2],
+          onComplete: () => { for (const layer of layers) layer.setScale(base); },
+        });
+        break;
+      }
+      case "hopeful": {
+        playEmote(this.scene, "joy", this.x, headY, { count: 8 });
+        this.scene.tweens.add({
+          targets: layers,
+          y: { from: 0, to: -3 },
+          duration: 150,
+          yoyo: true,
+          ease: "Stepped",
+          easeParams: [2],
+          onComplete: () => { for (const layer of layers) layer.y = 0; },
+        });
+        break;
+      }
+      case "confused":
+        playEmote(this.scene, "confusion", this.x, headY);
+        this.playGesture("shrug", { quiet: true });
+        break;
+      case "indifferent":
+        playEmote(this.scene, "reflecting", this.x, headY, { alpha: 0.6 });
+        break;
+    }
+    if (impact === "strengthens_current" && !this.stance.undecided) {
+      this.scene.tweens.add({
+        targets: [this.ringA, this.ringB],
+        scaleX: { from: 1.18, to: 1 },
+        scaleY: { from: 1.18, to: 1 },
+        duration: 260,
+        ease: "Stepped",
+        easeParams: [3],
+        delay: 200,
+      });
+    } else if (impact === "weakens_current" && !this.stance.undecided) {
+      const ringAlpha = this.restingIndoors ? 0.35 : 1;
+      this.scene.tweens.add({
+        targets: [this.ringA, this.ringB],
+        alpha: { from: ringAlpha, to: 0.3 },
+        duration: 140,
+        yoyo: true,
+        repeat: 2,
+        delay: 200,
+        onComplete: () => { this.ringA.setAlpha(ringAlpha); this.ringB.setAlpha(ringAlpha); },
+      });
+    }
+  }
+
+  /** World y just above the hair line: where emotes and reaction glyphs
+   *  start, so they rise from the head instead of covering the face. */
+  private emoteY(): number {
+    return this.y - FRAME_H + 4;
+  }
+
+  private restoreTints() {
+    for (const [layer, tint] of this.baseTints) {
+      if (!layer.active) continue;
+      if (tint === null) layer.clearTint();
+      else layer.setTint(tint);
+    }
   }
 
   /** Snap an existing resident to an authoritative replay snapshot.
@@ -901,8 +1110,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   syncReplayState(
     x: number,
     y: number,
-    opinionColor: string,
+    stance: StanceState,
     activity: AgentActivity,
+    extras?: { decided?: boolean },
   ) {
     this.stopWalk(false);
     this.clearLean();
@@ -925,11 +1135,14 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.reservedTarget = null;
     this.groundShadow.setScale(1);
     this.syncDepth();
-    this.setOpinionColor(opinionColor, false);
+    this.lastMood = null;
+    this.restoreTints();
+    this.setStance(stance, "silent");
+    this.setDecided(extras?.decided && !stance.undecided ? stance.optionId : null, "silent");
     this.setActivity(activity, true);
   }
 
-  getOpinionColor(): string { return this.opinionColor; }
+  getOpinionColor(): string { return this.stance.color; }
   getSpeechBubbleCount(): number { return this.bubbleQueue.length; }
 
   clearSpeechBubbles() {
@@ -948,7 +1161,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     const parts: Array<{ img: Phaser.GameObjects.Image; vx: number; vy: number }> = [];
     for (let i = 0; i < 6; i++) {
       const img = this.scene.add.image(x0, y0, squareKey);
-      img.setTint(color).setDepth(500);
+      img.setTint(color).setDepth(FX_DEPTH);
       const a = -Math.PI / 2 + (i - 2.5) * 0.42;
       const sp = 70 + (i % 3) * 26;
       parts.push({ img, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp });
@@ -980,7 +1193,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       Math.round(c.green + (255 - c.green) * 0.45),
       Math.round(c.blue + (255 - c.blue) * 0.45),
     );
-    ballot.setTint(pale).setScale(2).setDepth(505);
+    ballot.setTint(pale).setScale(2).setDepth(FX_DEPTH);
     const p0 = { x: this.x - 26, y: this.y - FRAME_H - 26 };
     const p1 = { x: this.x + 6, y: this.y - FRAME_H - 46 };
     const p2 = { x: this.x, y: this.y - FRAME_H * 0.45 };
@@ -1001,7 +1214,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         ballot.destroy();
         // A soft square poof where it lands.
         const poof = this.scene.add.image(p2.x, p2.y, ensureSquareTexture(this.scene));
-        poof.setTint(0xffffff).setAlpha(0.9).setScale(2).setDepth(505);
+        poof.setTint(0xffffff).setAlpha(0.9).setScale(2).setDepth(FX_DEPTH);
         this.scene.tweens.add({
           targets: poof,
           scaleX: 4,
@@ -1085,19 +1298,37 @@ export class AgentSprite extends Phaser.GameObjects.Container {
           targets: this, scaleX: 1.12, scaleY: 1.12,
           duration: 220, yoyo: true, repeat: 2, ease: "Sine.easeInOut",
         });
-        playEmote(this.scene, "joy", this.x, this.y - FRAME_H * 0.5);
+        playEmote(this.scene, "joy", this.x, this.emoteY());
         break;
       case "voting": {
-        // Blue glow ring under feet
-        const ring = this.scene.add.graphics();
-        ring.lineStyle(2, 0x3b5998, 0.85);
-        ring.strokeCircle(this.x, this.y + 3, 14);
-        this.scene.tweens.add({
-          targets: ring,
-          scaleX: 1.3, scaleY: 1.3, alpha: 0,
-          duration: 1100, repeat: -1, ease: "Sine.easeOut",
-        });
-        this.activityFx = ring;
+        // Civic-blue pixel rings pulsing outward from the stance ring: two
+        // phased pulses so one is always mid-flight. Sits above the stance
+        // ring and below the shadow.
+        this.playIdle(this.currentDirection);
+        const [key] = ensureRingTextures(this.scene, "#4a7fd6", "voting");
+        const pulses = this.scene.add.container(0, 0);
+        this.addAt(pulses, 2);
+        for (const delay of [0, 550]) {
+          const ring = this.scene.add.image(0, SHADOW_Y + 1, key);
+          pulses.add(ring);
+          if (reducedMotion()) {
+            ring.setScale(delay ? 1.3 : 1).setAlpha(delay ? 0.5 : 0.9);
+            continue;
+          }
+          ring.setAlpha(0);
+          this.scene.tweens.add({
+            targets: ring,
+            scaleX: { from: 0.9, to: 1.7 },
+            scaleY: { from: 0.9, to: 1.7 },
+            alpha: { from: 1, to: 0.15 },
+            duration: 1100,
+            delay,
+            repeat: -1,
+            ease: "Stepped",
+            easeParams: [6],
+          });
+        }
+        this.activityFx = pulses;
         break;
       }
     }
@@ -1123,6 +1354,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.ringA.setAlpha(ringAlpha);
     this.ringB.setAlpha(ringAlpha);
     for (const layer of this.leadLayers()) layer.setAlpha(on ? 0.9 : 1);
+    this.votedBadge?.setVisible(!on);
     this.applyLabelMode();
   }
 
@@ -1132,7 +1364,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     if (reducedMotion()) return;
     const img = this.scene.add.image(this.x + 9, this.y - FRAME_H * 0.85, key)
       .setScale(2)
-      .setDepth(500)
+      .setDepth(FX_DEPTH)
       .setAlpha(0.95);
     this.scene.tweens.add({
       targets: img,
@@ -1155,7 +1387,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       resolution: 2,
     });
     tx.setOrigin(0.5, 1);
-    tx.setDepth(500);
+    tx.setDepth(FX_DEPTH);
     this.scene.tweens.add({
       targets: tx, y: tx.y - 22, alpha: 0,
       duration: 1100, ease: "Sine.easeOut",
@@ -1175,7 +1407,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     // with the speaker's bubble.
     const emote = opts?.quiet
       ? () => {}
-      : (key: Parameters<typeof playEmote>[1]) => playEmote(this.scene, key, this.x, this.y - FRAME_H * 0.5);
+      : (key: Parameters<typeof playEmote>[1]) => playEmote(this.scene, key, this.x, this.emoteY());
 
     switch (kind) {
       case "nod":
@@ -1219,7 +1451,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         arrow.fillStyle(0x4a7abf, 0.95);
         arrow.fillTriangle(0, -4, 0, 4, 8, 0);
         arrow.setPosition(this.x + dx, this.y + dy);
-        arrow.setDepth(510);
+        arrow.setDepth(FX_DEPTH);
         this.scene.tweens.add({
           targets: arrow,
           alpha: 0,
@@ -1441,12 +1673,14 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.ringShimmerTimer?.remove(false);
     this.ringShimmerTimer = undefined;
 
-    if (this.opinionColor === "#FFFFFF") { // undecided → no opinion ring
+    if (this.ambient) {
       this.ringA.setVisible(false);
       this.ringB.setVisible(false);
       return;
     }
-    const [keyA, keyB] = ensureRingTextures(this.scene, this.opinionColor);
+    // Undecided residents wear a dotted parchment ring rather than nothing:
+    // "no colour yet" must be as legible as any stance.
+    const [keyA, keyB] = ensureRingTextures(this.scene, this.stance.color, stanceTier(this.stance));
     this.ringA.setTexture(keyA).setVisible(true);
     this.ringB.setTexture(keyB).setVisible(false);
     if (!reducedMotion()) {
@@ -1494,15 +1728,11 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   /** Show an overhead emote — dispatches through `EmoteRegistry`. */
   showEmote(type: EmoteKey | "reflecting" | "opinion_changed") {
     if (type === "opinion_changed") {
-      const tint = Phaser.Display.Color.HexStringToColor(this.opinionColor).color;
+      const tint = Phaser.Display.Color.HexStringToColor(this.stance.color).color;
       playEmote(this.scene, "opinion_changed", this.x, this.y - FRAME_H * 0.5, { tint });
       return;
     }
-    if (type === "reflecting") {
-      playEmote(this.scene, "reflecting", this.x, this.y - FRAME_H * 0.7);
-      return;
-    }
-    playEmote(this.scene, type, this.x, this.y - FRAME_H * 0.5);
+    playEmote(this.scene, type, this.x, this.emoteY());
   }
 
   /** Export position data for DOM overlay rendering. */
@@ -1627,6 +1857,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.proxGlow?.destroy();
     this.companionSprite?.destroy();
     this.companionShadow?.destroy();
+    this.votedBadge?.destroy();
     super.destroy(fromScene);
   }
 }

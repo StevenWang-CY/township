@@ -4,6 +4,8 @@ import type { AgentState, LeanId } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
 import TrustBadge from "./TrustBadge";
 import SpritePortrait from "./SpritePortrait";
+import MoodIndicator from "./MoodIndicator";
+import { STANCE_TIER_LABEL, stanceTier } from "../lib/stance";
 import { readableInk } from "../lib/color";
 
 /** 8-digit hex alpha suffix helper: "#RRGGBB" + pct → rgba-ish hex. */
@@ -30,6 +32,7 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
   const candidateId = (agent.opinion?.candidate as LeanId) || undecidedId;
   const opinionLabel = optionLabel(candidateId);
   const confidence = agent.opinion?.confidence ?? 0;
+  const tier = stanceTier({ confidence, undecided: candidateId === undecidedId });
 
   // Opinion shifts are the payoff of the deliberation — give the row a pulse
   // and a floating stance chip when this resident's candidate changes.
@@ -112,6 +115,7 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
           color={agent.color || meta.color}
           size={28}
           ringColor={opinionStyle.border}
+          ringTier={tier}
         />
         <div className="min-w-0 flex-1">
           <p className="truncate flex items-center gap-1" style={{
@@ -174,6 +178,7 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
           color={agent.color || meta.color}
           size={40}
           ringColor={opinionStyle.border}
+          ringTier={tier}
         />
 
         <div className="min-w-0 flex-1">
@@ -193,6 +198,7 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
             </span>
             {met && <span title="You've met" style={{ color: "var(--color-success)", fontSize: 12 }}>✓</span>}
             {persuaded && <span title="Persuaded" style={{ color: "var(--gold-ink)", fontSize: 12 }}>★</span>}
+            {agent.mood && <MoodIndicator mood={agent.mood} size={10} />}
           </div>
           <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-muted)" }}>
             {agent.occupation}
@@ -223,7 +229,7 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
               />
             </div>
             <span className="text-[10px] font-medium" style={{ color: "var(--township-ink-muted)" }}>
-              {confidence}%
+              {confidence}% · {STANCE_TIER_LABEL[tier]}
             </span>
           </div>
         )}

@@ -56,3 +56,11 @@ def test_no_legacy_snake_case_event_names_leak_to_frontend():
     # These exact tokens, quoted as a type literal, must not reappear.
     leaked = [name for name in legacy if f'"{name}"' in msg_src]
     assert not leaked, f"legacy event names leaked back into messages.ts: {leaked}"
+
+
+def test_additive_event_fields_are_declared_on_the_frontend():
+    """Fields the scene now reads (sentiment, ballots, reactions) must exist in
+    the TypeScript types so a rename on either side is caught here."""
+    msg_src = open(MESSAGES_TS, encoding="utf-8").read()
+    for field in ("sentiment", "decided_agent_ids", "emotional_response", "impact_on_vote"):
+        assert field in msg_src, f"messages.ts no longer declares {field!r}"

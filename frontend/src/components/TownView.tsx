@@ -15,7 +15,16 @@ import Tutorial from "./Tutorial";
 import DebugOverlay from "./DebugOverlay";
 import LandmarkCard from "./LandmarkCard";
 import { rosterAgentsFromPayload } from "./residentRoster";
-import type { AgentState, TownId, LeanId, SimulationEvent, Opinion, ChatMessage } from "../types/messages";
+import type {
+  AgentState,
+  TownId,
+  LeanId,
+  SimulationEvent,
+  Opinion,
+  ChatMessage,
+  EmotionalResponse,
+  VoteImpact,
+} from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
 import { readableInk } from "../lib/color";
 import { DEMO_MODE } from "../demo/demoMode";
@@ -325,7 +334,7 @@ export default function TownView({ ws }: TownViewProps) {
         const colors: Record<string, string> = {};
         for (const id of scenRef.current.optionIds) colors[id] = scenRef.current.optionColor(id);
         colors[scenRef.current.undecidedId] = scenRef.current.optionColor(scenRef.current.undecidedId);
-        try { activeScene.setOptionColors(colors); } catch { /* ignore */ }
+        try { activeScene.setOptionColors(colors, scenRef.current.undecidedId); } catch { /* ignore */ }
 
         // Spawn player if onboarded AND this is their home town (never in
         // the hosted replay — the demo guest is not a resident and must not
@@ -361,7 +370,7 @@ export default function TownView({ ws }: TownViewProps) {
     const colors: Record<string, string> = {};
     for (const id of scen.optionIds) colors[id] = scen.optionColor(id);
     colors[scen.undecidedId] = scen.optionColor(scen.undecidedId);
-    try { scene.setOptionColors(colors); } catch { /* ignore */ }
+    try { scene.setOptionColors(colors, scen.undecidedId); } catch { /* ignore */ }
   }, [scen, town]);
 
   /* ── Spawn player when profile becomes available ────────── */
@@ -449,6 +458,7 @@ export default function TownView({ ws }: TownViewProps) {
       return;
     }
 
+    let reactionIndex = 0;
     for (const evt of delta.events) {
       if ("town" in evt && (evt as any).town && (evt as any).town !== town) continue;
 
@@ -463,13 +473,29 @@ export default function TownView({ ws }: TownViewProps) {
           }
           break;
         case "opinion_changed": {
-          scene.updateAgentOpinion(evt.agent_id, evt.new_opinion.candidate);
-          // Wayfinding glow + "!" emote in the NEW candidate color (FIX 16)
-          scene.showAgentEmote(evt.agent_id, "opinion_changed");
-          const delta = evt.confidence_delta ?? Math.abs((evt.new_opinion.confidence ?? 0) - (evt.old_opinion?.confidence ?? 0));
-          if (delta >= 0) {
+          // The previous opinion decides the beat: a confidence tick, a first
+          // stance settling, or a real flip (the only one that earns the
+          // wayfinding emote and the camera push).
+          const kind = scene.updateAgentOpinion(evt.agent_id, evt.new_opinion, evt.old_opinion ?? null);
+          if (kind === "flip" || kind === "settle") scene.showAgentEmote(evt.agent_id, "opinion_changed");
+          if (kind === "flip") {
             try { scene.playOpinionShiftBeat(evt.agent_id); } catch { /* ignore */ }
           }
+          break;
+        }
+        case "news_reaction": {
+          const r = evt.reaction;
+          if (r.town !== town) break;
+          // The news phase emits a town's reactions back to back; stagger
+          // them so each resident's take reads on its own.
+          const delay = 140 * reactionIndex++;
+          try {
+            scene.time.delayedCall(delay, () => scene.reactAgent(
+              r.agent_id,
+              r.emotional_response as EmotionalResponse,
+              r.impact_on_vote as VoteImpact,
+            ));
+          } catch { /* ignore */ }
           break;
         }
         case "conversation_started":
@@ -494,9 +520,36 @@ export default function TownView({ ws }: TownViewProps) {
         case "news_injected":
           try { scene.playNewsBeat(); } catch { /* ignore */ }
           break;
-        case "simulation_ended":
-          try { scene.playSimEndBeat(); } catch { /* ignore */ }
+        case "round_ended":
+          // Live runs name their voters on the wire; the town stamps them as
+          // the decide phase lands (town-filtered by the loop above).
+          if (evt.decided_agent_ids?.length) {
+            try { scene.markDecided(evt.decided_agent_ids, "stamp"); } catch { /* ignore */ }
+          }
           break;
+        case "simulation_ended": {
+          // Every resident with a stance has cast their ballot by now (the
+          // polling-place procession stamps most of them earlier); then the
+          // winner's supporters celebrate.
+          const decidedIds = townAgents
+            .filter((a) => a.opinion?.candidate && a.opinion.candidate !== scen.undecidedId)
+            .map((a) => a.id);
+          const tally = (evt.summary?.overall_opinions ?? {}) as Record<string, number>;
+          let winner: string | null = null;
+          for (const [id, count] of Object.entries(tally)) {
+            if (id === scen.undecidedId) continue;
+            if (winner === null || count > tally[winner]) winner = id;
+          }
+          try {
+            scene.markDecided(decidedIds, "stamp");
+            if (winner) {
+              const winnerId = winner;
+              scene.time.delayedCall(900 + 90 * decidedIds.length, () => scene.celebrateResults(winnerId));
+            }
+            scene.playSimEndBeat();
+          } catch { /* ignore */ }
+          break;
+        }
         case "world_clock_tick":
           try { scene.setWorldTime(evt.hour, evt.minute); } catch { /* ignore */ }
           break;

@@ -18,7 +18,15 @@
  */
 import Phaser from "phaser";
 import { appUrl } from "../lib/assetUrl";
-import { AgentSprite, type AgentActivity, type BubbleSentiment, type GestureKind } from "./AgentSprite";
+import {
+  AgentSprite,
+  type AgentActivity,
+  type BubbleSentiment,
+  type EmotionalResponse,
+  type GestureKind,
+  type VoteImpact,
+} from "./AgentSprite";
+import { stanceChangeKind, stanceTier, type StanceChange, type StanceState } from "../lib/stance";
 import { PlayerSprite } from "./PlayerSprite";
 import { townAccent, townBgColor, townMapKey } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
@@ -868,7 +876,7 @@ export class TownScene extends Phaser.Scene {
       initials: agent.initials ?? this.initials(agent.name),
       color: agent.color ?? townAccent(this.townId),
       town: agent.town,
-      opinionColor: this.opinionColor(agent.opinion?.candidate),
+      stance: this.stanceFor(agent.opinion?.candidate, agent.opinion?.confidence),
       spriteKey: custom.spriteKey,
       customKey: custom.customKey,
       accessoryKey: custom.accessoryKey,
@@ -950,7 +958,13 @@ export class TownScene extends Phaser.Scene {
         ? agent.activity
         : "idle";
 
-      sprite.syncReplayState(slot.x, slot.y, this.opinionColor(agent.opinion?.candidate), activity);
+      sprite.syncReplayState(
+        slot.x,
+        slot.y,
+        this.stanceFor(agent.opinion?.candidate, agent.opinion?.confidence),
+        activity,
+        { decided: Boolean(agent.decided) },
+      );
       this.agentOpinions.set(agent.id, agent.opinion?.candidate ?? "");
     }
     // Everyone faces their gathering's centroid once all slots are settled
@@ -1093,11 +1107,75 @@ export class TownScene extends Phaser.Scene {
     sprite.showSpeechBubble(text, duration, sentiment, emphasis);
   }
 
-  updateAgentOpinion(agentId: string, candidate: string) {
-    // Opinion events can represent confidence/reasoning shifts without a
-    // stance-color change; they still deserve the ballot/confetti beat.
-    this.agentOpinions.set(agentId, candidate);
-    this.agentSprites.get(agentId)?.setOpinionColor(this.opinionColor(candidate), true);
+  /**
+   * Apply an opinion event and return what it meant visually. A bare option
+   * id (scripted captures) is a full flip; otherwise the previous opinion
+   * decides between a silent update, a confidence tick, a first-stance
+   * settle, or a flip with confetti.
+   */
+  updateAgentOpinion(
+    agentId: string,
+    next: string | { candidate: string; confidence?: number },
+    prev?: { candidate: string; confidence?: number } | null,
+  ): StanceChange {
+    const nextOp = typeof next === "string" ? { candidate: next, confidence: 80 } : next;
+    const nextStance = this.stanceFor(nextOp.candidate, nextOp.confidence);
+    const prevStance = typeof next === "string"
+      ? null
+      : prev
+        ? this.stanceFor(prev.candidate, prev.confidence)
+        : (this.agentSprites.get(agentId)?.getStance() ?? null);
+    const kind: StanceChange = typeof next === "string" ? "flip" : stanceChangeKind(prevStance, nextStance);
+    this.agentOpinions.set(agentId, nextOp.candidate);
+    this.agentSprites.get(agentId)?.setStance(nextStance, kind);
+    return kind;
+  }
+
+  /** A resident's recorded reaction to a headline (town-filtered by the caller). */
+  reactAgent(agentId: string, kind: EmotionalResponse, impact?: VoteImpact) {
+    this.agentSprites.get(agentId)?.react(kind, impact);
+  }
+
+  /** Ballots cast: sticker + ballot drop, staggered so a crowd reads as a
+   *  sequence of decisions rather than one flash. Residents already stamped
+   *  (the polling-place procession) are left alone. */
+  markDecided(agentIds: string[], mode: "silent" | "stamp" = "silent") {
+    let i = 0;
+    for (const id of agentIds) {
+      const sprite = this.agentSprites.get(id);
+      if (!sprite || sprite === this.playerSprite || sprite.isDecided()) continue;
+      const stance = sprite.getStance();
+      if (stance.undecided) continue;
+      if (mode === "silent" || reducedMotion()) {
+        sprite.setDecided(stance.optionId, "silent");
+        continue;
+      }
+      this.time.delayedCall(90 * i++, () => {
+        if (sprite.active && !sprite.isDecided()) sprite.setDecided(sprite.getStance().optionId, "stamp");
+      });
+    }
+  }
+
+  /** Results are in: the winner's supporters celebrate, everyone else
+   *  reflects; all settle back to idle after a few seconds. */
+  celebrateResults(winnerId: string) {
+    let i = 0;
+    for (const sprite of this.agentSprites.values()) {
+      if (sprite === this.playerSprite || !sprite.active) continue;
+      const stance = sprite.getStance();
+      if (this.choreo.inConversation(sprite.agentId) || sprite.isWalking()) continue;
+      const supporter = !stance.undecided && stance.optionId === winnerId;
+      this.time.delayedCall(80 * i++, () => {
+        if (!sprite.active) return;
+        if (supporter) sprite.setActivity("celebrating", true);
+        else sprite.showEmote("reflecting");
+      });
+    }
+    this.time.delayedCall(3200 + 80 * i, () => {
+      for (const sprite of this.agentSprites.values()) {
+        if (sprite.getActivity() === "celebrating") sprite.setActivity("idle");
+      }
+    });
   }
 
   showAgentEmote(agentId: string, type: "reflecting" | "opinion_changed") {
@@ -1338,6 +1416,10 @@ export class TownScene extends Phaser.Scene {
             opinionColor: sprite.getOpinionColor(),
             opinion: this.agentOpinions.get(id) ?? "",
             speechBubbles: sprite.getSpeechBubbleCount(),
+            stanceTier: sprite.getStanceTier(),
+            confidence: sprite.getStance().confidence,
+            decided: sprite.isDecided(),
+            mood: sprite.getMood(),
           }]),
       ),
       conversationSpotlight: Boolean(this.convoVignette),
@@ -2957,14 +3039,36 @@ export class TownScene extends Phaser.Scene {
   /** Scenario option colors injected from React. */
   private optionColors: Record<string, string> = {};
 
+  /** Scenario id for "undecided" (its color is in optionColors too). */
+  private undecidedId = "undecided";
+
   /** Inject the active scenario's option→color map (see TownView). */
-  setOptionColors(colors: Record<string, string>) {
+  setOptionColors(colors: Record<string, string>, undecidedId?: string) {
     this.optionColors = colors || {};
+    if (undecidedId) this.undecidedId = undecidedId;
+    // Re-derive every ring: a late color map must not leave residents grey.
+    for (const [id, sprite] of this.agentSprites) {
+      if (sprite === this.playerSprite) continue;
+      const current = sprite.getStance();
+      const candidate = this.agentOpinions.get(id) || current.optionId;
+      sprite.setStance(this.stanceFor(candidate, current.confidence), "silent");
+    }
   }
 
   private opinionColor(candidate?: string): string {
     if (candidate && this.optionColors[candidate]) return this.optionColors[candidate];
     return "#FFFFFF";
+  }
+
+  /** Stance state for a candidate id + confidence in this scenario's colors. */
+  private stanceFor(candidate?: string, confidence?: number): StanceState {
+    const undecided = !candidate || candidate === this.undecidedId || !this.optionColors[candidate];
+    return {
+      optionId: candidate ?? "",
+      color: undecided ? (this.optionColors[this.undecidedId] ?? "#D1D5DB") : this.optionColors[candidate!],
+      confidence: Number.isFinite(confidence) ? Number(confidence) : 0,
+      undecided,
+    };
   }
 }
 

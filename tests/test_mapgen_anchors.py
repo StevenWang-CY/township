@@ -14,8 +14,8 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-
 from conftest import REPO_ROOT
+
 from scripts.mapgen import build_maps, moderntiles
 
 SCENARIOS = Path(REPO_ROOT) / "scenarios"

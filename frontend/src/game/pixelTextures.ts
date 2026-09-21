@@ -54,50 +54,200 @@ export function ensureShadowTexture(scene: Phaser.Scene): string {
 
 /* ── Chunky pixel opinion ring ─────────────────────────────────────────── */
 
+/** Ring variants: the four confidence tiers, the undecided marker, and the
+ *  civic-blue polling ring. */
+export type RingTier = "undecided" | "leaning" | "likely" | "firm" | "certain" | "voting";
+
+// Hand-authored pixel ellipses (each cell = one 2x2 block → clean 2px line).
+// Sized for the SPRITE_SCALE 1.6 body: 32x14 px sits just past the feet.
+const RING_THIN = [
+  "....########....",
+  "..##........##..",
+  ".#............#.",
+  "#..............#",
+  ".#............#.",
+  "..##........##..",
+  "....########....",
+];
+// Two blocks thick, with an interior (`+`) the "certain" tier tints faintly.
+const RING_THICK = [
+  "....########....",
+  "..############..",
+  ".###++++++++###.",
+  "###++++++++++###",
+  ".###++++++++###.",
+  "..############..",
+  "....########....",
+];
+
 /**
- * 2-frame chunky pixel GROUND ring in a candidate color: a flattened
- * ellipse of 2x2 blocks that sits under the agent's feet like a native
- * tile marker. Frame B shifts the dim-block pattern for a subtle shimmer.
- * Returns the two texture keys.
+ * 2-frame chunky pixel GROUND ring: a flattened ellipse of 2x2 blocks that
+ * sits under the agent's feet like a native tile marker. The tier decides
+ * its weight — a faint thin ring while a resident is only leaning, a solid
+ * double ring once they are firm, a faint fill when certain — and the
+ * undecided marker is a dotted parchment/ink ring in no option's color at
+ * all. Frame B shifts the dim/dot pattern for a subtle shimmer.
  */
 export function ensureRingTextures(
   scene: Phaser.Scene,
   color: string,
+  tier: RingTier = "likely",
 ): [string, string] {
-  const hex = color.replace("#", "").toLowerCase();
-  const keys: [string, string] = [`px-ring-${hex}-a`, `px-ring-${hex}-b`];
+  const hex = tier === "undecided" ? "none" : color.replace("#", "").toLowerCase();
+  const keys: [string, string] = [`px-ring-${tier}-${hex}-a`, `px-ring-${tier}-${hex}-b`];
   if (scene.textures.exists(keys[0])) return keys;
   const col = Phaser.Display.Color.HexStringToColor(color);
-  // Hand-authored pixel ellipse (each cell = one 2x2 block → clean 2px line).
-  // Sized for the SPRITE_SCALE 1.6 body: 32x14 px sits just past the feet.
-  const MASK = [
-    "....########....",
-    "..##........##..",
-    ".#............#.",
-    "#..............#",
-    ".#............#.",
-    "..##........##..",
-    "....########....",
-  ];
-  const W = MASK[0].length * 2, H = MASK.length * 2;
+  const mask = tier === "firm" || tier === "certain" || tier === "voting" ? RING_THICK : RING_THIN;
+  const W = mask[0].length * 2, H = mask.length * 2;
   for (let f = 0; f < 2; f++) {
     const canvas = scene.textures.createCanvas(keys[f], W, H);
     if (!canvas) continue;
     const ctx = canvas.context;
     let i = 0;
-    for (let r = 0; r < MASK.length; r++) {
-      for (let c = 0; c < MASK[r].length; c++) {
-        if (MASK[r][c] !== "#") continue;
+    for (let r = 0; r < mask.length; r++) {
+      for (let c = 0; c < mask[r].length; c++) {
+        const cell = mask[r][c];
+        if (cell === ".") continue;
+        if (cell === "+") {
+          if (tier !== "certain") continue;
+          ctx.fillStyle = `rgba(${col.red}, ${col.green}, ${col.blue}, 0.16)`;
+          ctx.fillRect(c * 2, r * 2, 2, 2);
+          continue;
+        }
         i++;
+        if (tier === "undecided") {
+          // Dotted: parchment and ink alternate; frame B rotates the phase.
+          const ink = (i + f) % 2 === 0;
+          ctx.fillStyle = ink ? "rgba(58, 48, 36, 0.88)" : "rgba(244, 234, 208, 0.92)";
+          ctx.fillRect(c * 2, r * 2, 2, 2);
+          continue;
+        }
         // Every third block dims; frame B advances the pattern one step.
         const dim = (i + f) % 3 === 0;
-        ctx.fillStyle = `rgba(${col.red}, ${col.green}, ${col.blue}, ${dim ? 0.5 : 0.9})`;
+        let a = dim ? 0.5 : 0.9;
+        if (tier === "leaning") a *= 0.6;
+        if (tier === "voting" || tier === "certain") a = dim ? 0.75 : 1;
+        ctx.fillStyle = `rgba(${col.red}, ${col.green}, ${col.blue}, ${a})`;
         ctx.fillRect(c * 2, r * 2, 2, 2);
       }
     }
     canvas.refresh();
   }
   return keys;
+}
+
+/**
+ * Depth for transient effects that belong to a resident (emotes, confetti,
+ * ballots, floating glyphs): above every y-sorted sprite and prop, below the
+ * `buildings-top` roof layer (5000) so an awning still hides them, and below
+ * the dusk tint so they share the resident's light.
+ */
+export const FX_DEPTH = 4990;
+
+// "I voted" lapel sticker: cream paper, ink border, an option-colored check.
+const VOTED_BADGE = [
+  "##########",
+  "#........#",
+  "#......cc#",
+  "#.....cc.#",
+  "#cc..cc..#",
+  "#.cccc...#",
+  "#..cc....#",
+  "##########",
+];
+
+export function ensureVotedBadgeTexture(scene: Phaser.Scene, color: string): string {
+  const hex = color.replace("#", "").toLowerCase();
+  const key = `px-voted-${hex}`;
+  if (scene.textures.exists(key)) return key;
+  const w = VOTED_BADGE[0].length, h = VOTED_BADGE.length;
+  const canvas = scene.textures.createCanvas(key, w, h);
+  if (!canvas) return key;
+  const ctx = canvas.context;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const cell = VOTED_BADGE[y][x];
+      ctx.fillStyle = cell === "#" ? "#2c2416" : cell === "c" ? color : "#f5efe0";
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  canvas.refresh();
+  return key;
+}
+
+/** Small pixel emote glyphs (anger burst, sweat drop) drawn once. */
+export type EmoteGlyphName = "anger" | "sweat" | "confusion" | "dots";
+
+export function ensureEmoteGlyphTexture(scene: Phaser.Scene, name: EmoteGlyphName): string {
+  const key = `px-emote-${name}`;
+  if (scene.textures.exists(key)) return key;
+  const art: Record<string, { rows: string[]; palette: Record<string, string> }> = {
+    anger: {
+      rows: [
+        "#.....#",
+        ".#.#.#.",
+        "..###..",
+        "#..#..#",
+        "..###..",
+        ".#.#.#.",
+        "#.....#",
+      ],
+      palette: { "#": "#c0392b" },
+    },
+    sweat: {
+      rows: [
+        "..#..",
+        "..#..",
+        ".#o#.",
+        ".#oo#",
+        "#ooo#",
+        "#ooo#",
+        ".###.",
+      ],
+      palette: { "#": "#3d6aa8", "o": "#9cc4ee" },
+    },
+    // Parchment glyphs with an ink outline read on grass and asphalt alike.
+    confusion: {
+      rows: [
+        ".#####.",
+        "#ooooo#",
+        "#o###o#",
+        "###.#o#",
+        "...#o#.",
+        "..#o#..",
+        "..#o#..",
+        "..###..",
+        "..#o#..",
+        "..###..",
+      ],
+      palette: { "#": "#2c2416", "o": "#f4ead6" },
+    },
+    dots: {
+      rows: [
+        "##########",
+        "#oo#oo#oo#",
+        "#oo#oo#oo#",
+        "##########",
+      ],
+      palette: { "#": "#2c2416", "o": "#f4ead6" },
+    },
+  };
+  const spec = art[name];
+  const w = spec.rows[0].length;
+  const h = spec.rows.length;
+  const canvas = scene.textures.createCanvas(key, w, h);
+  if (!canvas) return key;
+  const ctx = canvas.context;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = spec.palette[spec.rows[y][x]];
+      if (!c) continue;
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  canvas.refresh();
+  return key;
 }
 
 /* ── Tiny effect sprites ───────────────────────────────────────────────── */

@@ -72,7 +72,13 @@ export interface AgentState {
   goals?: string[];
   /** Per-agent top concerns (sourced from agent .md frontmatter). */
   top_concerns?: string[];
+  /** Frontend-only: the resident has cast their ballot (decide phase). */
+  decided?: boolean;
 }
+
+/** How a resident took a news item (backend NewsReaction vocabulary). */
+export type EmotionalResponse = "angry" | "hopeful" | "anxious" | "indifferent" | "confused";
+export type VoteImpact = "strengthens_current" | "weakens_current" | "changes_mind" | "no_effect";
 
 /* ── Conversations ─────────────────────────────────────────── */
 
@@ -187,7 +193,11 @@ export interface RoundStartedEvent {
 export interface RoundEndedEvent {
   type: "round_ended";
   round: number;
+  town?: TownId;
   summary: TownSummary[];
+  /** Residents who cast their ballot in this round's decide phase
+   *  (additive; recordings made before it exist omit the field). */
+  decided_agent_ids?: string[];
 }
 
 export interface SimulationStartedEvent {
