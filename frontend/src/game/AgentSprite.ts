@@ -1190,7 +1190,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.lastMood = null;
     this.restoreTints();
     this.setStance(stance, "silent");
-    this.setDecided(extras?.decided && !stance.undecided ? stance.optionId : null, "silent");
+    this.setDecided(extras?.decided ? stance.optionId : null, "silent");
     this.setActivity(activity, true);
   }
 

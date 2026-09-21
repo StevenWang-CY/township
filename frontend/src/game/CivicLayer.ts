@@ -322,12 +322,15 @@ export class CivicLayer {
   /* ── Yard signs ─────────────────────────────────────────────────────── */
 
   /**
-   * Deterministic seats: residents sorted by id, each taking the first free
-   * sign on their own home's lawn, then (second pass) the free sign nearest
-   * their home. Signs may stay blank; nobody gets two.
+   * Deterministic seats: residents with a stance first (a lawn with a sign
+   * to show beats a blank one when seats are scarce), then the undecided,
+   * each sorted by id; every resident takes the first free sign on their
+   * own home's lawn, then (second pass) the free sign nearest their home.
+   * Signs may stay blank; nobody gets two.
    */
   private assignSeats(residents: CivicResident[]): Map<number, CivicResident> {
-    const sorted = [...residents].sort((p, q) => p.id.localeCompare(q.id));
+    const sorted = [...residents].sort((p, q) =>
+      Number(p.undecided) - Number(q.undecided) || p.id.localeCompare(q.id));
     const key = sorted.map((r) => `${r.id}@${r.home}`).join("|") + `#${this.signs.length}`;
     const cached = this.seatCache.get(key);
     const out = new Map<number, CivicResident>();

@@ -128,6 +128,60 @@ async function accelerateReplay(page) {
   }
 }
 
+/** Pin the replay to one speed ("1x", "2x", …) by cycling the toggle. */
+async function setReplaySpeed(page, wanted = "1x") {
+  const speed = page.locator('[aria-label^="Playback speed"]');
+  if (!(await speed.isVisible().catch(() => false))) return;
+  for (let i = 0; i < 4; i += 1) {
+    const label = (await speed.getAttribute("aria-label")) || "";
+    if (label.includes(`speed ${wanted}`)) return;
+    await speed.click();
+    await page.waitForTimeout(100);
+  }
+}
+
+/**
+ * Seek the replay to the last events before `town`'s final round ends —
+ * so the decide phase that follows plays paced (residents walk to the
+ * polls) instead of being landed on by a seek. Keyboard seeks step 15
+ * events; the target is chosen so the landing always precedes round_ended.
+ */
+async function seekToDecide(page, feed, town) {
+  const timeline = page.locator('[aria-label="Replay position"]');
+  await timeline.waitFor({ state: "visible" });
+  await pauseReplay(page);
+  let lastEnded = -1;
+  feed.events.forEach((event, index) => {
+    if (event.type === "round_ended" && event.town === town) lastEnded = index;
+  });
+  if (lastEnded < 0) return false;
+  await timeline.focus();
+  await timeline.press("End");
+  await page.waitForTimeout(400);
+  const duration = Number(await timeline.getAttribute("aria-valuemax"));
+  const target = lastEnded - 16;
+  const presses = Math.floor((duration - target) / 15);
+  for (let i = 0; i < presses; i += 1) await timeline.press("ArrowLeft");
+  await page.waitForTimeout(700);
+  return true;
+}
+
+/** Camera on the town's polling place (the civic layer knows where). */
+async function framePollingPlace(page, zoom = 1.7) {
+  return page.evaluate((z) => {
+    const scene = window.__townshipScene;
+    const poll = scene?.civic?.getPollingPlace?.();
+    if (!scene || !poll) return false;
+    window.__town?.setOverviewMode(false);
+    const cam = scene.cameras.main;
+    cam.panEffect?.reset();
+    cam.zoomEffect?.reset();
+    cam.setZoom(z);
+    cam.centerOn(poll.x, poll.y + 8);
+    return true;
+  }, zoom);
+}
+
 async function pauseReplay(page) {
   const control = page.locator('[aria-label="Pause replay"]');
   if (await control.isVisible().catch(() => false)) {
@@ -277,7 +331,7 @@ try {
   // move. Ambient replay bubbles are cleared per frame — at overview zoom
   // they render as unreadable clutter that can clip against the map edge;
   // readable dialogue is beat 2's job.
-  for (let i = 0; i < 7; i += 1) {
+  for (let i = 0; i < 5; i += 1) {
     await page.evaluate(() => {
       window.__townshipScene?.agentSprites?.forEach?.((s) => s.clearSpeechBubbles?.());
     });
@@ -365,14 +419,14 @@ try {
       { id: agentId, text: line, aId: HERO_A, bId: HERO_B },
     );
   await speak(HERO_A, HERO_LINE_A);
-  for (let i = 0; i < 7; i += 1) {
+  for (let i = 0; i < 6; i += 1) {
     addHeroFrame(await heroFrame(page));
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(160);
   }
   await speak(HERO_B, HERO_LINE_B);
-  for (let i = 0; i < 8; i += 1) {
+  for (let i = 0; i < 6; i += 1) {
     addHeroFrame(await heroFrame(page));
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(160);
   }
   // Beat 3 — the mind changes: ring morph + confetti + ballot on Miguel.
   // Re-assert the two-shot before triggering so the beat's own pan-and-return
@@ -400,9 +454,9 @@ try {
   );
   // Confetti + ballot land inside ~700ms — sample densely, then echo the
   // burst once so the celebration survives GIF frame timing.
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 3; i += 1) {
     addHeroFrame(await heroFrame(page));
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(140);
   }
   await page.evaluate(({ id }) => {
     // Echo only the sprite celebration (ring pulse/confetti/ballot) — a
@@ -411,27 +465,64 @@ try {
     scene?.showAgentEmote?.(id, "opinion_changed");
     scene?.agentSprites?.get(id)?.setOpinionColor(scene.opinionColor("mejia"), true);
   }, { id: HERO_A });
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 3; i += 1) {
     addHeroFrame(await heroFrame(page));
     await page.waitForTimeout(200);
   }
-  // Beat 4 — finale: back to the wide overview, dusk settles, lamps come on.
+  // Beat 4 — decision day: the replay is seeked to the moments before
+  // Dover's final round ends and resumed at 1×, with the camera held on
+  // the polling place, so the recorded decide phase plays as the town
+  // experiences it — the VOTE sign and ballot box appear, residents walk
+  // to the rope, step up one at a time, and take their stickers. The
+  // world clock is the replay's own (19:00, dusk).
   await page.evaluate(() => {
     const scene = window.__townshipScene;
     scene?.agentSprites?.forEach?.((sprite) => sprite.clearSpeechBubbles?.());
     scene?.handleConversationEnded?.("capture-hero");
-    // The spotlight clear starts 520ms pan/zoom camera effects; cancel them
-    // or they finish AFTER the overview snap below and re-zoom the finale.
+    const cam = scene?.cameras?.main;
+    cam?.panEffect?.reset();
+    cam?.zoomEffect?.reset();
+  });
+  const decideStaged = await seekToDecide(page, defaultFeed, "dover");
+  if (decideStaged) {
+    await setReplaySpeed(page, "1x");
+    await framePollingPlace(page, 1.7);
+    await page.waitForTimeout(400);
+    await resumeReplay(page);
+    // ~18 s of paced replay: the phase opens a few seconds in, then the
+    // procession. Sampled every ~1.1 s so the walk reads without bloating
+    // the GIF; hold on the sticker beat at the end.
+    for (let i = 0; i < 15; i += 1) {
+      await page.evaluate(() => {
+        window.__townshipScene?.agentSprites?.forEach?.((s) => s.clearSpeechBubbles?.());
+      });
+      addHeroFrame(await heroFrame(page));
+      await page.waitForTimeout(1_100);
+    }
+    await pauseReplay(page);
+    addHeroFrame(await heroFrame(page), 2);
+    // Results: land the run's end (bunting, the tally at the kiosk).
+    const timeline = page.locator('[aria-label="Replay position"]');
+    await timeline.focus();
+    await timeline.press("End");
+    await page.waitForTimeout(900);
+    await framePollingPlace(page, 1.45);
+    await page.waitForTimeout(500);
+    addHeroFrame(await heroFrame(page), 2);
+  }
+  // Beat 5 — finale: back to the wide overview as dusk deepens into night
+  // and windows and lamps come on over the decided town.
+  await page.evaluate(() => {
+    const scene = window.__townshipScene;
+    scene?.agentSprites?.forEach?.((sprite) => sprite.clearSpeechBubbles?.());
     const cam = scene?.cameras?.main;
     cam?.panEffect?.reset();
     cam?.zoomEffect?.reset();
     window.__town?.setOverviewMode(false);
     window.__town?.setOverviewMode(true);
   });
-  await page.waitForTimeout(1_100);
-  const duskSteps = [
-    [17, 30], [18, 0], [18, 30], [19, 0], [19, 30], [20, 0], [20, 30], [21, 0],
-  ];
+  await page.waitForTimeout(900);
+  const duskSteps = [[19, 0], [19, 45], [20, 30], [21, 15]];
   for (const [h, m] of duskSteps) {
     await setTownMoment(page, h, m);
     addHeroFrame(await heroFrame(page), 2);
@@ -570,6 +661,41 @@ try {
         window.__town?.setOverviewMode(true);
       });
       await page.waitForTimeout(600);
+
+      // Decision day: the recorded decide phase played paced, caught with a
+      // resident at the ballot box, then the run's end with bunting and the
+      // tally posted at the kiosk.
+      if (await seekToDecide(page, defaultFeed, "dover")) {
+        await setReplaySpeed(page, "1x");
+        await framePollingPlace(page, 1.6);
+        await resumeReplay(page);
+        await page
+          .waitForFunction(() => {
+            const scene = window.__townshipScene;
+            return [...(scene?.agentSprites?.values?.() ?? [])].some((s) => s.getActivity?.() === "voting");
+          }, null, { timeout: 30_000 })
+          .catch(() => undefined);
+        await page.waitForTimeout(250);
+        await pauseReplay(page);
+        await page.evaluate(() => {
+          window.__townshipScene?.agentSprites?.forEach?.((s) => s.clearSpeechBubbles?.());
+          const keyboardHint = document.querySelector(".keyboard-hint");
+          if (keyboardHint instanceof HTMLElement) keyboardHint.style.display = "none";
+        });
+        await shot(page, join(MEDIA, "demo-player", "06-decide.png"));
+        const timeline = page.locator('[aria-label="Replay position"]');
+        await timeline.focus();
+        await timeline.press("End");
+        await page.waitForTimeout(1_200);
+        await framePollingPlace(page, 1.45);
+        await settle(page, 500);
+        await shot(page, join(MEDIA, "demo-player", "07-results.png"));
+        await page.evaluate(() => {
+          window.__town?.setOverviewMode(false);
+          window.__town?.setOverviewMode(true);
+        });
+        await page.waitForTimeout(600);
+      }
     }
 
     await settleTownStill(page);

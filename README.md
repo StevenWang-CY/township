@@ -27,7 +27,7 @@
 
 <p align="center">
   <a href="https://stevenwang-cy.github.io/township/">
-    <img src="docs/media/hero.gif" alt="The living town of Dover from above: residents go about their routines, the camera closes on two neighbors talking through the election in readable speech bubbles, one changes their mind with a burst of confetti, then dusk settles and lamplit night falls" width="896">
+    <img src="docs/media/hero.gif" alt="The living town of Dover from above: residents go about their routines, the camera closes on two neighbors talking through the election in readable speech bubbles, one changes their mind with a burst of confetti, the polling place opens at the Public Library and residents queue, vote and take their stickers, then dusk settles and lamplit night falls over the decided town" width="896">
   </a>
 </p>
 
@@ -69,6 +69,16 @@ without credentials.
     <td align="center"><strong>Ask "what if"</strong><br><sub>God's View injects a hypothetical and shows every resident's reaction, before and after.</sub></td>
     <td align="center"><strong>Watch the district live</strong><br><sub>Stances shift town by town mid-run; a narrative recap lands when it ends.</sub></td>
     <td align="center"><strong>Stay past dusk</strong><br><sub>One world clock drives lighting, routines, windows, and lamplight in every town.</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/demo-player/06-decide.png" alt="Decision day in Dover: the replay's vote phase with the polling place open at the Public Library, a VOTE sign and ballot box at the door, residents queued at the rope while one casts, and the first voted stickers on their coats"></a></td>
+    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/demo-player/07-results.png" alt="Results in Dover: bunting in the winner's colour along the library roofline, a tally sheet posted at the park notice board, and stickered residents celebrating outside the polling place at dusk"></a></td>
+    <td width="33%" align="center"><a href="https://stevenwang-cy.github.io/township/"><img src="docs/media/scene/millbrook-village-day.png" alt="Millbrook Village by day: a different scenario package rendered by the same engine, with its own residents, landmarks, river and farmers market"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>See the town decide</strong><br><sub>Yard signs take colour once opinions are public, the notice board pins each headline, and on decision day residents walk to the polls and vote one at a time.</sub></td>
+    <td align="center"><strong>Read the result in the world</strong><br><sub>Bunting, a tally at the kiosk, and celebrations — all derived from the same events a seek can rewind.</sub></td>
+    <td align="center"><strong>Swap the folder</strong><br><sub>A budget vote in Millbrook uses the same engine with its own cast, outfits, and map.</sub></td>
   </tr>
 </table>
 

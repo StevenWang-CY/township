@@ -21,8 +21,8 @@ when recap generation succeeds; completed artifacts are served via `/api/runs`.
 | `backend/routes/` | REST + WS routers: simulation, chat, gods_view, scenario, towns, journal, runs, transcribe, tts |
 | `backend/cli.py` | The `township` CLI (Typer): serve, run, replay, scenarios, new-scenario, new-agent |
 | `scenarios/<id>/` | `scenario.json`, `towns/*.json`, `options/*.json`, `agents/<town>/*.md`, `context/*.json`, `god-scenarios.json` |
-| `frontend/src/game/` | Phaser: `TownScene.ts`, `AgentSprite.ts`, world clock, weather, routines |
-| `frontend/src/components/`, `hooks/` | React UI (TownView, Dashboard, GodsView, ChatPanel) and the WS/REST hooks |
+| `frontend/src/game/` | Phaser: `TownScene.ts`, `AgentSprite.ts`, `NavGrid.ts` (A* paths), `Conversations.ts` (choreography), `DayPart.ts`, `CivicLayer.ts` (election dressing), `SceneAmbience.ts`, world clock, weather |
+| `frontend/src/components/`, `hooks/`, `lib/` | React UI (TownView, Dashboard, GodsView, ChatPanel), the WS/REST hooks, and pure helpers (`lib/stance.ts` confidence tiers, `lib/election.ts` phase resolution) |
 | `scripts/mapgen/` | Named-GID tile registry + validators for the vendored ai-town tileset |
 | `tests/` | Backend contract tests — the whole suite runs offline, no credentials needed |
 

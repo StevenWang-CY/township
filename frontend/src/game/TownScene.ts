@@ -1175,7 +1175,6 @@ export class TownScene extends Phaser.Scene {
       const sprite = this.agentSprites.get(id);
       if (!sprite || sprite === this.playerSprite || sprite.isDecided()) continue;
       const stance = sprite.getStance();
-      if (stance.undecided) continue;
       if (mode === "silent" || reducedMotion()) {
         sprite.setDecided(stance.optionId, "silent");
         continue;
@@ -1252,8 +1251,9 @@ export class TownScene extends Phaser.Scene {
   /**
    * Decision day: residents walk to the polling place in `order`, wait at
    * the rope, step up to the ballot box one at a time, cast (voting pulse,
-   * sticker, ballot), and step aside. Residents already stamped, undecided
-   * residents, and anyone mid-conversation are left where they are.
+   * sticker, ballot), and step aside. Residents already stamped and anyone
+   * mid-conversation are left where they are; a resident still undecided
+   * casts too and wears a plain sticker.
    */
   startBallotProcession(order: string[]) {
     if (!this.civic?.isPollingOpen() || reducedMotion()) return;
@@ -1262,7 +1262,7 @@ export class TownScene extends Phaser.Scene {
     const voters = order
       .map((id) => this.agentSprites.get(id))
       .filter((sp): sp is AgentSprite => Boolean(sp) && sp !== this.playerSprite && sp!.active)
-      .filter((sp) => !sp.isDecided() && !sp.getStance().undecided && !this.choreo.inConversation(sp.agentId));
+      .filter((sp) => !sp.isDecided() && !this.choreo.inConversation(sp.agentId));
     const slots = this.civic.getBallotQueueSlots(voters.length);
     voters.forEach((sprite, i) => {
       const slot = slots[i] ?? box;

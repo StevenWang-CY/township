@@ -559,12 +559,10 @@ export default function TownView({ ws }: TownViewProps) {
           }
           break;
         case "simulation_ended": {
-          // Every resident with a stance has cast their ballot by now (the
-          // polling-place procession stamps most of them earlier); then the
-          // winner's supporters celebrate.
-          const decidedIds = townAgents
-            .filter((a) => a.opinion?.candidate && a.opinion.candidate !== scen.undecidedId)
-            .map((a) => a.id);
+          // Every resident has cast their ballot by now (the polling-place
+          // procession stamps most of them earlier; the undecided wear a plain
+          // sticker); then the winner's supporters celebrate.
+          const decidedIds = townAgents.map((a) => a.id);
           const tally = (evt.summary?.overall_opinions ?? {}) as Record<string, number>;
           let winner: string | null = null;
           for (const [id, count] of Object.entries(tally)) {
