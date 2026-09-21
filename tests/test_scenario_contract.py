@@ -106,6 +106,9 @@ def test_api_scenario_bootstrap_shape():
     assert data["question"]
     assert data["decision_kind"] == "election"
     assert data["total_rounds"] == 5
+    assert [r["round"] for r in data["round_plan"]] == [0, 1, 2, 3, 4]
+    assert data["round_plan"][4]["phases"] == ["converse", "opinion", "decide"]
+    assert data["round_plan"][0]["clock"] == "08:00"
     assert data["dates"]["decision_day"] == "2026-04-16"
     assert data["dates"]["prose"]
     assert data["responsible_use"] == app.state.scenario.responsible_use.model_dump()

@@ -52,6 +52,12 @@ async def get_scenario(request: Request):
         },
         "towns": towns,
         "total_rounds": scenario.total_rounds,
+        # The round-by-round plan the frontend uses to name the current phase
+        # (talk / news / opinion / vote) and dress the town accordingly.
+        "round_plan": [
+            {"round": r.round, "phases": list(r.phases), "clock": r.clock}
+            for r in config.round_plan
+        ],
         "dates": {
             "decision_day": config.dates.decision_day,
             "prose": config.dates.prose,

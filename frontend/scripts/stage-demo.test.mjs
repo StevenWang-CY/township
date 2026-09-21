@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   mkdirSync,
+  readFileSync,
   mkdtempSync,
   renameSync,
   rmSync,
@@ -64,6 +65,10 @@ test("stageDemos stages a current contained package", () => {
       stageDemos({ scenariosDir: value.scenariosDir, outDir: value.outDir }),
       { default: "safe-scenario", scenarios: ["safe-scenario"] },
     );
+    // The staged bootstrap mirrors /api/scenario, round plan included.
+    const payload = JSON.parse(readFileSync(join(value.outDir, "safe-scenario-scenario.json"), "utf8"));
+    assert.equal(payload.total_rounds, 1);
+    assert.deepEqual(payload.round_plan, [{ round: 1, phases: ["seed"], clock: "12:00" }]);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }

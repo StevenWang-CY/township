@@ -39,6 +39,7 @@ import {
   resolveAgentSprite,
 } from "./spriteCustomization";
 import { composeTownAmbience, type AmbienceHandle, type MapAnchor } from "./SceneAmbience";
+import { CivicLayer, type CivicEnv, type CivicResident } from "./CivicLayer";
 import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange, relationshipKind, sharedConcernKey } from "./AmbientLines";
@@ -160,6 +161,14 @@ export class TownScene extends Phaser.Scene {
 
   // Night-time lamp glow + sky tint are owned by SceneAmbience + the sky overlay.
   private ambience?: AmbienceHandle;
+  /** The election as the town shows it (signs, banners, board, polls). */
+  private civic?: CivicLayer;
+  private lastCivic?: { env: CivicEnv; residents: CivicResident[] };
+  /** Ballot procession: residents waiting at the rope, one at the box. */
+  private pollQueue: AgentSprite[] = [];
+  private boxBusy = false;
+  /** Points passers-by drift toward during a phase (benches, kiosk, queue). */
+  private ambientFocus: Array<{ x: number; y: number }> | null = null;
 
   // Encounter scheduling
   private encounterTimer?: Phaser.Time.TimerEvent;
@@ -269,6 +278,8 @@ export class TownScene extends Phaser.Scene {
     this.load.image("rpg-tileset", appUrl("assets/tilesets/rpg-tileset.png"));
     this.load.image("township-modern", appUrl("assets/tilesets/township-modern.png"));
     this.load.image("speech-bubble", appUrl("assets/speech_bubble/v2.png"));
+    // Results night: the park brazier burns with the licensed campfire sheet.
+    this.load.spritesheet("campfire", appUrl("assets/spritesheets/campfire.png"), { frameWidth: 32, frameHeight: 32 });
 
     // Authored maps are an explicit scenario adapter. Town ids are only
     // unique inside a scenario package; an unrelated package reusing an id
@@ -433,6 +444,19 @@ export class TownScene extends Phaser.Scene {
     this.ambience.setHour(this.worldClock.hour);
     this.ambience.setPartOfDay(this.worldClock.partOfDay());
 
+    // Civic dressing reads the same anchors; a late env (React applied it
+    // before the map finished) is replayed silently.
+    this.civic?.destroy();
+    this.civic = new CivicLayer({
+      scene: this,
+      optionColor: (id) => this.opinionColor(id),
+      landmarkEntrance: (name) => this.landmarkPositions.get(this.resolveLandmarkName(name) ?? name),
+      nearestWalkable: (pt) => this.navGrid?.nearestWalkable(pt.x, pt.y, 96, { avoidRoad: true }) ?? pt,
+    }, this.mapAnchors);
+    this.civic.setPartOfDay(this.worldClock.partOfDay());
+    if (this.lastCivic) this.civic.apply(this.lastCivic.env, this.lastCivic.residents, { animate: false });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.civic?.destroy(); this.civic = undefined; });
+
     // Register + launch the Weather scene in parallel
     if (!this.scene.get("WeatherScene")) {
       this.scene.add("WeatherScene", WeatherScene, false);
@@ -502,6 +526,7 @@ export class TownScene extends Phaser.Scene {
       if (this.worldClock.hour !== prevHour) {
         this.ambience?.setHour(this.worldClock.hour);
         this.ambience?.setPartOfDay(this.worldClock.partOfDay());
+        this.civic?.setPartOfDay(this.worldClock.partOfDay());
         this.refreshDayParts();
       }
     }
@@ -917,6 +942,7 @@ export class TownScene extends Phaser.Scene {
     weather: WeatherKind,
   ) {
     const wanted = new Set(agents.map((agent) => agent.id));
+    this.resetProcession();
     for (const [id, sprite] of this.agentSprites) {
       if (sprite === this.playerSprite || wanted.has(id)) continue;
       sprite.destroy();
@@ -1178,6 +1204,116 @@ export class TownScene extends Phaser.Scene {
     });
   }
 
+  /* ── The election in the world ────────────────────────────────────── */
+
+  /**
+   * Dress the town for the current civic environment. Idempotent: a replay
+   * seek passes `animate: false` and lands on the same state silently.
+   */
+  applyEnvironmentState(env: CivicEnv, agents: AgentState[], opts: { animate: boolean }) {
+    const residents: CivicResident[] = agents
+      .filter((a) => a.town === this.townId)
+      .map((a) => {
+        const stance = this.stanceFor(a.opinion?.candidate, a.opinion?.confidence);
+        return {
+          id: a.id,
+          home: a.routine?.[0]?.location ?? a.location ?? "",
+          optionId: stance.optionId,
+          color: stance.color,
+          undecided: stance.undecided,
+        };
+      });
+    this.lastCivic = { env, residents };
+    this.civic?.apply(env, residents, opts);
+    // Passers-by follow the phase: the kiosk for news, the queue on decide.
+    const poll = this.civic?.getPollingPlace();
+    if ((env.phase === "decide" || env.phase === "results") && poll) {
+      this.setAmbientFocus([{ x: poll.x - 40, y: poll.y + 40 }, { x: poll.x + 50, y: poll.y + 30 }]);
+    } else if (env.phase === "news") {
+      const kiosk = this.mapAnchors.find((a) => a.kind === "noticeboard");
+      this.setAmbientFocus(kiosk ? [{ x: kiosk.x, y: kiosk.y + 24 }] : null);
+    } else {
+      this.setAmbientFocus(null);
+    }
+  }
+
+  getCivicState() {
+    return this.civic?.snapshot() ?? null;
+  }
+
+  setAmbientFocus(points: Array<{ x: number; y: number }> | null) {
+    this.ambientFocus = points && points.length ? points : null;
+  }
+
+  /**
+   * Decision day: residents walk to the polling place in `order`, wait at
+   * the rope, step up to the ballot box one at a time, cast (voting pulse,
+   * sticker, ballot), and step aside. Residents already stamped, undecided
+   * residents, and anyone mid-conversation are left where they are.
+   */
+  startBallotProcession(order: string[]) {
+    if (!this.civic?.isPollingOpen() || reducedMotion()) return;
+    const box = this.civic.getBallotBoxPoint();
+    if (!box) return;
+    const voters = order
+      .map((id) => this.agentSprites.get(id))
+      .filter((sp): sp is AgentSprite => Boolean(sp) && sp !== this.playerSprite && sp!.active)
+      .filter((sp) => !sp.isDecided() && !sp.getStance().undecided && !this.choreo.inConversation(sp.agentId));
+    const slots = this.civic.getBallotQueueSlots(voters.length);
+    voters.forEach((sprite, i) => {
+      const slot = slots[i] ?? box;
+      this.time.delayedCall(450 * i, () => {
+        if (!sprite.active || sprite.isDecided()) return;
+        sprite.moveToPosition(slot.x, slot.y, () => {
+          if (!sprite.active || sprite.isDecided()) return;
+          this.pollQueue.push(sprite);
+          this.pumpBallotBox(box);
+        }, { arriveFacing: "up" });
+      });
+    });
+  }
+
+  private pumpBallotBox(box: { x: number; y: number }) {
+    if (this.boxBusy) return;
+    const sprite = this.pollQueue.shift();
+    if (!sprite) return;
+    if (!sprite.active || sprite.isDecided()) { this.pumpBallotBox(box); return; }
+    this.boxBusy = true;
+    const done = () => {
+      this.boxBusy = false;
+      this.pumpBallotBox(box);
+    };
+    sprite.moveToPosition(box.x, box.y, () => {
+      if (!sprite.active) { done(); return; }
+      sprite.setActivity("voting");
+      this.time.delayedCall(700, () => {
+        if (!sprite.active) { done(); return; }
+        sprite.setDecided(sprite.getStance().optionId, "stamp");
+        this.time.delayedCall(260, () => {
+          if (!sprite.active) { done(); return; }
+          sprite.setActivity("idle");
+          const n = this.agentSprites.size;
+          const k = [...this.agentSprites.values()].filter((s) => s.isDecided()).length;
+          // Step aside to the right of the box, in rows, leaving the
+          // door and the lane clear for the next voter.
+          const aside = this.findFreeNear(
+            box.x + 30 + (k % 3) * 20,
+            box.y + 8 + Math.floor(k / 3) * 20 + (n % 2) * 4,
+            { clearOf: 22, exclude: sprite },
+          );
+          // The box frees as soon as the voter turns away.
+          done();
+          sprite.moveToPosition(aside.x, aside.y, () => sprite.faceToward(box.x, box.y - 20), { arriveFacing: "up" });
+        });
+      });
+    }, { arriveFacing: "up" });
+  }
+
+  private resetProcession() {
+    this.pollQueue = [];
+    this.boxBusy = false;
+  }
+
   showAgentEmote(agentId: string, type: "reflecting" | "opinion_changed") {
     this.agentSprites.get(agentId)?.showEmote(type);
   }
@@ -1390,6 +1526,7 @@ export class TownScene extends Phaser.Scene {
     if (applyRoutines && !DEMO_MODE) this.tickRoutines();
     this.ambience?.setHour(this.worldClock.hour);
     this.ambience?.setPartOfDay(this.worldClock.partOfDay());
+    this.civic?.setPartOfDay(this.worldClock.partOfDay());
     this.refreshDayParts();
   }
 
@@ -1423,6 +1560,7 @@ export class TownScene extends Phaser.Scene {
           }]),
       ),
       conversationSpotlight: Boolean(this.convoVignette),
+      civic: this.civic?.snapshot() ?? null,
     };
   }
 
@@ -2165,10 +2303,15 @@ export class TownScene extends Phaser.Scene {
     const delay = Phaser.Math.Between(2000, 9000);
     this.time.delayedCall(delay, () => {
       if (!npc.active) return;
-      // Prefer wandering between landmarks when available
-      const target = this.wanderPoints.length > 0
-        ? this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)]
-        : { x: Phaser.Math.Between(80, W - 80), y: Phaser.Math.Between(120, H - 120) };
+      // Prefer wandering between landmarks when available; during a phase
+      // with a focus (benches, the kiosk, the polling queue) most strolls
+      // drift that way so the crowd reads the moment too.
+      const focus = this.ambientFocus;
+      const target = focus && focus.length > 0 && Math.random() < 0.6
+        ? focus[Math.floor(Math.random() * focus.length)]
+        : this.wanderPoints.length > 0
+          ? this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)]
+          : { x: Phaser.Math.Between(80, W - 80), y: Phaser.Math.Between(120, H - 120) };
       const t = this.findFreeNear(
         target.x + Phaser.Math.Between(-40, 40),
         target.y + Phaser.Math.Between(-30, 30),

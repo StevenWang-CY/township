@@ -159,6 +159,11 @@ function buildScenarioPayload(config, byId, ordered, id) {
     },
     towns,
     total_rounds: (config.round_plan || []).length,
+    round_plan: (config.round_plan || []).map((r) => ({
+      round: r.round,
+      phases: Array.isArray(r.phases) ? r.phases : [],
+      clock: typeof r.clock === "string" ? r.clock : "12:00",
+    })),
     dates: {
       decision_day: config.dates?.decision_day || "",
       prose: config.dates?.prose || "",

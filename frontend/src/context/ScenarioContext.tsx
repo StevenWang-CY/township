@@ -12,7 +12,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { ScenarioData, ScenarioOption, ScenarioTownInfo, TownMapInfo } from "../types/messages";
+import type { ScenarioData, ScenarioOption, ScenarioRoundPlanEntry, ScenarioTownInfo, TownMapInfo } from "../types/messages";
 import { DEMO_MODE, demoUrl, resolveDemoScenarioId } from "../demo/demoMode";
 import type { DemoManifest } from "../demo/demoMode";
 
@@ -48,6 +48,8 @@ export interface ScenarioContextValue {
   townMeta: (id?: string | null) => ResolvedTownMeta;
   /** "candidate(s)" for elections, "option(s)" for votes. */
   optionNoun: (plural?: boolean) => string;
+  /** Round plan when the payload carries one (empty otherwise). */
+  roundPlan: ScenarioRoundPlanEntry[];
 }
 
 function deslug(id: string): string {
@@ -140,6 +142,7 @@ export function buildScenarioValue(
     optionName,
     townMeta,
     optionNoun,
+    roundPlan: scenario.round_plan ?? [],
   };
 }
 
@@ -193,10 +196,23 @@ function looksLikeScenario(d: unknown): d is ScenarioData {
     )
   )) && new Set(townIds).size === townIds.length;
 
+  const roundPlanValid = s.round_plan == null || (
+    Array.isArray(s.round_plan) &&
+    s.round_plan.every((value) => (
+      isRecord(value) &&
+      typeof value.round === "number" &&
+      Number.isInteger(value.round) &&
+      Array.isArray(value.phases) &&
+      value.phases.every((phase) => typeof phase === "string") &&
+      (value.clock == null || typeof value.clock === "string")
+    ))
+  );
+
   return (
     hasText(s.id) &&
     hasText(s.title) &&
     hasText(s.question) &&
+    roundPlanValid &&
     (s.decision_kind === "election" || s.decision_kind === "vote") &&
     optionsValid &&
     townsValid &&

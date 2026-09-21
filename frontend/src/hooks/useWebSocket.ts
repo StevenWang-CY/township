@@ -4,10 +4,43 @@ import type {
   AgentState,
   Conversation,
   TownSummary,
+  DistrictSummary,
   WeatherKind,
   Relationship,
   NewsReaction,
 } from "../types/messages";
+
+/** Raw per-town phase signals for the current round. The scene decides what
+ *  they mean against the scenario's round plan (see TownView.resolvePhase);
+ *  the reducer only records which triggers fired. */
+export interface RoundSignals {
+  round: number;
+  /** A resident spoke this round (converse phase under way). */
+  converse: boolean;
+  /** The round's news landed (news_injected for the round, or a reaction). */
+  news: boolean;
+  /** An opinion event landed this round. */
+  opinion: boolean;
+  /** round_ended arrived. */
+  ended: boolean;
+}
+
+export interface Headline {
+  round: number;
+  headline: string;
+  description: string;
+}
+
+function signalRound(
+  state: WsState,
+  town: string | undefined,
+  key: "converse" | "news" | "opinion" | "ended",
+): Record<string, RoundSignals> {
+  if (!town) return state.roundSignals;
+  const sig = state.roundSignals[town] ?? { round: state.currentRound, converse: false, news: false, opinion: false, ended: false };
+  if (sig[key]) return state.roundSignals;
+  return { ...state.roundSignals, [town]: { ...sig, [key]: true } };
+}
 
 /* ── State ──────────────────────────────────────────────────── */
 //
@@ -47,6 +80,12 @@ export interface WsState {
   weather: WeatherKind;
   relationships: Record<string, Relationship>;
   newsReactions: NewsReaction[];
+  /** Per-town phase triggers for the town's current round. */
+  roundSignals: Record<string, RoundSignals>;
+  /** Every headline injected so far, in order, deduped by round + text. */
+  headlines: Headline[];
+  /** The district summary once the run has ended. */
+  finalSummary: DistrictSummary | null;
 }
 
 export const initialState: WsState = {
@@ -66,6 +105,9 @@ export const initialState: WsState = {
   weather: "clear",
   relationships: {},
   newsReactions: [],
+  roundSignals: {},
+  headlines: [],
+  finalSummary: null,
 };
 
 /* ── Reducer ────────────────────────────────────────────────── */
@@ -124,6 +166,9 @@ function reduceWithEventLimit(
             worldClock: initialState.worldClock,
             weather: initialState.weather,
             newsReactions: [],
+            roundSignals: {},
+            headlines: [],
+            finalSummary: null,
           };
         }
 
@@ -132,7 +177,7 @@ function reduceWithEventLimit(
           // by the end of the run every resident has cast their ballot.
           const agents: Record<string, AgentState> = {};
           for (const [id, a] of Object.entries(state.agents)) agents[id] = { ...a, decided: true };
-          return { ...base, agents, simulationRunning: false };
+          return { ...base, agents, simulationRunning: false, finalSummary: evt.summary ?? null };
         }
 
         case "round_started":
@@ -140,6 +185,12 @@ function reduceWithEventLimit(
             ...base,
             currentRound: evt.round,
             totalRounds: evt.total_rounds,
+            roundSignals: evt.town
+              ? {
+                ...state.roundSignals,
+                [evt.town]: { round: evt.round, converse: false, news: false, opinion: false, ended: false },
+              }
+              : state.roundSignals,
           };
 
         case "round_ended": {
@@ -152,7 +203,7 @@ function reduceWithEventLimit(
               if (agents[id]) agents[id] = { ...agents[id], decided: true };
             }
           }
-          return { ...base, townSummaries: summaries, agents };
+          return { ...base, townSummaries: summaries, agents, roundSignals: signalRound(state, evt.town, "ended") };
         }
 
         case "agent_moved":
@@ -191,6 +242,7 @@ function reduceWithEventLimit(
                   opinion: evt.new_opinion,
                 },
               },
+              roundSignals: signalRound(state, evt.town, "opinion"),
             };
           }
           return base;
@@ -208,6 +260,7 @@ function reduceWithEventLimit(
           return {
             ...base,
             agents: { ...state.agents, [evt.agent_id]: next },
+            roundSignals: signalRound(state, evt.town, "converse"),
           };
         }
 
@@ -274,6 +327,7 @@ function reduceWithEventLimit(
             ...base,
             agents,
             newsReactions: [...state.newsReactions, evt.reaction].slice(-50),
+            roundSignals: signalRound(state, r.town, "news"),
           };
         }
 
@@ -283,6 +337,20 @@ function reduceWithEventLimit(
 
         case "god_view_injection":
           return base;
+
+        case "news_injected": {
+          const key = `${evt.round}:${evt.headline}`;
+          const seen = state.headlines.some((h) => `${h.round}:${h.headline}` === key);
+          const headlines = seen
+            ? state.headlines
+            : [...state.headlines, { round: evt.round, headline: evt.headline, description: evt.description }];
+          // District-level news lands in every town currently on that round.
+          const roundSignals = { ...state.roundSignals };
+          for (const [town, sig] of Object.entries(roundSignals)) {
+            if (sig.round === evt.round && !sig.news) roundSignals[town] = { ...sig, news: true };
+          }
+          return { ...base, headlines, roundSignals };
+        }
 
         default:
           return base;

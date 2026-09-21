@@ -25,6 +25,7 @@ import type {
   EmotionalResponse,
   VoteImpact,
 } from "../types/messages";
+import { buildCivicEnv, roundDecides } from "../lib/election";
 import { useScenario } from "../hooks/useScenario";
 import { readableInk } from "../lib/color";
 import { DEMO_MODE } from "../demo/demoMode";
@@ -198,6 +199,28 @@ export default function TownView({ ws }: TownViewProps) {
 
   const selectedAgent = townAgents.find((a) => a.id === selectedAgentId) || null;
 
+  // The election as this town experiences it: phase from the scenario's
+  // round plan + the reducer's raw signals, the town tally, headlines, and
+  // the final result. Pure derivation, so a backward seek re-derives it.
+  const optionLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const id of scen.optionIds) labels[id] = scen.optionLabel(id);
+    return labels;
+  }, [scen]);
+  const townSignals = ws.roundSignals[town];
+  const civicEnv = useMemo(() => buildCivicEnv({
+    plan: scen.roundPlan,
+    townId: town,
+    currentRound: ws.currentRound,
+    totalRounds: ws.totalRounds || scen.totalRounds,
+    signals: townSignals,
+    headlines: ws.headlines.map((h) => h.headline),
+    agents: townAgents,
+    undecidedId: scen.undecidedId,
+    finalSummary: ws.finalSummary,
+    labels: optionLabels,
+  }), [scen, town, ws.currentRound, ws.totalRounds, townSignals, ws.headlines, townAgents, ws.finalSummary, optionLabels]);
+
   // Event effects consume an absolute cursor, while discontinuous navigation
   // reconciles against this latest reducer snapshot. Keeping the snapshot in
   // a ref avoids turning every agent object update into a second scene pass.
@@ -206,13 +229,18 @@ export default function TownView({ ws }: TownViewProps) {
     positions: ws.agentPositions,
     clock: ws.worldClock,
     weather: ws.weather,
+    env: civicEnv,
   });
   replayStateRef.current = {
     agents: townAgents,
     positions: ws.agentPositions,
     clock: ws.worldClock,
     weather: ws.weather,
+    env: civicEnv,
   };
+  // Set by the event effect when it reconciled (a seek) so the civic effect
+  // below dresses the town silently instead of starting the procession.
+  const lastDeltaReconciledRef = useRef(false);
 
   const reconcileScene = useCallback((scene: TownScene) => {
     const snapshot = replayStateRef.current;
@@ -222,6 +250,8 @@ export default function TownView({ ws }: TownViewProps) {
       snapshot.clock,
       snapshot.weather,
     );
+    try { scene.applyEnvironmentState(snapshot.env, snapshot.agents, { animate: false }); } catch { /* ignore */ }
+    lastDeltaReconciledRef.current = true;
   }, []);
 
   // A real player exists only in the interactive local build. The hosted
@@ -458,6 +488,7 @@ export default function TownView({ ws }: TownViewProps) {
       return;
     }
 
+    lastDeltaReconciledRef.current = false;
     let reactionIndex = 0;
     for (const evt of delta.events) {
       if ("town" in evt && (evt as any).town && (evt as any).town !== town) continue;
@@ -518,7 +549,7 @@ export default function TownView({ ws }: TownViewProps) {
           break;
         }
         case "news_injected":
-          try { scene.playNewsBeat(); } catch { /* ignore */ }
+          try { scene.playNewsBeat(evt.headline); } catch { /* ignore */ }
           break;
         case "round_ended":
           // Live runs name their voters on the wire; the town stamps them as
@@ -559,6 +590,28 @@ export default function TownView({ ws }: TownViewProps) {
       }
     }
   }, [ws.eventCursor, town, sceneReady, reconcileScene]);
+
+  /* ── The election in the world ────────────────────────────────────── */
+
+  const prevPhaseRef = useRef<string | null>(null);
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene?.scene?.isActive() || !sceneReady) return;
+    const seeked = lastDeltaReconciledRef.current;
+    try { scene.applyEnvironmentState(civicEnv, townAgents, { animate: !seeked }); } catch { /* ignore */ }
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = civicEnv.phase;
+    // Paced playback only: the decide phase sends residents to the polls in
+    // confidence order. A seek lands on stickers instead (reconcileScene).
+    if (!seeked && prev !== null && prev !== "decide" && civicEnv.phase === "decide"
+      && roundDecides(scen.roundPlan, civicEnv.round)) {
+      const order = [...townAgents]
+        .sort((a, b) => (b.opinion?.confidence ?? 0) - (a.opinion?.confidence ?? 0) || a.id.localeCompare(b.id))
+        .map((a) => a.id);
+      try { scene.startBallotProcession(order); } catch { /* ignore */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [civicEnv, sceneReady, town]);
 
   /* ── Overlay data callback ─────────────────────────────────── */
 
@@ -926,8 +979,9 @@ export default function TownView({ ws }: TownViewProps) {
               worldClock={ws.worldClock}
               weather={ws.weather}
               totalAgents={streamedTotalAgents}
-              round={ws.currentRound}
+              round={civicEnv.round}
               totalRounds={ws.totalRounds || scen.totalRounds}
+              phase={civicEnv.phase}
             />
           </div>
 

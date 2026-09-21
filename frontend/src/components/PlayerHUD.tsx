@@ -1,4 +1,6 @@
 import { useUserProfile } from "../context/UserProfileContext";
+import { PHASE_LABEL } from "../lib/election";
+import type { ElectionPhase } from "../game/CivicLayer";
 import { useScenario } from "../hooks/useScenario";
 import WeatherWidget from "./WeatherWidget";
 import { DEMO_MODE } from "../demo/demoMode";
@@ -15,6 +17,8 @@ interface PlayerHUDProps {
   round?: number;
   /** Total rounds when known. */
   totalRounds?: number;
+  /** Phase of the current round (talk / news / opinion / vote / results). */
+  phase?: ElectionPhase;
 }
 
 function formatTime(h: number, m: number): string {
@@ -73,6 +77,7 @@ export default function PlayerHUD({
   totalAgents,
   round,
   totalRounds,
+  phase,
 }: PlayerHUDProps) {
   const { profile } = useUserProfile();
   const scen = useScenario();
@@ -89,6 +94,7 @@ export default function PlayerHUD({
   const decisionLabel = scen.decisionKind === "election" ? "Election day" : "Decision day";
 
   const roundKnown = totalRounds != null && totalRounds > 0;
+  const phaseLabel = phase ? PHASE_LABEL[phase] : null;
   const clockLabel = worldClock ? formatTime(worldClock.hour, worldClock.minute) : null;
 
   return (
@@ -98,8 +104,19 @@ export default function PlayerHUD({
         <div className="player-hud-chip player-hud-chip--recorded" title="A recorded simulation, replayed in your browser">
           <span className="player-hud-recorded-dot" aria-hidden="true" />
           <span>Recorded</span>
-          {roundKnown && <strong>Round {round ?? 0}/{totalRounds}</strong>}
+          {roundKnown && (
+            <strong>
+              Round {round ?? 0}/{totalRounds}
+              {phaseLabel && <span className="player-hud-phase"> · {phaseLabel}</span>}
+            </strong>
+          )}
           {!compact && clockLabel && <span className="player-hud-chip-quiet">{clockLabel}</span>}
+        </div>
+      )}
+
+      {!DEMO_MODE && roundKnown && phaseLabel && (
+        <div className="player-hud-chip player-hud-chip--phase" title="Round and phase of the live simulation">
+          <strong>Round {round ?? 0}/{totalRounds}<span className="player-hud-phase"> · {phaseLabel}</span></strong>
         </div>
       )}
 

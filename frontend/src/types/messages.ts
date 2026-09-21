@@ -187,6 +187,8 @@ export interface NewsReactionEvent {
 export interface RoundStartedEvent {
   type: "round_started";
   round: number;
+  /** The town this round belongs to (towns run their rounds independently). */
+  town?: TownId;
   total_rounds: number;
 }
 
@@ -454,6 +456,15 @@ export interface ScenarioData {
   undecided: { id: string; label: string; color: string };
   towns: ScenarioTownInfo[];
   total_rounds: number;
+  /** Round-by-round phases + in-world clock (optional: older staged
+   *  payloads and minimal test bootstraps omit it). */
+  round_plan?: ScenarioRoundPlanEntry[];
   dates: { decision_day: string; prose: string };
   responsible_use: ScenarioResponsibleUse;
+}
+
+export interface ScenarioRoundPlanEntry {
+  round: number;
+  phases: string[];
+  clock?: string;
 }

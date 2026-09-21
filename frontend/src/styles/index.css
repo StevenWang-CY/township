@@ -1544,6 +1544,12 @@ html.high-contrast {
   font-variant-numeric: tabular-nums;
 }
 
+/* Phase of the round inside the round chip: "Round 3/5 · Opinion" */
+.player-hud-phase {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .town-hud-top-left {
   position: absolute;
   top: 12px;
