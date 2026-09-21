@@ -154,6 +154,76 @@ export function ensureNewspaperTexture(scene: Phaser.Scene): string {
   return key;
 }
 
+/** 7x7 pixel "zz" glyph for residents resting at home. */
+export function ensureZzTexture(scene: Phaser.Scene): string {
+  const key = "px-zz";
+  if (scene.textures.exists(key)) return key;
+  const canvas = scene.textures.createCanvas(key, 9, 9);
+  if (!canvas) return key;
+  const ctx = canvas.context;
+  const rows = [
+    ".....####",
+    "........#",
+    ".......#.",
+    "......#..",
+    ".....####",
+    ".###.....",
+    "...#.....",
+    "..#......",
+    ".###.....",
+  ];
+  ctx.fillStyle = "#5b6d84";
+  for (let r = 0; r < rows.length; r++) {
+    for (let c = 0; c < rows[r].length; c++) {
+      if (rows[r][c] === "#") ctx.fillRect(c, r, 1, 1);
+    }
+  }
+  canvas.refresh();
+  return key;
+}
+
+/* ── Pixel 9-slice plate ───────────────────────────────────────────────── */
+
+export interface PlateStyle {
+  /** Border + text ink. */
+  ink?: number;
+  /** Parchment fill. */
+  fill?: number;
+  /** Hard 2 px drop shadow alpha (0 disables). */
+  shadow?: number;
+}
+
+/**
+ * Draw the shared parchment plate (speech bubbles, topic strips, takeaway
+ * cards, hover chips): a hard offset shadow, a cross-shaped body so the 2 px
+ * corners stay notched, and a 2 px ink border skipping those corners.
+ * (x, y) is the plate's top-left in the Graphics' local space.
+ */
+export function drawPixelPlate(
+  g: Phaser.GameObjects.Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  style: PlateStyle = {},
+): void {
+  const ink = style.ink ?? 0x3a3226;
+  const fill = style.fill ?? 0xf6eedd;
+  const shadow = style.shadow ?? 0.16;
+  if (shadow > 0) {
+    g.fillStyle(0x2c2416, shadow);
+    g.fillRect(x + 2, y + 3, w, h);
+  }
+  g.fillStyle(fill, 0.98);
+  g.fillRect(x + 2, y, w - 4, h);
+  g.fillRect(x, y + 2, w, h - 4);
+  g.fillStyle(ink, 1);
+  g.fillRect(x + 2, y, w - 4, 2);
+  g.fillRect(x + 2, y + h - 2, w - 4, 2);
+  g.fillRect(x, y + 2, 2, h - 4);
+  g.fillRect(x + w - 2, y + 2, 2, h - 4);
+}
+
 /* ── Scene-wide overlays ───────────────────────────────────────────────── */
 
 /** 256px radial vignette (transparent centre → dark edges). Scaled to fit. */

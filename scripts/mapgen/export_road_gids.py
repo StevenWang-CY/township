@@ -2,15 +2,16 @@
 """Export walkable-surface GIDs to JSON for the frontend nav grid.
 
 ``TownScene`` builds an A* navigation grid over each town's collision layer.
-Residents are not forced onto roads, but the grid weights paved ground
-(asphalt, sidewalk, tan paths, cobble pads and plazas) cheaper than grass so
-walkers naturally prefer the sidewalk and use level crossings instead of
-cutting across the rail ballast.
+Residents are not forced onto roads, but the grid weights sidewalks, tan
+paths and plazas cheapest, asphalt a touch dearer (so walkers keep to the
+sidewalk yet cross freely at any point), grass dearer still, and rail
+ballast dearest — so people use level crossings instead of cutting across
+the tracks. Formation slots and wander targets also avoid standing in the
+road.
 
 The registry constants in ``tiles.py`` / ``moderntiles.py`` are the single
-source of truth — this script serializes which GIDs count as *paved*
-(cost 1.0) and which as *rough* (ballast; discouraged) so the frontend never
-hardcodes a GID.
+source of truth — this script serializes which GIDs are *sidewalk*, *road*
+and *rough* so the frontend never hardcodes a GID.
 
 Output: ``frontend/src/game/roadGids.json``
 
@@ -45,12 +46,14 @@ def blob_gids(blob: R.Blob) -> set[int]:
 
 
 def main() -> None:
-    paved: set[int] = set()
-    for blob in (M.ASPHALT, M.SIDEWALK, R.PATH_TAN, R.COBBLE_PAD):
-        paved |= blob_gids(blob)
-    paved.update(R.COBBLE_FILL)
-    paved.update(R.PLAZA_COBBLE_FILL)
-    # Road markings and street furniture baked onto asphalt/sidewalk tiles.
+    sidewalk: set[int] = set()
+    for blob in (M.SIDEWALK, R.PATH_TAN, R.COBBLE_PAD):
+        sidewalk |= blob_gids(blob)
+    sidewalk.update(R.COBBLE_FILL)
+    sidewalk.update(R.PLAZA_COBBLE_FILL)
+
+    road: set[int] = blob_gids(M.ASPHALT)
+    # Road markings and street furniture baked onto asphalt tiles.
     for name in (
         "crosswalk_h",
         "crosswalk_v",
@@ -60,7 +63,7 @@ def main() -> None:
         "storm_drain",
         "rail_x",
     ):
-        paved.add(M.mg(name))
+        road.add(M.mg(name))
 
     rough: set[int] = blob_gids(R.GRAVEL)
     rough.add(M.mg("rail_h"))
@@ -68,12 +71,17 @@ def main() -> None:
     payload = {
         "_generated": "scripts/mapgen/export_road_gids.py — do not edit",
         "tileSize": R.TILE_SIZE,
-        "paved": sorted(paved),
-        "rough": sorted(rough - paved),
+        # Walkable kinds the nav grid distinguishes: sidewalk/path (preferred),
+        # road (crossed freely, but residents do not linger on it), rough
+        # (rail ballast; discouraged). Everything else is grass.
+        "sidewalk": sorted(sidewalk),
+        "road": sorted(road - sidewalk),
+        "rough": sorted(rough - sidewalk - road),
     }
     OUT.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     print(
-        f"wrote {OUT.relative_to(REPO_ROOT)}: {len(payload['paved'])} paved, {len(payload['rough'])} rough gids"
+        f"wrote {OUT.relative_to(REPO_ROOT)}: {len(payload['sidewalk'])} sidewalk, "
+        f"{len(payload['road'])} road, {len(payload['rough'])} rough gids"
     )
 
 

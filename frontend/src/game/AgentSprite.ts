@@ -5,6 +5,7 @@ import {
   ensureRingTextures,
   ensureShadowTexture,
   ensureSquareTexture,
+  ensureZzTexture,
   reducedMotion,
 } from "./pixelTextures";
 import type { Pt } from "./NavGrid";
@@ -58,6 +59,7 @@ export type AgentActivity =
   | "eating"
   | "praying"
   | "sleeping"
+  | "home"
   | "thinking"
   | "celebrating"
   | "voting";
@@ -151,6 +153,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   private walkDir?: Direction;
   /** ±8% per-resident gait variation from a stable id hash (capture-safe). */
   private gaitJitter = 1;
+  /** Resting at home: dim ring, collapsed label, static pose. */
+  private restingIndoors = false;
+  /** Speaker lean (px) applied to the lead layers while a line is spoken. */
+  private leanDx = 0;
 
   // Proximity highlight layers
   private proxGlow?: Phaser.GameObjects.Graphics;
@@ -404,7 +410,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   private applyLabelMode() {
     if (this.ambient) return;
-    const full = this.labelHover || this.labelMode === "full";
+    const full = this.labelHover || (this.labelMode === "full" && !this.restingIndoors);
     this.nameLabel.setVisible(full);
     if (full) {
       this.labelDot?.setVisible(false);
@@ -494,6 +500,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       return;
     }
     this.stopWalk(false);
+    this.clearLean();
     this.nudgeTween?.stop();
     this.nudgeTween = undefined;
 
@@ -653,6 +660,19 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   private animLayers(): Phaser.GameObjects.Sprite[] {
     return [this.bodySprite, this.accessorySprite, this.companionSprite]
       .filter((layer): layer is Phaser.GameObjects.Sprite => !!layer);
+  }
+
+  /** Speaker lean: shift the lead body a pixel or two toward the group's
+   *  focal point for as long as the line lasts; the next speaker clears it. */
+  setLean(dx: number) {
+    const v = reducedMotion() ? 0 : Math.round(dx);
+    if (v === this.leanDx) return;
+    this.leanDx = v;
+    for (const layer of this.leadLayers()) layer.x = v;
+  }
+
+  clearLean() {
+    if (this.leanDx !== 0) this.setLean(0);
   }
 
   /** Turn to face a target without moving. */
@@ -860,6 +880,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     activity: AgentActivity,
   ) {
     this.stopWalk(false);
+    this.clearLean();
     this.nudgeTween?.stop();
     this.nudgeTween = undefined;
     this.scene.tweens.killTweensOf(this.leadLayers());
@@ -979,6 +1000,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.clearActivityFx();
     this.stopIdleMotion();
     this.currentActivity = activity;
+    if (activity !== "home" && activity !== "sleeping") this.setResting(false);
 
     switch (activity) {
       case "walking":
@@ -1012,14 +1034,24 @@ export class AgentSprite extends Phaser.GameObjects.Container {
           callback: () => this.spawnFloatGlyph("✧", "#e8c060"),
         });
         break;
-      case "sleeping":
-        this.playIdle(this.currentDirection);
-        for (const layer of this.leadLayers()) layer.setRotation(0.12);
-        this.activityTimer = this.scene.time.addEvent({
-          delay: 1100, loop: true,
-          callback: () => this.spawnFloatGlyph("Z", "#6b7d8c"),
-        });
+      case "home":
+      case "sleeping": {
+        // Resting at the door: face the house, dim the ring, collapse the
+        // label. Late at night the pose freezes and a pixel "zz" drifts up.
+        this.currentDirection = "up";
+        this.playIdle("up");
+        this.setResting(true);
+        if (activity === "sleeping") {
+          this.bodySprite?.anims.stop();
+          this.bodySprite?.setFrame(IDLE_FRAMES.up);
+          this.accessorySprite?.setFrame(IDLE_FRAMES.up);
+          this.activityTimer = this.scene.time.addEvent({
+            delay: 2600, loop: true,
+            callback: () => this.spawnFloatImage(ensureZzTexture(this.scene)),
+          });
+        }
         break;
+      }
       case "thinking":
         this.showEmote("reflecting");
         break;
@@ -1059,6 +1091,35 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     for (const layer of this.leadLayers()) layer.setRotation(0);
   }
 
+  private setResting(on: boolean) {
+    if (this.restingIndoors === on) return;
+    this.restingIndoors = on;
+    const ringAlpha = on ? 0.35 : 1;
+    this.ringA.setAlpha(ringAlpha);
+    this.ringB.setAlpha(ringAlpha);
+    for (const layer of this.leadLayers()) layer.setAlpha(on ? 0.9 : 1);
+    this.applyLabelMode();
+  }
+
+  /** Float a small pixel texture up from the head (the pixel-art sibling of
+   *  spawnFloatGlyph). */
+  private spawnFloatImage(key: string) {
+    if (reducedMotion()) return;
+    const img = this.scene.add.image(this.x + 9, this.y - FRAME_H * 0.85, key)
+      .setScale(2)
+      .setDepth(500)
+      .setAlpha(0.95);
+    this.scene.tweens.add({
+      targets: img,
+      y: img.y - 18,
+      alpha: 0,
+      duration: 1500,
+      ease: "Stepped",
+      easeParams: [6],
+      onComplete: () => img.destroy(),
+    });
+  }
+
   private spawnFloatGlyph(glyph: string, color: string) {
     if (reducedMotion()) return;
     const tx = this.scene.add.text(this.x, this.y - FRAME_H * 0.7, glyph, {
@@ -1079,13 +1140,17 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   /* ── Gestures ─────────────────────────────────────────── */
 
-  playGesture(kind: GestureKind) {
+  playGesture(kind: GestureKind, opts?: { quiet?: boolean }) {
     if (kind === "none" || !this.bodySprite) return;
     if (reducedMotion()) return;
     this.currentGesture = kind;
-    const sprite = this.bodySprite;
     const layers = this.leadLayers();
     const base = this.spriteBaseScale;
+    // Listener reactions are quiet: motion only, no emote glyph competing
+    // with the speaker's bubble.
+    const emote = opts?.quiet
+      ? () => {}
+      : (key: Parameters<typeof playEmote>[1]) => playEmote(this.scene, key, this.x, this.y - FRAME_H * 0.5);
 
     switch (kind) {
       case "nod":
@@ -1095,7 +1160,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
           duration: 140,
           yoyo: true, repeat: 1, ease: "Sine.easeInOut",
         });
-        playEmote(this.scene, "agree", this.x, this.y - FRAME_H * 0.5);
+        emote("agree");
         break;
       case "shake_head":
         this.scene.tweens.add({
@@ -1103,7 +1168,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
           scaleX: { from: base, to: base * 1.08 },
           duration: 110, yoyo: true, repeat: 2, ease: "Sine.easeInOut",
         });
-        playEmote(this.scene, "disagree", this.x, this.y - FRAME_H * 0.5);
+        emote("disagree");
         break;
       case "shrug":
         this.scene.tweens.add({
@@ -1112,7 +1177,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
           duration: 170, yoyo: true, repeat: 1, ease: "Sine.easeInOut",
           onComplete: () => layers.forEach((layer) => layer.setRotation(0)),
         });
-        playEmote(this.scene, "confusion", this.x, this.y - FRAME_H * 0.5);
+        emote("confusion");
         break;
       case "laugh":
         this.scene.tweens.add({
@@ -1120,7 +1185,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
           scaleX: base * 1.05, scaleY: base * 1.08,
           duration: 100, yoyo: true, repeat: 2, ease: "Sine.easeInOut",
         });
-        playEmote(this.scene, "joy", this.x, this.y - FRAME_H * 0.5);
+        emote("joy");
         break;
       case "point": {
         const dx = { down: 0, left: -11, right: 11, up: 0 }[this.currentDirection];

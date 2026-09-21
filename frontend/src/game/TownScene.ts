@@ -18,7 +18,7 @@
  */
 import Phaser from "phaser";
 import { appUrl } from "../lib/assetUrl";
-import { AgentSprite, type AgentActivity, type GestureKind } from "./AgentSprite";
+import { AgentSprite, type AgentActivity, type BubbleSentiment, type GestureKind } from "./AgentSprite";
 import { PlayerSprite } from "./PlayerSprite";
 import { townAccent, townBgColor, townMapKey } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
@@ -33,7 +33,9 @@ import {
 import { composeTownAmbience, type AmbienceHandle, type MapAnchor } from "./SceneAmbience";
 import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
-import { pickExchange } from "./AmbientLines";
+import { pickExchange, relationshipKind, sharedConcernKey } from "./AmbientLines";
+import { ConversationChoreographer } from "./Conversations";
+import { arrivalFacing, deriveActivity } from "./DayPart";
 import { landmarksFor } from "../hooks/useTownData";
 import { WeatherScene } from "./WeatherScene";
 import {
@@ -46,7 +48,7 @@ import {
 } from "./pixelTextures";
 import windowGids from "./windowGids.json";
 import { DEMO_MODE } from "../demo/demoMode";
-import { GROUND_COST, NavGrid, WORLD_H, WORLD_MARGIN, WORLD_W, truncatePath, type Pt } from "./NavGrid";
+import { NavGrid, WORLD_H, WORLD_MARGIN, WORLD_W, truncatePath, type GroundKind, type Pt } from "./NavGrid";
 import roadGids from "./roadGids.json";
 
 /** Authored art is declared by scenario data, never inferred from a town id. */
@@ -98,6 +100,12 @@ interface AgentRecord {
   lastRoutineTime?: string;
   /** Per-agent idle-thought bank (from agent.idle_thoughts). */
   idleThoughts?: string[];
+  /** Persona relationships: other agent id → type (friend, neighbor…). */
+  relationships?: Record<string, string>;
+  /** Scene time of this resident's last ambient encounter (cooldown). */
+  lastEncounterAt?: number;
+  /** Landmark the resident last arrived at (drives day-part activities). */
+  location?: string;
 }
 
 /* ── TownScene ──────────────────────────────────────────────── */
@@ -138,6 +146,10 @@ export class TownScene extends Phaser.Scene {
 
   // Encounter scheduling
   private encounterTimer?: Phaser.Time.TimerEvent;
+  /** Formation, turn-taking and dispersal for every on-screen exchange. */
+  private choreo!: ConversationChoreographer;
+  /** Resident currently in the player's talk radius (set by the player). */
+  private proximityAgentId: string | null = null;
 
   // Night window glow quads (pane + halo per lit window stamp).
   private windowGlows: Array<{ obj: Phaser.GameObjects.GameObject & { setAlpha(a: number): unknown }; max: number }> = [];
@@ -307,6 +319,24 @@ export class TownScene extends Phaser.Scene {
     // preview the night pass without waiting on the world clock.
     (window as unknown as { __townshipScene?: TownScene }).__townshipScene = this;
 
+    // Conversation choreography — closures give it the private helpers it
+    // needs without widening the scene's public surface.
+    this.choreo = new ConversationChoreographer({
+      scene: this,
+      getSprite: (id) => {
+        const sp = this.agentSprites.get(id);
+        return sp && sp !== this.playerSprite ? sp : undefined;
+      },
+      landmarkEntrance: (name) => this.landmarkPositions.get(this.resolveLandmarkName(name) ?? name),
+      nearestWalkable: (pt) => this.navGrid?.nearestWalkable(pt.x, pt.y, 96, { avoidRoad: true }) ?? pt,
+      findFreeNear: (x, y, opts) => this.findFreeNear(x, y, opts),
+      gatherSlotFor: (key, cx, cy, sprite, opts) => this.gatherSlotFor(key, cx, cy, sprite, opts),
+      releaseGatherSlot: (id) => this.releaseGatherSlot(id),
+      stanceOf: (id) => this.agentOpinions.get(id) ?? "",
+    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.choreo.destroy());
+    this.events.on("player-visit", (name: string) => this.playVisitSparks(name));
+
     // Scriptable capture API (see doc block at the top of this file).
     this.installCaptureApi();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.removeCaptureApi());
@@ -452,6 +482,7 @@ export class TownScene extends Phaser.Scene {
       // SceneAmbience owns lamp glow + night tint; refresh at top of each hour.
       if (this.worldClock.hour !== prevHour) {
         this.ambience?.setHour(this.worldClock.hour);
+        this.refreshDayParts();
       }
     }
 
@@ -472,6 +503,7 @@ export class TownScene extends Phaser.Scene {
       ) s.clearSpeechBubbles();
     });
     this.playerSprite?.updatePlayer(delta);
+    this.choreo.update();
 
     // The player always wins the camera: if they start walking while the
     // conversation spotlight has it, hand framing straight back.
@@ -639,6 +671,9 @@ export class TownScene extends Phaser.Scene {
   private gatherings = new Map<string, {
     cx: number;
     cy: number;
+    /** Doorway gatherings fan out along the sidewalk (east/west first)
+     *  instead of stacking straight below the door. */
+    sideways: boolean;
     /** agentId → claimed slot indices (couples shadow-claim a neighbour). */
     slots: Map<string, number[]>;
     used: Set<number>;
@@ -650,14 +685,14 @@ export class TownScene extends Phaser.Scene {
   /** Slot index → point around (cx, cy). Fills outward from the south
    *  point, alternating right/left, so small groups read as an arc that
    *  opens toward the camera. Returns null past total capacity. */
-  private gatherSlotPoint(cx: number, cy: number, idx: number): { x: number; y: number } | null {
+  private gatherSlotPoint(cx: number, cy: number, idx: number, sideways = false): { x: number; y: number } | null {
     if (idx === 0) return { x: cx, y: cy };
     let base = 1;
     for (const ring of TownScene.GATHER_RINGS) {
       if (idx < base + ring.cap) {
         const j = idx - base;
         const k = j % 2 === 0 ? j / 2 : -((j + 1) / 2);
-        const a = Math.PI / 2 + k * ((Math.PI * 2) / ring.cap);
+        const a = (sideways ? 0 : Math.PI / 2) + k * ((Math.PI * 2) / ring.cap);
         return { x: cx + Math.cos(a) * ring.rx, y: cy + Math.sin(a) * ring.ry };
       }
       base += ring.cap;
@@ -700,7 +735,7 @@ export class TownScene extends Phaser.Scene {
 
     let g = this.gatherings.get(key);
     if (!g) {
-      g = { cx, cy, slots: new Map(), used: new Set() };
+      g = { cx, cy, sideways: key.startsWith("lm:"), slots: new Map(), used: new Set() };
       this.gatherings.set(key, g);
     }
     this.agentGatherKey.set(sprite.agentId, key);
@@ -708,16 +743,22 @@ export class TownScene extends Phaser.Scene {
     // Stable per agent: an existing claim is always reused verbatim.
     const claimed = g.slots.get(sprite.agentId);
     if (claimed && claimed.length > 0) {
-      const p = this.gatherSlotPoint(g.cx, g.cy, claimed[0]);
+      const p = this.gatherSlotPoint(g.cx, g.cy, claimed[0], g.sideways);
       if (p) return p;
     }
 
     const total = 1 + TownScene.GATHER_RINGS.reduce((n, r) => n + r.cap, 0);
     for (let idx = opts?.skipCenter ? 1 : 0; idx < total; idx++) {
       if (g.used.has(idx)) continue;
-      const p = this.gatherSlotPoint(g.cx, g.cy, idx);
+      const p = this.gatherSlotPoint(g.cx, g.cy, idx, g.sideways);
       if (!p) break;
       if (this.isBlocked(p.x, p.y, 4)) continue;
+      // Nobody lingers in the street, and a gathering at a door stays on
+      // its own side of it: slots on asphalt or across the road are skipped
+      // unless the gathering itself is on the road (a crossing, a bus stop).
+      if (this.navGrid && !this.navGrid.isRoad(g.cx, g.cy)) {
+        if (this.navGrid.isRoad(p.x, p.y) || this.navGrid.crossesRoad({ x: g.cx, y: g.cy }, p)) continue;
+      }
       // Bodies outside this gathering (wanderers, another formation a few
       // tiles over) also make a slot unusable.
       if (this.isOccupied(p.x, p.y, 24, sprite)) continue;
@@ -741,7 +782,7 @@ export class TownScene extends Phaser.Scene {
         let bestDist = Infinity;
         for (let n = 1; n < total; n++) {
           if (n === idx || g.used.has(n)) continue;
-          const q = this.gatherSlotPoint(g.cx, g.cy, n);
+          const q = this.gatherSlotPoint(g.cx, g.cy, n, g.sideways);
           if (!q) break;
           const d = Phaser.Math.Distance.Between(p.x + flank, p.y, q.x, q.y);
           if (d < 26 && d < bestDist) { bestDist = d; bestIdx = n; }
@@ -833,6 +874,7 @@ export class TownScene extends Phaser.Scene {
       routine,
       topConcerns: agent.top_concerns ?? [],
       idleThoughts: agent.idle_thoughts ?? undefined,
+      relationships: agent.relationships ?? undefined,
     };
     this.agentRecords.set(agent.id, record);
 
@@ -863,6 +905,7 @@ export class TownScene extends Phaser.Scene {
     }
 
     this.clearConversationSpotlight(true);
+    this.choreo.clearAll();
     // Rebuild formations from scratch: the agents array order is stable per
     // feed, so repeated seeks assign identical slots (no reshuffling).
     this.clearGatherings();
@@ -905,6 +948,15 @@ export class TownScene extends Phaser.Scene {
 
     this.setWorldTime(clock.hour, clock.minute, false);
     this.setWeather(weather);
+    // With the clock landed, idle residents pick up what the place and hour
+    // imply (eating, working, resting) so a seek lands on a living town.
+    for (const agent of agents) {
+      const sprite = this.agentSprites.get(agent.id);
+      const rec = this.agentRecords.get(agent.id);
+      const location = positions[agent.id]?.location ?? agent.location;
+      if (rec) rec.location = location;
+      if (sprite && sprite.getActivity() === "idle") this.applyDayPart(agent.id, location);
+    }
   }
 
   moveAgent(agentId: string, toLocation: string, x?: number, y?: number) {
@@ -930,12 +982,70 @@ export class TownScene extends Phaser.Scene {
       cy = base.y;
     }
     const t = this.gatherSlotFor(key, cx, cy, sprite);
-    sprite.moveToPosition(t.x, t.y, () => this.faceGatherCenter(sprite));
+    const landmark = this.landmarks.find((l) => l.name === toLocation);
+    const rec = this.agentRecords.get(agentId);
+    if (rec) rec.location = toLocation;
+    sprite.moveToPosition(t.x, t.y, () => {
+      this.faceGatherCenter(sprite);
+      this.applyDayPart(agentId, toLocation);
+    }, { arriveFacing: arrivalFacing(landmark) });
   }
 
-  showAgentSpeech(agentId: string, text: string, duration?: number) {
+  /** Activities the place + hour derive (as opposed to talking/walking). */
+  private static readonly DERIVED_ACTIVITIES: ReadonlySet<AgentActivity> =
+    new Set<AgentActivity>(["home", "sleeping", "eating", "working", "praying"]);
+
+  /**
+   * The clock moved (a round tick, a replay seek, the free-running hour):
+   * residents in a derived pose re-read the place and the hour — nobody
+   * keeps sleeping at the door at 12:30, and the diner fills at lunch.
+   */
+  private refreshDayParts() {
+    for (const [id, rec] of this.agentRecords) {
+      const sprite = rec.sprite;
+      if (!sprite.active || sprite.isWalking() || !rec.location) continue;
+      const current = sprite.getActivity();
+      if (current !== "idle" && !TownScene.DERIVED_ACTIVITIES.has(current)) continue;
+      if (this.choreo.inConversation(id)) continue;
+      const landmark = this.landmarks.find((l) => l.name === rec.location);
+      const entry = rec.routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+      const act = deriveActivity(
+        entry && entry.location === rec.location ? entry : undefined,
+        landmark,
+        this.worldClock.partOfDay(),
+        this.worldClock.fractionalHour(),
+      );
+      if (act !== current) sprite.setActivity(act);
+    }
+  }
+
+  /**
+   * Once a resident arrives somewhere, the place and the hour decide what
+   * they do there — eat at the diner, work the shift, pray, rest at home —
+   * unless they are mid-conversation.
+   */
+  private applyDayPart(agentId: string, location: string) {
+    const rec = this.agentRecords.get(agentId);
+    const sprite = rec?.sprite;
+    if (!rec || !sprite || !sprite.active) return;
+    if (sprite.getActivity() === "talking" || this.choreo.inConversation(agentId)) return;
+    const landmark = this.landmarks.find((l) => l.name === location);
+    const entry = rec.routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+    const act = deriveActivity(
+      entry && entry.location === location ? entry : undefined,
+      landmark,
+      this.worldClock.partOfDay(),
+      this.worldClock.fractionalHour(),
+    );
+    if (act !== "idle") sprite.setActivity(act);
+  }
+
+  showAgentSpeech(agentId: string, text: string, duration?: number, sentiment: BubbleSentiment = "neutral") {
     const sprite = this.agentSprites.get(agentId);
     if (!sprite) return;
+    // Choreography (speaker lean, listener nods) runs even when the bubble
+    // itself is suppressed off-camera.
+    this.choreo.onSpeech(agentId, sentiment);
     // Off-camera dialogue remains available in Recent Activity. Avoid drawing
     // a detached or clipped parchment callout when its resident is outside the
     // safe camera area (the bubble tail deliberately stays anchored to them).
@@ -954,12 +1064,20 @@ export class TownScene extends Phaser.Scene {
     if (sprite.getSpeechBubbleCount() > 0) sprite.clearSpeechBubbles();
     const visible = [...this.agentSprites.values()]
       .reduce((total, agent) => total + agent.getSpeechBubbleCount(), 0);
-    if (visible >= 2) return;
+    if (visible >= 2) {
+      // Dialogue takes priority over stray remarks: evict a bubble from
+      // someone outside any conversation instead of dropping the line.
+      if (!this.choreo.inConversation(agentId)) return;
+      const victim = [...this.agentSprites.values()].find((other) =>
+        other !== sprite && other.getSpeechBubbleCount() > 0 && !this.choreo.inConversation(other.agentId));
+      if (!victim) return;
+      victim.clearSpeechBubbles();
+    }
     // Lines spoken inside an active conversation get the spotlight variant —
     // larger type on a wider measure so the dialogue reads as the scene's
     // focal point rather than a stray tooltip.
     const emphasis = sprite.getActivity() === "talking";
-    sprite.showSpeechBubble(text, duration, "neutral", emphasis);
+    sprite.showSpeechBubble(text, duration, sentiment, emphasis);
   }
 
   updateAgentOpinion(agentId: string, candidate: string) {
@@ -977,66 +1095,37 @@ export class TownScene extends Phaser.Scene {
     this.agentSprites.get(agentId)?.playGesture(gesture);
   }
 
-  /** Backend conversation_started → pair sprites face each other + go
-   *  "talking", plus the conversation spotlight (vignette dim + gentle
-   *  camera ease + a spark between the talkers). */
-  handleConversationStarted(conversation: { participants: string[] }) {
+  /**
+   * Backend conversation_started → the choreographer walks participants
+   * into formation (a pair flanks the meeting point face-to-face, larger
+   * groups ring it), names the topic on a parchment strip, and the scene
+   * adds the spotlight (vignette + camera ease / edge chip).
+   */
+  handleConversationStarted(conversation: {
+    id?: string;
+    participants: string[];
+    location?: string;
+    topic?: string;
+  }) {
     if (!conversation || !Array.isArray(conversation.participants)) return;
+    const id = this.choreo.start({
+      id: conversation.id,
+      participants: conversation.participants,
+      location: conversation.location,
+      topic: conversation.topic,
+    }, "backend");
+    if (!id) return;
     const sprites = conversation.participants
-      .map((id) => this.agentSprites.get(id))
-      .filter((s): s is AgentSprite => !!s);
-    if (sprites.length < 2) return;
-
-    // Formation check: talkers who are stacked (<22px) or scattered (>90px)
-    // first pull into conversational distance around their centroid. A pair
-    // flanks the midpoint; larger groups take ring slots facing it.
-    const cx = sprites.reduce((s, a) => s + a.x, 0) / sprites.length;
-    const cy = sprites.reduce((s, a) => s + a.y, 0) / sprites.length;
-    let malformed = false;
-    for (let i = 0; i < sprites.length && !malformed; i++) {
-      for (let j = i + 1; j < sprites.length; j++) {
-        const d = Phaser.Math.Distance.Between(sprites[i].x, sprites[i].y, sprites[j].x, sprites[j].y);
-        if (d < 22 || d > 90) { malformed = true; break; }
-      }
-    }
-    if (malformed) {
-      if (sprites.length === 2) {
-        const [a, b] = sprites;
-        const left = this.findFreeNear(cx - 15, cy, { clearOf: 24, exclude: a });
-        const right = this.findFreeNear(cx + 15, cy, { clearOf: 24, exclude: b });
-        a.moveToPosition(left.x, left.y, () => { a.faceToward(b.x, b.y); a.setActivity("talking"); });
-        b.moveToPosition(right.x, right.y, () => { b.faceToward(a.x, a.y); b.setActivity("talking"); });
-      } else {
-        const key = `convo:${conversation.participants.slice().sort().join("+")}`;
-        for (const s of sprites) {
-          const t = this.gatherSlotFor(key, cx, cy, s, { skipCenter: true });
-          s.moveToPosition(t.x, t.y, () => { s.faceToward(cx, cy); s.setActivity("talking"); });
-        }
-      }
-      this.playConversationSpotlight(sprites[0], sprites[1]);
-      return;
-    }
-
-    for (let i = 0; i < sprites.length; i++) {
-      const me = sprites[i];
-      const other = sprites[(i + 1) % sprites.length];
-      me.faceToward(other.x, other.y);
-      me.setActivity("talking");
-    }
-    this.playConversationSpotlight(sprites[0], sprites[1]);
+      .map((pid) => this.agentSprites.get(pid))
+      .filter((sp): sp is AgentSprite => !!sp && sp !== this.playerSprite);
+    if (sprites.length >= 2) this.playConversationSpotlight(sprites[0], sprites[1]);
   }
 
-  /** Backend conversation_ended → walk talkers back to idle. */
-  handleConversationEnded(_conversationId: string) {
-    this.agentSprites.forEach((s) => {
-      if (s.getActivity() === "talking") {
-        s.setActivity("idle");
-        // Free ad-hoc conversation formations (landmark gatherings persist).
-        const key = this.agentGatherKey.get(s.agentId);
-        if (key?.startsWith("convo:")) this.releaseGatherSlot(s.agentId);
-      }
-    });
-    this.clearConversationSpotlight();
+  /** Backend conversation_ended → that conversation (only) disperses; the
+   *  key takeaway lingers on a card between the participants for a beat. */
+  handleConversationEnded(conversationId: string, summary?: string) {
+    this.choreo.end(conversationId, { summary });
+    if (!this.choreo.hasActive("backend")) this.clearConversationSpotlight();
   }
 
   /** Dim the scene ~8% behind a soft vignette, ease the camera toward the
@@ -1209,6 +1298,7 @@ export class TownScene extends Phaser.Scene {
     this.refreshSkyOverlay();
     if (applyRoutines && !DEMO_MODE) this.tickRoutines();
     this.ambience?.setHour(this.worldClock.hour);
+    this.refreshDayParts();
   }
 
   /** Forward weather to the WeatherScene. */
@@ -1451,6 +1541,7 @@ export class TownScene extends Phaser.Scene {
   }
 
   clearAgents() {
+    this.choreo.clearAll();
     this.agentSprites.forEach((s) => s.destroy());
     this.agentSprites.clear();
     this.agentRecords.clear();
@@ -1568,6 +1659,70 @@ export class TownScene extends Phaser.Scene {
     return closest;
   }
 
+  /** Nearest non-road landmark whose door is within `radius` px. */
+  getNearbyLandmark(
+    px: number,
+    py: number,
+    radius = 56,
+  ): { name: string; type: string; x: number; y: number } | null {
+    let best: { name: string; type: string; x: number; y: number } | null = null;
+    let bestD = radius;
+    for (const lm of this.landmarks) {
+      if (lm.type === "road") continue;
+      const door = this.landmarkPositions.get(lm.name);
+      if (!door) continue;
+      const d = Phaser.Math.Distance.Between(px, py, door.x, door.y);
+      if (d < bestD) {
+        bestD = d;
+        best = { name: lm.name, type: lm.type, x: door.x, y: door.y };
+      }
+    }
+    return best;
+  }
+
+  /** The player's proximity check publishes its target here so the DOM talk
+   *  card and the E key always agree on who is "nearby". */
+  setProximityAgent(agentId: string | null) {
+    this.proximityAgentId = agentId;
+  }
+
+  getProximityAgentId(): string | null {
+    return this.proximityAgentId;
+  }
+
+  /** Residents inside a landmark's rectangle or within 72 px of its door. */
+  getResidentsAtLandmark(name: string): string[] {
+    const lm = this.landmarks.find((l) => l.name === name);
+    const door = this.landmarkPositions.get(name);
+    const out: string[] = [];
+    for (const [id, sp] of this.agentSprites) {
+      if (sp === this.playerSprite || !sp.active) continue;
+      const inside = !!lm && sp.x >= lm.x && sp.x <= lm.x + lm.width && sp.y >= lm.y && sp.y <= lm.y + lm.height;
+      const near = !!door && Phaser.Math.Distance.Between(sp.x, sp.y, door.x, door.y) <= 72;
+      if (inside || near) out.push(id);
+    }
+    return out;
+  }
+
+  /** Two pixel sparks at the door when the player visits a place. */
+  private playVisitSparks(name: string) {
+    const door = this.landmarkPositions.get(name);
+    if (!door || reducedMotion()) return;
+    const key = ensureSquareTexture(this);
+    for (const dx of [-6, 6]) {
+      const spark = this.add.image(door.x + dx, door.y - 22, key).setTint(0xffe6a8).setDepth(520);
+      this.tweens.add({
+        targets: spark,
+        y: door.y - 36,
+        alpha: 0,
+        duration: 340,
+        ease: "Stepped",
+        easeParams: [4],
+        onComplete: () => spark.destroy(),
+      });
+    }
+  }
+
   /** Set player input enabled/disabled (e.g., when chat panel is open). */
   setPlayerInputEnabled(enabled: boolean) {
     if (this.playerSprite) {
@@ -1640,6 +1795,9 @@ export class TownScene extends Phaser.Scene {
       const entry = rec.routine.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
       if (!entry) continue;
       if (rec.lastRoutineTime === entry.time) continue;
+      // Mid-conversation residents finish talking first; the slot fires on
+      // the next minute tick once they are free.
+      if (this.choreo.inConversation(id)) continue;
       // Consume the slot only once the location resolves: a persona whose
       // routine named a landmark the map spells differently used to lose
       // that stop forever.
@@ -1691,6 +1849,7 @@ export class TownScene extends Phaser.Scene {
       const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
       const x = Phaser.Math.Clamp(pt.x + Phaser.Math.Between(-70, 70), WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
       const y = Phaser.Math.Clamp(pt.y + Phaser.Math.Between(-45, 45), WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
+      if (this.navGrid?.isRoad(x, y)) continue;
       if (!this.isBlocked(x, y) && !this.isOccupied(x, y, WANDER_CLEARANCE, exclude)) return { x, y };
     }
     const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
@@ -1713,38 +1872,65 @@ export class TownScene extends Phaser.Scene {
 
   /* ── Encounter conversations ───────────────────────────── */
 
+  /**
+   * Live towns only: every 16 s two residents standing near each other may
+   * strike up a short exchange. Backend conversations always win — an
+   * encounter never starts while one is active and is cut off cleanly if
+   * one begins. Pairs sharing a concern (or a persona relationship) are
+   * preferred so the banter comes from who they are.
+   */
   private tryEncounterConversation() {
-    if (this.agentSprites.size < 2) return;
-    const all = [...this.agentSprites.entries()].filter(([_, s]) => s !== this.playerSprite);
-    if (all.length < 2) return;
-
-    // Pick a random pair within 100px of each other.
-    Phaser.Utils.Array.Shuffle(all);
-    for (let i = 0; i < all.length; i++) {
-      for (let j = i + 1; j < all.length; j++) {
-        const a = all[i][1], b = all[j][1];
-        const d = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
-        if (d <= 100) {
-          this.runEncounter(a, b);
-          return;
-        }
+    if (this.choreo.hasActive("backend")) return;
+    const now = this.time.now;
+    const free = [...this.agentSprites.entries()].filter(([id, sp]) => {
+      if (sp === this.playerSprite || !sp.active || sp.isWalking()) return false;
+      if (this.choreo.inConversation(id)) return false;
+      const act = sp.getActivity();
+      if (act === "home" || act === "sleeping" || act === "praying") return false;
+      const rec = this.agentRecords.get(id);
+      return !rec?.lastEncounterAt || now - rec.lastEncounterAt > 45000;
+    });
+    if (free.length < 2) return;
+    Phaser.Utils.Array.Shuffle(free);
+    let pick: { a: AgentSprite; b: AgentSprite; concern?: string; relationship?: string } | null = null;
+    for (let i = 0; i < free.length && !(pick?.concern || pick?.relationship); i++) {
+      for (let j = i + 1; j < free.length; j++) {
+        const [aId, a] = free[i];
+        const [bId, b] = free[j];
+        if (Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y) > 100) continue;
+        const recA = this.agentRecords.get(aId);
+        const recB = this.agentRecords.get(bId);
+        const concern = sharedConcernKey(recA?.topConcerns, recB?.topConcerns);
+        const relationship = relationshipKind(recA?.relationships?.[bId] ?? recB?.relationships?.[aId]);
+        const candidate = { a, b, concern, relationship };
+        if (concern || relationship) { pick = candidate; break; }
+        pick ??= candidate;
       }
     }
+    if (pick) this.runEncounter(pick);
   }
 
-  private runEncounter(a: AgentSprite, b: AgentSprite) {
-    // Face each other for ~3s, exchange two lines.
-    a.faceToward(b.x, b.y);
-    b.faceToward(a.x, a.y);
-    a.setActivity("talking");
-    b.setActivity("talking");
-
-    const exchange = pickExchange(undefined, undefined);
-    a.showSpeechBubble(exchange.a, 2400, "neutral", true);
-    this.time.delayedCall(1500, () => b.showSpeechBubble(exchange.b, 2400, "neutral", true));
-    this.time.delayedCall(4200, () => {
-      a.setActivity("idle");
-      b.setActivity("idle");
+  private runEncounter(e: { a: AgentSprite; b: AgentSprite; concern?: string; relationship?: string }) {
+    const { a, b } = e;
+    const id = this.choreo.start({ participants: [a.agentId, b.agentId] }, "encounter");
+    if (!id) return;
+    const now = this.time.now;
+    for (const sp of [a, b]) {
+      const rec = this.agentRecords.get(sp.agentId);
+      if (rec) rec.lastEncounterAt = now;
+    }
+    const exchange = pickExchange(e.concern, e.relationship);
+    const say = (sp: AgentSprite, line: string) => {
+      if (this.choreo.conversationOf(sp.agentId) !== id) return;
+      const visible = [...this.agentSprites.values()]
+        .reduce((total, other) => total + other.getSpeechBubbleCount(), 0);
+      if (visible < 2) sp.showSpeechBubble(line, 2600, "neutral", true);
+      this.choreo.onSpeech(sp.agentId, "neutral");
+    };
+    this.time.delayedCall(700, () => say(a, exchange.a));
+    this.time.delayedCall(2300, () => say(b, exchange.b));
+    this.time.delayedCall(5200, () => {
+      if (this.choreo.conversationOf(a.agentId) === id) this.choreo.end(id);
     });
   }
 
@@ -2557,29 +2743,34 @@ export class TownScene extends Phaser.Scene {
    * without ever being forced onto them.
    */
   private buildNavGrid() {
-    const paved = new Set<number>(roadGids.paved);
+    const sidewalk = new Set<number>(roadGids.sidewalk);
+    const road = new Set<number>(roadGids.road);
     const rough = new Set<number>(roadGids.rough);
     const T = roadGids.tileSize;
     const detail = this.builtMap?.getLayer("ground-detail")?.tilemapLayer;
     const ground = this.builtMap?.getLayer("ground")?.tilemapLayer;
     const roads = this.landmarks.filter((l) => l.type === "road");
-    const costAt = (px: number, py: number): number => {
+    const classify = (gid: number): GroundKind | null => {
+      if (sidewalk.has(gid)) return "sidewalk";
+      if (road.has(gid)) return "road";
+      if (rough.has(gid)) return "rough";
+      return null;
+    };
+    const kindAt = (px: number, py: number): GroundKind => {
       if (detail || ground) {
         const tx = Math.floor(px / T);
         const ty = Math.floor(py / T);
         const d = detail?.getTileAt(tx, ty)?.index ?? -1;
         const g = ground?.getTileAt(tx, ty)?.index ?? -1;
-        if (paved.has(d) || (d <= 0 && paved.has(g))) return GROUND_COST.paved;
-        if (rough.has(d)) return GROUND_COST.rough;
-        return GROUND_COST.grass;
+        return classify(d) ?? (d <= 0 ? classify(g) : null) ?? "grass";
       }
       // Procedural towns: their road landmarks are the only paving.
       for (const r of roads) {
-        if (px >= r.x && px <= r.x + r.width && py >= r.y && py <= r.y + r.height) return GROUND_COST.paved;
+        if (px >= r.x && px <= r.x + r.width && py >= r.y && py <= r.y + r.height) return "sidewalk";
       }
-      return GROUND_COST.grass;
+      return "grass";
     };
-    this.navGrid = new NavGrid(this.collisionRects, costAt);
+    this.navGrid = new NavGrid(this.collisionRects, kindAt);
   }
 
   /**
@@ -2596,7 +2787,10 @@ export class TownScene extends Phaser.Scene {
     if (!grid) return this.findFreeNear(cx, cy);
     const type = lm.type.toLowerCase();
     if (/park|water|road|green|garden|field|lake|river|plaza|square|commons/.test(type)) {
-      return grid.nearestWalkable(cx, cy, 160) ?? this.findFreeNear(cx, cy);
+      // The roomiest spot near the centre — never the well, a bench, or
+      // the strip of grass between a prop and the rail ballast.
+      return grid.openestNear(cx, cy, Math.min(80, Math.max(lm.width, lm.height) / 2))
+        ?? this.findFreeNear(cx, cy);
     }
     // Footprint = collision rects that mostly lie inside the landmark rect
     // (so a lamppost on the apron never drags the door downward).
@@ -2611,13 +2805,18 @@ export class TownScene extends Phaser.Scene {
     }
     for (let y = bottom + 10; y <= bottom + 58; y += 8) {
       if (!grid.isWalkable(cx, y)) continue;
-      if (grid.costAt(cx, y) === GROUND_COST.paved) return { x: cx, y };
+      const kind = grid.kindAt(cx, y);
+      if (kind === "sidewalk") return { x: cx, y };
+      let offRoad: { x: number; y: number } | null = kind === "road" ? null : { x: cx, y };
       for (const dx of [8, -8, 16, -16, 24, -24, 32, -32, 40, -40, 48, -48]) {
-        if (grid.costAt(cx + dx, y) === GROUND_COST.paved) return { x: cx + dx, y };
+        if (!grid.isWalkable(cx + dx, y)) continue;
+        const k = grid.kindAt(cx + dx, y);
+        if (k === "sidewalk") return { x: cx + dx, y };
+        if (!offRoad && k !== "road") offRoad = { x: cx + dx, y };
       }
-      return { x: cx, y };
+      if (offRoad) return offRoad;
     }
-    return grid.nearestWalkable(cx, bottom + 16, 160) ?? this.findFreeNear(cx, cy);
+    return grid.nearestWalkable(cx, bottom + 16, 160, { avoidRoad: true }) ?? this.findFreeNear(cx, cy);
   }
 
   /** Exact landmark name, else a case-insensitive match, else undefined. */
@@ -2676,25 +2875,32 @@ export class TownScene extends Phaser.Scene {
     opts?: { clearOf?: number; exclude?: AgentSprite },
   ): { x: number; y: number } {
     const clearOf = opts?.clearOf ?? 0;
-    const open = (px: number, py: number) =>
-      !this.isBlocked(px, py) && (clearOf <= 0 || !this.isOccupied(px, py, clearOf, opts?.exclude));
-
     const cx = Phaser.Math.Clamp(x, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
     const cy = Phaser.Math.Clamp(y, WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
-    if (open(cx, cy)) return { x: cx, y: cy };
-    // Sub-tile slots first (18 px) so a crowd fans out around its meeting
-    // point, then widening rings until open ground is found.
-    for (const radius of [18, 32, 48, 72, 96, 120, 144, 168]) {
-      // Try straight down first (doors face roads below buildings), then ring.
-      const candidates: Array<{ x: number; y: number }> = [{ x: cx, y: cy + radius }];
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        candidates.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
-      }
-      for (const c of candidates) {
-        const px = Phaser.Math.Clamp(c.x, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
-        const py = Phaser.Math.Clamp(c.y, WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
-        if (open(px, py)) return { x: px, y: py };
+    // Two passes: nobody idles in the street if there is any other ground,
+    // but a seed point that is itself on the road (a crossing) keeps its
+    // neighbourhood.
+    const seedOnRoad = this.navGrid?.isRoad(cx, cy) ?? false;
+    for (const allowRoad of seedOnRoad ? [true] : [false, true]) {
+      const open = (px: number, py: number) =>
+        !this.isBlocked(px, py)
+        && (allowRoad || !this.navGrid?.isRoad(px, py))
+        && (clearOf <= 0 || !this.isOccupied(px, py, clearOf, opts?.exclude));
+      if (open(cx, cy)) return { x: cx, y: cy };
+      // Sub-tile slots first (18 px) so a crowd fans out around its meeting
+      // point, then widening rings until open ground is found.
+      for (const radius of [18, 32, 48, 72, 96, 120, 144, 168]) {
+        // Try straight down first (doors face roads below buildings), then ring.
+        const candidates: Array<{ x: number; y: number }> = [{ x: cx, y: cy + radius }];
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          candidates.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
+        }
+        for (const c of candidates) {
+          const px = Phaser.Math.Clamp(c.x, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
+          const py = Phaser.Math.Clamp(c.y, WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
+          if (open(px, py)) return { x: px, y: py };
+        }
       }
     }
     return { x: cx, y: cy };

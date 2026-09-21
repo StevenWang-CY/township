@@ -30,6 +30,9 @@ interface CanvasOverlayProps {
   onTalk?: (agentId: string) => void;
   /** Hide the talk card entirely (e.g. while a chat panel is open). */
   suppressed?: boolean;
+  /** The scene's own proximity target. When supplied it is authoritative,
+   *  so the card and the E key can never point at different residents. */
+  getProximityAgentId?: () => string | null;
 }
 
 /** How long the talk card lingers (disabled, fading) after the resident
@@ -54,6 +57,7 @@ export function CanvasOverlay({
   bottomInset = 12,
   onTalk,
   suppressed = false,
+  getProximityAgentId,
 }: CanvasOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const elementsMapRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -170,10 +174,20 @@ export function CanvasOverlay({
         let bestDist = proximityRadius;
         let bestX = 0;
         let bestY = 0;
+        const forced = getProximityAgentId?.() ?? null;
         for (const item of items) {
           if (item.type !== "agent") continue;
           // exclude the player from being its own proximity target
           if (item.id.startsWith("player-")) continue;
+          if (forced) {
+            if (item.id === forced) {
+              bestId = item.id;
+              bestX = item.x;
+              bestY = item.y;
+              break;
+            }
+            continue;
+          }
           const dx = item.x - player.x;
           const dy = item.y - player.y;
           const d = Math.hypot(dx, dy);
@@ -252,7 +266,7 @@ export function CanvasOverlay({
     }
 
     rafRef.current = requestAnimationFrame(syncPositions);
-  }, [gameRef, getOverlayData, getPlayer, proximityRadius, bottomInset, suppressed, clearProximity]);
+  }, [gameRef, getOverlayData, getPlayer, proximityRadius, bottomInset, suppressed, clearProximity, getProximityAgentId]);
 
   useEffect(() => {
     rafRef.current = requestAnimationFrame(syncPositions);

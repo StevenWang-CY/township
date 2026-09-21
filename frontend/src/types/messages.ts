@@ -208,6 +208,8 @@ export interface AgentSpeechEvent {
   town: TownId;
   text: string;
   location: string;
+  /** Tone of the line as the backend classified it (always on the wire). */
+  sentiment?: "positive" | "negative" | "neutral";
   gesture?: "nod" | "shake_head" | "shrug" | "laugh" | "point" | "none";
 }
 

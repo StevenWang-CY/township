@@ -1,11 +1,12 @@
 /**
- * NavGrid — a coarse walkability grid + A* pathfinder for the 1200×800 town.
+ * NavGrid — a walkability grid + A* pathfinder for the 1200×800 town.
  *
- * Built once per town from the tilemap's collision rectangles (plus an
- * optional per-cell ground cost so walkers prefer sidewalks and paths over
- * grass without being forced onto them). Pure module: no Phaser scene
- * dependency, so it is trivially unit-testable and reusable by the
- * onboarding scene or a future headless test.
+ * Built once per town from the tilemap's collision rectangles plus a
+ * per-cell GROUND KIND sampled from the tile layers, so walkers prefer
+ * sidewalks and paths, cross roads freely without lingering on them, cut
+ * across grass when it is worth it, and avoid the rail ballast. Pure
+ * module: no Phaser scene dependency, so it is trivially unit-testable and
+ * reusable by the onboarding scene or a headless test.
  *
  * Coordinates are world pixels throughout; cells are NAV_CELL px wide.
  */
@@ -16,18 +17,29 @@ export const WORLD_H = 800;
 /** Walkable inset from the map edge (keeps feet off the border tiles). */
 export const WORLD_MARGIN = 40;
 
-/** Grid resolution. 8 px = half a tile: fine enough to thread door aprons
- *  and sidewalks, coarse enough that a 150×100 grid searches in < 1 ms. */
-export const NAV_CELL = 8;
+/** Grid resolution. 4 px = a quarter tile: fine enough to thread the
+ *  16 px gaps between props and building aprons that an 8 px grid sealed
+ *  shut; a 300×200 grid still searches in ~1 ms. */
+export const NAV_CELL = 4;
 /** Padding around collision rects. Slightly under TownScene.isBlocked's 6 px
  *  so every point that scene helper accepts also lands in a walkable cell
- *  after the ±4 px cell-centre quantisation. */
+ *  after the ±2 px cell-centre quantisation. */
 export const NAV_PAD = 5;
 
 export interface Pt { x: number; y: number }
 export interface Rect { x: number; y: number; w: number; h: number }
-/** Ground cost at a world point: 1.0 paved, higher for grass / ballast. */
-export type CostSampler = (px: number, py: number) => number;
+
+/** Ground classes the grid distinguishes (see scripts/mapgen/export_road_gids.py). */
+export type GroundKind = "grass" | "sidewalk" | "road" | "rough";
+export type KindSampler = (px: number, py: number) => GroundKind;
+
+const KIND_ID: Record<GroundKind, number> = { grass: 0, sidewalk: 1, road: 2, rough: 3 };
+const KIND_NAME: GroundKind[] = ["grass", "sidewalk", "road", "rough"];
+/** Step-cost multiplier per kind: sidewalk is the baseline, asphalt a touch
+ *  dearer (walk beside the road, cross it anywhere), grass dearer still,
+ *  ballast strongly discouraged. */
+export const GROUND_COST: Record<GroundKind, number> = { sidewalk: 1.0, road: 1.15, grass: 1.4, rough: 2.6 };
+const COST_BY_ID = [GROUND_COST.grass, GROUND_COST.sidewalk, GROUND_COST.road, GROUND_COST.rough];
 
 export interface NavGridOptions {
   width?: number;
@@ -36,10 +48,6 @@ export interface NavGridOptions {
   cell?: number;
   pad?: number;
 }
-
-/** Cost multipliers used by TownScene's sampler. Exported so tests and the
- *  scene agree on the vocabulary. */
-export const GROUND_COST = { paved: 1.0, grass: 1.4, rough: 2.6 } as const;
 
 const SQRT2 = Math.SQRT2;
 const LOS_STEP = 4;
@@ -89,9 +97,10 @@ export class NavGrid {
   readonly height: number;
   readonly margin: number;
   private readonly blocked: Uint8Array;
+  private readonly kind: Uint8Array;
   private readonly cost: Float32Array;
 
-  constructor(rects: Rect[], costAt?: CostSampler, opts: NavGridOptions = {}) {
+  constructor(rects: Rect[], kindAt?: KindSampler, opts: NavGridOptions = {}) {
     this.width = opts.width ?? WORLD_W;
     this.height = opts.height ?? WORLD_H;
     this.margin = opts.margin ?? WORLD_MARGIN;
@@ -101,7 +110,8 @@ export class NavGrid {
     this.rows = Math.ceil(this.height / this.cell);
     const n = this.cols * this.rows;
     this.blocked = new Uint8Array(n);
-    this.cost = new Float32Array(n).fill(1);
+    this.kind = new Uint8Array(n);
+    this.cost = new Float32Array(n).fill(GROUND_COST.grass);
 
     for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < this.cols; c++) {
@@ -131,13 +141,13 @@ export class NavGrid {
         }
       }
     }
-    if (costAt) {
+    if (kindAt) {
       for (let r = 0; r < this.rows; r++) {
         for (let c = 0; c < this.cols; c++) {
           const idx = r * this.cols + c;
-          if (this.blocked[idx]) continue;
-          const v = costAt((c + 0.5) * this.cell, (r + 0.5) * this.cell);
-          this.cost[idx] = Number.isFinite(v) && v > 0 ? v : 1;
+          const k = KIND_ID[kindAt((c + 0.5) * this.cell, (r + 0.5) * this.cell)] ?? 0;
+          this.kind[idx] = k;
+          this.cost[idx] = COST_BY_ID[k];
         }
       }
     }
@@ -163,20 +173,55 @@ export class NavGrid {
     return idx >= 0 && this.blocked[idx] === 0;
   }
 
-  /** Ground cost at a point (1 = paved). Blocked / off-grid → Infinity. */
+  kindAt(px: number, py: number): GroundKind {
+    const idx = this.cellOf(px, py);
+    return idx < 0 ? "grass" : KIND_NAME[this.kind[idx]];
+  }
+
+  /** Asphalt — fine to cross, not a place to stand. */
+  isRoad(px: number, py: number): boolean {
+    return this.kindAt(px, py) === "road";
+  }
+
+  /** Ground cost at a point (1 = sidewalk). Blocked / off-grid → Infinity. */
   costAt(px: number, py: number): number {
     const idx = this.cellOf(px, py);
     if (idx < 0 || this.blocked[idx]) return Infinity;
     return this.cost[idx];
   }
 
-  /** The point itself when walkable, else the centre of the nearest walkable
-   *  cell within `maxRadius` px (ring scan), else null. */
-  nearestWalkable(px: number, py: number, maxRadius = 96): Pt | null {
-    if (this.isWalkable(px, py)) return { x: px, y: py };
+  /** Free cells in every direction before the nearest blocked one (capped);
+   *  a rough "how much elbow room is here" measure. */
+  clearanceAt(px: number, py: number, maxRings = 6): number {
+    const c0 = Math.floor(px / this.cell);
+    const r0 = Math.floor(py / this.cell);
+    if (!this.isWalkable(px, py)) return 0;
+    for (let k = 1; k <= maxRings; k++) {
+      for (let dr = -k; dr <= k; dr++) {
+        const rr = r0 + dr;
+        const edge = Math.abs(dr) === k;
+        for (let dc = -k; dc <= k; dc += edge ? 1 : 2 * k) {
+          const cc = c0 + dc;
+          if (rr < 0 || rr >= this.rows || cc < 0 || cc >= this.cols) return k - 1;
+          if (this.blocked[rr * this.cols + cc]) return k - 1;
+        }
+      }
+    }
+    return maxRings;
+  }
+
+  /**
+   * The point itself when walkable, else the centre of the nearest walkable
+   * cell within `maxRadius` px (ring scan), else null. With `avoidRoad`,
+   * asphalt cells are only used when nothing else is in range.
+   */
+  nearestWalkable(px: number, py: number, maxRadius = 96, opts?: { avoidRoad?: boolean }): Pt | null {
+    const avoidRoad = opts?.avoidRoad ?? false;
+    if (this.isWalkable(px, py) && !(avoidRoad && this.isRoad(px, py))) return { x: px, y: py };
     const c0 = Math.floor(px / this.cell);
     const r0 = Math.floor(py / this.cell);
     const K = Math.ceil(maxRadius / this.cell);
+    let fallback: Pt | null = null;
     for (let k = 1; k <= K; k++) {
       let best: Pt | null = null;
       let bestD = Infinity;
@@ -191,12 +236,57 @@ export class NavGrid {
           if (this.blocked[idx]) continue;
           const p = this.centre(idx);
           const d = (p.x - px) ** 2 + (p.y - py) ** 2;
+          if (avoidRoad && this.kind[idx] === KIND_ID.road) {
+            if (!fallback) fallback = p;
+            continue;
+          }
           if (d < bestD) { bestD = d; best = p; }
         }
       }
       if (best) return best;
     }
-    return null;
+    if (this.isWalkable(px, py)) return { x: px, y: py };
+    return fallback;
+  }
+
+  /**
+   * The roomiest walkable point near (px, py): samples a small lattice
+   * within `radius` and picks the cell with the most clearance, breaking
+   * ties toward the centre and away from asphalt. Used for open landmarks
+   * (parks, plazas) whose geometric centre may sit on a well or a bench.
+   */
+  openestNear(px: number, py: number, radius = 64): Pt | null {
+    let best: Pt | null = null;
+    let bestScore = -Infinity;
+    const step = this.cell * 2;
+    for (let dy = -radius; dy <= radius; dy += step) {
+      for (let dx = -radius; dx <= radius; dx += step) {
+        const x = px + dx;
+        const y = py + dy;
+        if (!this.isWalkable(x, y)) continue;
+        const clear = this.clearanceAt(x, y, 8);
+        const dist = Math.hypot(dx, dy);
+        const score = clear * 3 - dist * 0.03 - (this.isRoad(x, y) ? 6 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          best = { x, y };
+        }
+      }
+    }
+    return best ?? this.nearestWalkable(px, py, radius * 2, { avoidRoad: true });
+  }
+
+  /** True when the straight segment a→b passes over asphalt — a gathering
+   *  on one sidewalk should not spill onto the far side of the street. */
+  crossesRoad(a: Pt, b: Pt): boolean {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / LOS_STEP));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      if (this.isRoad(a.x + dx * t, a.y + dy * t)) return true;
+    }
+    return false;
   }
 
   /** True when every interior sample of a→b lands on walkable ground. The
@@ -254,7 +344,7 @@ export class NavGrid {
     f[sIdx] = heuristic(sIdx);
     const open = new MinHeap(f);
     open.push(sIdx);
-    const budget = opts?.maxExpansions ?? 6000;
+    const budget = opts?.maxExpansions ?? 24000;
     let expansions = 0;
     let found = false;
 

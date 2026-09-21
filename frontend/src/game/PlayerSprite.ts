@@ -54,6 +54,9 @@ export class PlayerSprite extends AgentSprite {
   private eKey?: Phaser.Input.Keyboard.Key;
   private nearbyAgentId: string | null = null;
   private nearbySprite: AgentSprite | null = null;
+  /** Landmark whose door the player is standing at. When a resident is also
+   *  in talk range, E talks — talking always wins over visiting. */
+  private nearbyLandmark: string | null = null;
   private wasMoving = false;
   private youBadge: Phaser.GameObjects.Container;
   public inputEnabled = true;
@@ -393,8 +396,19 @@ export class PlayerSprite extends AgentSprite {
         result.sprite.setProximityHighlight(true);
       }
 
-      // Emit to React
+      // Emit to React (and tell the scene, so the DOM talk card agrees).
+      townScene.setProximityAgent?.(newId);
       this.scene.events.emit("proximity-agent", newId);
+    }
+
+    // Places: standing at a door offers a visit. Tracked independently of
+    // residents so an open visit card survives a passer-by wandering into
+    // talk range (the chip itself yields to the talk card in React).
+    const place = townScene.getNearbyLandmark?.(this.x, this.y, 56) ?? null;
+    const placeName: string | null = place?.name ?? null;
+    if (placeName !== this.nearbyLandmark) {
+      this.nearbyLandmark = placeName;
+      this.scene.events.emit("proximity-landmark", placeName);
     }
   }
 
@@ -436,15 +450,24 @@ export class PlayerSprite extends AgentSprite {
   // ──────────────────────────────────────────────────────────────
 
   private onInteract() {
-    if (!this.nearbyAgentId || !this.inputEnabled) return;
+    if (!this.inputEnabled) return;
 
-    if (this.nearbySprite) {
-      // Player faces the NPC, NPC faces back + takes a step toward us.
-      this.faceToward(this.nearbySprite.x, this.nearbySprite.y);
-      this.nearbySprite.respondToInteractRequest(this.x, this.y);
+    if (this.nearbyAgentId) {
+      if (this.nearbySprite) {
+        // Player faces the NPC, NPC faces back + takes a step toward us.
+        this.faceToward(this.nearbySprite.x, this.nearbySprite.y);
+        this.nearbySprite.respondToInteractRequest(this.x, this.y);
+      }
+      this.scene.events.emit("player-interact", this.nearbyAgentId);
+      return;
     }
 
-    this.scene.events.emit("player-interact", this.nearbyAgentId);
+    // Nobody to talk to, but a door to knock on: face it and visit.
+    if (this.nearbyLandmark) {
+      this.currentDirection = "up";
+      this.playIdle("up");
+      this.scene.events.emit("player-visit", this.nearbyLandmark);
+    }
   }
 
   override destroy(fromScene?: boolean) {

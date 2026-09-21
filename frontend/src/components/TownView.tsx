@@ -13,6 +13,7 @@ import PlayerHUD from "./PlayerHUD";
 import MiniMap from "./MiniMap";
 import Tutorial from "./Tutorial";
 import DebugOverlay from "./DebugOverlay";
+import LandmarkCard from "./LandmarkCard";
 import { rosterAgentsFromPayload } from "./residentRoster";
 import type { AgentState, TownId, LeanId, SimulationEvent, Opinion, ChatMessage } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
@@ -106,6 +107,9 @@ export default function TownView({ ws }: TownViewProps) {
   const [debugOpen, setDebugOpen] = useState(false);
   const [listenOpen, setListenOpen] = useState(false);
   const [listenNearbyLandmark, setListenNearbyLandmark] = useState<string | null>(null);
+  // Resident in the player's talk radius (mirrors the scene; the visit chip
+  // yields to the talk card).
+  const [proximityAgentId, setProximityAgentId] = useState<string | null>(null);
   const [gossipToast, setGossipToast] = useState<string | null>(null);
   const gossipTimerRef = useRef<number | undefined>(undefined);
   // Post-chat toast: journal confirmation or a gentle "meet someone else".
@@ -292,8 +296,19 @@ export default function TownView({ ws }: TownViewProps) {
           requestChatRef.current(agentId, "walkup");
         });
 
-        activeScene.events.on("proximity-agent", (_agentId: string | null) => {
-          // The NPC-anchored talk card in CanvasOverlay is the indicator.
+        activeScene.events.on("proximity-agent", (agentId: string | null) => {
+          setProximityAgentId(agentId);
+        });
+
+        // Places: standing at a door offers a visit; E with nobody to talk
+        // to opens the landmark card (who is inside + what was said there).
+        activeScene.events.on("proximity-landmark", (name: string | null) => {
+          setListenNearbyLandmark(name);
+          if (!name) setListenOpen(false);
+        });
+        activeScene.events.on("player-visit", (name: string) => {
+          setListenNearbyLandmark(name);
+          setListenOpen(true);
         });
 
         // Camera contract: NPC conversations OFFER the spotlight via an
@@ -441,7 +456,7 @@ export default function TownView({ ws }: TownViewProps) {
           scene.moveAgent(evt.agent_id, evt.to_location, evt.x ?? undefined, evt.y ?? undefined);
           break;
         case "agent_speech":
-          scene.showAgentSpeech(evt.agent_id, evt.text);
+          scene.showAgentSpeech(evt.agent_id, evt.text, undefined, evt.sentiment ?? "neutral");
           if (evt.gesture && evt.gesture !== "none") {
             scene.playGesture(evt.agent_id, evt.gesture);
           }
@@ -457,15 +472,13 @@ export default function TownView({ ws }: TownViewProps) {
           break;
         }
         case "conversation_started":
-          // Backend-driven sims now also pair-face participants (FIX 5).
+          // The choreographer walks participants into formation and names
+          // the topic on a parchment strip — no placeholder bubbles.
           try { scene.handleConversationStarted(evt.conversation); } catch { /* ignore */ }
-          for (const pid of evt.conversation.participants) {
-            scene.showAgentEmote(pid, "reflecting");
-            scene.showAgentSpeech(pid, `Discussing: ${evt.conversation.topic}`);
-          }
+          for (const pid of evt.conversation.participants) scene.showAgentEmote(pid, "reflecting");
           break;
         case "conversation_ended":
-          try { scene.handleConversationEnded(evt.conversation_id); } catch { /* ignore */ }
+          try { scene.handleConversationEnded(evt.conversation_id, evt.summary); } catch { /* ignore */ }
           break;
         case "cross_town_gossip": {
           const e = evt as any;
@@ -570,35 +583,10 @@ export default function TownView({ ws }: TownViewProps) {
     return best;
   }, [getPlayer, townAgents]);
 
-  /* ── Listen-in detection: player within 80px of park/transit/church ── */
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      const player = getPlayer();
-      const data = getMiniMapData();
-      if (!player || !data) return;
-      const eligible = data.landmarks.filter(
-        (lm) => ["park", "transit", "transport", "church"].includes(lm.type)
-      );
-      const ag = data.agents || [];
-      let near: string | null = null;
-      for (const lm of eligible) {
-        const cx = lm.x + lm.w / 2;
-        const cy = lm.y + lm.h / 2;
-        if (Math.hypot(cx - player.x, cy - player.y) > 80) continue;
-        const inBoundsCount = ag.filter((a) =>
-          a.x >= lm.x && a.x <= lm.x + lm.w && a.y >= lm.y && a.y <= lm.y + lm.h
-        ).length;
-        if (inBoundsCount >= 2) {
-          near = lm.name;
-          break;
-        }
-      }
-      setListenNearbyLandmark((prev) => (prev === near ? prev : near));
-      if (!near && listenOpen) setListenOpen(false);
-    }, 400);
-    return () => clearInterval(id);
-  }, [getPlayer, getMiniMapData, listenOpen]);
+  const getProximityAgentId = useCallback(
+    () => sceneRef.current?.getProximityAgentId?.() ?? null,
+    [],
+  );
 
   /* ── UI Callbacks ────────────────────────────────────────── */
 
@@ -782,8 +770,21 @@ export default function TownView({ ws }: TownViewProps) {
           (e as any).location === listenNearbyLandmark &&
           (e as any).town === town,
       )
-      .slice(-20) as Array<{ agent_id: string; agent_name: string; text: string; type: "agent_speech" }>;
+      .slice(-8) as Array<{ agent_id: string; agent_name: string; text: string; type: "agent_speech" }>;
   }, [listenOpen, listenNearbyLandmark, ws.events, town]);
+
+  // Who is at the visited place: the reducer's location plus anyone the
+  // scene sees standing at its door.
+  const visitResidents = useMemo(() => {
+    if (!listenOpen || !listenNearbyLandmark) return [] as AgentState[];
+    const ids = new Set<string>();
+    try {
+      for (const id of sceneRef.current?.getResidentsAtLandmark?.(listenNearbyLandmark) ?? []) ids.add(id);
+    } catch { /* ignore */ }
+    for (const a of townAgents) if (a.location === listenNearbyLandmark) ids.add(a.id);
+    return [...ids].map((id) => agentLookup.get(id)).filter((a): a is AgentState => !!a);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listenOpen, listenNearbyLandmark, ws.eventCursor, townAgents, agentLookup]);
 
   return (
     <div className="town-view-layout">
@@ -862,6 +863,7 @@ export default function TownView({ ws }: TownViewProps) {
             bottomInset={12}
             onTalk={(agentId) => requestChat(agentId, "walkup")}
             suppressed={chatOpen}
+            getProximityAgentId={getProximityAgentId}
           />
 
           {/* HUD top-left */}
@@ -996,35 +998,24 @@ export default function TownView({ ws }: TownViewProps) {
             <span className="atlas-card-arrow" aria-hidden="true">→</span>
           </Link>
 
-          {/* Listen-in affordance + side panel */}
-          {listenNearbyLandmark && !chatOpen && (
+          {/* Visit-a-place affordance + card (E at a door, T as an alias) */}
+          {listenNearbyLandmark && !chatOpen && !proximityAgentId && !listenOpen && (
             <div className="listen-in-chip">
-              {listenOpen ? (
-                <span>Listening at <strong>{listenNearbyLandmark}</strong></span>
-              ) : (
-                <span>Press <kbd>T</kbd> to listen at <strong>{listenNearbyLandmark}</strong></span>
-              )}
+              <span>Press <kbd>E</kbd> to visit <strong>{listenNearbyLandmark}</strong></span>
             </div>
           )}
           {listenOpen && listenNearbyLandmark && (
-            <div className="listen-in-panel">
-              <div className="listen-in-panel-header">
-                <strong>{listenNearbyLandmark}</strong>
-                <button onClick={() => setListenOpen(false)} aria-label="Close listen panel">×</button>
-              </div>
-              <div className="listen-in-panel-body">
-                {listenInSpeech.length === 0 && (
-                  <p style={{ color: "var(--text-muted)", fontSize: 12 }}>
-                    Quiet right now. Stick around — voices will catch up here.
-                  </p>
-                )}
-                {listenInSpeech.map((e, i) => (
-                  <p key={i} className="listen-in-line">
-                    <strong style={{ color: meta.color }}>{e.agent_name}:</strong> {e.text}
-                  </p>
-                ))}
-              </div>
-            </div>
+            <LandmarkCard
+              name={listenNearbyLandmark}
+              accent={meta.color}
+              residents={visitResidents}
+              lines={listenInSpeech}
+              onClose={() => setListenOpen(false)}
+              onTalk={(agentId) => {
+                setListenOpen(false);
+                requestChat(agentId, "canvas");
+              }}
+            />
           )}
 
           {/* Keyboard hint overlay — only when a real player can move HERE,

@@ -81,6 +81,47 @@ export const RELATIONSHIP_EXCHANGES: Record<string, ExchangeLines[]> = {
   ],
 };
 
+/* ── Persona → exchange-bank keys ──────────────────────────── */
+
+/** Free-text persona concerns ("healthcare costs (no employer insurance)")
+ *  mapped onto the CONCERN_EXCHANGES keys. */
+const CONCERN_KEYWORDS: Array<[RegExp, string]> = [
+  [/health|\baca\b|insurance|medic|premium|hospital|clinic|prescription|drug/i, "healthcare"],
+  [/immigra|\bice\b|visa|daca|deport|citizenship|border/i, "immigration"],
+  [/\btax/i, "taxes"],
+  [/school board|\bpta\b|k-12|classroom|kindergarten|school/i, "schools"],
+  [/college|tuition|educat|student|university/i, "education"],
+  [/\brent|housing|lease|mortgage|zoning|afford/i, "housing"],
+  [/wage|cost of living|business|\bjob|price|inflation|econom|payroll|margin|labor/i, "economy"],
+  [/safety|crime|police|lighting|traffic|speeding/i, "safety"],
+  [/environment|climate|creek|flood|storm|water quality|pollution|\bgreen\b/i, "environment"],
+];
+
+export function concernKey(concern: string): string | undefined {
+  for (const [re, key] of CONCERN_KEYWORDS) if (re.test(concern)) return key;
+  return undefined;
+}
+
+/** First exchange-bank key two residents' concern lists have in common. */
+export function sharedConcernKey(a: string[] = [], b: string[] = []): string | undefined {
+  const keysA = new Set(a.map(concernKey).filter((k): k is string => !!k));
+  for (const c of b) {
+    const k = concernKey(c);
+    if (k && keysA.has(k)) return k;
+  }
+  return undefined;
+}
+
+/** Persona relationship types ("colleague", "elder", "friend") mapped onto
+ *  the RELATIONSHIP_EXCHANGES keys. */
+export function relationshipKind(type?: string): string | undefined {
+  if (!type) return undefined;
+  const t = type.toLowerCase();
+  if (/friend|family|spouse|partner|sibling|cousin|mentor|godparent/.test(t)) return "friend";
+  if (/neighbo/.test(t)) return "neighbor";
+  return "acquaintance";
+}
+
 /** Pick a line set, preferring concern → relationship → fallback. */
 export function pickExchange(
   sharedConcern: string | undefined,
