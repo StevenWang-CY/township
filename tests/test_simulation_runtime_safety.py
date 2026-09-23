@@ -158,12 +158,17 @@ def test_sequential_runs_have_fresh_state_events_summaries_and_usage(runtime):
         for run_dir in (first_dir, second_dir, third_dir)
     ]
 
+    # Four model calls per run: one seed per *voice*. The neighbors tier is
+    # counted in the roster but never reaches the provider.
+    voices = [d for d in scenario.agents["millbrook-village"] if d.tier == "voice"]
+    assert len(voices) == 4
     assert [summary["usage"]["total_calls"] for summary in summaries] == [4, 4, 4]
     assert provider.get_usage_report()["total_calls"] == 12
     assert summaries[0]["counts"]["towns"] == 1
     assert summaries[1]["counts"]["towns"] == 1
     assert summaries[2]["counts"]["towns"] == 1
-    assert summaries[2]["counts"]["agents"] == 4
+    assert summaries[2]["counts"]["agents"] == len(scenario.agents["millbrook-village"])
+    assert summaries[2]["counts"]["agents"] > len(voices)
     assert summaries[2]["counts"]["conversations"] == 0
     assert set(orchestrator.town_summaries) == {"millbrook-village"}
 

@@ -1,0 +1,39 @@
+{
+  "_comment": "Per-town mixes for generated neighbors (fictional composites).",
+  "towns": {
+    "millbrook-village": {
+      "lean_mix": {
+        "greenway": 0.36,
+        "roads": 0.24,
+        "bonds": 0.14,
+        "undecided": 0.26
+      },
+      "name_pools": {
+        "anglo": 0.6,
+        "irish_american": 0.12,
+        "italian_american": 0.1,
+        "polish_american": 0.08,
+        "hispanic": 0.06,
+        "african_american": 0.04
+      },
+      "commute_targets": []
+    },
+    "harlow-crossing": {
+      "lean_mix": {
+        "greenway": 0.22,
+        "roads": 0.4,
+        "bonds": 0.14,
+        "undecided": 0.24
+      },
+      "name_pools": {
+        "anglo": 0.62,
+        "irish_american": 0.1,
+        "italian_american": 0.1,
+        "polish_american": 0.06,
+        "hispanic": 0.08,
+        "african_american": 0.04
+      },
+      "commute_targets": []
+    }
+  }
+}

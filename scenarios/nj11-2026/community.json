@@ -1,0 +1,84 @@
+{
+  "_comment": "Per-town mixes for generated neighbors (fictional composites). Lean mixes are authored priors for the background population — a Democratic-leaning district with contested Parsippany and Republican-leaning Randolph — not measurements of anyone.",
+  "towns": {
+    "dover": {
+      "lean_mix": {
+        "mejia": 0.4,
+        "hathaway": 0.18,
+        "bond": 0.03,
+        "undecided": 0.39
+      },
+      "name_pools": {
+        "hispanic": 0.7,
+        "anglo": 0.14,
+        "african_american": 0.08,
+        "italian_american": 0.05,
+        "polish_american": 0.03
+      },
+      "commute_targets": [
+        "parsippany: Corporate Park",
+        "montclair: Art Museum"
+      ]
+    },
+    "montclair": {
+      "lean_mix": {
+        "mejia": 0.48,
+        "hathaway": 0.17,
+        "bond": 0.03,
+        "undecided": 0.32
+      },
+      "name_pools": {
+        "anglo": 0.5,
+        "african_american": 0.2,
+        "south_asian": 0.06,
+        "east_asian": 0.06,
+        "hispanic": 0.1,
+        "italian_american": 0.05,
+        "irish_american": 0.03
+      },
+      "commute_targets": [
+        "parsippany: Corporate Park"
+      ]
+    },
+    "parsippany": {
+      "lean_mix": {
+        "mejia": 0.3,
+        "hathaway": 0.32,
+        "bond": 0.04,
+        "undecided": 0.34
+      },
+      "name_pools": {
+        "anglo": 0.42,
+        "south_asian": 0.3,
+        "east_asian": 0.08,
+        "hispanic": 0.08,
+        "italian_american": 0.08,
+        "african_american": 0.04
+      },
+      "commute_targets": [
+        "montclair: Art Museum",
+        "dover: Factory"
+      ]
+    },
+    "randolph": {
+      "lean_mix": {
+        "mejia": 0.22,
+        "hathaway": 0.42,
+        "bond": 0.04,
+        "undecided": 0.32
+      },
+      "name_pools": {
+        "anglo": 0.6,
+        "south_asian": 0.1,
+        "east_asian": 0.06,
+        "italian_american": 0.1,
+        "irish_american": 0.08,
+        "hispanic": 0.06
+      },
+      "commute_targets": [
+        "parsippany: Corporate Park",
+        "dover: Factory"
+      ]
+    }
+  }
+}

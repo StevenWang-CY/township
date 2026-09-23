@@ -40,6 +40,8 @@ quoted in general project documents; individual packages use more precise copy.
 
 > **Township is a simulation, not a poll.** Its outputs do not measure real public opinion and must never be presented as if they do.
 > **The residents are fictional composites**, informed by public demographic data. No real resident is depicted.
+>
+> That includes the **neighbors tier**: the 12–18 background residents per town in `agents/<town>/_neighbors.json` are generated composites (names drawn from generic pools, occupations and leanings from authored per-town mixes), committed as scenario data and run by the deterministic influence ledger rather than a language model. Their generated prompts say they are not real people, and nothing they say or decide describes anyone who exists.
 > **Real public figures are represented through public source material**, summarized where necessary; verify the scenario's cited sources before relying on any claim.
 > **Every output is an LLM artifact**, shaped by who wrote the personas and by the model's own biases.
 

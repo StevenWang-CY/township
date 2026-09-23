@@ -185,7 +185,16 @@ def test_every_routine_destination_has_a_spot(built_maps, scenario, town):
     for defn in package.agents.get(town, []):
         for entry in defn.routine:
             location = entry.get("location") if isinstance(entry, dict) else None
-            if location and not any(location in names for names in spots_by_town.values()):
+            if not location:
+                continue
+            # "<town-id>: <landmark>" is a commute (Community I): the stop lives
+            # in the other town's map.
+            host, _, landmark = location.partition(": ")
+            if landmark and host in spots_by_town:
+                found = landmark in spots_by_town[host]
+            else:
+                found = any(location in names for names in spots_by_town.values())
+            if not found:
                 misses.append(f"{defn.name} @ {location!r}")
     assert not misses, f"{scenario}/{town}: routine destinations without a spot:\n  " + "\n  ".join(
         misses

@@ -56,14 +56,14 @@
     "The Setonian (April 3, 2026)"
   ],
   "alignment": {
-    "healthcare": -0.7,
-    "immigration": -0.8,
-    "taxes": 0.8,
-    "cost-of-living": -0.3,
-    "jobs": 0.4,
-    "transit": 0.4,
-    "education": -0.4,
+    "taxes": 1.0,
+    "national": 0.9,
+    "jobs": 0.7,
+    "cost-of-living": 0.6,
+    "transit": 0.5,
+    "education": 0.1,
     "trust": 0.1,
-    "national": 0.9
+    "healthcare": -0.6,
+    "immigration": -0.7
   }
 }

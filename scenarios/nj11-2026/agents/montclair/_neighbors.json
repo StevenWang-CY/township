@@ -1,0 +1,1147 @@
+{
+  "seed": 7,
+  "generator_version": 1,
+  "town": "montclair",
+  "neighbors": [
+    {
+      "name": "Laura Carter",
+      "age": 66,
+      "occupation": "Library assistant",
+      "household": "Roommates",
+      "income_bracket": "~$38k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "keeping the clinic open",
+        "college costs for the kids",
+        "traffic on the highway"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Town Hall",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Bay Street Station",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Town Hall",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Anderson Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Bay Street Station",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rosa-chen",
+          "type": "acquaintance",
+          "strength": 0.51,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "nancy-turner",
+          "type": "neighbor",
+          "strength": 0.21,
+          "context": "Both live at Bay Street Station"
+        },
+        {
+          "agent": "paola-salazar",
+          "type": "neighbor",
+          "strength": 0.21,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.73,
+      "persuadability": 0.44,
+      "party_loyalty": 0.09,
+      "issue_weights": {
+        "healthcare": 1.0,
+        "education": 0.6,
+        "transit": 0.4
+      }
+    },
+    {
+      "name": "Ana Núñez",
+      "age": 57,
+      "occupation": "Hospital unit clerk",
+      "household": "Single parent of one",
+      "income_bracket": "~$48k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "the schools",
+        "health insurance premiums",
+        "making the paycheck stretch"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Boutique Row",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Bay Street Station",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Boutique Row",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Boutique Row",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Anderson Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Bay Street Station",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rabbi-daniel-goldstein",
+          "type": "acquaintance",
+          "strength": 0.41,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "min-choi",
+          "type": "neighbor",
+          "strength": 0.24,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "The price of eggs again.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.76,
+      "persuadability": 0.39,
+      "party_loyalty": 0.34,
+      "issue_weights": {
+        "education": 1.0,
+        "healthcare": 0.6,
+        "cost-of-living": 0.4
+      }
+    },
+    {
+      "name": "Laura Phillips",
+      "age": 53,
+      "occupation": "Insurance claims adjuster (remote)",
+      "household": "Lives alone",
+      "income_bracket": "~$70k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "whether the plant keeps hiring",
+        "class sizes",
+        "keeping the clinic open"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Public Library",
+      "routine_template": "remote",
+      "routine": [
+        {
+          "time": "08:00",
+          "location": "Bay Street Station",
+          "activity": "Logs on from the kitchen table"
+        },
+        {
+          "time": "10:30",
+          "location": "Public Library",
+          "activity": "Coffee shop for a change of scene"
+        },
+        {
+          "time": "12:30",
+          "location": "Anderson Park",
+          "activity": "Lunch walk"
+        },
+        {
+          "time": "14:00",
+          "location": "Bay Street Station",
+          "activity": "Afternoon calls"
+        },
+        {
+          "time": "17:30",
+          "location": "Town Hall",
+          "activity": "Library or an errand"
+        },
+        {
+          "time": "19:30",
+          "location": "Bay Street Station",
+          "activity": "Dinner"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "sarah-&-david-chen",
+          "type": "regular",
+          "strength": 0.52,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Should call my sister back.",
+        "The price of eggs again."
+      ],
+      "turnout": 0.7,
+      "persuadability": 0.23,
+      "party_loyalty": 0.45,
+      "issue_weights": {
+        "jobs": 1.0,
+        "education": 0.6,
+        "healthcare": 0.4
+      }
+    },
+    {
+      "name": "Min Choi",
+      "age": 72,
+      "occupation": "Retired teacher",
+      "household": "Single parent of one",
+      "income_bracket": "pension",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "the cost of prescriptions",
+        "getting to work without a car",
+        "the schools"
+      ],
+      "home": "Bay Street Station",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Bay Street Station",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Public Library",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Anderson Park",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Bay Street Station",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Bay Street Station",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "priya-patel",
+          "type": "neighbor",
+          "strength": 0.57,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "denise-bryant",
+          "type": "neighbor",
+          "strength": 0.37,
+          "context": "Both live at Bay Street Station"
+        },
+        {
+          "agent": "nancy-turner",
+          "type": "neighbor",
+          "strength": 0.21,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "The price of eggs again.",
+        "That pothole is going to eat a tire."
+      ],
+      "turnout": 0.9,
+      "persuadability": 0.44,
+      "party_loyalty": 0.77,
+      "issue_weights": {
+        "healthcare": 1.0,
+        "transit": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Terrence Harris",
+      "age": 67,
+      "occupation": "Accounts payable specialist",
+      "household": "Single parent of one",
+      "income_bracket": "~$68k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "small businesses hanging on",
+        "how ICE enforcement is landing on neighbours",
+        "college costs for the kids"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Watchung Plaza",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Bay Street Station",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Bay Street Station",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Watchung Plaza",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Bay Street Station",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Bay Street Station",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rabbi-daniel-goldstein",
+          "type": "regular",
+          "strength": 0.52,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "alice-nguyen",
+          "type": "neighbor",
+          "strength": 0.41,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.7,
+      "persuadability": 0.35,
+      "party_loyalty": 0.4,
+      "issue_weights": {
+        "jobs": 1.0,
+        "immigration": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Chris Wright",
+      "age": 82,
+      "occupation": "Retired postal worker",
+      "household": "Widowed, lives alone",
+      "income_bracket": "pension + Social Security",
+      "language": "English",
+      "political_registration": "independent",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "what the town does with our taxes",
+        "grocery prices",
+        "politicians who say one thing and do another"
+      ],
+      "home": "Bay Street Station",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Bay Street Station",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Public Library",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Anderson Park",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Bay Street Station",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Bay Street Station",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rosa-chen",
+          "type": "neighbor",
+          "strength": 0.41,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "alice-park",
+          "type": "neighbor",
+          "strength": 0.42,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "Coffee. Then everything else.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.83,
+      "persuadability": 0.54,
+      "party_loyalty": 0.45,
+      "issue_weights": {
+        "taxes": 1.0,
+        "cost-of-living": 0.6,
+        "trust": 0.4
+      }
+    },
+    {
+      "name": "Noelia Vargas",
+      "age": 73,
+      "occupation": "Retired electrician",
+      "household": "Married, no kids",
+      "income_bracket": "~$40k retirement",
+      "language": "English",
+      "political_registration": "independent",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "steady work close to home",
+        "the cost of prescriptions",
+        "the paperwork that never ends"
+      ],
+      "home": "Bay Street Station",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Bay Street Station",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Public Library",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Anderson Park",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Bay Street Station",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Public Library",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Bay Street Station",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "margaret-\"peggy\"-o'brien",
+          "type": "acquaintance",
+          "strength": 0.43,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "alice-park",
+          "type": "neighbor",
+          "strength": 0.29,
+          "context": "Both live at Bay Street Station"
+        },
+        {
+          "agent": "paola-salazar",
+          "type": "neighbor",
+          "strength": 0.27,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "Someone left a flyer on the porch.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.54,
+      "persuadability": 0.51,
+      "party_loyalty": 0.51,
+      "issue_weights": {
+        "jobs": 1.0,
+        "healthcare": 0.6,
+        "immigration": 0.4
+      }
+    },
+    {
+      "name": "Darnell Coleman",
+      "age": 24,
+      "occupation": "Warehouse shift supervisor",
+      "household": "Multigenerational household",
+      "income_bracket": "~$52k",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "the next reassessment",
+        "the paperwork that never ends",
+        "small businesses hanging on"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Boutique Row",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Bay Street Station",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Boutique Row",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Boutique Row",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Anderson Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Bay Street Station",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "sarah-&-david-chen",
+          "type": "regular",
+          "strength": 0.58,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "min-choi",
+          "type": "neighbor",
+          "strength": 0.48,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "The bus was late again.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.42,
+      "persuadability": 0.34,
+      "party_loyalty": 0.52,
+      "issue_weights": {
+        "taxes": 1.0,
+        "immigration": 0.6,
+        "jobs": 0.4
+      }
+    },
+    {
+      "name": "Paola Salazar",
+      "age": 24,
+      "occupation": "Community college student",
+      "household": "Multigenerational household",
+      "income_bracket": "part-time wages",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "families afraid to open the door",
+        "the cost of prescriptions",
+        "the schools"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Art Museum",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Bay Street Station",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Public Library",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "Public Library",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Art Museum",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Anderson Park",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Bay Street Station",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rabbi-daniel-goldstein",
+          "type": "acquaintance",
+          "strength": 0.39,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Need to move the car before the sweeper comes."
+      ],
+      "turnout": 0.65,
+      "persuadability": 0.23,
+      "party_loyalty": 0.42,
+      "issue_weights": {
+        "immigration": 1.0,
+        "healthcare": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Nancy Turner",
+      "age": 64,
+      "occupation": "IT project manager",
+      "household": "Multigenerational household",
+      "income_bracket": "~$135k",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "class sizes",
+        "what the town does with our taxes",
+        "health insurance premiums"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Boutique Row",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Bay Street Station",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Bay Street Station",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Boutique Row",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Bay Street Station",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Bay Street Station",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "jordan-williams",
+          "type": "regular",
+          "strength": 0.57,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Someone left a flyer on the porch.",
+        "Need to move the car before the sweeper comes."
+      ],
+      "turnout": 0.59,
+      "persuadability": 0.51,
+      "party_loyalty": 0.62,
+      "issue_weights": {
+        "education": 1.0,
+        "taxes": 0.6,
+        "healthcare": 0.4
+      }
+    },
+    {
+      "name": "Andre Brooks",
+      "age": 30,
+      "occupation": "Home health aide",
+      "household": "Single parent of one",
+      "income_bracket": "~$36k",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "the paperwork that never ends",
+        "what Washington is doing to us",
+        "what the town does with our taxes"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Boutique Row",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Bay Street Station",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Boutique Row",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Boutique Row",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Anderson Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Bay Street Station",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "sarah-&-david-chen",
+          "type": "acquaintance",
+          "strength": 0.32,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.56,
+      "persuadability": 0.38,
+      "party_loyalty": 0.39,
+      "issue_weights": {
+        "immigration": 1.0,
+        "national": 0.6,
+        "taxes": 0.4
+      }
+    },
+    {
+      "name": "Marcus Coleman",
+      "age": 53,
+      "occupation": "Library assistant",
+      "household": "Multigenerational household",
+      "income_bracket": "~$38k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "making the paycheck stretch",
+        "getting to work without a car",
+        "small businesses hanging on"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Town Hall",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Bay Street Station",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Town Hall",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Anderson Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Bay Street Station",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "priya-patel",
+          "type": "neighbor",
+          "strength": 0.55,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.49,
+      "persuadability": 0.68,
+      "party_loyalty": 0.18,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "transit": 0.6,
+        "jobs": 0.4
+      }
+    },
+    {
+      "name": "Denise Bryant",
+      "age": 31,
+      "occupation": "Accounts payable specialist",
+      "household": "Roommates",
+      "income_bracket": "~$68k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "whether the plant keeps hiring",
+        "the national mood",
+        "grocery prices"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Art Museum",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Bay Street Station",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Bay Street Station",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Art Museum",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Bay Street Station",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Bay Street Station",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "jordan-williams",
+          "type": "neighbor",
+          "strength": 0.35,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "darnell-coleman",
+          "type": "neighbor",
+          "strength": 0.23,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.94,
+      "persuadability": 0.43,
+      "party_loyalty": 0.1,
+      "issue_weights": {
+        "jobs": 1.0,
+        "national": 0.6,
+        "cost-of-living": 0.4
+      }
+    },
+    {
+      "name": "Alice Park",
+      "age": 68,
+      "occupation": "Dry cleaner owner",
+      "household": "Lives alone",
+      "income_bracket": "~$60k",
+      "language": "English and Korean",
+      "political_registration": "democrat",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "small businesses hanging on",
+        "traffic on the highway",
+        "college costs for the kids"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Boutique Row",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Bay Street Station",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Boutique Row",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Boutique Row",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Public Library",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Boutique Row",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Bay Street Station",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rosa-chen",
+          "type": "regular",
+          "strength": 0.6,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "marcus-coleman",
+          "type": "neighbor",
+          "strength": 0.42,
+          "context": "Both live at Bay Street Station"
+        },
+        {
+          "agent": "terrence-harris",
+          "type": "neighbor",
+          "strength": 0.39,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "Should call my sister back.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.49,
+      "persuadability": 0.46,
+      "party_loyalty": 0.66,
+      "issue_weights": {
+        "jobs": 1.0,
+        "transit": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Alice Nguyen",
+      "age": 65,
+      "occupation": "Bus driver",
+      "household": "Widowed, lives alone",
+      "income_bracket": "~$55k",
+      "language": "English and Korean",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "class sizes",
+        "making the paycheck stretch",
+        "the morning train"
+      ],
+      "home": "Bay Street Station",
+      "workplace": "Bay Street Station",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Bay Street Station",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Bay Street Station",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Bay Street Station",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Anderson Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Bay Street Station",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rosa-chen",
+          "type": "regular",
+          "strength": 0.43,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "terrence-harris",
+          "type": "neighbor",
+          "strength": 0.34,
+          "context": "Both live at Bay Street Station"
+        },
+        {
+          "agent": "alice-park",
+          "type": "neighbor",
+          "strength": 0.26,
+          "context": "Both live at Bay Street Station"
+        }
+      ],
+      "idle_thoughts": [
+        "The bus was late again.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.42,
+      "persuadability": 0.53,
+      "party_loyalty": 0.57,
+      "issue_weights": {
+        "education": 1.0,
+        "cost-of-living": 0.6,
+        "transit": 0.4
+      }
+    }
+  ]
+}

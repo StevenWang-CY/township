@@ -254,6 +254,29 @@ def run(
         typer.echo(f"\nRun saved to: {orch.last_run_dir}")
 
 
+@app.command("new-neighbors")
+def new_neighbors(
+    scenario: str = typer.Argument(..., help="Scenario id, e.g. nj11-2026."),
+    seed: int = typer.Option(7, help="Generator seed (the same seed writes the same file)."),
+    per_town: int = typer.Option(None, "--per-town", help="Override the population-scaled count."),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing _neighbors.json files."),
+):
+    """Generate each town's background population (agents/<town>/_neighbors.json)."""
+    from .community.neighbors import write_neighbors
+    from .core.scenario import load_scenario_with_fallback
+
+    sc = load_scenario_with_fallback(scenario)
+    try:
+        paths = write_neighbors(sc, seed=seed, per_town=per_town, force=force)
+    except FileExistsError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    for path in paths:
+        typer.echo(f"wrote {path}")
+    typer.echo(
+        "Neighbors are fictional composites; review the files, then commit them with the scenario."
+    )
+
+
 @app.command()
 def replay(
     run_id: str = typer.Option(None, "--run-id", help="Replay a persisted runs/<run_id>."),

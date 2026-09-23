@@ -1,0 +1,995 @@
+{
+  "seed": 7,
+  "generator_version": 1,
+  "town": "randolph",
+  "neighbors": [
+    {
+      "name": "Mark Hill",
+      "age": 49,
+      "occupation": "Real estate agent",
+      "household": "Married, two kids",
+      "income_bracket": "commission, ~$85k",
+      "language": "English",
+      "political_registration": "independent",
+      "initial_lean": "bond",
+      "top_concerns": [
+        "small businesses hanging on",
+        "the property tax bill",
+        "rent going up again"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": "Commercial Strip",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Commercial Strip",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Commercial Strip",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Randolph Diner",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Commercial Strip",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "michael-\"mike\"-brennan",
+          "type": "regular",
+          "strength": 0.36,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "The price of eggs again.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.64,
+      "persuadability": 0.26,
+      "party_loyalty": 0.36,
+      "issue_weights": {
+        "jobs": 1.0,
+        "taxes": 0.6,
+        "cost-of-living": 0.4
+      }
+    },
+    {
+      "name": "Angela Marino",
+      "age": 78,
+      "occupation": "Retired electrician",
+      "household": "Married, two kids",
+      "income_bracket": "~$40k retirement",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "grocery prices",
+        "whether anyone follows through",
+        "the schools"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Randolph Diner",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Hedden Park",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "tyler-&-megan-hart",
+          "type": "regular",
+          "strength": 0.42,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "amy-roberts",
+          "type": "neighbor",
+          "strength": 0.25,
+          "context": "Both live at Residential Cul-de-sacs"
+        },
+        {
+          "agent": "rachel-campbell",
+          "type": "neighbor",
+          "strength": 0.37,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "Someone left a flyer on the porch.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.93,
+      "persuadability": 0.73,
+      "party_loyalty": 0.77,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "trust": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Chris Carter",
+      "age": 69,
+      "occupation": "Freelance graphic designer",
+      "household": "Married, no kids",
+      "income_bracket": "~$61k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "traffic on the highway",
+        "grocery prices",
+        "the schools"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": "Randolph Diner",
+      "routine_template": "remote",
+      "routine": [
+        {
+          "time": "08:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Logs on from the kitchen table"
+        },
+        {
+          "time": "10:30",
+          "location": "Randolph Diner",
+          "activity": "Coffee shop for a change of scene"
+        },
+        {
+          "time": "12:30",
+          "location": "Hedden Park",
+          "activity": "Lunch walk"
+        },
+        {
+          "time": "14:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Afternoon calls"
+        },
+        {
+          "time": "17:30",
+          "location": "Town Hall",
+          "activity": "Library or an errand"
+        },
+        {
+          "time": "19:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Dinner"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "michael-\"mike\"-brennan",
+          "type": "neighbor",
+          "strength": 0.45,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "chris-nelson",
+          "type": "neighbor",
+          "strength": 0.39,
+          "context": "Both live at Residential Cul-de-sacs"
+        },
+        {
+          "agent": "rachel-campbell",
+          "type": "neighbor",
+          "strength": 0.25,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "The price of eggs again."
+      ],
+      "turnout": 0.79,
+      "persuadability": 0.63,
+      "party_loyalty": 0.08,
+      "issue_weights": {
+        "transit": 1.0,
+        "cost-of-living": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Kevin Phillips",
+      "age": 75,
+      "occupation": "Retired teacher",
+      "household": "Multigenerational household",
+      "income_bracket": "pension",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "the schools",
+        "the morning train",
+        "whether anyone follows through"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Randolph Diner",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Sports Fields",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "vikram-iyer",
+          "type": "acquaintance",
+          "strength": 0.37,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "anjali-mehta",
+          "type": "neighbor",
+          "strength": 0.24,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "The bus was late again.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.76,
+      "persuadability": 0.26,
+      "party_loyalty": 0.12,
+      "issue_weights": {
+        "education": 1.0,
+        "transit": 0.6,
+        "trust": 0.4
+      }
+    },
+    {
+      "name": "Greg Allen",
+      "age": 48,
+      "occupation": "Hospital unit clerk",
+      "household": "Married, two kids",
+      "income_bracket": "~$48k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "the morning train",
+        "politicians who say one thing and do another",
+        "making the paycheck stretch"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": "High School",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "High School",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Randolph Diner",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "High School",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Sports Fields",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "frank-deluca",
+          "type": "neighbor",
+          "strength": 0.43,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "rachel-campbell",
+          "type": "neighbor",
+          "strength": 0.46,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Wonder if the rain holds off."
+      ],
+      "turnout": 0.46,
+      "persuadability": 0.32,
+      "party_loyalty": 0.19,
+      "issue_weights": {
+        "transit": 1.0,
+        "trust": 0.6,
+        "cost-of-living": 0.4
+      }
+    },
+    {
+      "name": "Amy Roberts",
+      "age": 79,
+      "occupation": "Retired electrician",
+      "household": "Married, kids grown",
+      "income_bracket": "~$40k retirement",
+      "language": "English",
+      "political_registration": "independent",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "the morning train",
+        "the schools",
+        "rent going up again"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Randolph Diner",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Hedden Park",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "tony-mancini",
+          "type": "neighbor",
+          "strength": 0.57,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Coffee. Then everything else."
+      ],
+      "turnout": 0.62,
+      "persuadability": 0.45,
+      "party_loyalty": 0.37,
+      "issue_weights": {
+        "transit": 1.0,
+        "education": 0.6,
+        "cost-of-living": 0.4
+      }
+    },
+    {
+      "name": "Emily Phillips",
+      "age": 70,
+      "occupation": "Retired electrician",
+      "household": "Roommates",
+      "income_bracket": "~$40k retirement",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "the cost of prescriptions",
+        "the party line",
+        "the property tax bill"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Randolph Diner",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Sports Fields",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "tony-mancini",
+          "type": "acquaintance",
+          "strength": 0.55,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "Wonder if the rain holds off."
+      ],
+      "turnout": 0.77,
+      "persuadability": 0.5,
+      "party_loyalty": 0.78,
+      "issue_weights": {
+        "healthcare": 1.0,
+        "national": 0.6,
+        "taxes": 0.4
+      }
+    },
+    {
+      "name": "Joe Esposito",
+      "age": 56,
+      "occupation": "Bakery owner",
+      "household": "Multigenerational household",
+      "income_bracket": "~$58k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "health insurance premiums",
+        "getting to work without a car",
+        "the next reassessment"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": "Randolph Diner",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Randolph Diner",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Randolph Diner",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Randolph Diner",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Randolph Diner",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "vikram-iyer",
+          "type": "neighbor",
+          "strength": 0.56,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "kevin-phillips",
+          "type": "neighbor",
+          "strength": 0.4,
+          "context": "Both live at Residential Cul-de-sacs"
+        },
+        {
+          "agent": "amy-roberts",
+          "type": "neighbor",
+          "strength": 0.22,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "Did I lock the back door?",
+        "The bus was late again."
+      ],
+      "turnout": 0.56,
+      "persuadability": 0.49,
+      "party_loyalty": 0.1,
+      "issue_weights": {
+        "healthcare": 1.0,
+        "transit": 0.6,
+        "taxes": 0.4
+      }
+    },
+    {
+      "name": "Chris Nelson",
+      "age": 64,
+      "occupation": "Retired teacher",
+      "household": "Single parent of one",
+      "income_bracket": "pension",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "politicians who say one thing and do another",
+        "whether the plant keeps hiring",
+        "college costs for the kids"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Randolph Diner",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Sports Fields",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Town Hall",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "michael-\"mike\"-brennan",
+          "type": "neighbor",
+          "strength": 0.51,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "kevin-phillips",
+          "type": "neighbor",
+          "strength": 0.4,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "The price of eggs again.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.67,
+      "persuadability": 0.52,
+      "party_loyalty": 0.45,
+      "issue_weights": {
+        "trust": 1.0,
+        "jobs": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Rachel Campbell",
+      "age": 69,
+      "occupation": "Barber",
+      "household": "Multigenerational household",
+      "income_bracket": "~$45k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "families afraid to open the door",
+        "traffic on the highway",
+        "keeping the clinic open"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": "Randolph Diner",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Randolph Diner",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Randolph Diner",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Randolph Diner",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Randolph Diner",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "frank-deluca",
+          "type": "acquaintance",
+          "strength": 0.6,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "angela-marino",
+          "type": "neighbor",
+          "strength": 0.36,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "Coffee. Then everything else.",
+        "The price of eggs again."
+      ],
+      "turnout": 0.68,
+      "persuadability": 0.32,
+      "party_loyalty": 0.35,
+      "issue_weights": {
+        "immigration": 1.0,
+        "transit": 0.6,
+        "healthcare": 0.4
+      }
+    },
+    {
+      "name": "Chris Allen",
+      "age": 72,
+      "occupation": "Paralegal",
+      "household": "Multigenerational household",
+      "income_bracket": "~$72k",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "the party line",
+        "rent going up again",
+        "getting to work without a car"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": "dover: Factory",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Sports Fields",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "dover: Factory",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Hedden Park",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Randolph Diner",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "michael-\"mike\"-brennan",
+          "type": "regular",
+          "strength": 0.53,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "greg-allen",
+          "type": "neighbor",
+          "strength": 0.24,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.35,
+      "persuadability": 0.25,
+      "party_loyalty": 0.61,
+      "issue_weights": {
+        "national": 1.0,
+        "cost-of-living": 0.6,
+        "transit": 0.4
+      }
+    },
+    {
+      "name": "Anjali Mehta",
+      "age": 71,
+      "occupation": "Bakery owner",
+      "household": "Married, two kids",
+      "income_bracket": "~$58k",
+      "language": "English and Gujarati",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "the national mood",
+        "making the paycheck stretch",
+        "whether the plant keeps hiring"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": "Randolph Diner",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Randolph Diner",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Randolph Diner",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Randolph Diner",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Randolph Diner",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "vikram-iyer",
+          "type": "acquaintance",
+          "strength": 0.54,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "mark-hill",
+          "type": "neighbor",
+          "strength": 0.28,
+          "context": "Both live at Residential Cul-de-sacs"
+        },
+        {
+          "agent": "kevin-phillips",
+          "type": "neighbor",
+          "strength": 0.34,
+          "context": "Both live at Residential Cul-de-sacs"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.59,
+      "persuadability": 0.43,
+      "party_loyalty": 0.79,
+      "issue_weights": {
+        "national": 1.0,
+        "cost-of-living": 0.6,
+        "jobs": 0.4
+      }
+    },
+    {
+      "name": "Lin Huang",
+      "age": 48,
+      "occupation": "Landscaping crew lead",
+      "household": "Married, kids grown",
+      "income_bracket": "~$44k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "steady work close to home",
+        "how ICE enforcement is landing on neighbours",
+        "what the town does with our taxes"
+      ],
+      "home": "Residential Cul-de-sacs",
+      "workplace": "Hedden Park",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Hedden Park",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Randolph Diner",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Hedden Park",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Hedden Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Cul-de-sacs",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "tony-mancini",
+          "type": "neighbor",
+          "strength": 0.51,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "The price of eggs again.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.77,
+      "persuadability": 0.21,
+      "party_loyalty": 0.04,
+      "issue_weights": {
+        "jobs": 1.0,
+        "immigration": 0.6,
+        "taxes": 0.4
+      }
+    }
+  ]
+}

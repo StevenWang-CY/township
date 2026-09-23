@@ -149,6 +149,9 @@ def agent_state_to_wire(
         "routine": list(s.definition.routine),
         "top_concerns": list(s.definition.top_concerns),
         "relationships": relationships,
+        # ── additive: voices speak through the model, neighbors live in the ledger ──
+        "tier": getattr(s.definition, "tier", "voice"),
+        "home_town": town,
     }
 
 
@@ -194,6 +197,7 @@ def town_summary_to_wire(s: TownSummary) -> dict:
         "notable_conversations": list(s.notable_conversations),
         "failed_agents": s.failed_agents,
         "election": s.election,
+        "by_tier": dict(s.by_tier),
     }
 
 

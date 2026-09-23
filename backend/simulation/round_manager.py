@@ -5,6 +5,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 
+from ..community import grammar
 from ..core.event_bus import EventBus
 from ..core.scenario import RoundSpec, Scenario, validate_stance
 from ..core.types import (
@@ -42,11 +43,12 @@ logger = logging.getLogger(__name__)
 class _AdHocNews:
     """A headline with no scenario entry (God's View, tests): no authored effects."""
 
-    def __init__(self, headline: str, description: str = "") -> None:
+    def __init__(self, headline: str, description: str = "", *, neutral: bool = False) -> None:
         self.headline = headline
         self.description = description
         self.effects: list = []
         self.towns: list = []
+        self.neutral = neutral  # procedural coverage: no keyword fallback push
 
 
 def clip_text(text: str, limit: int) -> str:
@@ -76,6 +78,7 @@ class RoundManager:
         anthropic_client,
         event_bus: EventBus,
         scenario: Scenario,
+        total_days: int | None = None,
     ):
         self.client = anthropic_client
         self.event_bus = event_bus
@@ -91,6 +94,7 @@ class RoundManager:
         self._draws = 0
         # Model II: the engine-side influence ledger and its attribution.
         self.model = InfluenceModel(scenario)
+        self.total_days = total_days  # campaign length in days, when the run has a calendar
         # Providers that render from the ledger prior (the mock) get it as a
         # kwarg; every other provider keeps the plain contract.
         self._prior_capable = bool(getattr(anthropic_client, "supports_engine_prior", False))
@@ -116,6 +120,16 @@ class RoundManager:
 
     def _tools(self, names: list[str]) -> list[dict]:
         return [self._tool_registry[n] for n in names if n in self._tool_registry]
+
+    @staticmethod
+    def _is_voice(agent: AgentState) -> bool:
+        """Voices speak through the model; neighbors live in the ledger only."""
+        return getattr(agent.definition, "tier", "voice") == "voice"
+
+    def _label(self, stance: str | None) -> str | None:
+        if not stance or stance == self.scenario.undecided_id:
+            return None
+        return self.scenario.option_label.get(stance, stance)
 
     async def _call(self, *, prior: dict | None = None, **kwargs) -> dict:
         """call_agent, passing the ledger prior only to providers that declare support."""
@@ -191,6 +205,28 @@ class RoundManager:
         # Build town summary
         return self._build_town_summary(town, agent_states, total_conversations, num_rounds)
 
+    ATTENTION_FLOOR = 0.7
+    ATTENTION_CEILING = 1.3
+    LATE_DECIDER_WINDOW = 0.2  # the last fifth of the calendar
+
+    def _days_left_frac(self) -> float:
+        """Fraction of the campaign still ahead (1.0 without a calendar)."""
+        if not self.total_days or self.total_days <= 1:
+            return 1.0
+        progress = (self.model.attention - self.ATTENTION_FLOOR) / (
+            self.ATTENTION_CEILING - self.ATTENTION_FLOOR
+        )
+        return max(0.0, min(1.0, 1.0 - progress))
+
+    def _attention_for(self, spec: RoundSpec) -> float:
+        """Campaign attention: quiet early weeks, a final week where the same
+        argument lands harder — the late-decider effect, without deciding for
+        anyone. 1.0 when the run has no calendar."""
+        if not spec.day or not self.total_days or self.total_days <= 1:
+            return 1.0
+        progress = min(1.0, max(0.0, (spec.day - 1) / (self.total_days - 1)))
+        return self.ATTENTION_FLOOR + (self.ATTENTION_CEILING - self.ATTENTION_FLOOR) * progress
+
     async def run_town_round(
         self,
         town: str,
@@ -206,6 +242,7 @@ class RoundManager:
         ``run_town_simulation`` remains the convenient standalone wrapper.
         """
         round_num = spec.round
+        self.model.attention = self._attention_for(spec)
         await self.event_bus.publish(
             RoundStartedEvent(
                 round=round_num,
@@ -368,6 +405,10 @@ class RoundManager:
                     )
                 )
 
+            if not self._is_voice(agent):
+                await self._seed_neighbor(agent, round_num, seed_ref)
+                return
+
             # Ask agent to form initial opinion
             system_prompt = self._build_agent_system_prompt(agent, round_num=round_num)
             messages = [
@@ -431,6 +472,8 @@ class RoundManager:
                         seed_ref,
                         note="where I start from",
                     )
+                    # The stated starting point is the persona's anchor from here on.
+                    agent.beliefs.anchor = dict(agent.beliefs.utilities)
                     agent.beliefs.last_reflection_round = round_num
                 await self.event_bus.publish(
                     OpinionChangedEvent(
@@ -484,9 +527,83 @@ class RoundManager:
                     )
                 )
 
+    async def _seed_neighbor(self, agent: AgentState, round_num: int, seed_ref: str) -> None:
+        """A neighbor's first opinion is the ledger's read-out — no model call.
+        The drawn lean is the authored prior (the town's lean mix), so the
+        ledger adopts it the way it adopts a voice's stated stance, and the
+        persona anchor is that starting point."""
+        self.model.adopt_stance(
+            agent.beliefs,
+            agent.definition.initial_lean,
+            round_num,
+            seed_ref,
+            note="where I start from",
+            soft=agent.beliefs.traits.get("party_loyalty", 0.0) < 0.2,
+        )
+        agent.beliefs.anchor = dict(agent.beliefs.utilities)
+        r = self.model.readout(agent.beliefs)
+        undecided = r.stance == self.scenario.undecided_id
+        opinion = Opinion(
+            candidate=r.stance,
+            confidence=r.confidence,
+            reasoning="Starting out undecided."
+            if undecided
+            else f"Starting out leaning {self._label(r.stance)}.",
+            top_issues=agent.definition.top_concerns[:3],
+            round_number=round_num,
+        )
+        agent.opinions.append(opinion)
+        agent.remember(
+            "seed",
+            round_num,
+            f"Round {round_num}: Formed initial opinion - leaning {opinion.candidate} "
+            f"(confidence: {opinion.confidence}%). Reasoning: {opinion.reasoning}",
+            refs=[seed_ref],
+            salience=0.4,
+        )
+        agent.beliefs.last_reflection_round = round_num
+        self.model.note_readout(agent.beliefs, opinion.candidate)
+        agent.state = CivicAgentState.IDLE
+        await self.event_bus.publish(
+            OpinionChangedEvent(
+                agent_id=agent.agent_id,
+                agent_name=agent.definition.name,
+                town=agent.definition.town,
+                old_opinion=None,
+                new_opinion=opinion,
+                round=round_num,
+                trigger=OpinionTrigger(kind="seed"),
+                influences=[
+                    InfluenceRef(
+                        kind="persona",
+                        ref=seed_ref,
+                        direction="toward",
+                        weight=1.0,
+                        note="where I start from",
+                    )
+                ],
+                reason=opinion.reasoning,
+            )
+        )
+
+    NEIGHBOR_TALK_RATE = 0.5
+
+    def _talkers(self, agents: list[AgentState], round_num: int) -> list[AgentState]:
+        """Who has a political conversation this beat: every voice, and about
+        half the neighbors — most people don't talk politics three times a day."""
+        if not agents:
+            return []
+        rng = self._rng("talkers", agents[0].definition.town, round_num)
+        out = []
+        for a in sorted(agents, key=lambda a: a.agent_id):
+            if self._is_voice(a) or rng.random() < self.NEIGHBOR_TALK_RATE:
+                out.append(a)
+        return out
+
     async def _run_conversation_round(self, agents: list[AgentState], round_num: int) -> int:
         """Pair agents randomly, run discussions at town locations. Returns number of conversations."""
-        pairs = self._random_pairs(agents, count=max(1, len(agents) // 2), round_num=round_num)
+        pool = self._talkers(agents, round_num)
+        pairs = self._random_pairs(pool, count=max(1, len(pool) // 2), round_num=round_num)
         logger.info(f"Running conversation round {round_num} with {len(pairs)} pairs")
 
         tasks = []
@@ -498,6 +615,8 @@ class RoundManager:
 
     async def _run_conversation(self, agent_a: AgentState, agent_b: AgentState, round_num: int):
         """Run a 3-exchange conversation between two agents."""
+        if not (self._is_voice(agent_a) and self._is_voice(agent_b)):
+            return await self._run_templated_conversation(agent_a, agent_b, round_num)
         town = agent_a.definition.town
         location = self._meeting_place(
             town, agent_a, agent_b, self._round_clock.get(town), round_num
@@ -730,6 +849,248 @@ class RoundManager:
         except Exception:  # pragma: no cover — defensive
             pass
 
+    # ── Neighbors: templated exchanges (no model) ──────────────────────
+
+    SPEECH_RATE_MIXED = 0.35
+    SPEECH_RATE_NEIGHBOR = 0.15
+
+    async def _run_templated_conversation(
+        self, agent_a: AgentState, agent_b: AgentState, round_num: int
+    ) -> None:
+        """A conversation involving at least one neighbor: three grammar lines,
+        every one landing on the listener's ledger; speech reaches the wire at a
+        sampled rate so the town murmurs instead of shouting. A voice in the
+        pair gets conversation_started/ended so the scene can stage it."""
+        town = agent_a.definition.town
+        any_voice = self._is_voice(agent_a) or self._is_voice(agent_b)
+        location = self._meeting_place(
+            town, agent_a, agent_b, self._round_clock.get(town), round_num
+        )
+        for agent in (agent_a, agent_b):
+            if agent.current_location != location:
+                landmark = self._get_landmark(town, location)
+                await self.event_bus.publish(
+                    AgentMovedEvent(
+                        agent_id=agent.agent_id,
+                        agent_name=agent.definition.name,
+                        town=town,
+                        from_location=agent.current_location,
+                        to_location=location,
+                        x=(landmark.get("x", 400) if landmark else 400)
+                        + (-30 if agent is agent_a else 30),
+                        y=landmark.get("y", 300) if landmark else 300,
+                    )
+                )
+                agent.current_location = location
+        topic = self._pick_topic(agent_a, agent_b, town, round_num)
+        convo_id = uuid.uuid4().hex[:8]
+        conv_ref = f"conv:{convo_id}"
+        rate = self.SPEECH_RATE_MIXED if any_voice else self.SPEECH_RATE_NEIGHBOR
+        rng = self._rng(f"templated:{agent_a.agent_id}:{agent_b.agent_id}", town, round_num)
+        if any_voice:
+            await self.event_bus.publish(
+                ConversationStartedEvent(
+                    conversation=Conversation(
+                        id=convo_id,
+                        participants=[agent_a.agent_id, agent_b.agent_id],
+                        participant_names=[agent_a.definition.name, agent_b.definition.name],
+                        town=town,
+                        location=location,
+                        topic=topic,
+                        summary="",
+                        round=round_num,
+                        timestamp=datetime.now(UTC).isoformat(),
+                    )
+                )
+            )
+        relationship = self._relationship_strength(agent_a, agent_b)
+        partner_stances: dict[str, str] = {}
+        sentiments: dict[str, str] = {}
+        takeaways: dict[str, str] = {}
+        dialogue: list[str] = []
+        undecided_id = self.scenario.undecided_id
+        turns = ((agent_a, agent_b), (agent_b, agent_a), (agent_a, agent_b))
+        for i, (speaker, listener) in enumerate(turns):
+            s_stance = (
+                speaker.current_opinion.candidate if speaker.current_opinion else undecided_id
+            )
+            l_stance = (
+                listener.current_opinion.candidate if listener.current_opinion else undecided_id
+            )
+            partner_stances[speaker.agent_id] = s_stance
+            undecided = s_stance == undecided_id
+            line, sentiment, takeaway = grammar.speak(
+                speaker_name=speaker.definition.name,
+                speaker_language=speaker.definition.language,
+                speaker_occupation=speaker.definition.occupation,
+                listener_name=listener.definition.name,
+                topic=topic,
+                stance_label=self._label(s_stance),
+                listener_stance_label=self._label(l_stance),
+                undecided=undecided,
+                agree=(s_stance == l_stance and not undecided),
+                seed=f"{self.scenario.id}|{convo_id}|{i}",
+            )
+            sentiments[speaker.agent_id] = sentiment
+            takeaways[speaker.definition.name] = takeaway
+            dialogue.append(f"{speaker.definition.name}: {line}")
+            entry = self.model.apply_exchange(
+                listener,
+                speaker,
+                topic,
+                round_num,
+                conv_ref,
+                relationship=relationship,
+                # a neighbor's grammar line is small talk, not a voice making a case
+                kappa=1.0 if self._is_voice(speaker) else 0.7,
+                salience=self.salience_for(town),
+            )
+            self._note_topic(town, topic, 0.5)
+            moved = abs(entry.delta) if entry else 0.0
+            speaker.remember(
+                "conversation",
+                round_num,
+                f"Round {round_num}: Talked with {listener.definition.name} at {location} about {topic}. {takeaway}",
+                refs=[conv_ref],
+                salience=0.4,
+            )
+            listener.remember(
+                "conversation",
+                round_num,
+                f"Round {round_num}: {speaker.definition.name} ({s_stance}) said at {location}: {clip_text(line, 120)}",
+                refs=[conv_ref],
+                salience=min(1.0, 0.4 + moved * 2),
+            )
+            if self._is_voice(speaker) or rng.random() < rate:
+                await self.event_bus.publish(
+                    AgentSpeechEvent(
+                        agent_id=speaker.agent_id,
+                        agent_name=speaker.definition.name,
+                        town=town,
+                        text=clip_text(line, 150),
+                        location=location,
+                        sentiment=sentiment,  # type: ignore[arg-type]
+                    )
+                )
+        convo = ConversationRecord(
+            agents=[agent_a.agent_id, agent_b.agent_id],
+            location=location,
+            topic=topic,
+            dialogue="\n".join(dialogue),
+            key_takeaways=takeaways,
+            round_number=round_num,
+            id=convo_id,
+            partner_stances=partner_stances,
+            sentiments=sentiments,
+        )
+        agent_a.conversations.append(convo)
+        agent_b.conversations.append(convo)
+        stances = set(partner_stances.values())
+        self._grow_relationship(agent_a, agent_b, len(stances) == 1 and undecided_id not in stances)
+        if any_voice:
+            await self.event_bus.publish(
+                ConversationEndedEvent(
+                    conversation_id=convo_id, summary=clip_text("; ".join(takeaways.values()), 200)
+                )
+            )
+
+    async def _neighbor_news(
+        self, agent: AgentState, news: dict, round_num: int, speak: bool
+    ) -> None:
+        """A headline lands on a neighbor's ledger; one neighbor per town says a line."""
+        news_id = news.get("id") or clip_text(news["headline"], 24).lower().replace(" ", "-")
+        news_ref = f"news:{news_id}"
+        item = self.scenario.news_by_id.get(news.get("id", "")) or _AdHocNews(
+            news["headline"], news.get("description", ""), neutral=bool(news.get("neutral"))
+        )
+        town = agent.definition.town
+        entries, derived = self.model.apply_news(
+            agent, item, round_num, news_ref, salience=self.salience_for(town)
+        )
+        self._note_topic(town, news["headline"], 1.0)
+        moved = sum(abs(e.delta) for e in entries)
+        agent.remember(
+            "news",
+            round_num,
+            f"Round {round_num}: Heard news '{news['headline']}'. Impact: {derived['impact_on_vote']}.",
+            refs=[news_ref],
+            salience=min(1.0, 0.35 + moved * 2),
+        )
+        if not speak:
+            return
+        concern = agent.definition.top_concerns[0] if agent.definition.top_concerns else "all of it"
+        line = grammar.react(
+            name=agent.definition.name,
+            language=agent.definition.language,
+            headline=news["headline"],
+            impact=derived["impact_on_vote"],
+            emotion=derived["emotional_response"],
+            concern=concern,
+            seed=f"{self.scenario.id}|{news_ref}|{agent.agent_id}",
+        )
+        emotion = derived["emotional_response"]
+        sentiment = (
+            "negative"
+            if emotion in ("angry", "anxious")
+            else ("positive" if emotion == "hopeful" else "neutral")
+        )
+        await self.event_bus.publish(
+            AgentSpeechEvent(
+                agent_id=agent.agent_id,
+                agent_name=agent.definition.name,
+                town=town,
+                text=clip_text(line, 150),
+                location=agent.current_location,
+                sentiment=sentiment,  # type: ignore[arg-type]
+            )
+        )
+
+    async def _neighbor_opinion(self, agent: AgentState, round_num: int, *, reflect: bool) -> None:
+        """The ledger's read-out becomes the neighbor's opinion; the wire hears
+        about it only on a change of mind or a real swing in confidence."""
+        if agent.beliefs is None:
+            return
+        before = agent.current_opinion
+        r = self.model.readout(agent.beliefs)
+        since = agent.beliefs.last_reflection_round + 1
+        changed = before is None or before.candidate != r.stance
+        swing = before is not None and abs(before.confidence - r.confidence) >= 10
+        label = self._label(r.stance)
+        lean = f"Leaning {label}" if label else "Still undecided"
+        opinion = Opinion(
+            candidate=r.stance,
+            confidence=r.confidence,
+            reasoning=f"{lean} after this week." if reflect else f"{lean}.",
+            top_issues=agent.definition.top_concerns[:3],
+            round_number=round_num,
+        )
+        influences = attribution.from_ledger(agent, since, r.stance)
+        agent.beliefs.last_reflection_round = round_num
+        self.model.note_readout(agent.beliefs, r.stance)
+        if not (changed or swing):
+            return
+        agent.opinions.append(opinion)
+        top = influences[0] if influences else None
+        trigger = (
+            OpinionTrigger(kind="reflection")
+            if reflect or top is None
+            else self._trigger_for(influences, "reflection", agent)
+        )
+        await self.event_bus.publish(
+            OpinionChangedEvent(
+                agent_id=agent.agent_id,
+                agent_name=agent.definition.name,
+                town=agent.definition.town,
+                old_opinion=before,
+                new_opinion=opinion,
+                round=round_num,
+                trigger=trigger,
+                influences=influences,
+                reason=(top.note[:160] if top and top.note else opinion.reasoning),
+                delta_confidence=(opinion.confidence - before.confidence) if before else None,
+            )
+        )
+
     # ── Long-run dynamics at the beat boundary ─────────────────────────
 
     def _note_topic(self, town: str, text: str, weight: float) -> None:
@@ -830,6 +1191,7 @@ class RoundManager:
         )
         news = {
             "id": f"result-{spec.day or spec.round}",
+            "neutral": True,
             "headline": headline,
             "description": f"The count: {tally}. Turnout {round(election.get('turnout', 0) * 100)}%.",
             "towns": [],
@@ -941,8 +1303,27 @@ class RoundManager:
             )
 
             tasks = []
+            neighbors = sorted(
+                a.agent_id
+                for a in agents
+                if not self._is_voice(a) and a.state != CivicAgentState.ERROR
+            )
+            host = agents[0].definition.town if agents else "*"
+            news_key = news.get("id") or news["headline"][:16]
+            speaker_id = (
+                self._rng(f"news-voice:{news_key}", host, round_num).choice(neighbors)
+                if neighbors
+                else None
+            )
             for agent in agents:
-                tasks.append(self._react_to_news(agent, news, round_num))
+                if self._is_voice(agent):
+                    tasks.append(self._react_to_news(agent, news, round_num))
+                else:
+                    tasks.append(
+                        self._neighbor_news(
+                            agent, news, round_num, speak=(agent.agent_id == speaker_id)
+                        )
+                    )
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _react_to_news(self, agent: AgentState, news: dict, round_num: int):
@@ -953,7 +1334,9 @@ class RoundManager:
             news_ref = f"news:{news_id}"
             item = self.scenario.news_by_id.get(news.get("id", ""))
             if item is None:
-                item = _AdHocNews(news["headline"], news.get("description", ""))
+                item = _AdHocNews(
+                    news["headline"], news.get("description", ""), neutral=bool(news.get("neutral"))
+                )
             entries, derived = self.model.apply_news(
                 agent, item, round_num, news_ref, salience=self.salience_for(agent.definition.town)
             )
@@ -1057,10 +1440,21 @@ class RoundManager:
         logger.info(f"Running opinion round {round_num}{' (reflect)' if reflect else ''}")
 
         tasks = []
+        days_left_frac = self._days_left_frac()
         for agent in agents:
             if agent.ballot is not None:
                 continue  # stances freeze once the ballot is in
-            tasks.append(self._form_opinion(agent, round_num, reflect=reflect))
+            if agent.beliefs is not None and days_left_frac <= self.LATE_DECIDER_WINDOW:
+                self.model.deadline_nudge(
+                    agent.beliefs,
+                    round_num,
+                    self._rng(f"deadline:{agent.agent_id}", agent.definition.town, round_num),
+                    days_left_frac,
+                )
+            if self._is_voice(agent):
+                tasks.append(self._form_opinion(agent, round_num, reflect=reflect))
+            else:
+                tasks.append(self._neighbor_opinion(agent, round_num, reflect=reflect))
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _form_opinion(self, agent: AgentState, round_num: int, *, reflect: bool = False):
@@ -1609,6 +2003,12 @@ class RoundManager:
                 weight = 1.0
                 weight += 2.0 * self._relationship_strength(a, b)
                 weight += 0.5 * len(shared)
+                if self._is_voice(a) and self._is_voice(b):
+                    weight += 1.0  # the model's airtime goes to voice–voice pairs first
+                sa = a.current_opinion.candidate if a.current_opinion else None
+                sb = b.current_opinion.candidate if b.current_opinion else None
+                if sa and sa == sb and sa != self.scenario.undecided_id:
+                    weight += 0.8  # homophily: politics gets talked about among the like-minded
                 if self._recently_paired(town, key, round_num):
                     weight -= 1.5
                 weight += 0.5 * rng.random()
@@ -1830,7 +2230,19 @@ class RoundManager:
             election=self._election_for(agents, opinion_dist),
             notable_conversations=self._notable_conversations(agents),
             consensus_points=self._consensus_points(agents),
+            by_tier=self._by_tier(agents),
         )
+
+    def _by_tier(self, agents: list[AgentState]) -> dict[str, dict[str, int]]:
+        """Stance counts per tier so voices stay separable from the background."""
+        out: dict[str, dict[str, int]] = {}
+        undecided = self.scenario.undecided_id
+        for a in agents:
+            tier = getattr(a.definition, "tier", "voice")
+            bucket = out.setdefault(tier, dict.fromkeys(self.scenario.valid_stance_ids, 0))
+            c = a.current_opinion.candidate if a.current_opinion else undecided
+            bucket[c] = bucket.get(c, 0) + 1
+        return out
 
     def _election_for(self, agents: list[AgentState], opinion_dist: dict[str, int]) -> dict:
         """Ballot tally when ballots were cast, else the standing straw poll."""

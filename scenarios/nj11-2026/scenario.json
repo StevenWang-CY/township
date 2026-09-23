@@ -113,12 +113,7 @@
         {
           "issue": "healthcare",
           "option": "hathaway",
-          "delta": -0.6
-        },
-        {
-          "issue": "national",
-          "option": "hathaway",
-          "delta": -0.2
+          "delta": -0.4
         }
       ],
       "towns": []
@@ -152,12 +147,12 @@
         {
           "issue": "taxes",
           "option": "hathaway",
-          "delta": 0.5
+          "delta": 0.6
         },
         {
           "issue": "taxes",
           "option": "mejia",
-          "delta": -0.2
+          "delta": -0.3
         }
       ],
       "towns": [
@@ -171,14 +166,16 @@
       "headline": "Candidates Meet in a Televised NJ-11 Debate",
       "description": "The three candidates traded positions on healthcare subsidies, immigration enforcement and property taxes in a debate broadcast across the district. Reported exchanges are summarized in the campaign's debate notes.",
       "effects": [],
-      "towns": []
+      "towns": [],
+      "neutral": true
     },
     {
       "id": "early-voting-opens",
       "headline": "Early Voting Opens Across Morris County",
       "description": "Polling sites for early voting are open through April 14, with the special election on April 16. County officials expect steady turnout at libraries and municipal buildings.",
       "effects": [],
-      "towns": []
+      "towns": [],
+      "neutral": true
     },
     {
       "id": "commuter-service-changes",
@@ -210,7 +207,12 @@
         {
           "issue": "taxes",
           "option": "hathaway",
-          "delta": 0.3
+          "delta": 0.4
+        },
+        {
+          "issue": "taxes",
+          "option": "mejia",
+          "delta": -0.1
         }
       ],
       "towns": [

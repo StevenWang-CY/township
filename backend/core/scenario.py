@@ -321,6 +321,9 @@ class NewsItem(BaseModel):
     effects: list[NewsEffectSpec] = Field(default_factory=list)
     # Empty = district-wide; otherwise only these towns' residents react.
     towns: list[str] = Field(default_factory=list)
+    # Procedural coverage (a debate is tonight, early voting opens, the result):
+    # residents react, but no keyword fallback nudges anyone's ledger.
+    neutral: bool = False
 
     @field_validator("id", "headline", "description")
     @classmethod
@@ -1478,6 +1481,25 @@ def load_scenario(scenario_dir: Path | str) -> Scenario:
                     label=f"persona file {persona_file.name!r}",
                 )
         agents = load_all_agents(str(agents_dir))
+    # Generated neighbors (committed scenario data, never generated at load).
+    if agents_dir.is_dir():
+        from ..community.neighbors import NEIGHBORS_FILENAME, load_neighbors_file
+
+        class _Stub:  # the minimum the neighbor loader needs before Scenario exists
+            def __init__(self, cfg, towns_, agents_, issues_):
+                self.config = cfg
+                self.towns = towns_
+                self.agents = agents_
+                self.issues = issues_
+                self.undecided_id = cfg.undecided.id
+                self.scenario_dir = scenario_dir
+
+        stub = _Stub(config, towns, agents, list(config.issues))
+        for town_dir in sorted(path for path in agents_dir.iterdir() if path.is_dir()):
+            nb_path = town_dir / NEIGHBORS_FILENAME
+            if nb_path.is_file() and not nb_path.is_symlink():
+                agents.setdefault(town_dir.name, [])
+                agents[town_dir.name].extend(load_neighbors_file(nb_path, town_dir.name, stub))
     validate_agent_ids(agents)
     _validate_scenario_references(config, scenario_dir, towns, agents)
     _validate_agent_leans(config, agents)

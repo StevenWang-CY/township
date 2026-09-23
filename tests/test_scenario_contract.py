@@ -77,8 +77,14 @@ def test_nj11_scenario_loads_and_matches_legacy_behavior():
     assert s.config.weather_schedule == ["clear", "cloudy", "rain", "clear", "snow"]
     assert s.config.gossip_rounds == [2, 3]
 
-    # 26 agents across 4 towns.
-    assert sum(len(v) for v in s.agents.values()) == 26
+    # 26 hand-written voices across 4 towns; the committed neighbors files add
+    # the generated background population (12–18 per town) behind them.
+    voices = [d for v in s.agents.values() for d in v if d.tier == "voice"]
+    neighbors = [d for v in s.agents.values() for d in v if d.tier == "neighbor"]
+    assert len(voices) == 26
+    assert len(neighbors) == 58
+    assert all(d.tools == [] for d in neighbors)
+    assert all(d.tools for d in voices)
 
     # The full context briefing renders options + debate + logistics extras.
     ctx = s.build_full_context()

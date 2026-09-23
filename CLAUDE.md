@@ -17,10 +17,11 @@ when recap generation succeeds; completed artifacts are served via `/api/runs`.
 |------|------------------|
 | `backend/core/` | Pydantic types, scenario loader (`scenario.py`), persona loader, event bus, wire DTOs (`wire.py`), atomic JSON persistence (`storage.py`) |
 | `backend/simulation/` | `round_manager.py` (the core loop), `orchestrator.py` (multi-town parallel + run persistence), `influence.py` (the deterministic influence ledger every opinion change cites), `attribution.py` (reflection digests + citation validation), `recap.py`, `replay.py` |
+| `backend/community/` | The neighbors tier: `neighbors.py` generates each town's background residents (`township new-neighbors`, output committed as `scenarios/<id>/agents/<town>/_neighbors.json`, never generated at load), `grammar.py` voices their templated lines, `defaults.json` holds the generic pools |
 | `backend/providers/` | `base.py` interface, `factory.py` selection, bedrock / anthropic / openai-compat / mock backends |
 | `backend/routes/` | REST + WS routers: simulation, chat, gods_view, scenario, towns, journal, runs, transcribe, tts |
 | `backend/cli.py` | The `township` CLI (Typer): serve, run, replay, scenarios, new-scenario, new-agent |
-| `scenarios/<id>/` | `scenario.json`, `towns/*.json`, `options/*.json`, `agents/<town>/*.md`, `context/*.json`, `god-scenarios.json` |
+| `scenarios/<id>/` | `scenario.json`, `towns/*.json`, `options/*.json`, `agents/<town>/*.md` (voices) + `agents/<town>/_neighbors.json` (generated neighbors), `community.json` (per-town lean/name mixes), `context/*.json`, `god-scenarios.json` |
 | `frontend/src/game/` | Phaser: `TownScene.ts`, `AgentSprite.ts`, `NavGrid.ts` (A* paths), `Conversations.ts` (choreography), `DayPart.ts`, `CivicLayer.ts` (election dressing), `SceneAmbience.ts`, world clock, weather |
 | `frontend/src/components/`, `hooks/`, `lib/` | React UI (TownView, Dashboard, GodsView, ChatPanel), the WS/REST hooks, and pure helpers (`lib/stance.ts` confidence tiers, `lib/election.ts` phase resolution) |
 | `scripts/mapgen/` | Named-GID tile registry + validators for the vendored ai-town tileset |

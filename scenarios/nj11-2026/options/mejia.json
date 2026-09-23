@@ -74,13 +74,13 @@
   ],
   "alignment": {
     "healthcare": 1.0,
-    "immigration": 1.0,
-    "taxes": 0.0,
-    "cost-of-living": 0.9,
-    "jobs": 0.5,
-    "transit": 0.8,
+    "immigration": 0.9,
     "education": 0.9,
+    "transit": 0.7,
+    "cost-of-living": 0.6,
+    "jobs": 0.4,
     "trust": 0.2,
-    "national": -0.8
+    "national": -0.6,
+    "taxes": -0.7
   }
 }

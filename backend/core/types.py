@@ -2,7 +2,7 @@ import re
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _CLOCK_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
 
@@ -26,8 +26,9 @@ class AgentDefinition(BaseModel):
     political_registration: str
     initial_lean: str
     top_concerns: list[str] = Field(min_length=1, max_length=20)
+    # Voices need at least one tool; neighbors (tier "neighbor") carry none.
     tools: list[Literal["Discuss", "FormOpinion", "ReactToNews", "ClassifyInteraction"]] = Field(
-        min_length=1
+        default_factory=list
     )
     # Optional per-resident pin. When omitted, the active provider's configured
     # default wins (for example OPENAI_MODEL or BEDROCK_MODEL_ID).
@@ -61,6 +62,12 @@ class AgentDefinition(BaseModel):
     # "voice" personas speak through the LLM; "neighbor" residents (generated
     # background population) live entirely in the influence model.
     tier: Literal["voice", "neighbor"] = "voice"
+
+    @model_validator(mode="after")
+    def _voices_have_tools(self) -> "AgentDefinition":
+        if self.tier == "voice" and not self.tools:
+            raise ValueError("a voice persona needs at least one tool")
+        return self
 
     @field_validator(
         "name",
@@ -626,6 +633,8 @@ class TownSummary(BaseModel):
     notable_conversations: list[str] = Field(default_factory=list)
     # issues most residents rank at the top
     consensus_points: list[str] = Field(default_factory=list)
+    # stance counts per tier ("voice" / "neighbor") — voices stay separable
+    by_tier: dict[str, dict[str, int]] = Field(default_factory=dict)
 
 
 class DistrictSummary(BaseModel):

@@ -1,0 +1,1411 @@
+{
+  "seed": 7,
+  "generator_version": 1,
+  "town": "harlow-crossing",
+  "neighbors": [
+    {
+      "name": "Frank Bruno",
+      "age": 26,
+      "occupation": "Community college student",
+      "household": "Multigenerational household",
+      "income_bracket": "part-time wages",
+      "language": "English",
+      "political_registration": "invest",
+      "initial_lean": "greenway",
+      "top_concerns": [
+        "empty storefronts downtown",
+        "what makes this place itself",
+        "one-time money"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Firehouse",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Fairview Subdivision",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Community Fields",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "Community Fields",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Harlow Firehouse",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Community Fields",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Fairview Subdivision",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "walt-hagen",
+          "type": "acquaintance",
+          "strength": 0.41,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "mark-nelson",
+          "type": "neighbor",
+          "strength": 0.33,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "The price of eggs again.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.36,
+      "persuadability": 0.36,
+      "party_loyalty": 0.49,
+      "issue_weights": {
+        "development": 1.0,
+        "heritage": 0.6,
+        "windfall": 0.4
+      }
+    },
+    {
+      "name": "Jerzy Mazur",
+      "age": 27,
+      "occupation": "Bakery owner",
+      "household": "Multigenerational household",
+      "income_bracket": "~$58k",
+      "language": "English",
+      "political_registration": "retire",
+      "initial_lean": "bonds",
+      "top_concerns": [
+        "spending a windfall wisely",
+        "what makes this place itself",
+        "the pension bill"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Rocco's Slice House",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Rocco's Slice House",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Rocco's Slice House",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Community Fields",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Rocco's Slice House",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "dana-whitcomb",
+          "type": "regular",
+          "strength": 0.55,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "linda-thompson",
+          "type": "neighbor",
+          "strength": 0.4,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.47,
+      "persuadability": 0.53,
+      "party_loyalty": 0.72,
+      "issue_weights": {
+        "windfall": 1.0,
+        "heritage": 0.6,
+        "debt": 0.4
+      }
+    },
+    {
+      "name": "Mike Miller",
+      "age": 47,
+      "occupation": "Barber",
+      "household": "Married, no kids",
+      "income_bracket": "~$45k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "new construction",
+        "borrowing against the future",
+        "plowing in winter"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Plaza",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Harlow Plaza",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Harlow Plaza",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Community Fields",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Harlow Plaza",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "dana-whitcomb",
+          "type": "acquaintance",
+          "strength": 0.35,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "linda-thompson",
+          "type": "neighbor",
+          "strength": 0.4,
+          "context": "Both live at Fairview Subdivision"
+        },
+        {
+          "agent": "rachel-nelson",
+          "type": "neighbor",
+          "strength": 0.21,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Someone left a flyer on the porch.",
+        "The bus was late again."
+      ],
+      "turnout": 0.65,
+      "persuadability": 0.21,
+      "party_loyalty": 0.12,
+      "issue_weights": {
+        "development": 1.0,
+        "debt": 0.6,
+        "roads": 0.4
+      }
+    },
+    {
+      "name": "Linda Thompson",
+      "age": 61,
+      "occupation": "IT project manager",
+      "household": "Lives alone",
+      "income_bracket": "~$135k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "bonds",
+      "top_concerns": [
+        "one-time money",
+        "the pension bill",
+        "what makes this place itself"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Plaza",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Community Fields",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Harlow Plaza",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Community Fields",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Community Fields",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rocco-disanto",
+          "type": "neighbor",
+          "strength": 0.48,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "dave-roberts",
+          "type": "neighbor",
+          "strength": 0.29,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.37,
+      "persuadability": 0.52,
+      "party_loyalty": 0.09,
+      "issue_weights": {
+        "windfall": 1.0,
+        "debt": 0.6,
+        "heritage": 0.4
+      }
+    },
+    {
+      "name": "Paul Roberts",
+      "age": 30,
+      "occupation": "IT project manager",
+      "household": "Married, no kids",
+      "income_bracket": "~$135k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "empty storefronts downtown",
+        "the bridge",
+        "the rec league"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Rocco's Slice House",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Community Fields",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Rocco's Slice House",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Community Fields",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Community Fields",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "walt-hagen",
+          "type": "neighbor",
+          "strength": 0.35,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "nancy-allen",
+          "type": "neighbor",
+          "strength": 0.47,
+          "context": "Both live at Fairview Subdivision"
+        },
+        {
+          "agent": "brian-baker",
+          "type": "neighbor",
+          "strength": 0.48,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.41,
+      "persuadability": 0.25,
+      "party_loyalty": 0.06,
+      "issue_weights": {
+        "development": 1.0,
+        "roads": 0.6,
+        "youth": 0.4
+      }
+    },
+    {
+      "name": "Brian Baker",
+      "age": 72,
+      "occupation": "Library assistant",
+      "household": "Single parent of one",
+      "income_bracket": "~$38k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "plowing in winter",
+        "the river in spring",
+        "one-time money"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Community Fields",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Fairview Subdivision",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Community Fields",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Community Fields",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Community Fields",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Community Fields",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Fairview Subdivision",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "cass-malone",
+          "type": "acquaintance",
+          "strength": 0.39,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "colleen-doyle",
+          "type": "neighbor",
+          "strength": 0.45,
+          "context": "Both live at Fairview Subdivision"
+        },
+        {
+          "agent": "mark-nelson",
+          "type": "neighbor",
+          "strength": 0.45,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "That pothole is going to eat a tire."
+      ],
+      "turnout": 0.83,
+      "persuadability": 0.2,
+      "party_loyalty": 0.06,
+      "issue_weights": {
+        "roads": 1.0,
+        "flood": 0.6,
+        "windfall": 0.4
+      }
+    },
+    {
+      "name": "Steve Baker",
+      "age": 27,
+      "occupation": "IT project manager",
+      "household": "Lives with parents",
+      "income_bracket": "~$135k",
+      "language": "English",
+      "political_registration": "maintain",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "one-time money",
+        "what makes this place itself",
+        "young families leaving"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Plaza",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Community Fields",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Harlow Plaza",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Community Fields",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Community Fields",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "cass-malone",
+          "type": "acquaintance",
+          "strength": 0.43,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.68,
+      "persuadability": 0.35,
+      "party_loyalty": 0.78,
+      "issue_weights": {
+        "windfall": 1.0,
+        "heritage": 0.6,
+        "youth": 0.4
+      }
+    },
+    {
+      "name": "Colleen Doyle",
+      "age": 74,
+      "occupation": "Bakery owner",
+      "household": "Lives with parents",
+      "income_bracket": "~$58k",
+      "language": "English",
+      "political_registration": "invest",
+      "initial_lean": "greenway",
+      "top_concerns": [
+        "new construction",
+        "somewhere for teenagers to go",
+        "the bridge"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Firehouse",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Harlow Firehouse",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Harlow Firehouse",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Community Fields",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Harlow Firehouse",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "walt-hagen",
+          "type": "acquaintance",
+          "strength": 0.47,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "mike-miller",
+          "type": "neighbor",
+          "strength": 0.48,
+          "context": "Both live at Fairview Subdivision"
+        },
+        {
+          "agent": "mark-nelson",
+          "type": "neighbor",
+          "strength": 0.47,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Coffee. Then everything else.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.49,
+      "persuadability": 0.29,
+      "party_loyalty": 0.46,
+      "issue_weights": {
+        "development": 1.0,
+        "youth": 0.6,
+        "roads": 0.4
+      }
+    },
+    {
+      "name": "Karen Baker",
+      "age": 50,
+      "occupation": "Freelance graphic designer",
+      "household": "Married, no kids",
+      "income_bracket": "~$61k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "the bridge",
+        "the pension bill",
+        "somewhere for teenagers to go"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Fairview Subdivision",
+      "routine_template": "remote",
+      "routine": [
+        {
+          "time": "08:00",
+          "location": "Fairview Subdivision",
+          "activity": "Logs on from the kitchen table"
+        },
+        {
+          "time": "10:30",
+          "location": "Community Fields",
+          "activity": "Coffee shop for a change of scene"
+        },
+        {
+          "time": "12:30",
+          "location": "Community Fields",
+          "activity": "Lunch walk"
+        },
+        {
+          "time": "14:00",
+          "location": "Fairview Subdivision",
+          "activity": "Afternoon calls"
+        },
+        {
+          "time": "17:30",
+          "location": "Community Fields",
+          "activity": "Library or an errand"
+        },
+        {
+          "time": "19:30",
+          "location": "Fairview Subdivision",
+          "activity": "Dinner"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rocco-disanto",
+          "type": "acquaintance",
+          "strength": 0.37,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "steve-baker",
+          "type": "neighbor",
+          "strength": 0.41,
+          "context": "Both live at Fairview Subdivision"
+        },
+        {
+          "agent": "frank-bruno",
+          "type": "neighbor",
+          "strength": 0.21,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.58,
+      "persuadability": 0.61,
+      "party_loyalty": 0.1,
+      "issue_weights": {
+        "roads": 1.0,
+        "debt": 0.6,
+        "youth": 0.4
+      }
+    },
+    {
+      "name": "Dave Roberts",
+      "age": 66,
+      "occupation": "Retired teacher",
+      "household": "Lives alone",
+      "income_bracket": "pension",
+      "language": "English",
+      "political_registration": "retire",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "what makes this place itself",
+        "borrowing against the future",
+        "one-time money"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Fairview Subdivision",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Community Fields",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Community Fields",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Fairview Subdivision",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Community Fields",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Fairview Subdivision",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rocco-disanto",
+          "type": "regular",
+          "strength": 0.39,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "rachel-nelson",
+          "type": "neighbor",
+          "strength": 0.49,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.44,
+      "persuadability": 0.59,
+      "party_loyalty": 0.75,
+      "issue_weights": {
+        "heritage": 1.0,
+        "debt": 0.6,
+        "windfall": 0.4
+      }
+    },
+    {
+      "name": "Brian Evans",
+      "age": 78,
+      "occupation": "Retired teacher",
+      "household": "Roommates",
+      "income_bracket": "pension",
+      "language": "English",
+      "political_registration": "maintain",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "plowing in winter",
+        "what makes this place itself",
+        "somewhere for teenagers to go"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Fairview Subdivision",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Community Fields",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Community Fields",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Fairview Subdivision",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Community Fields",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Fairview Subdivision",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rocco-disanto",
+          "type": "acquaintance",
+          "strength": 0.35,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "steve-baker",
+          "type": "neighbor",
+          "strength": 0.44,
+          "context": "Both live at Fairview Subdivision"
+        },
+        {
+          "agent": "linda-thompson",
+          "type": "neighbor",
+          "strength": 0.38,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "The bus was late again.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.39,
+      "persuadability": 0.41,
+      "party_loyalty": 0.38,
+      "issue_weights": {
+        "roads": 1.0,
+        "heritage": 0.6,
+        "youth": 0.4
+      }
+    },
+    {
+      "name": "Scott King",
+      "age": 61,
+      "occupation": "Dry cleaner owner",
+      "household": "Lives alone",
+      "income_bracket": "~$60k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "the bridge",
+        "young families leaving",
+        "the last flood"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Firehouse",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Harlow Firehouse",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Harlow Firehouse",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Community Fields",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Harlow Firehouse",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "dana-whitcomb",
+          "type": "neighbor",
+          "strength": 0.42,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "jerzy-mazur",
+          "type": "neighbor",
+          "strength": 0.27,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Someone left a flyer on the porch.",
+        "Need to move the car before the sweeper comes."
+      ],
+      "turnout": 0.52,
+      "persuadability": 0.48,
+      "party_loyalty": 0.05,
+      "issue_weights": {
+        "roads": 1.0,
+        "youth": 0.6,
+        "flood": 0.4
+      }
+    },
+    {
+      "name": "Mark Nelson",
+      "age": 36,
+      "occupation": "Accounts payable specialist",
+      "household": "Widowed, lives alone",
+      "income_bracket": "~$68k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "greenway",
+      "top_concerns": [
+        "the town's history",
+        "whether visitors ever stop here",
+        "the last flood"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Plaza",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Community Fields",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Harlow Plaza",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Community Fields",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Community Fields",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "dana-whitcomb",
+          "type": "acquaintance",
+          "strength": 0.32,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "brian-baker",
+          "type": "neighbor",
+          "strength": 0.24,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "The bus was late again.",
+        "That pothole is going to eat a tire."
+      ],
+      "turnout": 0.86,
+      "persuadability": 0.48,
+      "party_loyalty": 0.15,
+      "issue_weights": {
+        "heritage": 1.0,
+        "development": 0.6,
+        "flood": 0.4
+      }
+    },
+    {
+      "name": "Joe Colombo",
+      "age": 53,
+      "occupation": "Bakery owner",
+      "household": "Lives with parents",
+      "income_bracket": "~$58k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "bonds",
+      "top_concerns": [
+        "the town's debt",
+        "the surplus",
+        "the last flood"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Plaza",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Fairview Subdivision",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Harlow Plaza",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Harlow Plaza",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Community Fields",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Harlow Plaza",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Fairview Subdivision",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "rocco-disanto",
+          "type": "regular",
+          "strength": 0.55,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "frank-bruno",
+          "type": "neighbor",
+          "strength": 0.36,
+          "context": "Both live at Fairview Subdivision"
+        },
+        {
+          "agent": "rosa-martínez",
+          "type": "neighbor",
+          "strength": 0.26,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Coffee. Then everything else.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.45,
+      "persuadability": 0.35,
+      "party_loyalty": 0.06,
+      "issue_weights": {
+        "debt": 1.0,
+        "windfall": 0.6,
+        "flood": 0.4
+      }
+    },
+    {
+      "name": "Rachel Nelson",
+      "age": 63,
+      "occupation": "Retired postal worker",
+      "household": "Married, kids grown",
+      "income_bracket": "pension + Social Security",
+      "language": "English",
+      "political_registration": "maintain",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "the river in spring",
+        "empty storefronts downtown",
+        "the bridge"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Fairview Subdivision",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Community Fields",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Community Fields",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Fairview Subdivision",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Community Fields",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Fairview Subdivision",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "cass-malone",
+          "type": "regular",
+          "strength": 0.32,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "paul-roberts",
+          "type": "neighbor",
+          "strength": 0.24,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "The price of eggs again."
+      ],
+      "turnout": 0.6,
+      "persuadability": 0.53,
+      "party_loyalty": 0.52,
+      "issue_weights": {
+        "flood": 1.0,
+        "development": 0.6,
+        "roads": 0.4
+      }
+    },
+    {
+      "name": "Scott Mitchell",
+      "age": 26,
+      "occupation": "Nursing student",
+      "household": "Widowed, lives alone",
+      "income_bracket": "part-time wages",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "somewhere for teenagers to go",
+        "plowing in winter",
+        "new construction"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Harlow Plaza",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Fairview Subdivision",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Community Fields",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "Community Fields",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Harlow Plaza",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Community Fields",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Fairview Subdivision",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "dana-whitcomb",
+          "type": "regular",
+          "strength": 0.49,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "linda-thompson",
+          "type": "neighbor",
+          "strength": 0.48,
+          "context": "Both live at Fairview Subdivision"
+        },
+        {
+          "agent": "frank-bruno",
+          "type": "neighbor",
+          "strength": 0.36,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.79,
+      "persuadability": 0.53,
+      "party_loyalty": 0.06,
+      "issue_weights": {
+        "youth": 1.0,
+        "roads": 0.6,
+        "development": 0.4
+      }
+    },
+    {
+      "name": "Rosa Martínez",
+      "age": 81,
+      "occupation": "Retired teacher",
+      "household": "Roommates",
+      "income_bracket": "pension",
+      "language": "English",
+      "political_registration": "invest",
+      "initial_lean": "greenway",
+      "top_concerns": [
+        "empty storefronts downtown",
+        "one-time money",
+        "the old mill"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Fairview Subdivision",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Community Fields",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Community Fields",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Fairview Subdivision",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Community Fields",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Fairview Subdivision",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "walt-hagen",
+          "type": "acquaintance",
+          "strength": 0.55,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Should call my sister back.",
+        "Coffee. Then everything else."
+      ],
+      "turnout": 0.79,
+      "persuadability": 0.26,
+      "party_loyalty": 0.43,
+      "issue_weights": {
+        "development": 1.0,
+        "windfall": 0.6,
+        "heritage": 0.4
+      }
+    },
+    {
+      "name": "Nancy Allen",
+      "age": 75,
+      "occupation": "Freelance graphic designer",
+      "household": "Married, two kids",
+      "income_bracket": "~$61k",
+      "language": "English",
+      "political_registration": "retire",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "borrowing against the future",
+        "the culverts",
+        "empty storefronts downtown"
+      ],
+      "home": "Fairview Subdivision",
+      "workplace": "Fairview Subdivision",
+      "routine_template": "remote",
+      "routine": [
+        {
+          "time": "08:00",
+          "location": "Fairview Subdivision",
+          "activity": "Logs on from the kitchen table"
+        },
+        {
+          "time": "10:30",
+          "location": "Community Fields",
+          "activity": "Coffee shop for a change of scene"
+        },
+        {
+          "time": "12:30",
+          "location": "Community Fields",
+          "activity": "Lunch walk"
+        },
+        {
+          "time": "14:00",
+          "location": "Fairview Subdivision",
+          "activity": "Afternoon calls"
+        },
+        {
+          "time": "17:30",
+          "location": "Community Fields",
+          "activity": "Library or an errand"
+        },
+        {
+          "time": "19:30",
+          "location": "Fairview Subdivision",
+          "activity": "Dinner"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "dana-whitcomb",
+          "type": "neighbor",
+          "strength": 0.33,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "karen-baker",
+          "type": "neighbor",
+          "strength": 0.27,
+          "context": "Both live at Fairview Subdivision"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "The bus was late again."
+      ],
+      "turnout": 0.81,
+      "persuadability": 0.49,
+      "party_loyalty": 0.39,
+      "issue_weights": {
+        "debt": 1.0,
+        "flood": 0.6,
+        "development": 0.4
+      }
+    }
+  ]
+}

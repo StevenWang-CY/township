@@ -1,0 +1,919 @@
+{
+  "seed": 7,
+  "generator_version": 1,
+  "town": "millbrook-village",
+  "neighbors": [
+    {
+      "name": "Maureen Walsh",
+      "age": 25,
+      "occupation": "Paralegal",
+      "household": "Lives alone",
+      "income_bracket": "~$72k",
+      "language": "English",
+      "political_registration": "retire",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "the last flood",
+        "the town's debt",
+        "the surplus"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "Millbrook Town Hall",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Chestnut Row",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Main Street Bridge",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Millbrook Town Hall",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Main Street Bridge",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Chestnut Row",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "nell-braddock",
+          "type": "regular",
+          "strength": 0.35,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "colleen-murphy",
+          "type": "neighbor",
+          "strength": 0.33,
+          "context": "Both live at Chestnut Row"
+        }
+      ],
+      "idle_thoughts": [
+        "Someone left a flyer on the porch.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.56,
+      "persuadability": 0.54,
+      "party_loyalty": 0.56,
+      "issue_weights": {
+        "flood": 1.0,
+        "debt": 0.6,
+        "windfall": 0.4
+      }
+    },
+    {
+      "name": "Heather Wright",
+      "age": 28,
+      "occupation": "Paralegal",
+      "household": "Married, kids grown",
+      "income_bracket": "~$72k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "greenway",
+      "top_concerns": [
+        "the surplus",
+        "the old mill",
+        "the pension bill"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "Corbin's Hardware",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Chestnut Row",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Main Street Bridge",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Corbin's Hardware",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Main Street Bridge",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Chestnut Row",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "gordon-tibbs",
+          "type": "regular",
+          "strength": 0.46,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Did I lock the back door?",
+        "Need to move the car before the sweeper comes."
+      ],
+      "turnout": 0.65,
+      "persuadability": 0.39,
+      "party_loyalty": 0.14,
+      "issue_weights": {
+        "windfall": 1.0,
+        "heritage": 0.6,
+        "debt": 0.4
+      }
+    },
+    {
+      "name": "Stan Nowak",
+      "age": 76,
+      "occupation": "Retired electrician",
+      "household": "Lives with parents",
+      "income_bracket": "~$40k retirement",
+      "language": "English",
+      "political_registration": "retire",
+      "initial_lean": "bonds",
+      "top_concerns": [
+        "somewhere for teenagers to go",
+        "the culverts",
+        "plowing in winter"
+      ],
+      "home": "Chestnut Row",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Chestnut Row",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Millbrook Farmers Market",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Chestnut Row",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Millbrook Free Library",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Chestnut Row",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "adele-pruitt",
+          "type": "acquaintance",
+          "strength": 0.53,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "linda-hill",
+          "type": "neighbor",
+          "strength": 0.34,
+          "context": "Both live at Chestnut Row"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Wonder if the rain holds off."
+      ],
+      "turnout": 0.62,
+      "persuadability": 0.41,
+      "party_loyalty": 0.61,
+      "issue_weights": {
+        "youth": 1.0,
+        "flood": 0.6,
+        "roads": 0.4
+      }
+    },
+    {
+      "name": "Dave Mitchell",
+      "age": 64,
+      "occupation": "Retired postal worker",
+      "household": "Widowed, lives alone",
+      "income_bracket": "pension + Social Security",
+      "language": "English",
+      "political_registration": "maintain",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "the town's debt",
+        "the river in spring",
+        "somewhere for teenagers to go"
+      ],
+      "home": "Chestnut Row",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Chestnut Row",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Millbrook Farmers Market",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Chestnut Row",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Millbrook Town Hall",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Chestnut Row",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "adele-pruitt",
+          "type": "acquaintance",
+          "strength": 0.47,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "valeria-herrera",
+          "type": "neighbor",
+          "strength": 0.37,
+          "context": "Both live at Chestnut Row"
+        }
+      ],
+      "idle_thoughts": [
+        "Did I lock the back door?",
+        "Need to move the car before the sweeper comes."
+      ],
+      "turnout": 0.75,
+      "persuadability": 0.35,
+      "party_loyalty": 0.6,
+      "issue_weights": {
+        "debt": 1.0,
+        "flood": 0.6,
+        "youth": 0.4
+      }
+    },
+    {
+      "name": "Emily Miller",
+      "age": 42,
+      "occupation": "Hospital unit clerk",
+      "household": "Lives alone",
+      "income_bracket": "~$48k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "whether visitors ever stop here",
+        "borrowing against the future",
+        "the last flood"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "Corbin's Hardware",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Chestnut Row",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Corbin's Hardware",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Corbin's Hardware",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Millbrook Farmers Market",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Chestnut Row",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "adele-pruitt",
+          "type": "acquaintance",
+          "strength": 0.33,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "susan-mitchell",
+          "type": "neighbor",
+          "strength": 0.22,
+          "context": "Both live at Chestnut Row"
+        },
+        {
+          "agent": "dave-mitchell",
+          "type": "neighbor",
+          "strength": 0.43,
+          "context": "Both live at Chestnut Row"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "The price of eggs again."
+      ],
+      "turnout": 0.63,
+      "persuadability": 0.58,
+      "party_loyalty": 0.07,
+      "issue_weights": {
+        "development": 1.0,
+        "debt": 0.6,
+        "flood": 0.4
+      }
+    },
+    {
+      "name": "Mark Hill",
+      "age": 24,
+      "occupation": "Community college student",
+      "household": "Lives alone",
+      "income_bracket": "part-time wages",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "plowing in winter",
+        "the river in spring",
+        "the rec league"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "Millbrook Free Library",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Chestnut Row",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Millbrook Town Hall",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "The Wheelhouse Diner",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Millbrook Free Library",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Millbrook Farmers Market",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Chestnut Row",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "marcus-bell",
+          "type": "regular",
+          "strength": 0.52,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "susan-mitchell",
+          "type": "neighbor",
+          "strength": 0.25,
+          "context": "Both live at Chestnut Row"
+        },
+        {
+          "agent": "dave-mitchell",
+          "type": "neighbor",
+          "strength": 0.48,
+          "context": "Both live at Chestnut Row"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "That pothole is going to eat a tire."
+      ],
+      "turnout": 0.63,
+      "persuadability": 0.45,
+      "party_loyalty": 0.07,
+      "issue_weights": {
+        "roads": 1.0,
+        "flood": 0.6,
+        "youth": 0.4
+      }
+    },
+    {
+      "name": "Valeria Herrera",
+      "age": 19,
+      "occupation": "Community college student",
+      "household": "Married, kids grown",
+      "income_bracket": "part-time wages",
+      "language": "English and Spanish",
+      "political_registration": "invest",
+      "initial_lean": "greenway",
+      "top_concerns": [
+        "young families leaving",
+        "whether visitors ever stop here",
+        "one-time money"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "The Wheelhouse Diner",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Chestnut Row",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Millbrook Free Library",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "The Wheelhouse Diner",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "The Wheelhouse Diner",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Millbrook Farmers Market",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Chestnut Row",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "adele-pruitt",
+          "type": "neighbor",
+          "strength": 0.6,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "emily-miller",
+          "type": "neighbor",
+          "strength": 0.49,
+          "context": "Both live at Chestnut Row"
+        },
+        {
+          "agent": "heather-wright",
+          "type": "neighbor",
+          "strength": 0.36,
+          "context": "Both live at Chestnut Row"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "That pothole is going to eat a tire."
+      ],
+      "turnout": 0.54,
+      "persuadability": 0.35,
+      "party_loyalty": 0.55,
+      "issue_weights": {
+        "youth": 1.0,
+        "development": 0.6,
+        "windfall": 0.4
+      }
+    },
+    {
+      "name": "Patrick Ryan",
+      "age": 78,
+      "occupation": "Barber",
+      "household": "Multigenerational household",
+      "income_bracket": "~$45k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "greenway",
+      "top_concerns": [
+        "new construction",
+        "the surplus",
+        "what makes this place itself"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "Millbrook Free Library",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Chestnut Row",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Millbrook Free Library",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Millbrook Free Library",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "The Wheelhouse Diner",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Millbrook Free Library",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Chestnut Row",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "gordon-tibbs",
+          "type": "acquaintance",
+          "strength": 0.49,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "colleen-murphy",
+          "type": "neighbor",
+          "strength": 0.22,
+          "context": "Both live at Chestnut Row"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.41,
+      "persuadability": 0.37,
+      "party_loyalty": 0.2,
+      "issue_weights": {
+        "development": 1.0,
+        "windfall": 0.6,
+        "heritage": 0.4
+      }
+    },
+    {
+      "name": "Susan Mitchell",
+      "age": 37,
+      "occupation": "Real estate agent",
+      "household": "Multigenerational household",
+      "income_bracket": "commission, ~$85k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "roads",
+      "top_concerns": [
+        "the town's debt",
+        "the last flood",
+        "whether visitors ever stop here"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "The Wheelhouse Diner",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Chestnut Row",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "The Wheelhouse Diner",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Chestnut Row",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "gordon-tibbs",
+          "type": "acquaintance",
+          "strength": 0.36,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.69,
+      "persuadability": 0.53,
+      "party_loyalty": 0.1,
+      "issue_weights": {
+        "debt": 1.0,
+        "flood": 0.6,
+        "development": 0.4
+      }
+    },
+    {
+      "name": "Linda Hill",
+      "age": 77,
+      "occupation": "Retired postal worker",
+      "household": "Married, no kids",
+      "income_bracket": "pension + Social Security",
+      "language": "English",
+      "political_registration": "invest",
+      "initial_lean": "greenway",
+      "top_concerns": [
+        "the old mill",
+        "the rec league",
+        "the surplus"
+      ],
+      "home": "Chestnut Row",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Chestnut Row",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Millbrook Farmers Market",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Chestnut Row",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Millbrook Free Library",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Chestnut Row",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "adele-pruitt",
+          "type": "regular",
+          "strength": 0.43,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "emily-miller",
+          "type": "neighbor",
+          "strength": 0.23,
+          "context": "Both live at Chestnut Row"
+        },
+        {
+          "agent": "chris-baker",
+          "type": "neighbor",
+          "strength": 0.26,
+          "context": "Both live at Chestnut Row"
+        }
+      ],
+      "idle_thoughts": [
+        "The bus was late again.",
+        "Wonder if the rain holds off."
+      ],
+      "turnout": 0.64,
+      "persuadability": 0.47,
+      "party_loyalty": 0.36,
+      "issue_weights": {
+        "heritage": 1.0,
+        "youth": 0.6,
+        "windfall": 0.4
+      }
+    },
+    {
+      "name": "Chris Baker",
+      "age": 64,
+      "occupation": "Real estate agent",
+      "household": "Lives alone",
+      "income_bracket": "commission, ~$85k",
+      "language": "English",
+      "political_registration": "maintain",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "new construction",
+        "the pension bill",
+        "one-time money"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "Harrow Mill Ruins",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Chestnut Row",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Harrow Mill Ruins",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Harrow Mill Ruins",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "The Wheelhouse Diner",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Harrow Mill Ruins",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Chestnut Row",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "gordon-tibbs",
+          "type": "neighbor",
+          "strength": 0.31,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.59,
+      "persuadability": 0.54,
+      "party_loyalty": 0.35,
+      "issue_weights": {
+        "development": 1.0,
+        "debt": 0.6,
+        "windfall": 0.4
+      }
+    },
+    {
+      "name": "Colleen Murphy",
+      "age": 44,
+      "occupation": "Line cook",
+      "household": "Married, kids grown",
+      "income_bracket": "~$34k",
+      "language": "English",
+      "political_registration": "retire",
+      "initial_lean": "bonds",
+      "top_concerns": [
+        "new construction",
+        "somewhere for teenagers to go",
+        "plowing in winter"
+      ],
+      "home": "Chestnut Row",
+      "workplace": "The Wheelhouse Diner",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Chestnut Row",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "The Wheelhouse Diner",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Millbrook Farmers Market",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Chestnut Row",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "gordon-tibbs",
+          "type": "neighbor",
+          "strength": 0.56,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Coffee. Then everything else.",
+        "Need to move the car before the sweeper comes."
+      ],
+      "turnout": 0.85,
+      "persuadability": 0.21,
+      "party_loyalty": 0.69,
+      "issue_weights": {
+        "development": 1.0,
+        "youth": 0.6,
+        "roads": 0.4
+      }
+    }
+  ]
+}

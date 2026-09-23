@@ -35,14 +35,15 @@ DEFAULT_LOYALTY_REGISTERED = 0.5
 DEFAULT_LOYALTY_UNAFFILIATED = 0.1
 DEFAULT_MEDIA_DIET = 0.5
 EPS_GAP = 0.9  # bounded confidence: arguments from further away are dismissed
-EXCHANGE_GAIN = 0.25
+EXCHANGE_GAIN = 0.5
 REINFORCE_GAIN = 0.5  # share of Δ applied when speaker and listener agree
 NEWS_GAIN = 0.45
 GOSSIP_KAPPA = 0.25
-CONFIRMATION = 0.8  # pushes away from the current favourite land a little softer
-DRIFT = 0.04  # per-beat relaxation toward the persona anchor (half-life ≈ 17 beats)
+CONFIRMATION = 0.9  # pushes away from the current favourite land a little softer
+DRIFT = 0.03  # per-beat relaxation toward the persona anchor (half-life ≈ 23 beats ≈ 8 days)
 HABITUATION = 0.6  # gain multiplier per repeat of the same speaker's case for the same option
-HABITUATION_CAP = 4
+HABITUATION_CAP = 3  # floor 0.6³ ≈ 0.22: a nag still lands a little
+WEEKLY_FRESHNESS = 2  # Sunday takes two repeats off every remembered case
 STREAK_CONF = 15.0  # extra confidence from a stable favourite: 15·tanh(streak/3)
 SALIENCE_FLOOR = 0.7
 SALIENCE_GAIN = 0.6
@@ -173,6 +174,9 @@ class InfluenceModel:
         self.scenario = scenario
         self.option_ids: list[str] = list(scenario.option_ids)
         self.undecided_id: str = scenario.undecided_id
+        # Campaign attention, set per beat by the engine: quiet early weeks,
+        # a final week where the same argument lands harder (late deciders).
+        self.attention: float = 1.0
         self.groups: dict[str, str | None] = {
             o.id: (o.group or None) for o in scenario.config.options
         }
@@ -344,7 +348,9 @@ class InfluenceModel:
         if len(ranked) < 2:
             return
         margin = ranked[0] - ranked[1]
-        target = UNDECIDED_MARGIN * 0.5
+        # A near-tie: which way a fence-sitter breaks comes from what they hear,
+        # the seed order survives only as a faint tiebreak.
+        target = UNDECIDED_MARGIN * 0.15
         if margin <= target:
             return
         mean = sum(beliefs.utilities.values()) / len(beliefs.utilities)
@@ -353,11 +359,21 @@ class InfluenceModel:
             beliefs.utilities[o] = mean + (beliefs.utilities[o] - mean) * f
 
     def adopt_stance(
-        self, beliefs: Beliefs, stance: str, round_num: int, ref: str, note: str = ""
+        self,
+        beliefs: Beliefs,
+        stance: str,
+        round_num: int,
+        ref: str,
+        note: str = "",
+        *,
+        soft: bool = False,
     ) -> None:
         """Align the ledger with a stance a model stated outright (seed or
         reflection): the utilities move just enough that the read-out agrees.
-        The model's word is authoritative; the ledger records the alignment."""
+        The model's word is authoritative; the ledger records the alignment.
+        `soft` (a weakly attached neighbor's drawn lean) settles just inside
+        the decided band, so a sustained case from the other side can still
+        carry them across."""
         if stance == self.undecided_id:
             self._compress_to_undecided(beliefs)
             beliefs.ledger.append(
@@ -377,7 +393,7 @@ class InfluenceModel:
         if current.stance == stance:
             return
         top_u = max(beliefs.utilities.values())
-        need = (top_u - beliefs.utilities[stance]) + UNDECIDED_MARGIN + 0.05
+        need = (top_u - beliefs.utilities[stance]) + UNDECIDED_MARGIN + (0.01 if soft else 0.05)
         n = len(beliefs.utilities)
         # _push spreads -delta/(n-1) over the others, so the relative gain is delta * n/(n-1)
         delta = need * (n - 1) / n if n > 1 else need
@@ -476,6 +492,7 @@ class InfluenceModel:
         # What the town is talking about lands harder.
         if salience and issue:
             delta *= SALIENCE_FLOOR + SALIENCE_GAIN * salience.get(issue, 0.0)
+        delta *= self.attention
         self._push(b, speaker_stance, delta)
         b.evidence += 1
         note = f"{speaker.definition.name} made the case for {speaker_stance}" + (
@@ -510,13 +527,13 @@ class InfluenceModel:
         effects = list(getattr(news, "effects", []) or [])
         entries: list[LedgerEntry] = []
         headline = getattr(news, "headline", "") or ""
-        if not effects:
+        if not effects and not getattr(news, "neutral", False):
             issue = self.match_issue(headline + " " + (getattr(news, "description", "") or ""))
             if issue:
                 # Fallback: the headline favours whichever option is most aligned on its issue.
                 best = max(self.option_ids, key=lambda o: self.alignment[o].get(issue, 0.0))
-                if self.alignment[best].get(issue, 0.0) > 0:
-                    effects = [type("E", (), {"issue": issue, "option": best, "delta": 0.5})()]
+                if self.alignment[best].get(issue, 0.0) >= 0.5:
+                    effects = [type("E", (), {"issue": issue, "option": best, "delta": 0.3})()]
         media = b.traits.get("media_diet", DEFAULT_MEDIA_DIET)
         for eff in effects:
             issue_id = getattr(eff, "issue", None)
@@ -530,6 +547,7 @@ class InfluenceModel:
                 delta *= CONFIRMATION
             if salience and issue_id:
                 delta *= SALIENCE_FLOOR + SALIENCE_GAIN * salience.get(issue_id, 0.0)
+            delta *= self.attention
             self._push(b, option, delta)
             entries.append(
                 LedgerEntry(
@@ -643,6 +661,34 @@ class InfluenceModel:
         return Readout(top, int(round(conf)), margin, top, second)
 
     # ── Long-run dynamics (called by the engine at beat boundaries) ────────
+    def deadline_nudge(
+        self, beliefs: Beliefs, round_num: int, rng, days_left_frac: float
+    ) -> LedgerEntry | None:
+        """Late deciders: with the vote days away, a fence-sitter who leans at
+        all goes with that lean — the well-documented late break, mostly along
+        prior leanings. Seeded, a fraction per opinion beat, only when
+        attention is at its campaign peak."""
+        r = self.readout(beliefs)
+        if r.stance != self.undecided_id or r.top is None or r.margin < UNDECIDED_MARGIN * 0.25:
+            return None
+        p = 0.35 * max(0.0, min(1.0, 1.0 - days_left_frac))
+        if rng.random() >= p:
+            return None
+        need = (UNDECIDED_MARGIN - r.margin) + 0.02
+        n = len(beliefs.utilities)
+        delta = need * (n - 1) / n if n > 1 else need
+        self._push(beliefs, r.top, delta)
+        entry = LedgerEntry(
+            round=round_num,
+            kind="reflection",
+            ref=f"deadline:{round_num}",
+            option=r.top,
+            delta=round(delta, 4),
+            note="with the vote days away, going with the lean I already had",
+        )
+        beliefs.ledger.append(entry)
+        return entry
+
     def end_of_beat(self, beliefs: Beliefs) -> None:
         """Drift: every push relaxes toward the persona's anchor a little."""
         if not beliefs.anchor:
@@ -662,7 +708,9 @@ class InfluenceModel:
 
     def weekly_reset(self, beliefs: Beliefs) -> None:
         """Sunday: arguments feel fresh again."""
-        beliefs.habituation = {k: max(0, v - 1) for k, v in beliefs.habituation.items() if v > 1}
+        beliefs.habituation = {
+            k: v - WEEKLY_FRESHNESS for k, v in beliefs.habituation.items() if v > WEEKLY_FRESHNESS
+        }
 
     def prior_for(self, agent: AgentState, since_round: int = 0) -> dict:
         """What the ledger says now — handed to providers that render from it."""

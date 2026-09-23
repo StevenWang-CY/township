@@ -111,7 +111,15 @@ def test_single_town_five_round_mock_sim(mock_orchestrator):
         for e in opinion_events
         if e.old_opinion is not None and e.old_opinion.candidate != e.new_opinion.candidate
     ]
-    assert 1 <= len(flips) <= 8, f"expected a few real changes of mind, got {len(flips)}"
+    voice_ids = {a.agent_id for a in dover_agents if a.definition.tier == "voice"}
+    voice_flips = [e for e in flips if e.agent_id in voice_ids]
+    assert 1 <= len(voice_flips) <= 8, (
+        f"expected a few real changes of mind, got {len(voice_flips)}"
+    )
+    # Neighbors move too, but the town must not churn: at most ~one flip per resident.
+    assert len(flips) <= len(dover_agents), (
+        f"town churned: {len(flips)} flips for {len(dover_agents)} residents"
+    )
     for e in flips:
         assert e.trigger is not None and e.trigger.kind != "seed"
         assert e.influences, f"{e.agent_name} changed their mind in round {e.round} with no cause"
@@ -134,7 +142,10 @@ def test_single_town_five_round_mock_sim(mock_orchestrator):
     ballots = _events_of(bus, "ballot_cast")
     assert sorted(b.agent_id for b in ballots) == sorted(a.agent_id for a in dover_agents)
     assert {b.round for b in ballots} == {4}
-    assert sum(1 for b in ballots if b.option is None) <= 1
+    voice_ids = {a.agent_id for a in dover_agents if a.definition.tier == "voice"}
+    assert sum(1 for b in ballots if b.option is None and b.agent_id in voice_ids) <= 1
+    # Neighbors carry authored turnout (0.35–0.95), so some of them stay home.
+    assert sum(1 for b in ballots if b.option is None) <= len(dover_agents) // 3
     election = summary.election
     assert election is not None and election["mode"] == "ballots"
     assert (

@@ -257,6 +257,10 @@ class SimulationOrchestrator:
             raise ValueError("num_rounds must be at least 1")
         return plan[:resolved]
 
+    def _total_days(self) -> int | None:
+        days = {r.day for r in self.plan if r.day is not None}
+        return len(days) or None
+
     @staticmethod
     def _plan_wire(specs: list[RoundSpec]) -> list[dict]:
         return [
@@ -466,6 +470,7 @@ class SimulationOrchestrator:
             anthropic_client=self.client,
             event_bus=self.event_bus,
             scenario=self.scenario,
+            total_days=self._total_days(),
         )
         included = set(self.agent_states if eligible_towns is None else eligible_towns)
         eligible_states = {
@@ -503,6 +508,7 @@ class SimulationOrchestrator:
                 anthropic_client=self.client,
                 event_bus=self.event_bus,
                 scenario=self.scenario,
+                total_days=self._total_days(),
             )
             for town in towns
         }

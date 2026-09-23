@@ -72,6 +72,11 @@ export interface AgentState {
   goals?: string[];
   /** Per-agent top concerns (sourced from agent .md frontmatter). */
   top_concerns?: string[];
+  /** Additive (Community I): voices speak through the model, neighbors are
+   *  generated background residents run by the influence ledger. */
+  tier?: "voice" | "neighbor";
+  /** Additive: the town a resident belongs to (agent_moved.town may differ once they commute). */
+  home_town?: string;
   /** Frontend-only: the resident has cast their ballot (decide phase). */
   decided?: boolean;
 }
@@ -130,6 +135,8 @@ export interface TownSummary {
   notable_conversations: string[];
   /** Additive: the town's ballot tally (or straw poll) when the engine computed one. */
   election?: ElectionTally | null;
+  /** Additive: stance counts per tier ("voice" / "neighbor") so voices stay separable. */
+  by_tier?: Record<string, Record<string, number>>;
 }
 
 export interface SwingResidentWire {

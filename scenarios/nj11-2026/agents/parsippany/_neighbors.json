@@ -1,0 +1,1351 @@
+{
+  "seed": 7,
+  "generator_version": 1,
+  "town": "parsippany",
+  "neighbors": [
+    {
+      "name": "Emily Parker",
+      "age": 73,
+      "occupation": "Line cook",
+      "household": "Multigenerational household",
+      "income_bracket": "~$34k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "the party line",
+        "families afraid to open the door",
+        "rent going up again"
+      ],
+      "home": "Residential Area",
+      "workplace": "Public Library",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Public Library",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Public Library",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Lake Parsippany",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Area",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "brian-mccarthy",
+          "type": "regular",
+          "strength": 0.39,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "neha-desai",
+          "type": "neighbor",
+          "strength": 0.3,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "The bus was late again."
+      ],
+      "turnout": 0.79,
+      "persuadability": 0.48,
+      "party_loyalty": 0.1,
+      "issue_weights": {
+        "national": 1.0,
+        "immigration": 0.6,
+        "cost-of-living": 0.4
+      }
+    },
+    {
+      "name": "Meera Rao",
+      "age": 25,
+      "occupation": "Community college student",
+      "household": "Married, kids grown",
+      "income_bracket": "part-time wages",
+      "language": "English and Hindi",
+      "political_registration": "unaffiliated",
+      "initial_lean": "bond",
+      "top_concerns": [
+        "the party line",
+        "the schools",
+        "making the paycheck stretch"
+      ],
+      "home": "Residential Area",
+      "workplace": "Indian Grocery",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Residential Area",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Community Center",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "Public Library",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Indian Grocery",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Lake Parsippany",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Residential Area",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "kantibhai-\"kanti\"-desai",
+          "type": "regular",
+          "strength": 0.52,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "greg-phillips",
+          "type": "neighbor",
+          "strength": 0.45,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.72,
+      "persuadability": 0.23,
+      "party_loyalty": 0.07,
+      "issue_weights": {
+        "national": 1.0,
+        "education": 0.6,
+        "cost-of-living": 0.4
+      }
+    },
+    {
+      "name": "Teresa Colombo",
+      "age": 29,
+      "occupation": "Pharmaceutical QA analyst",
+      "household": "Married, no kids",
+      "income_bracket": "~$98k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "the property tax bill",
+        "grocery prices",
+        "whether the plant keeps hiring"
+      ],
+      "home": "Residential Area",
+      "workplace": "montclair: Art Museum",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Residential Area",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "NJ Transit Stop",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "montclair: Art Museum",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "NJ Transit Stop",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Area",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "aisha-&-omar-khan",
+          "type": "acquaintance",
+          "strength": 0.56,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "carmen-lópez",
+          "type": "neighbor",
+          "strength": 0.37,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.84,
+      "persuadability": 0.5,
+      "party_loyalty": 0.17,
+      "issue_weights": {
+        "taxes": 1.0,
+        "cost-of-living": 0.6,
+        "jobs": 0.4
+      }
+    },
+    {
+      "name": "Nancy Baker",
+      "age": 52,
+      "occupation": "IT project manager",
+      "household": "Married, no kids",
+      "income_bracket": "~$135k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "the property tax bill",
+        "class sizes",
+        "what Washington is doing to us"
+      ],
+      "home": "Residential Area",
+      "workplace": "dover: Factory",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Residential Area",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "NJ Transit Stop",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "dover: Factory",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "NJ Transit Stop",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Area",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "brian-mccarthy",
+          "type": "acquaintance",
+          "strength": 0.31,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Coffee. Then everything else.",
+        "The bus was late again."
+      ],
+      "turnout": 0.75,
+      "persuadability": 0.55,
+      "party_loyalty": 0.02,
+      "issue_weights": {
+        "taxes": 1.0,
+        "education": 0.6,
+        "national": 0.4
+      }
+    },
+    {
+      "name": "Steve Turner",
+      "age": 25,
+      "occupation": "Nursing student",
+      "household": "Multigenerational household",
+      "income_bracket": "part-time wages",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "whether the plant keeps hiring",
+        "college costs for the kids",
+        "keeping the clinic open"
+      ],
+      "home": "Residential Area",
+      "workplace": "Indian Grocery",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Residential Area",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Public Library",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "Public Library",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Indian Grocery",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Lake Parsippany",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Residential Area",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "raj-&-sunita-krishnamurthy",
+          "type": "neighbor",
+          "strength": 0.56,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "neha-desai",
+          "type": "neighbor",
+          "strength": 0.41,
+          "context": "Both live at Residential Area"
+        },
+        {
+          "agent": "rohan-iyer",
+          "type": "neighbor",
+          "strength": 0.32,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.72,
+      "persuadability": 0.34,
+      "party_loyalty": 0.41,
+      "issue_weights": {
+        "jobs": 1.0,
+        "education": 0.6,
+        "healthcare": 0.4
+      }
+    },
+    {
+      "name": "Greg Phillips",
+      "age": 58,
+      "occupation": "Bakery owner",
+      "household": "Lives alone",
+      "income_bracket": "~$58k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "steady work close to home",
+        "the cost of prescriptions",
+        "what Washington is doing to us"
+      ],
+      "home": "Residential Area",
+      "workplace": "Public Library",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Public Library",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Public Library",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Area",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "pawan-sharma",
+          "type": "acquaintance",
+          "strength": 0.56,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.81,
+      "persuadability": 0.42,
+      "party_loyalty": 0.66,
+      "issue_weights": {
+        "jobs": 1.0,
+        "healthcare": 0.6,
+        "national": 0.4
+      }
+    },
+    {
+      "name": "Rohan Iyer",
+      "age": 53,
+      "occupation": "Home health aide",
+      "household": "Roommates",
+      "income_bracket": "~$36k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "grocery prices",
+        "the schools",
+        "how ICE enforcement is landing on neighbours"
+      ],
+      "home": "Residential Area",
+      "workplace": "Residential Area",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Residential Area",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Residential Area",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Lake Parsippany",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Area",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "kantibhai-\"kanti\"-desai",
+          "type": "regular",
+          "strength": 0.34,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "carmen-lópez",
+          "type": "neighbor",
+          "strength": 0.36,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Wonder if the rain holds off."
+      ],
+      "turnout": 0.86,
+      "persuadability": 0.31,
+      "party_loyalty": 0.59,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "education": 0.6,
+        "immigration": 0.4
+      }
+    },
+    {
+      "name": "Rohan Joshi",
+      "age": 24,
+      "occupation": "Community college student",
+      "household": "Single parent of one",
+      "income_bracket": "part-time wages",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "making the paycheck stretch",
+        "the property tax bill",
+        "steady work close to home"
+      ],
+      "home": "Residential Area",
+      "workplace": "Community Center",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Residential Area",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Public Library",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "Public Library",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Community Center",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Lake Parsippany",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Residential Area",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "aisha-&-omar-khan",
+          "type": "regular",
+          "strength": 0.44,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "steve-turner",
+          "type": "neighbor",
+          "strength": 0.42,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "Coffee. Then everything else.",
+        "The price of eggs again."
+      ],
+      "turnout": 0.73,
+      "persuadability": 0.31,
+      "party_loyalty": 0.5,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "taxes": 0.6,
+        "jobs": 0.4
+      }
+    },
+    {
+      "name": "Amy Thompson",
+      "age": 56,
+      "occupation": "Home health aide",
+      "household": "Multigenerational household",
+      "income_bracket": "~$36k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "small businesses hanging on",
+        "the paperwork that never ends",
+        "keeping the clinic open"
+      ],
+      "home": "Residential Area",
+      "workplace": "Residential Area",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Residential Area",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Residential Area",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Lake Parsippany",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Area",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "brian-mccarthy",
+          "type": "acquaintance",
+          "strength": 0.53,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "kevin-hill",
+          "type": "neighbor",
+          "strength": 0.34,
+          "context": "Both live at Residential Area"
+        },
+        {
+          "agent": "teresa-colombo",
+          "type": "neighbor",
+          "strength": 0.25,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "Should call my sister back.",
+        "Have to remember the school form."
+      ],
+      "turnout": 0.77,
+      "persuadability": 0.51,
+      "party_loyalty": 0.57,
+      "issue_weights": {
+        "jobs": 1.0,
+        "immigration": 0.6,
+        "healthcare": 0.4
+      }
+    },
+    {
+      "name": "Greg Hill",
+      "age": 70,
+      "occupation": "Library assistant",
+      "household": "Lives with parents",
+      "income_bracket": "~$38k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "making the paycheck stretch",
+        "whether anyone follows through",
+        "class sizes"
+      ],
+      "home": "Residential Area",
+      "workplace": "Public Library",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Public Library",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Public Library",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Lake Parsippany",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Area",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "kantibhai-\"kanti\"-desai",
+          "type": "regular",
+          "strength": 0.43,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "dave-evans",
+          "type": "neighbor",
+          "strength": 0.48,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "Someone left a flyer on the porch.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.84,
+      "persuadability": 0.72,
+      "party_loyalty": 0.39,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "trust": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Carmen López",
+      "age": 45,
+      "occupation": "Real estate agent",
+      "household": "Married, kids grown",
+      "income_bracket": "commission, ~$85k",
+      "language": "Spanish and English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "rent going up again",
+        "the cost of prescriptions",
+        "the schools"
+      ],
+      "home": "Residential Area",
+      "workplace": "Community Center",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Community Center",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Community Center",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Public Library",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Community Center",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Area",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "brian-mccarthy",
+          "type": "neighbor",
+          "strength": 0.54,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Coffee. Then everything else."
+      ],
+      "turnout": 0.39,
+      "persuadability": 0.72,
+      "party_loyalty": 0.08,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "healthcare": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Nikhil Kapoor",
+      "age": 28,
+      "occupation": "Barber",
+      "household": "Roommates",
+      "income_bracket": "~$45k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "how ICE enforcement is landing on neighbours",
+        "whether the plant keeps hiring",
+        "the national mood"
+      ],
+      "home": "Residential Area",
+      "workplace": "Indian Grocery",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Indian Grocery",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Indian Grocery",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Public Library",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Indian Grocery",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Area",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "brian-mccarthy",
+          "type": "acquaintance",
+          "strength": 0.56,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "frank-russo",
+          "type": "neighbor",
+          "strength": 0.35,
+          "context": "Both live at Residential Area"
+        },
+        {
+          "agent": "steve-turner",
+          "type": "neighbor",
+          "strength": 0.46,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "Coffee. Then everything else.",
+        "The bus was late again."
+      ],
+      "turnout": 0.47,
+      "persuadability": 0.26,
+      "party_loyalty": 0.17,
+      "issue_weights": {
+        "immigration": 1.0,
+        "jobs": 0.6,
+        "national": 0.4
+      }
+    },
+    {
+      "name": "Frank Russo",
+      "age": 27,
+      "occupation": "Community college student",
+      "household": "Lives with parents",
+      "income_bracket": "part-time wages",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "whether the plant keeps hiring",
+        "class sizes",
+        "how ICE enforcement is landing on neighbours"
+      ],
+      "home": "Residential Area",
+      "workplace": "Public Library",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Residential Area",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Community Center",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "Public Library",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Public Library",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Lake Parsippany",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Residential Area",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "grace-reyes",
+          "type": "regular",
+          "strength": 0.51,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "The bus was late again."
+      ],
+      "turnout": 0.83,
+      "persuadability": 0.21,
+      "party_loyalty": 0.67,
+      "issue_weights": {
+        "jobs": 1.0,
+        "education": 0.6,
+        "immigration": 0.4
+      }
+    },
+    {
+      "name": "Kevin Hill",
+      "age": 69,
+      "occupation": "Bakery owner",
+      "household": "Married, kids grown",
+      "income_bracket": "~$58k",
+      "language": "English",
+      "political_registration": "independent",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "whether the plant keeps hiring",
+        "politicians who say one thing and do another",
+        "the property tax bill"
+      ],
+      "home": "Residential Area",
+      "workplace": "Public Library",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Public Library",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Public Library",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Residential Area",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "grace-reyes",
+          "type": "regular",
+          "strength": 0.31,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "carmen-lópez",
+          "type": "neighbor",
+          "strength": 0.36,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "That pothole is going to eat a tire.",
+        "Coffee. Then everything else."
+      ],
+      "turnout": 0.44,
+      "persuadability": 0.51,
+      "party_loyalty": 0.44,
+      "issue_weights": {
+        "jobs": 1.0,
+        "trust": 0.6,
+        "taxes": 0.4
+      }
+    },
+    {
+      "name": "Neha Desai",
+      "age": 54,
+      "occupation": "Bus driver",
+      "household": "Married, no kids",
+      "income_bracket": "~$55k",
+      "language": "English and Hindi",
+      "political_registration": "independent",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "the morning train",
+        "class sizes",
+        "what Washington is doing to us"
+      ],
+      "home": "Residential Area",
+      "workplace": "NJ Transit Stop",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "NJ Transit Stop",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "NJ Transit Stop",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Lake Parsippany",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Area",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "brian-mccarthy",
+          "type": "neighbor",
+          "strength": 0.33,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "The bus was late again."
+      ],
+      "turnout": 0.85,
+      "persuadability": 0.6,
+      "party_loyalty": 0.49,
+      "issue_weights": {
+        "transit": 1.0,
+        "education": 0.6,
+        "national": 0.4
+      }
+    },
+    {
+      "name": "Linda Turner",
+      "age": 43,
+      "occupation": "Freelance graphic designer",
+      "household": "Single parent of one",
+      "income_bracket": "~$61k",
+      "language": "English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "making the paycheck stretch",
+        "health insurance premiums",
+        "class sizes"
+      ],
+      "home": "Residential Area",
+      "workplace": "Public Library",
+      "routine_template": "remote",
+      "routine": [
+        {
+          "time": "08:00",
+          "location": "Residential Area",
+          "activity": "Logs on from the kitchen table"
+        },
+        {
+          "time": "10:30",
+          "location": "Public Library",
+          "activity": "Coffee shop for a change of scene"
+        },
+        {
+          "time": "12:30",
+          "location": "Lake Parsippany",
+          "activity": "Lunch walk"
+        },
+        {
+          "time": "14:00",
+          "location": "Residential Area",
+          "activity": "Afternoon calls"
+        },
+        {
+          "time": "17:30",
+          "location": "Public Library",
+          "activity": "Library or an errand"
+        },
+        {
+          "time": "19:30",
+          "location": "Residential Area",
+          "activity": "Dinner"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "brian-mccarthy",
+          "type": "regular",
+          "strength": 0.32,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "nancy-baker",
+          "type": "neighbor",
+          "strength": 0.29,
+          "context": "Both live at Residential Area"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.68,
+      "persuadability": 0.34,
+      "party_loyalty": 0.46,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "healthcare": 0.6,
+        "education": 0.4
+      }
+    },
+    {
+      "name": "Dave Evans",
+      "age": 53,
+      "occupation": "Library assistant",
+      "household": "Married, no kids",
+      "income_bracket": "~$38k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "what the town does with our taxes",
+        "whether anyone follows through",
+        "the morning train"
+      ],
+      "home": "Residential Area",
+      "workplace": "Community Center",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Community Center",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Community Center",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Lake Parsippany",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Area",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "grace-reyes",
+          "type": "regular",
+          "strength": 0.39,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Someone left a flyer on the porch.",
+        "The price of eggs again."
+      ],
+      "turnout": 0.82,
+      "persuadability": 0.2,
+      "party_loyalty": 0.17,
+      "issue_weights": {
+        "taxes": 1.0,
+        "trust": 0.6,
+        "transit": 0.4
+      }
+    },
+    {
+      "name": "Kevin Parker",
+      "age": 39,
+      "occupation": "Hospital unit clerk",
+      "household": "Lives with parents",
+      "income_bracket": "~$48k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "making the paycheck stretch",
+        "the schools",
+        "how ICE enforcement is landing on neighbours"
+      ],
+      "home": "Residential Area",
+      "workplace": "Corporate Park",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Residential Area",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Corporate Park",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Corporate Park",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Lake Parsippany",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Residential Area",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "kantibhai-\"kanti\"-desai",
+          "type": "neighbor",
+          "strength": 0.56,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Did I lock the back door?"
+      ],
+      "turnout": 0.38,
+      "persuadability": 0.43,
+      "party_loyalty": 0.43,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "education": 0.6,
+        "immigration": 0.4
+      }
+    }
+  ]
+}

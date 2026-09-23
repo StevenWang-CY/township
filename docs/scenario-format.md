@@ -30,7 +30,9 @@ scenarios/<id>/
 │   └── <option-id>.json   # rich per-option data (positions, background, endorsements)
 ├── agents/
 │   └── <town-id>/
-│       └── <slug>.md      # persona files: YAML frontmatter + markdown body
+│       ├── <slug>.md      # persona files (the voices): YAML frontmatter + markdown body
+│       └── _neighbors.json  # OPTIONAL generated background residents (the neighbors tier)
+├── community.json         # OPTIONAL per-town lean/name mixes the neighbor generator draws from
 ├── context/               # OPTIONAL extra briefing material
 │   ├── debate-excerpts.json
 │   └── logistics.json
@@ -158,6 +160,11 @@ as "for", which works but is flat.
   moves the case for an option on an issue, scaled by each resident's weight on
   that issue and their `media_diet`. `news[].towns` (optional) limits a
   headline to the listed towns; empty means district-wide.
+- `news[].neutral` (optional, default `false`) — procedural coverage such as
+  "debate tonight" or "early voting opens": residents still react to it, but
+  the engine's keyword fallback (which otherwise nudges the ledger toward the
+  option most aligned with the headline's issue) stays off. The morning-after
+  result headline is neutral by construction.
 
 Personas may pin the model's traits in frontmatter (all optional):
 `persuadability` (0–1, default 0.35 registered / 0.6 unaffiliated, +0.15 when
@@ -401,6 +408,72 @@ Optional keys:
 - `goals` — `{"round_0": "...", "round_1": "..."}`; the matching entry is injected into the system prompt each round as `--- YOUR GOAL THIS ROUND ---`.
 
 The **body** is the persona itself, written in second person. The strongest reference is `scenarios/millbrook-budget/agents/millbrook-village/mill-widow.md` (Adele Pruitt): specific places, a speech tic ("mind you"), an honest internal conflict between her lean and two good counter-arguments, and concrete stakes ($58 more on this year's tax bill). Agents whose personas contain real tensions produce deliberation; agents built as mouthpieces produce speeches.
+
+## Neighbors (`agents/<town-id>/_neighbors.json`) and `community.json` — optional
+
+Voices are the hand-written personas: they speak through the model. A town of
+six voices is a cast, not a community, so each town can also carry a
+**neighbors tier** — 12–18 generated background residents (scaled by
+population) who live in the influence ledger only:
+
+- they never call the model — no tokens, no cost, deterministic;
+- they keep routines, go to work, talk in templated lines from
+  `backend/community/grammar.py` (a fraction of those lines reach the wire as
+  `agent_speech`; a conversation is staged with `conversation_started/ended`
+  only when a voice is in it);
+- headlines land on their ledgers and one of them per town says a line;
+- their opinion changes reach the wire only on a change of mind or a real
+  swing in confidence, and each cites the ledger entries that caused it;
+- they vote on election day (turnout is an authored trait); tallies count
+  everyone, and `TownSummary.by_tier` keeps voices separable.
+
+Generate them once and **commit the output** — the loader reads the file and
+never generates:
+
+```bash
+township new-neighbors <scenario-id> --seed 7            # writes agents/<town>/_neighbors.json for every town
+township new-neighbors <scenario-id> --per-town 14 --force
+```
+
+`_neighbors.json` is `{ "seed", "generator_version", "town", "neighbors": [...] }`.
+Each neighbor has the required keys `name`, `age`, `occupation`, `household`,
+`income_bracket`, `language`, `political_registration`, `initial_lean`,
+`top_concerns` (2–3), `routine` (`[{time, location, activity}]`, locations are
+the town's landmarks or `"<other-town>: <landmark>"` for commuters), and the
+optional keys `home`, `workplace`, `routine_template`, `relationships`,
+`idle_thoughts`, `turnout`, `persuadability`, `party_loyalty`, `issue_weights`,
+`media_diet`. Unknown keys fail the load. Ids are derived from names like any
+persona and must stay unique across the whole scenario; the generator avoids
+every voice and every earlier town's neighbors, and the same seed reproduces
+the same file byte for byte (`tests/test_neighbors.py` pins this).
+
+`community.json` (optional) steers the generator per town — without it the
+generic pools in `backend/community/defaults.json` apply:
+
+```json
+{
+  "towns": {
+    "dover": {
+      "lean_mix":        { "mejia": 0.40, "hathaway": 0.18, "bond": 0.03, "undecided": 0.39 },
+      "name_pools":      { "hispanic": 0.7, "anglo": 0.14, "african_american": 0.08, "italian_american": 0.05, "polish_american": 0.03 },
+      "commute_targets": ["parsippany: Corporate Park"]
+    }
+  }
+}
+```
+
+- `lean_mix` — the authored prior for the background population, allocated by
+  quota so a town of twelve keeps its mix; a neighbor's concerns are then
+  drawn tilted toward the issues their option owns (`options/*.json`
+  `alignment`), so the ledger's seed agrees with the drawn lean.
+- `name_pools` — weights over the ancestry-keyed name pools in `defaults.json`
+  (which also pick the neighbor's language).
+- `commute_targets` — `"<town-id>: <landmark>"` workplaces in other towns for
+  the commuting occupations; they must resolve.
+- `occupations` (optional) — restrict the occupation titles used in a town.
+
+Neighbors are fictional composites. Their generated system prompt says so, and
+`RESPONSIBLE_USE.md` applies to them exactly as it does to the voices.
 
 ## Worked example: the Millbrook manifest
 

@@ -1,0 +1,907 @@
+{
+  "seed": 7,
+  "generator_version": 1,
+  "town": "dover",
+  "neighbors": [
+    {
+      "name": "Luis Herrera",
+      "age": 21,
+      "occupation": "Community college student",
+      "household": "Widowed, lives alone",
+      "income_bracket": "part-time wages",
+      "language": "Spanish and English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "college costs for the kids",
+        "getting to work without a car",
+        "grocery prices"
+      ],
+      "home": "Public Housing",
+      "workplace": "Bodega Row",
+      "routine_template": "student",
+      "routine": [
+        {
+          "time": "07:30",
+          "location": "Public Housing",
+          "activity": "Breakfast between chapters"
+        },
+        {
+          "time": "09:00",
+          "location": "Public Library",
+          "activity": "Classes and the library"
+        },
+        {
+          "time": "13:00",
+          "location": "Public Library",
+          "activity": "Lunch with friends"
+        },
+        {
+          "time": "15:00",
+          "location": "Bodega Row",
+          "activity": "Part-time shift"
+        },
+        {
+          "time": "19:00",
+          "location": "Town Park",
+          "activity": "Decompresses outside"
+        },
+        {
+          "time": "22:00",
+          "location": "Public Housing",
+          "activity": "Late study"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "miguel-hernandez",
+          "type": "acquaintance",
+          "strength": 0.49,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "Need to move the car before the sweeper comes."
+      ],
+      "turnout": 0.59,
+      "persuadability": 0.26,
+      "party_loyalty": 0.39,
+      "issue_weights": {
+        "education": 1.0,
+        "transit": 0.6,
+        "cost-of-living": 0.4
+      }
+    },
+    {
+      "name": "Noelia Herrera",
+      "age": 64,
+      "occupation": "Home health aide",
+      "household": "Roommates",
+      "income_bracket": "~$36k",
+      "language": "English and Spanish",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "families afraid to open the door",
+        "rent going up again",
+        "getting to work without a car"
+      ],
+      "home": "Public Housing",
+      "workplace": "Public Housing",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Public Housing",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Public Housing",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Public Housing",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Town Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Public Housing",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "esperanza-guzman",
+          "type": "regular",
+          "strength": 0.55,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "ana-gómez",
+          "type": "neighbor",
+          "strength": 0.35,
+          "context": "Both live at Public Housing"
+        },
+        {
+          "agent": "paola-peña",
+          "type": "neighbor",
+          "strength": 0.44,
+          "context": "Both live at Public Housing"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.85,
+      "persuadability": 0.21,
+      "party_loyalty": 0.56,
+      "issue_weights": {
+        "immigration": 1.0,
+        "cost-of-living": 0.6,
+        "transit": 0.4
+      }
+    },
+    {
+      "name": "Amy Miller",
+      "age": 72,
+      "occupation": "Barber",
+      "household": "Widowed, lives alone",
+      "income_bracket": "~$45k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "rent going up again",
+        "the schools",
+        "honesty in public office"
+      ],
+      "home": "Public Housing",
+      "workplace": "La Finca Restaurant",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Public Housing",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "La Finca Restaurant",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "La Finca Restaurant",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Bodega Row",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "La Finca Restaurant",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Public Housing",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "maria-santos",
+          "type": "neighbor",
+          "strength": 0.33,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "chris-miller",
+          "type": "neighbor",
+          "strength": 0.49,
+          "context": "Both live at Public Housing"
+        }
+      ],
+      "idle_thoughts": [
+        "Should call my sister back.",
+        "Wonder if the rain holds off."
+      ],
+      "turnout": 0.6,
+      "persuadability": 0.4,
+      "party_loyalty": 0.31,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "education": 0.6,
+        "trust": 0.4
+      }
+    },
+    {
+      "name": "Mateo Vargas",
+      "age": 76,
+      "occupation": "Library assistant",
+      "household": "Lives alone",
+      "income_bracket": "~$38k",
+      "language": "Spanish and English",
+      "political_registration": "republican",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "making the paycheck stretch",
+        "class sizes",
+        "the cost of prescriptions"
+      ],
+      "home": "Public Housing",
+      "workplace": "Public Library",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Public Housing",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Public Library",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Bodega Row",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Public Library",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Town Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Public Housing",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "carlos-restrepo",
+          "type": "regular",
+          "strength": 0.32,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "The price of eggs again.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.79,
+      "persuadability": 0.57,
+      "party_loyalty": 0.67,
+      "issue_weights": {
+        "cost-of-living": 1.0,
+        "education": 0.6,
+        "healthcare": 0.4
+      }
+    },
+    {
+      "name": "Paola Peña",
+      "age": 50,
+      "occupation": "Paralegal",
+      "household": "Multigenerational household",
+      "income_bracket": "~$72k",
+      "language": "English and Spanish",
+      "political_registration": "unaffiliated",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "the paperwork that never ends",
+        "traffic on the highway",
+        "health insurance premiums"
+      ],
+      "home": "Public Housing",
+      "workplace": "Bodega Row",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Public Housing",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Dover Station",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "Bodega Row",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Dover Station",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Public Housing",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "sofia-ramirez",
+          "type": "neighbor",
+          "strength": 0.6,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "keisha-brooks",
+          "type": "neighbor",
+          "strength": 0.35,
+          "context": "Both live at Public Housing"
+        }
+      ],
+      "idle_thoughts": [
+        "Need to move the car before the sweeper comes.",
+        "Coffee. Then everything else."
+      ],
+      "turnout": 0.91,
+      "persuadability": 0.39,
+      "party_loyalty": 0.18,
+      "issue_weights": {
+        "immigration": 1.0,
+        "transit": 0.6,
+        "healthcare": 0.4
+      }
+    },
+    {
+      "name": "Mateo Rojas",
+      "age": 50,
+      "occupation": "Freelance graphic designer",
+      "household": "Multigenerational household",
+      "income_bracket": "~$61k",
+      "language": "Spanish and English",
+      "political_registration": "republican",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "what Washington is doing to us",
+        "keeping the clinic open",
+        "getting to work without a car"
+      ],
+      "home": "Public Housing",
+      "workplace": "Bodega Row",
+      "routine_template": "remote",
+      "routine": [
+        {
+          "time": "08:00",
+          "location": "Public Housing",
+          "activity": "Logs on from the kitchen table"
+        },
+        {
+          "time": "10:30",
+          "location": "Public Housing",
+          "activity": "Coffee shop for a change of scene"
+        },
+        {
+          "time": "12:30",
+          "location": "Town Park",
+          "activity": "Lunch walk"
+        },
+        {
+          "time": "14:00",
+          "location": "Public Housing",
+          "activity": "Afternoon calls"
+        },
+        {
+          "time": "17:30",
+          "location": "Public Library",
+          "activity": "Library or an errand"
+        },
+        {
+          "time": "19:30",
+          "location": "Public Housing",
+          "activity": "Dinner"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "maria-santos",
+          "type": "regular",
+          "strength": 0.55,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Have to remember the school form.",
+        "That pothole is going to eat a tire."
+      ],
+      "turnout": 0.39,
+      "persuadability": 0.72,
+      "party_loyalty": 0.75,
+      "issue_weights": {
+        "national": 1.0,
+        "healthcare": 0.6,
+        "transit": 0.4
+      }
+    },
+    {
+      "name": "Ana Gómez",
+      "age": 69,
+      "occupation": "Retired postal worker",
+      "household": "Married, two kids",
+      "income_bracket": "pension + Social Security",
+      "language": "English and Spanish",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "traffic on the highway",
+        "what the town does with our taxes",
+        "steady work close to home"
+      ],
+      "home": "Public Housing",
+      "workplace": null,
+      "routine_template": "retiree",
+      "routine": [
+        {
+          "time": "07:00",
+          "location": "Public Housing",
+          "activity": "Slow morning with the paper"
+        },
+        {
+          "time": "09:30",
+          "location": "Public Library",
+          "activity": "Coffee with the regulars"
+        },
+        {
+          "time": "11:00",
+          "location": "Town Park",
+          "activity": "Walk around the park"
+        },
+        {
+          "time": "13:00",
+          "location": "Public Housing",
+          "activity": "Lunch and a nap"
+        },
+        {
+          "time": "15:30",
+          "location": "Public Library",
+          "activity": "Errands, the library"
+        },
+        {
+          "time": "18:00",
+          "location": "Public Housing",
+          "activity": "Dinner and the evening news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "tom-kowalski",
+          "type": "acquaintance",
+          "strength": 0.41,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "luis-herrera",
+          "type": "neighbor",
+          "strength": 0.38,
+          "context": "Both live at Public Housing"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Should call my sister back."
+      ],
+      "turnout": 0.86,
+      "persuadability": 0.4,
+      "party_loyalty": 0.61,
+      "issue_weights": {
+        "transit": 1.0,
+        "taxes": 0.6,
+        "jobs": 0.4
+      }
+    },
+    {
+      "name": "Valeria López",
+      "age": 32,
+      "occupation": "IT project manager",
+      "household": "Married, two kids",
+      "income_bracket": "~$135k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "small businesses hanging on",
+        "the morning train",
+        "what Washington is doing to us"
+      ],
+      "home": "Public Housing",
+      "workplace": "parsippany: Corporate Park",
+      "routine_template": "office_commuter",
+      "routine": [
+        {
+          "time": "06:45",
+          "location": "Public Housing",
+          "activity": "Coffee and the train schedule"
+        },
+        {
+          "time": "07:30",
+          "location": "Dover Station",
+          "activity": "Catches the train"
+        },
+        {
+          "time": "09:00",
+          "location": "parsippany: Corporate Park",
+          "activity": "At the office"
+        },
+        {
+          "time": "17:30",
+          "location": "Dover Station",
+          "activity": "Off the train"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Picks up dinner"
+        },
+        {
+          "time": "20:00",
+          "location": "Public Housing",
+          "activity": "Home; emails; bed"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "tom-kowalski",
+          "type": "regular",
+          "strength": 0.49,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "mateo-vargas",
+          "type": "neighbor",
+          "strength": 0.31,
+          "context": "Both live at Public Housing"
+        }
+      ],
+      "idle_thoughts": [
+        "The price of eggs again.",
+        "Need to move the car before the sweeper comes."
+      ],
+      "turnout": 0.86,
+      "persuadability": 0.79,
+      "party_loyalty": 0.02,
+      "issue_weights": {
+        "jobs": 1.0,
+        "transit": 0.6,
+        "national": 0.4
+      }
+    },
+    {
+      "name": "Ramón Acosta",
+      "age": 75,
+      "occupation": "Dry cleaner owner",
+      "household": "Married, kids grown",
+      "income_bracket": "~$60k",
+      "language": "Spanish and English",
+      "political_registration": "republican",
+      "initial_lean": "hathaway",
+      "top_concerns": [
+        "the party line",
+        "rent going up again",
+        "steady work close to home"
+      ],
+      "home": "Public Housing",
+      "workplace": "Public Library",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Public Housing",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Public Library",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Library",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "Public Library",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Public Library",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Public Housing",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "carlos-restrepo",
+          "type": "neighbor",
+          "strength": 0.4,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "amy-miller",
+          "type": "neighbor",
+          "strength": 0.44,
+          "context": "Both live at Public Housing"
+        }
+      ],
+      "idle_thoughts": [
+        "Did I lock the back door?",
+        "The bus was late again."
+      ],
+      "turnout": 0.58,
+      "persuadability": 0.29,
+      "party_loyalty": 0.52,
+      "issue_weights": {
+        "national": 1.0,
+        "cost-of-living": 0.6,
+        "jobs": 0.4
+      }
+    },
+    {
+      "name": "Keisha Brooks",
+      "age": 30,
+      "occupation": "Home health aide",
+      "household": "Lives alone",
+      "income_bracket": "~$36k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "traffic on the highway",
+        "the cost of prescriptions",
+        "whether anyone follows through"
+      ],
+      "home": "Public Housing",
+      "workplace": "Public Housing",
+      "routine_template": "shift_worker",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Public Housing",
+          "activity": "Up early, coffee, out the door"
+        },
+        {
+          "time": "07:30",
+          "location": "Public Housing",
+          "activity": "Clocks in for the morning shift"
+        },
+        {
+          "time": "12:30",
+          "location": "Public Housing",
+          "activity": "Lunch break"
+        },
+        {
+          "time": "15:30",
+          "location": "Public Housing",
+          "activity": "Back on the floor"
+        },
+        {
+          "time": "18:30",
+          "location": "Town Park",
+          "activity": "Walk before dinner"
+        },
+        {
+          "time": "20:30",
+          "location": "Public Housing",
+          "activity": "Home, dinner, the news"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "carlos-restrepo",
+          "type": "acquaintance",
+          "strength": 0.34,
+          "context": "Crosses paths most days"
+        }
+      ],
+      "idle_thoughts": [
+        "Did I lock the back door?",
+        "The bus was late again."
+      ],
+      "turnout": 0.57,
+      "persuadability": 0.74,
+      "party_loyalty": 0.0,
+      "issue_weights": {
+        "transit": 1.0,
+        "healthcare": 0.6,
+        "trust": 0.4
+      }
+    },
+    {
+      "name": "Chris Miller",
+      "age": 60,
+      "occupation": "Barber",
+      "household": "Married, kids grown",
+      "income_bracket": "~$45k",
+      "language": "English",
+      "political_registration": "democrat",
+      "initial_lean": "mejia",
+      "top_concerns": [
+        "college costs for the kids",
+        "grocery prices",
+        "honesty in public office"
+      ],
+      "home": "Public Housing",
+      "workplace": "Bodega Row",
+      "routine_template": "shop_owner",
+      "routine": [
+        {
+          "time": "06:30",
+          "location": "Public Housing",
+          "activity": "Coffee, then opens up"
+        },
+        {
+          "time": "07:30",
+          "location": "Bodega Row",
+          "activity": "Opens the shop"
+        },
+        {
+          "time": "12:30",
+          "location": "Bodega Row",
+          "activity": "Lunch rush at the counter"
+        },
+        {
+          "time": "16:00",
+          "location": "La Finca Restaurant",
+          "activity": "Break next door"
+        },
+        {
+          "time": "18:30",
+          "location": "Bodega Row",
+          "activity": "Closes out the register"
+        },
+        {
+          "time": "20:00",
+          "location": "Public Housing",
+          "activity": "Home late"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "carlos-restrepo",
+          "type": "neighbor",
+          "strength": 0.53,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "ramón-acosta",
+          "type": "neighbor",
+          "strength": 0.31,
+          "context": "Both live at Public Housing"
+        },
+        {
+          "agent": "ana-gómez",
+          "type": "neighbor",
+          "strength": 0.47,
+          "context": "Both live at Public Housing"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Coffee. Then everything else."
+      ],
+      "turnout": 0.91,
+      "persuadability": 0.22,
+      "party_loyalty": 0.41,
+      "issue_weights": {
+        "education": 1.0,
+        "cost-of-living": 0.6,
+        "trust": 0.4
+      }
+    },
+    {
+      "name": "Paul Phillips",
+      "age": 37,
+      "occupation": "Insurance claims adjuster (remote)",
+      "household": "Multigenerational household",
+      "income_bracket": "~$70k",
+      "language": "English",
+      "political_registration": "unaffiliated",
+      "initial_lean": "undecided",
+      "top_concerns": [
+        "families afraid to open the door",
+        "what the town does with our taxes",
+        "politicians who say one thing and do another"
+      ],
+      "home": "Public Housing",
+      "workplace": "Public Housing",
+      "routine_template": "remote",
+      "routine": [
+        {
+          "time": "08:00",
+          "location": "Public Housing",
+          "activity": "Logs on from the kitchen table"
+        },
+        {
+          "time": "10:30",
+          "location": "Public Library",
+          "activity": "Coffee shop for a change of scene"
+        },
+        {
+          "time": "12:30",
+          "location": "Town Park",
+          "activity": "Lunch walk"
+        },
+        {
+          "time": "14:00",
+          "location": "Public Housing",
+          "activity": "Afternoon calls"
+        },
+        {
+          "time": "17:30",
+          "location": "Public Library",
+          "activity": "Library or an errand"
+        },
+        {
+          "time": "19:30",
+          "location": "Public Housing",
+          "activity": "Dinner"
+        }
+      ],
+      "relationships": [
+        {
+          "agent": "miguel-hernandez",
+          "type": "regular",
+          "strength": 0.56,
+          "context": "Crosses paths most days"
+        },
+        {
+          "agent": "luis-herrera",
+          "type": "neighbor",
+          "strength": 0.31,
+          "context": "Both live at Public Housing"
+        }
+      ],
+      "idle_thoughts": [
+        "Wonder if the rain holds off.",
+        "Someone left a flyer on the porch."
+      ],
+      "turnout": 0.48,
+      "persuadability": 0.66,
+      "party_loyalty": 0.08,
+      "issue_weights": {
+        "immigration": 1.0,
+        "taxes": 0.6,
+        "trust": 0.4
+      }
+    }
+  ]
+}

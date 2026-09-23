@@ -1,0 +1,106 @@
+{
+  "_comment": "Generic pools for generated neighbors: fictional composites, no civic facts. Scenarios override any of these in scenarios/<id>/community.json.",
+  "name_pools": {
+    "hispanic": {
+      "first": ["Ana", "Luis", "Marisol", "Diego", "Carmen", "Javier", "Rosa", "Andrés", "Lucía", "Mateo", "Paola", "Héctor", "Valeria", "Óscar", "Daniela", "Ramón", "Ximena", "Felipe", "Noelia", "Julián"],
+      "last": ["García", "Rodríguez", "Martínez", "López", "Gómez", "Torres", "Rivera", "Vargas", "Castillo", "Morales", "Ortiz", "Jiménez", "Salazar", "Cruz", "Mendoza", "Herrera", "Peña", "Rojas", "Núñez", "Acosta"]
+    },
+    "anglo": {
+      "first": ["Karen", "Dave", "Linda", "Mike", "Susan", "Brian", "Nancy", "Kevin", "Emily", "Greg", "Heather", "Scott", "Megan", "Paul", "Amy", "Chris", "Laura", "Mark", "Rachel", "Steve"],
+      "last": ["Miller", "Anderson", "Thompson", "Walker", "Hall", "Young", "Allen", "King", "Wright", "Hill", "Baker", "Nelson", "Carter", "Mitchell", "Roberts", "Turner", "Phillips", "Campbell", "Parker", "Evans"]
+    },
+    "italian_american": {
+      "first": ["Tony", "Gina", "Vinnie", "Angela", "Sal", "Maria", "Joe", "Teresa", "Frank", "Carla"],
+      "last": ["Russo", "Esposito", "Romano", "Colombo", "Ricci", "Marino", "Greco", "Bruno", "Gallo", "Conti"]
+    },
+    "african_american": {
+      "first": ["Denise", "Marcus", "Tanya", "Andre", "Keisha", "Darnell", "Monique", "Terrence", "Jasmine", "Reggie"],
+      "last": ["Washington", "Jefferson", "Robinson", "Harris", "Jackson", "Brooks", "Coleman", "Simmons", "Bryant", "Reed"]
+    },
+    "south_asian": {
+      "first": ["Priya", "Arjun", "Neha", "Rohan", "Anjali", "Vikram", "Meera", "Sanjay", "Kavita", "Nikhil"],
+      "last": ["Patel", "Shah", "Desai", "Mehta", "Iyer", "Reddy", "Kapoor", "Nair", "Joshi", "Rao"]
+    },
+    "east_asian": {
+      "first": ["Wei", "Grace", "Jun", "Alice", "Min", "Kevin", "Hana", "David", "Yuki", "Lin"],
+      "last": ["Chen", "Kim", "Nguyen", "Park", "Wang", "Tanaka", "Lee", "Huang", "Choi", "Liu"]
+    },
+    "polish_american": {
+      "first": ["Stan", "Halina", "Jerzy", "Beata", "Marek", "Ewa"],
+      "last": ["Nowak", "Kowalczyk", "Wiśniewski", "Zielinski", "Mazur", "Dabrowski"]
+    },
+    "irish_american": {
+      "first": ["Sean", "Maureen", "Patrick", "Colleen", "Brendan", "Erin"],
+      "last": ["Murphy", "Kelly", "O'Brien", "Ryan", "Walsh", "Doyle"]
+    }
+  },
+  "occupations": [
+    {"title": "Warehouse shift supervisor", "template": "shift_worker", "workplace": ["building"], "income": "~$52k", "concerns": ["cost-of-living", "jobs", "healthcare"]},
+    {"title": "Hospital unit clerk", "template": "shift_worker", "workplace": ["building"], "income": "~$48k", "concerns": ["healthcare", "cost-of-living"]},
+    {"title": "Line cook", "template": "shift_worker", "workplace": ["food", "building"], "income": "~$34k", "concerns": ["cost-of-living", "immigration", "jobs"]},
+    {"title": "Home health aide", "template": "shift_worker", "workplace": ["housing", "building"], "income": "~$36k", "concerns": ["healthcare", "cost-of-living", "seniors"]},
+    {"title": "Accounts payable specialist", "template": "office_commuter", "workplace": ["commute"], "income": "~$68k", "concerns": ["taxes", "transit", "cost-of-living"]},
+    {"title": "IT project manager", "template": "office_commuter", "workplace": ["commute"], "income": "~$135k", "concerns": ["taxes", "transit", "education"]},
+    {"title": "Pharmaceutical QA analyst", "template": "office_commuter", "workplace": ["commute", "building"], "income": "~$98k", "concerns": ["jobs", "healthcare", "taxes"]},
+    {"title": "Paralegal", "template": "office_commuter", "workplace": ["commute"], "income": "~$72k", "concerns": ["trust", "taxes", "transit"]},
+    {"title": "Retired postal worker", "template": "retiree", "workplace": [], "income": "pension + Social Security", "concerns": ["seniors", "healthcare", "taxes"]},
+    {"title": "Retired teacher", "template": "retiree", "workplace": [], "income": "pension", "concerns": ["education", "seniors", "trust"]},
+    {"title": "Retired electrician", "template": "retiree", "workplace": [], "income": "~$40k retirement", "concerns": ["taxes", "seniors", "cost-of-living"]},
+    {"title": "Stay-at-home parent of three", "template": "parent", "workplace": [], "income": "single earner household", "concerns": ["education", "cost-of-living", "safety"]},
+    {"title": "School crossing guard and parent", "template": "parent", "workplace": ["building"], "income": "~$22k part-time", "concerns": ["education", "safety", "cost-of-living"]},
+    {"title": "Community college student", "template": "student", "workplace": ["building", "civic"], "income": "part-time wages", "concerns": ["education", "cost-of-living", "transit"]},
+    {"title": "Nursing student", "template": "student", "workplace": ["building"], "income": "part-time wages", "concerns": ["healthcare", "education", "cost-of-living"]},
+    {"title": "Barber", "template": "shop_owner", "workplace": ["building", "food"], "income": "~$45k", "concerns": ["cost-of-living", "jobs", "safety"]},
+    {"title": "Dry cleaner owner", "template": "shop_owner", "workplace": ["building"], "income": "~$60k", "concerns": ["taxes", "cost-of-living", "jobs"]},
+    {"title": "Bakery owner", "template": "shop_owner", "workplace": ["food", "building"], "income": "~$58k", "concerns": ["cost-of-living", "jobs", "taxes"]},
+    {"title": "Freelance graphic designer", "template": "remote", "workplace": ["food"], "income": "~$61k", "concerns": ["healthcare", "cost-of-living", "development"]},
+    {"title": "Insurance claims adjuster (remote)", "template": "remote", "workplace": ["food", "park"], "income": "~$70k", "concerns": ["healthcare", "taxes", "trust"]},
+    {"title": "Landscaping crew lead", "template": "shift_worker", "workplace": ["park", "housing"], "income": "~$44k", "concerns": ["immigration", "jobs", "cost-of-living"]},
+    {"title": "Bus driver", "template": "shift_worker", "workplace": ["transport"], "income": "~$55k", "concerns": ["transit", "cost-of-living", "safety"]},
+    {"title": "Library assistant", "template": "shift_worker", "workplace": ["civic", "building"], "income": "~$38k", "concerns": ["education", "trust", "cost-of-living"]},
+    {"title": "Real estate agent", "template": "shop_owner", "workplace": ["building"], "income": "commission, ~$85k", "concerns": ["taxes", "development", "cost-of-living"]}
+  ],
+  "templates": {
+    "shift_worker": [["06:30", "home", "Up early, coffee, out the door"], ["07:30", "work", "Clocks in for the morning shift"], ["12:30", "food", "Lunch break"], ["15:30", "work", "Back on the floor"], ["18:30", "park", "Walk before dinner"], ["20:30", "home", "Home, dinner, the news"]],
+    "office_commuter": [["06:45", "home", "Coffee and the train schedule"], ["07:30", "transport", "Catches the train"], ["09:00", "commute", "At the office"], ["17:30", "transport", "Off the train"], ["18:30", "food", "Picks up dinner"], ["20:00", "home", "Home; emails; bed"]],
+    "retiree": [["07:00", "home", "Slow morning with the paper"], ["09:30", "food", "Coffee with the regulars"], ["11:00", "park", "Walk around the park"], ["13:00", "home", "Lunch and a nap"], ["15:30", "civic", "Errands, the library"], ["18:00", "home", "Dinner and the evening news"]],
+    "parent": [["06:30", "home", "Lunches packed, everyone out the door"], ["08:00", "school", "School drop-off"], ["10:00", "food", "Groceries and a coffee"], ["14:30", "school", "Pick-up line"], ["16:00", "park", "Playground until dinner"], ["19:00", "home", "Dinner, homework, bed"]],
+    "student": [["07:30", "home", "Breakfast between chapters"], ["09:00", "civic", "Classes and the library"], ["13:00", "food", "Lunch with friends"], ["15:00", "work", "Part-time shift"], ["19:00", "park", "Decompresses outside"], ["22:00", "home", "Late study"]],
+    "shop_owner": [["06:30", "home", "Coffee, then opens up"], ["07:30", "work", "Opens the shop"], ["12:30", "work", "Lunch rush at the counter"], ["16:00", "food", "Break next door"], ["18:30", "work", "Closes out the register"], ["20:00", "home", "Home late"]],
+    "remote": [["08:00", "home", "Logs on from the kitchen table"], ["10:30", "food", "Coffee shop for a change of scene"], ["12:30", "park", "Lunch walk"], ["14:00", "home", "Afternoon calls"], ["17:30", "civic", "Library or an errand"], ["19:30", "home", "Dinner"]]
+  },
+  "concern_phrases": {
+    "healthcare": ["health insurance premiums", "the cost of prescriptions", "keeping the clinic open"],
+    "immigration": ["how ICE enforcement is landing on neighbours", "families afraid to open the door", "the paperwork that never ends"],
+    "taxes": ["the property tax bill", "the next reassessment", "what the town does with our taxes"],
+    "cost-of-living": ["rent going up again", "grocery prices", "making the paycheck stretch"],
+    "jobs": ["steady work close to home", "whether the plant keeps hiring", "small businesses hanging on"],
+    "transit": ["the morning train", "traffic on the highway", "getting to work without a car"],
+    "education": ["the schools", "college costs for the kids", "class sizes"],
+    "trust": ["whether anyone follows through", "politicians who say one thing and do another", "honesty in public office"],
+    "national": ["what Washington is doing to us", "the national mood", "the party line"],
+    "safety": ["the roads at night", "the fire department's response times", "the kids walking to school"],
+    "seniors": ["Social Security keeping up", "care for aging parents", "staying in the house"],
+    "development": ["empty storefronts downtown", "whether visitors ever stop here", "new construction"],
+    "heritage": ["the old mill", "what makes this place itself", "the town's history"],
+    "flood": ["the river in spring", "the last flood", "the culverts"],
+    "youth": ["young families leaving", "somewhere for teenagers to go", "the rec league"],
+    "roads": ["the potholes on the main road", "the bridge", "plowing in winter"],
+    "debt": ["the town's debt", "the pension bill", "borrowing against the future"],
+    "windfall": ["spending a windfall wisely", "one-time money", "the surplus"]
+  },
+  "idle_thoughts": [
+    "Need to move the car before the sweeper comes.",
+    "Did I lock the back door?",
+    "The price of eggs again.",
+    "Should call my sister back.",
+    "That pothole is going to eat a tire.",
+    "Wonder if the rain holds off.",
+    "The bus was late again.",
+    "Have to remember the school form.",
+    "Coffee. Then everything else.",
+    "Someone left a flyer on the porch."
+  ],
+  "households": ["Lives alone", "Married, two kids", "Married, no kids", "Lives with parents", "Single parent of one", "Roommates", "Married, kids grown", "Widowed, lives alone", "Multigenerational household"],
+  "languages": {"hispanic": ["Spanish and English", "English and Spanish", "English"], "south_asian": ["English and Gujarati", "English and Hindi", "English"], "east_asian": ["English and Mandarin", "English and Korean", "English"], "default": ["English"]}
+}
