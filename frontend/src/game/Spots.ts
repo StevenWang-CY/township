@@ -114,6 +114,9 @@ export interface ReserveOptions {
 
 const DEFAULT_CLEAR = 34;
 const APRON_BOX = 96;
+/** Two standing residents keep at least this apart (a facing chat pair is
+ *  32 px): an authored spot this close to an occupied one waits its turn. */
+const SPOT_CLEAR = 26;
 
 export class SpotRegistry {
   private readonly byLandmark = new Map<string, Spot[]>();
@@ -123,7 +126,15 @@ export class SpotRegistry {
   /** agent id → kind → placement. */
   private readonly placements = new Map<string, Map<PlacementKind, Placement>>();
 
-  constructor(spots: Spot[], private readonly isFree: (x: number, y: number) => boolean) {
+  constructor(
+    spots: Spot[],
+    private readonly isFree: (x: number, y: number) => boolean,
+    /** Can a walker get from the landmark's apron to this point on the
+     *  pavement? Without it, any free ground in the box will do; with it,
+     *  no overflow seat lands in a service yard behind a hedge that only
+     *  the street reaches. */
+    private readonly reachable?: (from: Pt, to: Pt) => boolean,
+  ) {
     for (const s of spots) {
       this.byId.set(s.id, s);
       const list = this.byLandmark.get(s.landmark) ?? [];
@@ -164,8 +175,22 @@ export class SpotRegistry {
 
   private isSpotFree(spot: Spot, forAgent: string): boolean {
     const held = this.holders.get(spot.id);
-    if (!held || held.size < spot.cap) return true;
-    return held.has(forAgent);
+    if (held && held.size >= spot.cap && !held.has(forAgent)) return false;
+    return this.clearOfOthers(spot, forAgent);
+  }
+
+  /** No one else (bar the agent's own placements and a chat partner in the
+   *  same pair) stands within SPOT_CLEAR of the spot: doorstep roles are
+   *  authored 16–24 px apart, and a crowd fills them one at a time. */
+  private clearOfOthers(spot: Spot, forAgent: string, partner?: string): boolean {
+    for (const [id, kinds] of this.placements) {
+      if (id === forAgent || id === partner) continue;
+      for (const p of kinds.values()) {
+        if (p.spot?.pair && p.spot.pair === spot.pair) continue;
+        if (Math.hypot(p.x - spot.x, p.y - spot.y) < SPOT_CLEAR) return false;
+      }
+    }
+    return true;
   }
 
   /** Every occupied point (all kinds) except the agent's own. */
@@ -230,7 +255,11 @@ export class SpotRegistry {
       this.record(p);
       return p;
     }
-    const centre = opts.near ?? opts.apron ?? this.doorOf(landmark) ?? this.centroidOf(landmark) ?? { x: 600, y: 400 };
+    // Overflow samples spread from the apron (the door, or the walkable
+    // ground nearest a recorded coordinate — the caller's choice), while
+    // the recorded coordinate itself only bounds them: a landmark rect's
+    // corner may sit on the street.
+    const centre = opts.apron ?? opts.near ?? this.doorOf(landmark) ?? this.centroidOf(landmark) ?? { x: 600, y: 400 };
     const pt = this.sampleApron(landmark, agentId, centre, {
       minDist: opts.clearOf ?? DEFAULT_CLEAR,
       envelope: opts.near && opts.envelope ? { near: opts.near, ...opts.envelope } : undefined,
@@ -269,7 +298,9 @@ export class SpotRegistry {
     for (const list of pairs.values()) {
       const a = list.find((s) => s.side === "a");
       const b = list.find((s) => s.side === "b");
-      if (!a || !b || !this.isSpotFree(a, ids[0]) || !this.isSpotFree(b, ids[1])) continue;
+      if (!a || !b) continue;
+      if (!this.isSpotFree(a, ids[0]) || !this.isSpotFree(b, ids[1])) continue;
+      if (!this.clearOfOthers(a, ids[0], ids[1]) || !this.clearOfOthers(b, ids[1], ids[0])) continue;
       const mx = (a.x + b.x) / 2;
       const my = (a.y + b.y) / 2;
       const d = near ? Math.hypot(mx - near.x, my - near.y) : 0;
@@ -357,6 +388,10 @@ export class SpotRegistry {
     const minDist = opts.minDist ?? DEFAULT_CLEAR;
     const rng = mulberry32(fnv1a(`${landmark}|${agentId}`));
     const occupied = this.occupiedPoints(agentId);
+    // Reachability is judged from the centre when the centre is standable
+    // ground; a road landmark's apron is the asphalt itself, and from there
+    // any free ground nearby will do.
+    const reachFrom = this.reachable && this.isFree(centre.x, centre.y) ? this.reachable : undefined;
     const okFree = (x: number, y: number) => {
       if (!this.isFree(x, y)) return false;
       if (opts.needsWidth) {
@@ -367,6 +402,7 @@ export class SpotRegistry {
         const e = opts.envelope;
         if (Math.abs(x - e.near.x) > e.dx || Math.abs(y - e.near.y) > e.dy) return false;
       }
+      if (reachFrom && !reachFrom(centre, { x, y })) return false;
       return true;
     };
     let box = opts.box ?? APRON_BOX;
@@ -397,7 +433,7 @@ export class SpotRegistry {
         const a = (i / 8) * Math.PI * 2;
         const x = Math.round(centre.x + Math.cos(a) * radius);
         const y = Math.round(centre.y + Math.sin(a) * radius);
-        if (this.isFree(x, y)) return { x, y };
+        if (this.isFree(x, y) && (!reachFrom || reachFrom(centre, { x, y }))) return { x, y };
       }
     }
     return { x: centre.x, y: centre.y };

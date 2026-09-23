@@ -153,6 +153,9 @@ def compose(m: MapCanvas) -> None:
     m.road_v(34, 10, 14, width=3)  # Bridge St south of the river
     m.road_h(12, 24, 36, width=3)  # River Street jog
     m.road_v(24, 12, 27, width=3)  # Mill Street down to Main
+    # a zebra on Main Street's east reach, where the riverside greenway
+    # comes down to the road: the only crossing east of Mill Street
+    m.crosswalk("h", 25, 66)
 
     # ================= buildings (reserve before paint_roads) =============
     # -- Millbrook Town Hall: white clapboard, 1874; the Grange hall beside
@@ -255,11 +258,13 @@ def compose(m: MapCanvas) -> None:
     for y in range(3, 10):
         for x in (34, 35, 36):
             m.set("ground-detail", x, y, rng.choice(M.SIDEWALK.fill))
-    for y in range(2, 10):
+    # (the parapets stop at the water's edge, row 8: row 9 is the bank,
+    # where the deck's pavement meets Bridge St's sidewalks)
+    for y in range(2, 9):
         m.set("buildings-base", 33, y, rng.choice(R.WALL_ROUGH_FILL))
         m.set("buildings-base", 37, y, rng.choice(R.WALL_ROUGH_FILL))
-    m.collide(33, 2, 1, 8)
-    m.collide(37, 2, 1, 8)
+    m.collide(33, 2, 1, 7)
+    m.collide(37, 2, 1, 7)
     m.lamp(32, 11)
     m.lamp(38, 11)
 
@@ -371,8 +376,10 @@ def compose(m: MapCanvas) -> None:
     market_stall(m, 13, 12, landmark="Millbrook Farmers Market")
     m.stamp("deco-below", R.SIGNS_STALL[2], 11, 14)  # cider stand
     m.collide(11, 15, 2, 1)
-    m.stamp("deco-below", R.SIGNS_STALL[4], 19, 14)  # jam table
-    m.collide(19, 15, 2, 1)
+    # (the jam table stands north-east of the stall, off the customers'
+    # row, which stays open at its east end towards the market gate)
+    m.stamp("deco-below", R.SIGNS_STALL[4], 19, 12)  # jam table
+    m.collide(19, 13, 2, 1)
     m.stamp("deco-below", R.MENU_BOARD, 11, 12)
     m.collide(11, 12, 2, 2)
     m.stamp("deco-below", R.CRATE, 12, 16)

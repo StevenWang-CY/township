@@ -232,7 +232,7 @@ def compose(m: MapCanvas) -> None:
     storefront(
         m,
         31,
-        41,
+        40,
         4,
         6,
         facade="cream",
@@ -244,7 +244,7 @@ def compose(m: MapCanvas) -> None:
     storefront(
         m,
         35,
-        41,
+        40,
         4,
         6,
         facade="brick",
@@ -256,7 +256,7 @@ def compose(m: MapCanvas) -> None:
     storefront(
         m,
         39,
-        41,
+        40,
         3,
         6,
         facade="cream",
@@ -266,6 +266,9 @@ def compose(m: MapCanvas) -> None:
         yard=True,
         landmark="Watchung Plaza",
     )
+
+    # (the plaza's south row of shops sits one row up from the map's foot,
+    # so their doors open onto standable ground rather than the world margin)
 
     # ================= paint the road network =================
     m.paint_roads()
@@ -461,9 +464,9 @@ def compose(m: MapCanvas) -> None:
     m.tree(4, 10, stamp="tree_light")
     m.tree(42, 3, stamp="tree_round_small")
     m.stamp("deco-below", R.FERN, 2, 9)
-    # Church St treeline north
-    m.tree(43, 14, stamp="tree_round_small")
-    m.tree(43, 18, stamp="tree_round_small")
+    # Church St treeline north, on the east verge (col 43 is the sidewalk)
+    m.tree(49, 14, stamp="tree_round_small")
+    m.tree(49, 18, stamp="tree_round_small")
     m.tree(48, 4, stamp="tree_dark")
     # NE woods behind the brownstones' alley
     for x, y in ((61, 5), (65, 4), (72, 6)):

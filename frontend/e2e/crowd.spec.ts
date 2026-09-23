@@ -103,12 +103,24 @@ test("seeking re-derives identical seats and indoor state", async ({ page }) => 
   const duration = Number(await slider.getAttribute("aria-valuemax"));
   expect(duration).toBeGreaterThan(0);
 
+  // A seek re-derives every seat at once; the overlap resolver then settles
+  // the last few pixels over a handful of ticks, so sample once nothing has
+  // moved for a beat rather than at a fixed delay.
+  const settled = async () => {
+    let last = JSON.stringify((await stats(page)).positions);
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(150);
+      const now = JSON.stringify((await stats(page)).positions);
+      if (now === last) return;
+      last = now;
+    }
+  };
   const seekTo = async (key: "End" | "Home") => {
     await slider.focus();
     await slider.press(key);
     await expect.poll(async () => Number(await slider.getAttribute("aria-valuenow")))
       .toBe(key === "End" ? duration : 0);
-    await page.waitForTimeout(400);
+    await settled();
   };
   await seekTo("End");
   const first = (await stats(page)).positions;
@@ -123,3 +135,37 @@ test("seeking re-derives identical seats and indoor state", async ({ page }) => 
     expect(typeof agent.indoors).toBe("boolean");
   }
 });
+
+/**
+ * The map contract behind all of the above: in every shipped town, every
+ * door, standing spot and edge portal reaches every other on pavement —
+ * sidewalks, paths, lots and painted crossings — never over open asphalt
+ * and never through a wall. A prop on a corner, a missing zebra or a
+ * parapet one tile too long shows up here before it shows up as a resident
+ * walking into traffic.
+ */
+const TOWNS: Array<[string, string]> = [
+  ["nj11-2026", "dover"],
+  ["nj11-2026", "montclair"],
+  ["nj11-2026", "parsippany"],
+  ["nj11-2026", "randolph"],
+  ["millbrook-budget", "millbrook-village"],
+  ["millbrook-budget", "harlow-crossing"],
+];
+
+for (const [scenario, town] of TOWNS) {
+  test(`${town}: every door, spot and portal connects on pavement`, async ({ page }) => {
+    await page.goto(`/?scenario=${scenario}#/town/${town}`);
+    const wrapper = page.locator(".town-canvas-wrapper");
+    await expect(wrapper).toHaveAttribute("aria-busy", "false", { timeout: TOWN_BOOT_TIMEOUT });
+    await page.waitForFunction(() => {
+      const api = (window as unknown as { __town?: { pavementAudit?: () => unknown } }).__town;
+      return Boolean(api?.pavementAudit);
+    }, null, { timeout: TOWN_BOOT_TIMEOUT });
+    const audit = await page.evaluate(() => (window as unknown as {
+      __town: { pavementAudit: () => { points: number; pairs: number; bad: Array<{ a: string; b: string; why: string }> } };
+    }).__town.pavementAudit());
+    expect(audit.points, "the town should expose doors, spots and portals").toBeGreaterThan(8);
+    expect(audit.bad, "pairs that need the road or have no route").toEqual([]);
+  });
+}

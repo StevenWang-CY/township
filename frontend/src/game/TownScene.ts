@@ -283,7 +283,7 @@ export class TownScene extends Phaser.Scene {
   private readonly pathResolver = (
     from: Pt,
     to: Pt,
-    opts?: { avoid?: Array<{ x: number; y: number; r: number }> },
+    opts?: { avoid?: Array<{ x: number; y: number; r: number }>; noRoad?: boolean },
   ): Pt[] | null => {
     const grid = this.navGrid;
     if (!grid) return null;
@@ -461,6 +461,7 @@ export class TownScene extends Phaser.Scene {
       landmarkEntrance: (name) => this.landmarkPositions.get(this.resolveLandmarkName(name) ?? name),
       nearestWalkable: (pt) => this.navGrid?.nearestWalkable(pt.x, pt.y, 96, { avoidRoad: true }) ?? pt,
       findFreeNear: (x, y, opts) => this.findFreeNear(x, y, opts),
+      isRoad: (x, y) => this.navGrid?.isRoad(x, y) ?? false,
       gatherSlotFor: (key, cx, cy, sprite, opts) => this.formationSlot(key, cx, cy, sprite, opts),
       releaseGatherSlot: (id) => this.spots?.release(id, "chat"),
       returnToDwell: (id) => this.returnToDwell(id),
@@ -777,6 +778,8 @@ export class TownScene extends Phaser.Scene {
   private nudgeBody(s: AgentSprite, dx: number, dy: number) {
     const tx = Phaser.Math.Clamp(s.x + dx, WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
     const ty = Phaser.Math.Clamp(s.y + dy, WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
+    // Never off the kerb: a body on the pavement's edge stays there.
+    if (this.navGrid?.isRoad(tx, ty) && !this.navGrid.isRoad(s.x, s.y)) return;
     if (!this.isBlocked(tx, ty, 2) || this.isBlocked(s.x, s.y, 2)) s.nudgeTo(tx, ty);
   }
 
@@ -936,9 +939,17 @@ export class TownScene extends Phaser.Scene {
   ): Placement {
     const reg = this.spots;
     const grid = this.navGrid;
-    const apron = this.landmarkPositions.get(name)
-      ?? (recorded ? (grid?.nearestWalkable(recorded.x, recorded.y, 100, { avoidRoad: true }) ?? recorded) : undefined)
-      ?? { x: 600, y: 400 };
+    // Overflow seats spread from the door; when a recorded coordinate lies
+    // too far from it for the replay envelope (a landmark rect's corner),
+    // from the standable ground nearest that coordinate instead.
+    const door = this.landmarkPositions.get(name);
+    const nearRecorded = recorded
+      ? (grid?.nearestWalkable(recorded.x, recorded.y, 100, { avoidRoad: true }) ?? recorded)
+      : undefined;
+    const doorInEnvelope = door && recorded
+      ? Math.abs(door.x - recorded.x) <= TownScene.SEAT_ENVELOPE.dx && Math.abs(door.y - recorded.y) <= TownScene.SEAT_ENVELOPE.dy
+      : true;
+    const apron = (doorInEnvelope ? door : undefined) ?? nearRecorded ?? door ?? { x: 600, y: 400 };
     const envelope = recorded ? { near: recorded, envelope: TownScene.SEAT_ENVELOPE } : {};
     if (!reg) {
       const pt = this.findFreeNear(apron.x, apron.y, { clearOf: 30 });
@@ -1100,15 +1111,13 @@ export class TownScene extends Phaser.Scene {
     return this.agentSprites.has(agentId);
   }
 
+  /**
+   * The edge portal a walk from (x, y) should use: the nearest one that the
+   * streets reach without stepping into traffic — an edge sidewalk on the
+   * far side of a road is not a way out — else simply the nearest.
+   */
   private nearestPortal(x: number, y: number): { x: number; y: number } {
-    const portals = this.portalPoints();
-    let best = portals[0];
-    let bestD = Infinity;
-    for (const p of portals) {
-      const d = Math.hypot(p.x - x, p.y - y);
-      if (d < bestD) { best = p; bestD = d; }
-    }
-    return best ?? { x, y };
+    return this.reachablePortals(x, y)[0] ?? { x, y };
   }
 
   private removeResident(agentId: string) {
@@ -2000,6 +2009,40 @@ export class TownScene extends Phaser.Scene {
       },
       /** Recent walker routes (probes assert axis-aligned legs, crossings). */
       lastPaths: () => this.recentPaths.map((r) => ({ from: r.from, path: r.path })),
+      /** Every pair of doors, standing spots (one per landmark and role)
+       *  and portals, routed by the grid: the pairs that cannot be walked
+       *  without setting foot on asphalt outside a crossing (or at all).
+       *  Empty on a well-formed town — the map contract the e2e asserts. */
+      pavementAudit: () => {
+        const grid = this.navGrid;
+        const points: Array<{ name: string; x: number; y: number }> = [];
+        for (const [name, p] of this.landmarkPositions) points.push({ name: `door:${name}`, x: p.x, y: p.y });
+        if (this.spots) {
+          for (const landmark of this.spots.landmarks()) {
+            const seen = new Set<string>();
+            for (const s of this.spots.spotsOf(landmark)) {
+              if (seen.has(s.role)) continue;
+              seen.add(s.role);
+              points.push({ name: `spot:${landmark}#${s.role}`, x: s.x, y: s.y });
+            }
+          }
+        }
+        for (const p of this.portalPoints()) points.push({ name: `portal:${p.x},${p.y}`, x: p.x, y: p.y });
+        const bad: Array<{ a: string; b: string; why: string }> = [];
+        if (!grid) return { points: points.length, pairs: 0, bad };
+        let pairs = 0;
+        for (let i = 0; i < points.length; i++) {
+          for (let j = i + 1; j < points.length; j++) {
+            const a = points[i];
+            const b = points[j];
+            pairs++;
+            const path = grid.findPath({ x: a.x, y: a.y }, { x: b.x, y: b.y });
+            if (!path) bad.push({ a: a.name, b: b.name, why: "no path" });
+            else if (grid.touchesRoad({ x: a.x, y: a.y }, path)) bad.push({ a: a.name, b: b.name, why: "road" });
+          }
+        }
+        return { points: points.length, pairs, bad };
+      },
       /** Crowd metrics for probes: walkers, indoor count, closest pair. */
       crowdStats: () => {
         const bodies = [...this.agentSprites.values()]
@@ -2833,8 +2876,31 @@ export class TownScene extends Phaser.Scene {
       }
       if (found.length >= 2) break;
     }
+    // A way in or out must join the town's pavement without stepping into
+    // traffic: an edge sidewalk stub on the far side of a road is no
+    // portal. (Everything is kept when nothing qualifies — a procedural
+    // town without streets.)
+    const ref = this.landmarkPositions.values().next().value as Pt | undefined;
+    if (grid && ref && found.length > 0) {
+      const joined = found.filter((p) => grid.findPath(p, ref, { noRoad: true }));
+      const reached = joined.length > 0 ? joined : found.filter((p) => grid.findPath(p, ref));
+      if (reached.length > 0) found.splice(0, found.length, ...reached);
+    }
     this.portals = found;
     return found;
+  }
+
+  /** Portals a walk from (x, y) reaches on the pavement, nearest first
+   *  (the six nearest are tried), else the nearest portal alone. */
+  private reachablePortals(x: number, y: number): Array<{ x: number; y: number }> {
+    const sorted = [...this.portalPoints()]
+      .map((p) => ({ p, d: Math.hypot(p.x - x, p.y - y) }))
+      .sort((a, b) => a.d - b.d)
+      .map(({ p }) => p);
+    const grid = this.navGrid;
+    if (!grid || sorted.length === 0) return sorted;
+    const ok = sorted.slice(0, 6).filter((p) => grid.findPath({ x, y }, p, { noRoad: true }));
+    return ok.length > 0 ? ok : sorted.slice(0, 1);
   }
 
   private spawnCommuter() {
@@ -2865,9 +2931,11 @@ export class TownScene extends Phaser.Scene {
    *  the news phase), pause, leave by another portal, fade out, repeat. */
   private commuterLeg(npc: AgentSprite, from: { x: number; y: number }) {
     if (!npc.active) return;
+    // Leave by another portal the pavement reaches from here (never across
+    // the street at the town line).
     const portals = this.portalPoints();
-    const others = portals.filter((p) => Math.hypot(p.x - from.x, p.y - from.y) > 120);
-    const exit = others[Math.floor(Math.random() * others.length)] ?? portals[0] ?? from;
+    const exits = this.reachablePortals(from.x, from.y).filter((p) => Math.hypot(p.x - from.x, p.y - from.y) > 120);
+    const exit = exits[Math.floor(Math.random() * exits.length)] ?? portals[0] ?? from;
     const fadeIn = () => {
       npc.setPosition(from.x, from.y);
       npc.setVisible(true);
@@ -3794,23 +3862,30 @@ export class TownScene extends Phaser.Scene {
 
   /**
    * (Re)build the walkability grid from the current collision rects. The
-   * ground cost comes from the tilemap: paved tiles (asphalt, sidewalk,
-   * paths, plazas — registry-driven via roadGids.json) cost 1, grass 1.4,
-   * rail ballast 2.6, so walkers favour sidewalks and level crossings
-   * without ever being forced onto them.
+   * ground kind comes from the tilemap (registry-driven via roadGids.json):
+   * sidewalks, paths and painted crosswalks are cheap, asphalt is dear, so
+   * walkers keep to the pavement and cross where the paint is (NavGrid
+   * prices the kinds).
    */
   /** Authored standing spots from the map's `spot` anchors (Spots.ts). A
    *  procedural town has none: every seat is a blue-noise apron point. */
   private buildSpotRegistry() {
-    this.spots = new SpotRegistry(spotsFromAnchors(this.mapAnchors), (x, y) =>
-      x >= WORLD_MARGIN && x <= WORLD_W - WORLD_MARGIN
-      && y >= WORLD_MARGIN && y <= WORLD_H - WORLD_MARGIN
-      && !this.isBlocked(x, y, 2)
-      && !(this.navGrid?.isRoad(x, y) ?? false));
+    this.spots = new SpotRegistry(
+      spotsFromAnchors(this.mapAnchors),
+      (x, y) =>
+        x >= WORLD_MARGIN && x <= WORLD_W - WORLD_MARGIN
+        && y >= WORLD_MARGIN && y <= WORLD_H - WORLD_MARGIN
+        && !this.isBlocked(x, y, 2)
+        && !(this.navGrid?.isRoad(x, y) ?? false),
+      // An overflow seat must be a short pavement walk from the apron: a
+      // bounded search (the box is 96 px) that never crosses open asphalt.
+      (from, to) => !this.navGrid || this.navGrid.findPath(from, to, { noRoad: true, maxExpansions: 4000 }) !== null,
+    );
   }
 
   private buildNavGrid() {
     const sidewalk = new Set<number>(roadGids.sidewalk);
+    const crosswalk = new Set<number>(roadGids.crosswalk);
     const road = new Set<number>(roadGids.road);
     const rough = new Set<number>(roadGids.rough);
     const T = roadGids.tileSize;
@@ -3819,9 +3894,33 @@ export class TownScene extends Phaser.Scene {
     const roads = this.landmarks.filter((l) => l.type === "road");
     const classify = (gid: number): GroundKind | null => {
       if (sidewalk.has(gid)) return "sidewalk";
+      if (crosswalk.has(gid)) return "crosswalk";
       if (road.has(gid)) return "road";
       if (rough.has(gid)) return "rough";
       return null;
+    };
+    // Asphalt that no traffic lane runs through — a parking lot, a
+    // forecourt, a driveway — is a lot: walked across to the door, not a
+    // street to be kept off. A street cell is never more than ~16 px from
+    // one of its lane centrelines (lanes ride the outer tile of a three-tile
+    // street), so anything past LANE_REACH is off the street.
+    const LANE_REACH = 20;
+    const lanes = this.trafficLanes;
+    const nearLane = (px: number, py: number): boolean => {
+      for (const lane of lanes) {
+        for (let i = 1; i < lane.points.length; i++) {
+          const a = lane.points[i - 1];
+          const b = lane.points[i];
+          const abx = b.x - a.x;
+          const aby = b.y - a.y;
+          const len2 = abx * abx + aby * aby;
+          const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - a.x) * abx + (py - a.y) * aby) / len2));
+          const dx = px - (a.x + abx * t);
+          const dy = py - (a.y + aby * t);
+          if (dx * dx + dy * dy <= LANE_REACH * LANE_REACH) return true;
+        }
+      }
+      return false;
     };
     const kindAt = (px: number, py: number): GroundKind => {
       if (detail || ground) {
@@ -3829,7 +3928,9 @@ export class TownScene extends Phaser.Scene {
         const ty = Math.floor(py / T);
         const d = detail?.getTileAt(tx, ty)?.index ?? -1;
         const g = ground?.getTileAt(tx, ty)?.index ?? -1;
-        return classify(d) ?? (d <= 0 ? classify(g) : null) ?? "grass";
+        const kind = classify(d) ?? (d <= 0 ? classify(g) : null) ?? "grass";
+        if (kind === "road" && lanes.length > 0 && !nearLane(px, py)) return "lot";
+        return kind;
       }
       // Procedural towns: their road landmarks are the only paving.
       for (const r of roads) {

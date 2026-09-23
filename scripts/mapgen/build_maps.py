@@ -223,6 +223,9 @@ class MapCanvas:
         self.anchors: list[dict] = []
         self.road_segs: list[RoadSeg] = []
         self.road_mask: set[tuple[int, int]] = set()
+        #: Mid-block crossings ``(orient, c, at)``: a zebra across the
+        #: segment ``(orient, c)`` at column (h-road) / row (v-road) ``at``.
+        self.mid_crosswalks: list[tuple[str, int, int]] = []
         self.paved: set[tuple[int, int]] = set()  # extra sidewalk cells
         self.reserved: set[tuple[int, int]] = set()  # no sidewalk/deco here
         #: Dwellings (cottages, row houses): each gets yard-sign anchors on
@@ -584,6 +587,19 @@ class MapCanvas:
                 if self.inb(xx, y):
                     self.road_mask.add((xx, y))
 
+    def crosswalk(self, orient: str, c: int, at: int) -> None:
+        """A mid-block zebra across the road segment ``(orient, c)`` at
+        column ``at`` (horizontal street) or row ``at`` (vertical street):
+        the crossing a shop row or a civic walk earns between junctions.
+        Painted by ``paint_roads`` and priced like pavement by the nav grid,
+        with a stop line on each approach in the traffic layer."""
+        seg = next((s for s in self.road_segs if s.orient == orient and s.c == c), None)
+        if seg is None:
+            raise ValueError(f"no {orient}-road at {c} for a crosswalk")
+        if not seg.a0 <= at <= seg.a1:
+            raise ValueError(f"crosswalk at {at} is off the {orient}-road at {c} ({seg.a0}-{seg.a1})")
+        self.mid_crosswalks.append((orient, c, at))
+
     def paint_roads(
         self, sidewalks: bool = True, dashes: bool = True, crosswalks: bool = True
     ) -> None:
@@ -685,19 +701,38 @@ class MapCanvas:
             for side in ("w", "e", "n", "s"):
                 if side in live:
                     out.append(((jx0, jy0, jx1, jy1), side, live[side]))
+        # Mid-block zebras: a one-cell "junction" at the band, listed on
+        # both sides so each approach gets its stop line.
+        for orient, c, at in self.mid_crosswalks:
+            seg = next(s for s in self.road_segs if s.orient == orient and s.c == c)
+            if orient == "h":
+                cells = [(at, y) for y in range(seg.c, seg.c + seg.width)]
+                j = (at, seg.c, at, seg.c + seg.width - 1)
+                sides = ("w", "e")
+            else:
+                cells = [(x, at) for x in range(seg.c, seg.c + seg.width)]
+                j = (seg.c, at, seg.c + seg.width - 1, at)
+                sides = ("n", "s")
+            for side in sides:
+                out.append((j, side, cells))
         return out
 
     def _junctions(self) -> list[tuple[int, int, int, int]]:
+        """Every place a horizontal and a vertical segment meet: crossing
+        each other, or one ending flush against the other's side (a side
+        street's T). The rect is the vertical street's columns by the
+        horizontal street's rows. A pair that only touches corner to corner
+        counts too, but has two arms and so never earns a crossing."""
         out = []
         hs = [s for s in self.road_segs if s.orient == "h"]
         vs = [s for s in self.road_segs if s.orient == "v"]
         for h in hs:
             for v in vs:
                 if (
-                    h.a0 <= v.c + v.width - 1
-                    and v.c <= h.a1
-                    and v.a0 <= h.c + h.width - 1
-                    and h.c <= v.a1
+                    h.a0 <= v.c + v.width
+                    and v.c - 1 <= h.a1
+                    and v.a0 <= h.c + h.width
+                    and h.c - 1 <= v.a1
                 ):
                     out.append((v.c, h.c, v.c + v.width - 1, h.c + h.width - 1))
         return out
@@ -2132,6 +2167,44 @@ def _window_columns(m: MapCanvas, front: dict) -> list[int]:
     return sorted(cols)
 
 
+#: The nav grid's world margin (48 px) and collision clearance (5 px), in
+#: tiles and px: a spot the runtime cannot stand on is no spot.
+_SPOT_MARGIN = 3
+_SPOT_PAD = 5
+_LANE_REACH = 20
+
+
+def _blob_gids(blob) -> set[int]:
+    out: set[int] = set(blob.fill)
+    for value in blob.edge_tiles().values():
+        if isinstance(value, int):
+            if value:
+                out.add(value)
+        else:
+            out.update(g for g in value if g)
+    return out
+
+
+def _asphalt_gids() -> set[int]:
+    """Every asphalt gid (streets, lots, driveways) plus the markings baked
+    onto it — the ``road`` class of export_road_gids, before crosswalks."""
+    out = _blob_gids(M.ASPHALT)
+    out.update(M.mg(n) for n in ("dash_h", "dash_v", "parking_stall", "storm_drain"))
+    return out
+
+
+def _pavement_gids() -> set[int]:
+    """Sidewalks, paths, plazas, desire lines and zebras: the ground the nav
+    grid never pads shut."""
+    out: set[int] = set()
+    for blob in (M.SIDEWALK, R.PATH_TAN, R.COBBLE_PAD, M.WORN):
+        out |= _blob_gids(blob)
+    out.update(R.COBBLE_FILL)
+    out.update(R.PLAZA_COBBLE_FILL)
+    out.update(M.mg(n) for n in ("crosswalk_h", "crosswalk_v", "rail_x"))
+    return out
+
+
 class _SpotPlacer:
     """Validates candidate spots against the finished canvas and records the
     ones that fit, in emission order, so ``order`` is stable per landmark.
@@ -2141,6 +2214,8 @@ class _SpotPlacer:
     def __init__(self, m: MapCanvas) -> None:
         self.m = m
         self.taken: set[tuple[int, int]] = set()
+        self.asphalt = _asphalt_gids()
+        self.pavement = _pavement_gids()
         self.props: set[tuple[int, int]] = {
             (int(a["x"] // T), int(round(a["y"] / T)) - 1)
             for a in m.anchors
@@ -2150,9 +2225,51 @@ class _SpotPlacer:
 
     def free(self, x: float, y: float, shared: bool = False) -> bool:
         return all(
-            self.m.cell_free(*c) and c not in self.props and (shared or c not in self.taken)
+            self.m.cell_free(*c)
+            and self.standable(*c)
+            and c not in self.props
+            and (shared or c not in self.taken)
             for c in _spot_cells(x, y)
         )
+
+    def near_lane(self, px: float, py: float) -> bool:
+        """Within LANE_REACH px of a lane centreline — the outer tile row or
+        column of every street segment, as emit_traffic lays them."""
+        for seg in self.m.road_segs:
+            lo, hi = seg.a0 * T, (seg.a1 + 1) * T
+            for row in (seg.c, seg.c + seg.width - 1):
+                centre = (row + 0.5) * T
+                if seg.orient == "h":
+                    dx = 0.0 if lo <= px <= hi else min(abs(px - lo), abs(px - hi))
+                    dy = py - centre
+                else:
+                    dy = 0.0 if lo <= py <= hi else min(abs(py - lo), abs(py - hi))
+                    dx = px - centre
+                if dx * dx + dy * dy <= _LANE_REACH * _LANE_REACH:
+                    return True
+        return False
+
+    def standable(self, cx: int, cy: int) -> bool:
+        """The runtime's walkability, mirrored: the cell's centre lies inside
+        the world margin (the nav grid blocks a three-tile band), off
+        asphalt (a lot's driveway is a street to the walker), and — unless
+        the cell is pavement, which runs right up to walls and props — at
+        least NAV_PAD px clear of every collision rect."""
+        if not (_SPOT_MARGIN <= cx < self.m.w - _SPOT_MARGIN and _SPOT_MARGIN <= cy < self.m.h - _SPOT_MARGIN):
+            return False
+        px, py = (cx + 0.5) * T, (cy + 0.5) * T
+        gid = self.m.get("ground-detail", cx, cy)
+        # Asphalt is a street where a traffic lane runs through it (the
+        # runtime's LANE_REACH rule); a lot, a forecourt or a driveway
+        # apron beyond that is stood on like pavement.
+        if gid in self.asphalt and self.near_lane(px, py):
+            return False
+        paved = gid in self.pavement or gid in self.asphalt
+        pad = 0 if paved else _SPOT_PAD
+        for rx, ry, rw, rh in self.m.collision:
+            if rx - pad < px < rx + rw + pad and ry - pad < py < ry + rh + pad:
+                return False
+        return True
 
     def emit(self, landmark: str, role: str, x: float, y: float, facing: str, **props) -> None:
         self.taken.update(_spot_cells(x, y))

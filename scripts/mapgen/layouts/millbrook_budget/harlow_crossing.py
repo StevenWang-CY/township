@@ -267,11 +267,9 @@ def compose(m: MapCanvas) -> None:
     park_stalls(m, 9, 20, 19, 3, "v", fill=0.65, surface="asphalt", curb="n")
 
     # ================= paint the road network =================
-    m.paint_roads(crosswalks=False)
-    # one zebra set flanking the namesake four-way crossing
-    for x in (34, 38):
-        for y in (24, 25, 26):
-            m.set("ground-detail", x, y, M.mg("crosswalk_h"))
+    # zebras on all four arms of the namesake crossing, and across Route 9
+    # where the two side streets meet it (their T-junctions)
+    m.paint_roads()
 
     # ================= stone bridge over the Stillwater ==================
     m.stamp("ground-detail", R.BRIDGE_STONE, 70, 24)

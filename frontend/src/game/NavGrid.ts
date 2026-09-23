@@ -37,20 +37,27 @@ export interface Rect { x: number; y: number; w: number; h: number }
 export interface AvoidPt { x: number; y: number; r: number }
 
 /** Ground classes the grid distinguishes (see scripts/mapgen/export_road_gids.py). */
-export type GroundKind = "grass" | "sidewalk" | "road" | "rough" | "crosswalk";
+export type GroundKind = "grass" | "sidewalk" | "road" | "rough" | "crosswalk" | "lot";
 export type KindSampler = (px: number, py: number) => GroundKind;
 
-const KIND_ID: Record<GroundKind, number> = { grass: 0, sidewalk: 1, road: 2, rough: 3, crosswalk: 4 };
-const KIND_NAME: GroundKind[] = ["grass", "sidewalk", "road", "rough", "crosswalk"];
-/** Step-cost multiplier per kind. Sidewalks, paths and crossings are the
- *  baseline; grass is dearer; ballast strongly discouraged; asphalt priced
- *  like a wall with a gate — a 3-tile street is 12 cells, so jaywalking
- *  costs ~1150 px-equivalent and a crosswalk up to ~570 px away still wins.
- *  A town with no crossing on a street is still crossed, once, straight. */
+const KIND_ID: Record<GroundKind, number> = { grass: 0, sidewalk: 1, road: 2, rough: 3, crosswalk: 4, lot: 5 };
+const KIND_NAME: GroundKind[] = ["grass", "sidewalk", "road", "rough", "crosswalk", "lot"];
+/**
+ * Ground cost per cell (1 = pavement). Asphalt is priced so that a walker
+ * takes the painted crossing whenever there is one within reach: a 3-tile
+ * street is 12 cells, ~1900 px-equivalent to cross on open asphalt, so a
+ * crosswalk up to ~900 px away still wins. Every street in the shipped
+ * towns has a zebra at each junction (and mid-block where a block is
+ * long), so residents cross where the paint is and jaywalk only where a
+ * map leaves them no other way. Lots (asphalt without a lane) are pavement.
+ */
 export const GROUND_COST: Record<GroundKind, number> = {
-  sidewalk: 1.0, crosswalk: 1.0, grass: 1.6, road: 24, rough: 2.6,
+  sidewalk: 1.0, crosswalk: 1.0, grass: 1.6, road: 40, rough: 2.6,
+  // A parking lot or forecourt: asphalt with no traffic lane through it,
+  // walked across like any pavement (a little slower, between the cars).
+  lot: 1.2,
 };
-const COST_BY_ID = [GROUND_COST.grass, GROUND_COST.sidewalk, GROUND_COST.road, GROUND_COST.rough, GROUND_COST.crosswalk];
+const COST_BY_ID = [GROUND_COST.grass, GROUND_COST.sidewalk, GROUND_COST.road, GROUND_COST.rough, GROUND_COST.crosswalk, GROUND_COST.lot];
 /** Cost of changing heading (px-equivalent): fewer, longer legs. */
 export const TURN_PENALTY = 6;
 /** Heuristic weight. Grass costs 1.6× the baseline the admissible estimate
@@ -172,22 +179,6 @@ export class NavGrid {
         }
       }
     }
-    for (const rect of rects) {
-      const c0 = Math.max(0, Math.floor((rect.x - pad) / this.cell));
-      const c1 = Math.min(this.cols - 1, Math.floor((rect.x + rect.w + pad) / this.cell));
-      const r0 = Math.max(0, Math.floor((rect.y - pad) / this.cell));
-      const r1 = Math.min(this.rows - 1, Math.floor((rect.y + rect.h + pad) / this.cell));
-      for (let r = r0; r <= r1; r++) {
-        for (let c = c0; c <= c1; c++) {
-          const px = (c + 0.5) * this.cell;
-          const py = (r + 0.5) * this.cell;
-          // Same strict test as TownScene.isBlocked.
-          if (px > rect.x - pad && px < rect.x + rect.w + pad && py > rect.y - pad && py < rect.y + rect.h + pad) {
-            this.blocked[r * this.cols + c] = 1;
-          }
-        }
-      }
-    }
     if (kindAt) {
       for (let r = 0; r < this.rows; r++) {
         for (let c = 0; c < this.cols; c++) {
@@ -195,6 +186,34 @@ export class NavGrid {
           const k = KIND_ID[kindAt((c + 0.5) * this.cell, (r + 0.5) * this.cell)] ?? 0;
           this.kind[idx] = k;
           this.cost[idx] = COST_BY_ID[k];
+        }
+      }
+    }
+    for (const rect of rects) {
+      // Walls keep the full clearance; a pole, hydrant or sign post gets a
+      // clearance in proportion to its own size, so street furniture on a
+      // junction corner never seals the cells that join two crosswalks.
+      const clearance = Math.min(pad, Math.floor(Math.min(rect.w, rect.h) / 4));
+      const c0 = Math.max(0, Math.floor((rect.x - clearance) / this.cell));
+      const c1 = Math.min(this.cols - 1, Math.floor((rect.x + rect.w + clearance) / this.cell));
+      const r0 = Math.max(0, Math.floor((rect.y - clearance) / this.cell));
+      const r1 = Math.min(this.rows - 1, Math.floor((rect.y + rect.h + clearance) / this.cell));
+      for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+          const idx = r * this.cols + c;
+          const px = (c + 0.5) * this.cell;
+          const py = (r + 0.5) * this.cell;
+          // Same strict test as TownScene.isBlocked.
+          const inside = px > rect.x && px < rect.x + rect.w && py > rect.y && py < rect.y + rect.h;
+          const padded = px > rect.x - clearance && px < rect.x + rect.w + clearance
+            && py > rect.y - clearance && py < rect.y + rect.h + clearance;
+          // Pavement runs right up to shopfronts, kerbs and parked cars: the
+          // clearance band blocks lawns and rough ground, never a sidewalk
+          // or crossing cell, so a mailbox in front of a shop leaves the
+          // wall-side row to walk along instead of forcing the kerb.
+          const paved = this.kind[idx] === KIND_ID.sidewalk || this.kind[idx] === KIND_ID.crosswalk
+            || this.kind[idx] === KIND_ID.lot;
+          if (inside || (padded && !paved)) this.blocked[idx] = 1;
         }
       }
     }
@@ -392,9 +411,33 @@ export class NavGrid {
    * (≤ FINAL_HOP_PX), so a four-direction sprite never slides. Ends exactly
    * at `to` whenever `to` is (within a cell of) walkable ground. Returns
    * null when no route exists or the search budget is exhausted; callers
-   * then stay put or ask for `nearestReachable`.
+   * then stay put or ask for `nearestReachable`. With `noRoad`, a route
+   * that would set foot on asphalt outside a crossing counts as no route
+   * (a detour around a neighbour is never worth stepping into traffic).
    */
-  findPath(from: Pt, to: Pt, opts?: { maxExpansions?: number; avoid?: AvoidPt[] }): Pt[] | null {
+  findPath(from: Pt, to: Pt, opts?: { maxExpansions?: number; avoid?: AvoidPt[]; noRoad?: boolean }): Pt[] | null {
+    const path = this.search(from, to, opts);
+    if (path && opts?.noRoad && this.touchesRoad(from, path)) return null;
+    return path;
+  }
+
+  /** Does any point along the legs of `path` fall on asphalt (crossings excepted)? */
+  touchesRoad(from: Pt, path: Pt[]): boolean {
+    let prev = from;
+    for (const p of path) {
+      const dx = p.x - prev.x;
+      const dy = p.y - prev.y;
+      const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / LOS_STEP));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        if (this.kindAt(prev.x + dx * t, prev.y + dy * t) === "road") return true;
+      }
+      prev = p;
+    }
+    return false;
+  }
+
+  private search(from: Pt, to: Pt, opts?: { maxExpansions?: number; avoid?: AvoidPt[] }): Pt[] | null {
     const goal = this.nearestWalkable(to.x, to.y, 96);
     if (!goal) return null;
     const goalHop = Math.hypot(goal.x - to.x, goal.y - to.y);

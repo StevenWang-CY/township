@@ -299,3 +299,41 @@ def test_polling_place_queue_parks_and_doors(built_maps, canvases, scenario, tow
         f"{scenario}/{town}: {len(by_role['door'])} door spots for {fronts} registered fronts"
     )
     assert all(s["facing"] == "up" for s in by_role["door"])
+
+
+@pytest.mark.parametrize(("scenario", "town"), TOWNS)
+def test_every_long_street_has_a_painted_crossing(canvases, scenario, town):
+    """The nav grid prices asphalt so high that a street without a zebra
+    forces a 500 px detour or a jaywalk. Every street a full block or more
+    long (16 tiles) carries at least one crossing band."""
+    canvas = canvases[(scenario, town)]
+    band_cells = {cell for _j, _side, band in canvas.crosswalk_bands() for cell in band}
+    for seg in canvas.road_segs:
+        if seg.a1 - seg.a0 + 1 < 16:
+            continue
+        if seg.orient == "h":
+            cells = {(a, seg.c + k) for a in range(seg.a0, seg.a1 + 1) for k in range(seg.width)}
+        else:
+            cells = {(seg.c + k, a) for a in range(seg.a0, seg.a1 + 1) for k in range(seg.width)}
+        assert cells & band_cells, f"{town}: no crossing on the {seg.orient}-road at {seg.c}"
+
+
+def test_a_side_street_ending_flush_against_a_main_road_is_a_junction():
+    """A T where the side street's first row abuts the main road's last row
+    (no overlap) still gets its three zebras; a corner-to-corner touch gets
+    none; a mid-block zebra lands on the segment and lists both approaches."""
+    m = build_maps.MapCanvas("t", {"name": "T"}, seed=1, w=40, h=40)
+    m.road_h(10, 0, 39, width=3)
+    m.road_v(20, 13, 30, width=3)  # abuts the main road from the south
+    m.road_v(5, 0, 8, width=2)  # stops one row short: a corner touch only
+    assert (20, 10, 22, 12) in m._junctions()
+    bands = m.crosswalk_bands()
+    sides = {side for j, side, _cells in bands if j == (20, 10, 22, 12)}
+    assert sides == {"w", "e", "s"}
+    assert not [b for b in bands if b[0][0] == 5]
+    m.crosswalk("h", 10, 32)
+    mid = [(side, cells) for j, side, cells in m.crosswalk_bands() if j == (32, 10, 32, 12)]
+    assert {side for side, _ in mid} == {"w", "e"}
+    assert all(cells == [(32, 10), (32, 11), (32, 12)] for _, cells in mid)
+    with pytest.raises(ValueError):
+        m.crosswalk("h", 10, 45)

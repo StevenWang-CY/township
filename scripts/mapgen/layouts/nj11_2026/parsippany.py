@@ -300,7 +300,8 @@ def compose(m: MapCanvas) -> None:
     storefront(
         m, 41, 26, 6, 6, facade="brick", roof="cedar", awning=True, landmark="NJ Transit Stop"
     )
-    storefront(m, 36, 26, 5, 6, facade="cream", roof="stone", sign=3)  # dry cleaner
+    # (one column east of Vail Rd's sidewalk, which runs unbroken to the stop)
+    storefront(m, 37, 26, 4, 6, facade="cream", roof="stone", sign=3)  # dry cleaner
     # -- community center + school on the shared esplanade. The hall is
     #    registered first so it stays the polling front; the school sits
     #    inside the Community Center landmark rect and shares its spots.

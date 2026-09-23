@@ -84,7 +84,7 @@ export type VoteImpact = "strengthens_current" | "weakens_current" | "changes_mi
 export type PathResolver = (
   from: Pt,
   to: Pt,
-  opts?: { avoid?: Array<{ x: number; y: number; r: number }> },
+  opts?: { avoid?: Array<{ x: number; y: number; r: number }>; noRoad?: boolean },
 ) => Pt[] | null;
 
 export interface MoveOptions {
@@ -875,7 +875,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.lastDetourAt = now;
     let path: Pt[] | null = null;
     try {
-      path = this.pathResolver({ x: this.x, y: this.y }, this.walkTarget, { avoid });
+      // A detour that leaves the pavement is worse than brushing past.
+      path = this.pathResolver({ x: this.x, y: this.y }, this.walkTarget, { avoid, noRoad: true });
     } catch {
       path = null;
     }

@@ -35,6 +35,8 @@ export interface ChoreoHost {
   landmarkEntrance(name: string): Pt | undefined;
   nearestWalkable(p: Pt): Pt;
   findFreeNear(x: number, y: number, opts?: { clearOf?: number; exclude?: AgentSprite }): Pt;
+  /** Asphalt or a crossing at a point: a farewell step never goes off the kerb. */
+  isRoad?(x: number, y: number): boolean;
   gatherSlotFor(key: string, cx: number, cy: number, sprite: AgentSprite, opts?: { skipCenter?: boolean }): Pt;
   releaseGatherSlot(agentId: string): void;
   /** A facing chat pair (32 px apart) at the meeting place — the spec's
@@ -315,7 +317,9 @@ export class ConversationChoreographer {
         const uy = dy / len;
         // Half-step back, then turn away, then go back to the day (or, with
         // no seat registry, wander a couple of tiles off).
-        s.nudgeTo(s.x + ux * FAREWELL_STEP_PX, s.y + uy * FAREWELL_STEP_PX);
+        const stepX = s.x + ux * FAREWELL_STEP_PX;
+        const stepY = s.y + uy * FAREWELL_STEP_PX;
+        if (!this.host.isRoad?.(stepX, stepY)) s.nudgeTo(stepX, stepY);
         this.looseTimers.push(this.host.scene.time.delayedCall(180, () => {
           if (!s.active || this.agentConvo.has(pid) || s.isWalking()) return;
           s.faceToward(s.x + ux * 10, s.y + uy * 10);

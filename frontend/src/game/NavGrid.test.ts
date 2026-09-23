@@ -133,6 +133,71 @@ describe("NavGrid paths", () => {
     expect(path[path.length - 1]).toEqual(to);
   });
 
+  it("keeps a junction corner passable around a pole-sized prop", () => {
+    // A 5x11 px pole post on the sidewalk corner between the crosswalk
+    // at x≈300 and the sidewalk: full 5 px padding would seal the cells that
+    // join them and push the walk onto the asphalt beside the paint.
+    const pole: Rect = { x: 313.6, y: 364.8, w: 4.8, h: 11.2 };
+    const grid = streetTown({ rects: [pole] });
+    const path = grid.findPath({ x: 318, y: 368 }, { x: 318, y: 432 });
+    expect(path).not.toBeNull();
+    expect(grid.touchesRoad({ x: 318, y: 368 }, path!)).toBe(false);
+    // The prop itself still blocks.
+    expect(grid.isWalkable(316, 370)).toBe(false);
+  });
+
+  it("keeps the wall-side sidewalk row open past a shopfront prop", () => {
+    // A shopfront whose foot is the sidewalk's top edge, and a mailbox on
+    // the pavement in front of it. The wall's clearance band would block
+    // the top row and the box the other three, sealing the pavement and
+    // forcing the walk onto the kerb — pavement cells take no clearance.
+    const wall: Rect = { x: 150, y: 300, w: 300, h: 60 };
+    const box: Rect = { x: 290, y: 364.8, w: 12.8, h: 11.2 };
+    const grid = streetTown({ rects: [wall, box] });
+    const from = { x: 200, y: 368 };
+    const to = { x: 400, y: 368 };
+    const path = grid.findPath(from, to);
+    expect(path).not.toBeNull();
+    expect(grid.touchesRoad(from, path!)).toBe(false);
+    // The wall itself and the box itself still block; grass beside a wall keeps its clearance.
+    expect(grid.isWalkable(300, 350)).toBe(false);
+    expect(grid.isWalkable(296, 370)).toBe(false);
+    const lawnGrid = streetTown({ rects: [{ x: 500, y: 100, w: 100, h: 100 }] });
+    expect(lawnGrid.isWalkable(602, 150)).toBe(false);
+    expect(lawnGrid.isWalkable(610, 150)).toBe(true);
+  });
+
+  it("refuses a detour that would step onto the asphalt (noRoad)", () => {
+    // A shopfront wall the whole length of the south sidewalk: the pavement
+    // is 16 px between the wall and the kerb, as in front of a storefront
+    // strip, and there is no way round the back.
+    const grid = streetTown({ rects: [{ x: 0, y: 440, w: 1200, h: 60 }] });
+    const from = { x: 200, y: 432 };
+    const to = { x: 400, y: 432 };
+    // Someone standing on the sidewalk right on the route: the only way
+    // round is over the kerb.
+    const avoid = [{ x: 300, y: 432, r: 14 }];
+    const detour = grid.findPath(from, to, { avoid });
+    expect(detour).not.toBeNull();
+    expect(grid.touchesRoad(from, detour!)).toBe(true);
+    expect(grid.findPath(from, to, { avoid, noRoad: true })).toBeNull();
+    // Without the obstacle the same walk is plain pavement.
+    const clear = grid.findPath(from, to, { noRoad: true });
+    expect(clear).not.toBeNull();
+  });
+
+  it("walks across a lot like pavement and never counts it as street", () => {
+    const kindAt = (px: number, py: number): GroundKind => (px >= 400 && px < 600 && py >= 300 && py < 400 ? "lot" : "grass");
+    const grid = new NavGrid([], kindAt);
+    const from = { x: 380, y: 350 };
+    const path = grid.findPath(from, { x: 620, y: 350 }, { noRoad: true });
+    expect(path).not.toBeNull();
+    expect(grid.touchesRoad(from, path!)).toBe(false);
+    expect(grid.isRoad(500, 350)).toBe(false);
+    expect(grid.kindAt(500, 350)).toBe("lot");
+    expect(grid.costAt(500, 350)).toBeLessThan(grid.costAt(100, 100));
+  });
+
   it("classifies crossings", () => {
     const grid = streetTown();
     expect(grid.isRoad(304, 400)).toBe(true);

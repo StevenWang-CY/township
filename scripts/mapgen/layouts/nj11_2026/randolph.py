@@ -159,8 +159,8 @@ def compose(m: MapCanvas) -> None:
     m.pave(57, 10, 14, 1)  # ...along the north colonials' walk
     m.pave(28, 36, 13, 1)  # cul-de-sac west walk to the bulb
     m.pave(48, 36, 6, 1)  # cul-de-sac east walk from the bulb
-    m.pave(27, 47, 14, 1)  # south colonials' walk...
-    m.pave(40, 44, 1, 4)  # ...up to the bulb's curb
+    m.pave(27, 46, 14, 1)  # south colonials' walk...
+    m.pave(40, 44, 1, 3)  # ...up to the bulb's curb
     m.pave(15, 9, 7, 1)  # farmhouse walk to the pen's east side
 
     # ================= buildings (reserve before paint_roads) =============
@@ -194,8 +194,10 @@ def compose(m: MapCanvas) -> None:
     cottage(m, 47, 29, 6, 7, roof="slate", landmark=HOMES)  # cul-de-sac E
     garage(m, 53, 29, roof="slate")
     driveway(m, 53, 32, 1, 4, car_at=(53, 33))
-    cottage(m, 27, 40, 6, 7, roof="slate", landmark=HOMES)  # below the bulb
-    cottage(m, 34, 40, 6, 7, roof="deck_dark", landmark=HOMES)
+    # (one row up from the map's foot: a door on the bottom row would open
+    # into the world margin, where nobody can stand)
+    cottage(m, 27, 39, 6, 7, roof="slate", landmark=HOMES)  # below the bulb
+    cottage(m, 34, 39, 6, 7, roof="deck_dark", landmark=HOMES)
     cottage(m, 58, 3, 6, 7, roof="slate")  # north colonials off the lot
     cottage(m, 65, 3, 6, 7, roof="deck_dark")
     cottage(m, 64, 29, 6, 7, roof="slate")  # Hedden Park side
@@ -220,6 +222,10 @@ def compose(m: MapCanvas) -> None:
     path(m, trail)
 
     # ================= paint the road network =================
+    # mid-block zebras on Main Road: by the diner and at the Town Hall walk,
+    # so the west end of town is not a 600 px walk from the only crossing
+    m.crosswalk("h", 24, 9)
+    m.crosswalk("h", 24, 35)
     m.paint_roads()
 
     # ================= diner set-piece dressing =================
