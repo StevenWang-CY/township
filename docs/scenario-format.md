@@ -402,7 +402,7 @@ Optional keys:
 
 - `tools` (default `["Discuss", "FormOpinion", "ReactToNews"]`) — declarative; the engine selects the tool for each phase itself.
 - `model` (default: the active provider's configured model) — optional per-agent model pin, resolved through the provider's model map. Omit it unless a resident intentionally needs a different model.
-- `routine` — `[{time, location, activity}]`; locations should name real landmarks in the agent's town (lint requires ≥ 80% to resolve).
+- `routine` — `[{time, location, activity}]`; locations should name real landmarks in the agent's town (lint requires ≥ 80% to resolve). A stop written as `"<town-id>: <landmark>"` is a commute: for beats with talk or news the resident is present in that town (they converse there, hear its local headlines, and carry what they heard home), while seeds, opinions, ballots and the town tally always stay with the home town.
 - `relationships` — `[{agent, type, strength, context}]`; targets may be display names (`"Gordon Tibbs"`) or derived ids (`"gordon-tibbs"`) and must resolve to a real agent in the scenario. Agent ids retain the compatibility transform `name.lower().replace(" ", "-").replace(".", "")`; scenario loading rejects route-breaking delimiters/control characters and any duplicate derived id across towns.
 - `idle_thoughts` — lines the sprite mutters when nothing else is happening.
 - `goals` — `{"round_0": "...", "round_1": "..."}`; the matching entry is injected into the system prompt each round as `--- YOUR GOAL THIS ROUND ---`.

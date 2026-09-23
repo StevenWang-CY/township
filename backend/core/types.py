@@ -404,7 +404,10 @@ class AgentMovedEvent(BaseModel):
     type: Literal["agent_moved"] = "agent_moved"
     agent_id: str
     agent_name: str
+    # The town the move happens in — a commuter's host town for the beat.
     town: str
+    # Additive (Community II): where the resident lives; None means `town`.
+    home_town: str | None = None
     from_location: str | None = None
     to_location: str
     # Coordinates (used by the Phaser scene when available)

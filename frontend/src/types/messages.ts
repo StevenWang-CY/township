@@ -180,6 +180,8 @@ export interface ChatMessage {
 export interface AgentMovedEvent {
   type: "agent_moved";
   agent_id: string;
+  /** Additive (Community II): where the resident lives when `town` is the host town they commute to. */
+  home_town?: string;
   agent_name: string;
   town: TownId;
   from_location?: string | null;

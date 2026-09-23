@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import re
 import shutil
 import tempfile
@@ -256,6 +257,50 @@ class SimulationOrchestrator:
         if resolved < 1:
             raise ValueError("num_rounds must be at least 1")
         return plan[:resolved]
+
+    PRESENCE_PHASES = frozenset({"converse", "news"})
+    EVENT_TRAVEL = frozenset({"debate", "town_hall", "fair", "rally"})
+    EVENT_VOICES = 2
+    EVENT_NEIGHBORS = 3
+
+    def _presence(self, spec: RoundSpec, probe: RoundManager) -> dict[str, list[AgentState]]:
+        """Who is in which town this beat. A routine stop written as
+        "<town-id>: <landmark>" is a commute there; a hosted event (debate,
+        town hall, fair, rally) draws two voices and three neighbors from every
+        other town; a market keeps everyone home. Only beats with talk or news
+        travel — seeds, opinions and ballots happen at home. Every agent lands
+        in exactly one town and `agent.current_town` records it."""
+        clock = spec.clock_tuple()
+        present: dict[str, list[AgentState]] = {town: [] for town in self.agent_states}
+        travel = bool(set(spec.phases) & self.PRESENCE_PHASES) and "seed" not in spec.phases
+        event = spec.event or {}
+        kind = str(event.get("kind") or "")
+        host_event = event.get("host_town") if kind in self.EVENT_TRAVEL else None
+        if kind == "market":
+            travel = False
+        for town, states in self.agent_states.items():
+            travellers: set[str] = set()
+            if travel and host_event and host_event in present and host_event != town:
+                rng = random.Random(f"{self.scenario.id}|presence|{spec.round}|{town}")
+                live = [a for a in states if a.state != CivicAgentState.ERROR]
+                voices = sorted(a.agent_id for a in live if a.definition.tier == "voice")
+                neighbors = sorted(a.agent_id for a in live if a.definition.tier != "voice")
+                travellers = set(rng.sample(voices, min(self.EVENT_VOICES, len(voices))))
+                travellers |= set(rng.sample(neighbors, min(self.EVENT_NEIGHBORS, len(neighbors))))
+            for agent in states:
+                host = town
+                if travel:
+                    if agent.agent_id in travellers:
+                        host = str(host_event)
+                    else:
+                        split = probe._routine_stop_split(agent, clock)
+                        if split and split[0] in present:
+                            host = split[0]
+                agent.current_town = host
+                present[host].append(agent)
+        for bucket in present.values():
+            bucket.sort(key=lambda a: a.agent_id)
+        return present
 
     def _total_days(self) -> int | None:
         days = {r.day for r in self.plan if r.day is not None}
@@ -531,6 +576,7 @@ class SimulationOrchestrator:
                 await self._emit_weather(schedule_index)
 
             active_towns = [town for town in towns if town not in failed]
+            presence = self._presence(spec, next(iter(managers.values())))
             results = await asyncio.gather(
                 *[
                     managers[town].run_town_round(
@@ -539,6 +585,7 @@ class SimulationOrchestrator:
                         spec=spec,
                         total_rounds=len(specs),
                         total_conversations=conversations[town],
+                        present=presence.get(town, []),
                     )
                     for town in active_towns
                 ],

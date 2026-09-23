@@ -126,6 +126,29 @@ class RoundManager:
         """Voices speak through the model; neighbors live in the ledger only."""
         return getattr(agent.definition, "tier", "voice") == "voice"
 
+    @staticmethod
+    def _host_town(agent: AgentState) -> str:
+        """The town a resident is in this beat — home unless they commute."""
+        return agent.current_town or agent.definition.town
+
+    def _routine_stop_split(
+        self, agent: AgentState, clock: tuple[int, int] | None
+    ) -> tuple[str, str] | None:
+        """(town, landmark) for the routine stop at ``clock``: a
+        "<town-id>: <landmark>" stop is a commute to that town."""
+        stop = self._routine_stop(agent, clock)
+        if not stop:
+            return None
+        host, sep, landmark = stop.partition(": ")
+        if sep and landmark and host in self.town_data:
+            return host, landmark
+        return agent.definition.town, stop
+
+    def _stop_in(self, agent: AgentState, clock: tuple[int, int] | None, town: str) -> str | None:
+        """The resident's routine landmark in ``town`` at ``clock``, if that is where they are."""
+        split = self._routine_stop_split(agent, clock)
+        return split[1] if split and split[0] == town else None
+
     def _label(self, stance: str | None) -> str | None:
         if not stance or stance == self.scenario.undecided_id:
             return None
@@ -234,14 +257,21 @@ class RoundManager:
         spec: RoundSpec,
         total_rounds: int,
         total_conversations: int = 0,
+        present: list[AgentState] | None = None,
     ) -> int:
         """Run one declared round and return the cumulative conversation count.
 
         The orchestrator uses this boundary to keep every town on the same
         round before it emits district weather or runs cross-town gossip.
         ``run_town_simulation`` remains the convenient standalone wrapper.
+
+        ``present`` is who is physically in this town for the beat (the
+        orchestrator's presence table: residents minus commuters, plus
+        visitors). Conversations and headlines use it; seeds, opinions,
+        ballots, results and the summary always use the town's residents.
         """
         round_num = spec.round
+        talkers = present if present is not None else agent_states
         self.model.attention = self._attention_for(spec)
         await self.event_bus.publish(
             RoundStartedEvent(
@@ -280,7 +310,7 @@ class RoundManager:
             if phase == "seed":
                 await self._run_seed_round(agent_states, round_num)
             elif phase == "converse":
-                total_conversations += await self._run_conversation_round(agent_states, round_num)
+                total_conversations += await self._run_conversation_round(talkers, round_num)
             elif phase == "news":
                 news_events = [
                     {
@@ -294,7 +324,7 @@ class RoundManager:
                     and (not news_by_id[news_id].towns or town in news_by_id[news_id].towns)
                 ]
                 if news_events:
-                    await self._run_news_round(agent_states, news_events, round_num)
+                    await self._run_news_round(talkers, news_events, round_num)
             elif phase == "opinion":
                 await self._run_opinion_round(agent_states, round_num)
             elif phase == "reflect":
@@ -398,6 +428,7 @@ class RoundManager:
                         agent_id=agent.agent_id,
                         agent_name=agent.definition.name,
                         town=town,
+                        home_town=agent.definition.town,
                         from_location=from_location,
                         to_location=location,
                         x=landmark.get("x", 400),
@@ -593,7 +624,7 @@ class RoundManager:
         half the neighbors — most people don't talk politics three times a day."""
         if not agents:
             return []
-        rng = self._rng("talkers", agents[0].definition.town, round_num)
+        rng = self._rng("talkers", self._host_town(agents[0]), round_num)
         out = []
         for a in sorted(agents, key=lambda a: a.agent_id):
             if self._is_voice(a) or rng.random() < self.NEIGHBOR_TALK_RATE:
@@ -617,7 +648,7 @@ class RoundManager:
         """Run a 3-exchange conversation between two agents."""
         if not (self._is_voice(agent_a) and self._is_voice(agent_b)):
             return await self._run_templated_conversation(agent_a, agent_b, round_num)
-        town = agent_a.definition.town
+        town = self._host_town(agent_a)
         location = self._meeting_place(
             town, agent_a, agent_b, self._round_clock.get(town), round_num
         )
@@ -638,6 +669,7 @@ class RoundManager:
                 agent_id=agent_a.agent_id,
                 agent_name=agent_a.definition.name,
                 town=town,
+                home_town=agent_a.definition.town,
                 from_location=from_a,
                 to_location=location,
                 x=lx - 30,
@@ -649,6 +681,7 @@ class RoundManager:
                 agent_id=agent_b.agent_id,
                 agent_name=agent_b.definition.name,
                 town=town,
+                home_town=agent_b.definition.town,
                 from_location=from_b,
                 to_location=location,
                 x=lx + 30,
@@ -838,6 +871,10 @@ class RoundManager:
         if agent_b.state != CivicAgentState.ERROR:
             agent_b.state = CivicAgentState.IDLE
 
+        await self._note_cross_town(
+            agent_a, agent_b, topic, f"conv:{convo_id}", key_takeaways, staged=True
+        )
+
         # Emit a ConversationEnded so the frontend can finalize bubbles / log entry
         try:
             await self.event_bus.publish(
@@ -861,7 +898,7 @@ class RoundManager:
         every one landing on the listener's ledger; speech reaches the wire at a
         sampled rate so the town murmurs instead of shouting. A voice in the
         pair gets conversation_started/ended so the scene can stage it."""
-        town = agent_a.definition.town
+        town = self._host_town(agent_a)
         any_voice = self._is_voice(agent_a) or self._is_voice(agent_b)
         location = self._meeting_place(
             town, agent_a, agent_b, self._round_clock.get(town), round_num
@@ -874,6 +911,7 @@ class RoundManager:
                         agent_id=agent.agent_id,
                         agent_name=agent.definition.name,
                         town=town,
+                        home_town=agent.definition.town,
                         from_location=agent.current_location,
                         to_location=location,
                         x=(landmark.get("x", 400) if landmark else 400)
@@ -987,10 +1025,45 @@ class RoundManager:
         agent_b.conversations.append(convo)
         stances = set(partner_stances.values())
         self._grow_relationship(agent_a, agent_b, len(stances) == 1 and undecided_id not in stances)
+        await self._note_cross_town(agent_a, agent_b, topic, conv_ref, takeaways, staged=any_voice)
         if any_voice:
             await self.event_bus.publish(
                 ConversationEndedEvent(
                     conversation_id=convo_id, summary=clip_text("; ".join(takeaways.values()), 200)
+                )
+            )
+
+    async def _note_cross_town(
+        self,
+        agent_a: AgentState,
+        agent_b: AgentState,
+        topic: str,
+        conv_ref: str,
+        takeaways: dict[str, str],
+        *,
+        staged: bool,
+    ) -> None:
+        """A conversation between residents of different towns: both carry the
+        topic home to retell (pending_topics feeds _pick_topic), and when a
+        voice was in it the feed hears it as cross-town gossip both ways."""
+        if agent_a.definition.town == agent_b.definition.town:
+            return
+        for holder in (agent_a, agent_b):
+            if [topic, conv_ref] not in holder.pending_topics:
+                holder.pending_topics.append([topic, conv_ref])
+        if not staged:
+            return
+        for src, dst in ((agent_a, agent_b), (agent_b, agent_a)):
+            msg = (
+                takeaways.get(src.definition.name) or f"{src.definition.name} talked about {topic}"
+            )
+            await self.event_bus.publish(
+                CrossTownGossipEvent(
+                    from_town=src.definition.town,
+                    to_town=dst.definition.town,
+                    from_agent=src.agent_id,
+                    to_agent=dst.agent_id,
+                    message=clip_text(str(msg), 160),
                 )
             )
 
@@ -1003,7 +1076,7 @@ class RoundManager:
         item = self.scenario.news_by_id.get(news.get("id", "")) or _AdHocNews(
             news["headline"], news.get("description", ""), neutral=bool(news.get("neutral"))
         )
-        town = agent.definition.town
+        town = self._host_town(agent)
         entries, derived = self.model.apply_news(
             agent, item, round_num, news_ref, salience=self.salience_for(town)
         )
@@ -1308,7 +1381,7 @@ class RoundManager:
                 for a in agents
                 if not self._is_voice(a) and a.state != CivicAgentState.ERROR
             )
-            host = agents[0].definition.town if agents else "*"
+            host = self._host_town(agents[0]) if agents else "*"
             news_key = news.get("id") or news["headline"][:16]
             speaker_id = (
                 self._rng(f"news-voice:{news_key}", host, round_num).choice(neighbors)
@@ -1338,10 +1411,10 @@ class RoundManager:
                     news["headline"], news.get("description", ""), neutral=bool(news.get("neutral"))
                 )
             entries, derived = self.model.apply_news(
-                agent, item, round_num, news_ref, salience=self.salience_for(agent.definition.town)
+                agent, item, round_num, news_ref, salience=self.salience_for(self._host_town(agent))
             )
             self._note_topic(
-                agent.definition.town, f"{news['headline']} {news.get('description', '')}", 1.0
+                self._host_town(agent), f"{news['headline']} {news.get('description', '')}", 1.0
             )
             moved = sum(abs(e.delta) for e in entries)
             prior = {"phase": "news", **derived, "headline": news["headline"]}
@@ -1401,7 +1474,7 @@ class RoundManager:
                     AgentSpeechEvent(
                         agent_id=agent.agent_id,
                         agent_name=agent.definition.name,
-                        town=agent.definition.town,
+                        town=self._host_town(agent),
                         text=f"Re: {clip_text(news['headline'], 50)} — {clip_text(reasoning, 100)}",
                         location=agent.current_location,
                         sentiment=sentiment,
@@ -1415,7 +1488,7 @@ class RoundManager:
                             reaction=NewsReaction(
                                 agent_id=agent.agent_id,
                                 agent_name=agent.definition.name,
-                                town=agent.definition.town,
+                                town=self._host_town(agent),
                                 headline=news["headline"],
                                 event=news["headline"],
                                 emotional_response=emotional,
@@ -1448,7 +1521,7 @@ class RoundManager:
                 self.model.deadline_nudge(
                     agent.beliefs,
                     round_num,
-                    self._rng(f"deadline:{agent.agent_id}", agent.definition.town, round_num),
+                    self._rng(f"deadline:{agent.agent_id}", self._host_town(agent), round_num),
                     days_left_frac,
                 )
             if self._is_voice(agent):
@@ -1600,6 +1673,13 @@ class RoundManager:
             town_bits.append(f"population about {int(pop):,}")
         if character:
             town_bits.append(str(character))
+        host = agent_state.current_town
+        if host and host != agent_state.definition.town:
+            host_name = (self.town_data.get(host, {}) or {}).get("name") or host
+            town_bits.append(
+                f"Today you are in {host_name} — the people around you live there, "
+                "and what you hear there you carry home"
+            )
         parts.append("\n\n--- YOUR TOWN ---\n" + ". ".join(town_bits) + ".")
         known = [
             r
@@ -1992,7 +2072,7 @@ class RoundManager:
         """
         if len(agents) < 2:
             return []
-        town = agents[0].definition.town
+        town = self._host_town(agents[0])
         rng = self._rng("pairs", town, round_num)
         ordered = sorted(agents, key=lambda a: a.agent_id)
         scored: list[tuple[float, str, str, AgentState, AgentState]] = []
@@ -2100,8 +2180,8 @@ class RoundManager:
         and the station in the evening — preferring one of the pair's own
         stops when it fits, then the initiator's stop, then any landmark.
         """
-        stop_a = self._routine_stop(agent_a, clock)
-        stop_b = self._routine_stop(agent_b, clock)
+        stop_a = self._stop_in(agent_a, clock, town)
+        stop_b = self._stop_in(agent_b, clock, town)
         known = lambda name: name is not None and self._get_landmark(town, name) is not None  # noqa: E731
         if stop_a and stop_a == stop_b and known(stop_a):
             return stop_a
