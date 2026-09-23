@@ -655,6 +655,12 @@ test("a recorded campaign reads in days: day chapters, the HUD chip and the Toda
       roundStarted(plan[0]), clockTick(plan[0]),
       { type: "agent_speech", agent_id: "mara-lee", agent_name: "Mara Lee", town: "harbor", text: "Morning, all.", location: "Harbor Hall" },
       roundStarted(plan[1]), clockTick(plan[1]),
+      {
+        type: "opinion_changed", agent_id: "mara-lee", agent_name: "Mara Lee", town: "harbor", round: 1,
+        old_opinion: { candidate: "undecided", confidence: 40, reasoning: "Listening first.", top_issues: ["flooding"] },
+        new_opinion: { candidate: "yes", confidence: 62, reasoning: "The causeway floods every spring.", top_issues: ["flooding"] },
+        trigger: { kind: "reflection" }, influences: [], reason: "The causeway floods every spring.",
+      },
       roundStarted(plan[2]), clockTick(plan[2]),
       roundStarted(plan[3]), clockTick(plan[3]),
     ],
@@ -689,6 +695,17 @@ test("a recorded campaign reads in days: day chapters, the HUD chip and the Toda
   await expect(strip.locator(".today-countdown")).toHaveText("Decision day tomorrow");
   await expect(strip.locator(".today-beat-label")).toHaveText(["Morning", "Talk"]);
   await expect(strip.locator(".today-events-list")).toHaveText("Market day");
+
+  // The calendar turning by one day shows the day in review, with the cause.
+  await dayTicks.nth(0).click();
+  await dayTicks.nth(1).click();
+  const review = page.locator(".day-summary-card");
+  await expect(review).toBeVisible();
+  await expect(review).toContainText("Day 1 in review");
+  await expect(review).toContainText("Mara Lee");
+  await expect(review).toContainText("on reflection");
+  await review.getByRole("button", { name: "Dismiss the day in review" }).click();
+  await expect(review).toHaveCount(0);
 
   // Day 2: election day's early beat.
   await dayTicks.last().click();

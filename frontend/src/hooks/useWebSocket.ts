@@ -330,6 +330,7 @@ function reduceWithEventLimit(
           const point: OpinionPoint = {
             round: evt.round ?? evt.new_opinion?.round_number ?? state.currentRound,
             day: state.calendar?.day ?? null,
+            from: evt.old_opinion?.candidate ?? null,
             candidate: evt.new_opinion.candidate,
             confidence: evt.new_opinion.confidence,
             trigger: attribution.trigger,

@@ -64,8 +64,10 @@ test("results moment and the dashboard at the end", async ({ page }) => {
   await page.locator(".results-overlay").waitFor({ timeout: 20_000 });
   await stillTown(page, 19);
   await expect(page).toHaveScreenshot("results.png", CANVAS_TOLERANCE);
-  await page.goto("/#/dashboard");
+  // Stay in the same document: a goto would reload the player at round 0.
+  await page.getByRole("link", { name: "Open the dashboard" }).click();
   await page.locator(".ballot-bar").first().waitFor({ timeout: 20_000 });
+  await expect(page.locator(".dashboard-causal")).toBeVisible();
   await page.waitForTimeout(800);
   await expect(page).toHaveScreenshot("dashboard-end.png", { ...DOM_TOLERANCE, fullPage: true });
 });

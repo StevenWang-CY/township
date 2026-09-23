@@ -47,6 +47,8 @@ export const MAX_INFLUENCES = 6;
 export interface OpinionPoint {
   round: number | null;
   day: number | null;
+  /** The stance the event said they held before (null on a first opinion). */
+  from: string | null;
   candidate: string;
   confidence: number;
   trigger: OpinionTrigger | null;

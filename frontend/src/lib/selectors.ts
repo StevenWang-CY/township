@@ -52,10 +52,12 @@ export function causalFeed(
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
       const prev = i > 0 ? points[i - 1] : null;
-      const isSeed = prev === null;
+      // The stance before: what the event said, else the previous point. A
+      // first point with no "from" is the seed (the roster carried the start).
+      const from = p.from ?? prev?.candidate ?? null;
+      const isSeed = from === null;
       if (isSeed && !opts.includeSeeds) continue;
-      if (prev && prev.candidate === p.candidate) continue; // a confidence tick, not a change
-      const from = prev?.candidate ?? null;
+      if (from === p.candidate) continue; // a confidence tick, not a change
       out.push({
         id: p.eventCursor,
         kind: "shift",
@@ -100,9 +102,10 @@ export function causalFeed(
  *  rent"), or undefined when they never did. */
 export function lastCauseOf(state: WsState, agentId: string, undecidedId = "undecided"): string | undefined {
   const pts = state.opinionHistory[agentId];
-  if (!pts || pts.length < 2) return undefined;
-  for (let i = pts.length - 1; i >= 1; i--) {
-    if (pts[i].candidate !== pts[i - 1].candidate) {
+  if (!pts || pts.length === 0) return undefined;
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const from = pts[i].from ?? (i > 0 ? pts[i - 1].candidate : null);
+    if (from !== null && from !== pts[i].candidate) {
       const text = causeText(pts[i].trigger, pts[i].influences, nameOf(state));
       const to = pts[i].candidate === undecidedId ? "undecided" : pts[i].candidate;
       return text ? `${to === "undecided" ? "Back on the fence" : "Moved"} ${text}` : undefined;
@@ -138,6 +141,7 @@ export function swingResidents(state: WsState, town: string | null, undecidedId 
     let lastCause = "";
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
+      if (i === 0 && p.from && p.from !== undecidedId && p.from !== p.candidate) path.push(p.from);
       if (p.candidate === undecidedId) continue;
       if (path.length === 0 || path[path.length - 1] !== p.candidate) {
         if (path.length > 0) {
