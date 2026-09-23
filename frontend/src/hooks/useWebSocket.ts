@@ -12,6 +12,13 @@ import type {
   ElectionTally,
   RunPlanEntry,
 } from "../types/messages";
+import {
+  attributeOpinion,
+  PENDING_LIMIT,
+  type InfluenceEdge,
+  type OpinionPoint,
+  type PendingCauses,
+} from "../lib/attribution";
 import { dayOrdinal, normalizeWeekday, totalDaysOf, type CalendarState } from "../lib/calendar";
 
 /** Raw per-town phase signals for the current round. The scene decides what
@@ -104,6 +111,14 @@ export interface WsState {
   electionResult: ElectionResultEvent | null;
   /** Each town's count as it reports, keyed by town id. */
   townResults: Record<string, ElectionTally>;
+  /** Additive (Evolution): each resident's opinion trajectory, oldest first,
+   *  every point carrying its cause (engine citations or derived here). */
+  opinionHistory: Record<string, OpinionPoint[]>;
+  /** Who moved whom: one edge per cited influence with a source (live cap). */
+  influenceEdges: InfluenceEdge[];
+  /** What each resident heard since their last opinion — attribution fodder,
+   *  flushed on their next opinion_changed. */
+  pendingCauses: Record<string, PendingCauses>;
 }
 
 export const initialState: WsState = {
@@ -132,6 +147,9 @@ export const initialState: WsState = {
   runPlan: [],
   electionResult: null,
   townResults: {},
+  opinionHistory: {},
+  influenceEdges: [],
+  pendingCauses: {},
 };
 
 /* ── Reducer ────────────────────────────────────────────────── */
@@ -146,6 +164,20 @@ export type WsAction =
  *  and uses the same reducer with complete event retention. */
 export const LIVE_EVENT_HISTORY_LIMIT = 500;
 const LIVE_CONVERSATION_HISTORY_LIMIT = 200;
+export const LIVE_INFLUENCE_EDGE_LIMIT = 400;
+
+function withPending(
+  pending: Record<string, PendingCauses>,
+  agentId: string,
+  patch: (p: PendingCauses) => PendingCauses,
+): Record<string, PendingCauses> {
+  const cur = pending[agentId] ?? { conversations: [], news: [], gossip: [] };
+  return { ...pending, [agentId]: patch(cur) };
+}
+
+function tail<T>(xs: T[], x: T): T[] {
+  return [...xs, x].slice(-PENDING_LIMIT);
+}
 
 function reduceWithEventLimit(
   state: WsState,
@@ -186,6 +218,9 @@ function reduceWithEventLimit(
             eventHistoryStart: eventCursor - 1,
             agentPositions: {},
             agentTowns,
+            opinionHistory: {},
+            influenceEdges: [],
+            pendingCauses: {},
             townSummaries: {},
             currentRound: 0,
             totalRounds: 0,
@@ -283,21 +318,67 @@ function reduceWithEventLimit(
             agentTowns,
           };
         }
-        case "opinion_changed":
-          if (state.agents[evt.agent_id]) {
-            return {
-              ...base,
-              agents: {
-                ...state.agents,
-                [evt.agent_id]: {
-                  ...state.agents[evt.agent_id],
-                  opinion: evt.new_opinion,
-                },
-              },
-              roundSignals: signalRound(state, evt.town, "opinion"),
-            };
+        case "opinion_changed": {
+          const known = state.agents[evt.agent_id];
+          // Engine citations pass through; the flagship replay's changes are
+          // attributed from what the resident heard since their last opinion.
+          const attribution = attributeOpinion(
+            evt,
+            state.pendingCauses[evt.agent_id],
+            (id) => state.agents[id]?.opinion?.candidate,
+          );
+          const point: OpinionPoint = {
+            round: evt.round ?? evt.new_opinion?.round_number ?? state.currentRound,
+            day: state.calendar?.day ?? null,
+            candidate: evt.new_opinion.candidate,
+            confidence: evt.new_opinion.confidence,
+            trigger: attribution.trigger,
+            influences: attribution.influences,
+            reason: attribution.reason,
+            eventCursor,
+            derived: attribution.derived,
+          };
+          const opinionHistory = {
+            ...state.opinionHistory,
+            [evt.agent_id]: [...(state.opinionHistory[evt.agent_id] ?? []), point],
+          };
+          const newEdges: InfluenceEdge[] = attribution.influences
+            .filter((inf) => inf.kind !== "seed" && inf.kind !== "persona")
+            .map((inf) => ({
+              ref: inf.ref,
+              kind: inf.kind,
+              from: inf.agent_id ?? null,
+              to: evt.agent_id,
+              direction: inf.direction,
+              weight: inf.weight,
+              round: point.round,
+              day: point.day,
+              note: inf.note,
+            }));
+          const edgeLimit = Number.isFinite(eventHistoryLimit)
+            ? LIVE_INFLUENCE_EDGE_LIMIT
+            : Number.POSITIVE_INFINITY;
+          const influenceEdges = newEdges.length > 0
+            ? [...state.influenceEdges, ...newEdges].slice(-edgeLimit)
+            : state.influenceEdges;
+          let pendingCauses = state.pendingCauses;
+          if (pendingCauses[evt.agent_id]) {
+            pendingCauses = { ...pendingCauses };
+            delete pendingCauses[evt.agent_id];
           }
-          return base;
+          if (!known) return { ...base, opinionHistory, influenceEdges, pendingCauses };
+          return {
+            ...base,
+            agents: {
+              ...state.agents,
+              [evt.agent_id]: { ...known, opinion: evt.new_opinion },
+            },
+            roundSignals: signalRound(state, evt.town, "opinion"),
+            opinionHistory,
+            influenceEdges,
+            pendingCauses,
+          };
+        }
 
         case "agent_speech": {
           // Reducers stay side-effect free. The app-level incremental event
@@ -324,12 +405,31 @@ function reduceWithEventLimit(
               agents[pid] = { ...agents[pid], activity: "talking" };
             }
           }
+          // Each side heard the other: attribution fodder for their next opinion.
+          let pendingCauses = state.pendingCauses;
+          const [a, b] = conv.participants;
+          const [an, bn] = conv.participant_names;
+          if (a && b) {
+            pendingCauses = withPending(pendingCauses, a, (p) => ({
+              ...p,
+              conversations: tail(p.conversations, {
+                id: conv.id, partnerId: b, partnerName: bn ?? b, topic: conv.topic, round: conv.round ?? null,
+              }),
+            }));
+            pendingCauses = withPending(pendingCauses, b, (p) => ({
+              ...p,
+              conversations: tail(p.conversations, {
+                id: conv.id, partnerId: a, partnerName: an ?? a, topic: conv.topic, round: conv.round ?? null,
+              }),
+            }));
+          }
           return {
             ...base,
             conversations: Number.isFinite(eventHistoryLimit)
               ? [...state.conversations, conv].slice(-LIVE_CONVERSATION_HISTORY_LIMIT)
               : [...state.conversations, conv],
             agents,
+            pendingCauses,
           };
         }
 
@@ -420,9 +520,20 @@ function reduceWithEventLimit(
           };
         }
 
-        case "cross_town_gossip":
-          // Just record into the events stream — consumers handle UI side-effects.
-          return base;
+        case "cross_town_gossip": {
+          // The receiver heard it: attribution fodder for their next opinion.
+          const pendingCauses = withPending(state.pendingCauses, evt.to_agent, (p) => ({
+            ...p,
+            gossip: tail(p.gossip, {
+              id: `${evt.from_agent}-${eventCursor}`,
+              fromId: evt.from_agent,
+              fromName: state.agents[evt.from_agent]?.name,
+              fromTown: evt.from_town,
+              message: evt.message,
+            }),
+          }));
+          return { ...base, pendingCauses };
+        }
 
         case "god_view_injection":
           return base;
@@ -438,7 +549,18 @@ function reduceWithEventLimit(
           for (const [town, sig] of Object.entries(roundSignals)) {
             if (sig.round === evt.round && !sig.news) roundSignals[town] = { ...sig, news: true };
           }
-          return { ...base, headlines, roundSignals };
+          // Everyone present in a listed town (or everyone, district-wide) heard it.
+          let pendingCauses = state.pendingCauses;
+          const towns = evt.towns ?? [];
+          for (const [id, a] of Object.entries(state.agents)) {
+            const here = state.agentTowns[id] ?? a.town;
+            if (towns.length > 0 && !towns.includes(here)) continue;
+            pendingCauses = withPending(pendingCauses, id, (p) => ({
+              ...p,
+              news: tail(p.news, { id: evt.news_id ?? "", headline: evt.headline, round: evt.round }),
+            }));
+          }
+          return { ...base, headlines, roundSignals, pendingCauses };
         }
 
         default:
