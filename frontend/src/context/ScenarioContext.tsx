@@ -66,7 +66,7 @@ function formatPopulation(p: number | string | undefined): string | undefined {
 }
 
 /** Neutral warm-ink color for unknown ids — sits quietly in the parchment UI. */
-const UNKNOWN_INK = "#8A7E6E";
+const UNKNOWN_INK = "#8A7E6E"; // tokenize: keep — parsed numerically by the canvas tinting
 const CANONICAL_CORE_NOTICE =
   "Township is a simulation, not a poll. Its outputs do not measure real public opinion and must never be presented as if they do.";
 
@@ -85,7 +85,7 @@ export function buildScenarioValue(
   const decisionKind = scenario.decision_kind === "vote" ? "vote" : "election";
 
   const optionColor = (id?: string | null): string => {
-    if (!id || id === undecidedId) return scenario.undecided?.color ?? "#D1D5DB";
+    if (!id || id === undecidedId) return scenario.undecided?.color ?? "var(--color-undecided)";
     return optionById.get(id)?.color ?? UNKNOWN_INK;
   };
 

@@ -1,3 +1,4 @@
+import { withAlpha } from "../lib/color";
 import type { CSSProperties } from "react";
 import { TRUST_BAND } from "../types/messages";
 
@@ -11,10 +12,10 @@ const BAND_META: Record<
   ReturnType<typeof TRUST_BAND>,
   { label: string; color: string; icon: string }
 > = {
-  hostile:  { label: "Hostile",  color: "#B85050", icon: "broken" },
-  guarded:  { label: "Guarded",  color: "#9A8E80", icon: "neutral" },
-  warming:  { label: "Warming",  color: "#C09060", icon: "handshake" },
-  friend:   { label: "Friend",   color: "#4A9B5C", icon: "heart" },
+  hostile:  { label: "Hostile",  color: "var(--color-danger)", icon: "broken" },
+  guarded:  { label: "Guarded",  color: "var(--color-neutral)", icon: "neutral" },
+  warming:  { label: "Warming",  color: "var(--color-warming)", icon: "handshake" },
+  friend:   { label: "Friend",   color: "var(--color-friendly)", icon: "heart" },
 };
 
 function Glyph({ kind, size }: { kind: string; size: number }) {
@@ -63,13 +64,13 @@ export default function TrustBadge({ trust, size = "medium", showLabel = false }
     gap: small ? 4 : 6,
     padding: small ? "2px 6px" : "3px 8px",
     borderRadius: 999,
-    background: `${meta.color}1A`,
+    background: withAlpha(meta.color, 0.1),
     color: meta.color,
     fontSize: small ? 10 : 11,
     fontWeight: 600,
     fontFamily: "var(--font-body)",
     lineHeight: 1,
-    border: `1px solid ${meta.color}33`,
+    border: `1px solid ${withAlpha(meta.color, 0.2)}`,
   };
 
   return (
@@ -83,7 +84,7 @@ export default function TrustBadge({ trust, size = "medium", showLabel = false }
             width: 26,
             height: 4,
             borderRadius: 2,
-            background: `${meta.color}33`,
+            background: withAlpha(meta.color, 0.2),
             overflow: "hidden",
           }}
         >

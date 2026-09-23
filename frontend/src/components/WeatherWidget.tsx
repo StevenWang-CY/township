@@ -1,3 +1,4 @@
+import { withAlpha } from "../lib/color";
 import type { ReactNode } from "react";
 import type { WeatherKind } from "../types/messages";
 
@@ -65,11 +66,11 @@ function FogGlyph({ color, size = 14 }: { color: string; size?: number }) {
 }
 
 const WEATHER_META: Record<WeatherKind, { label: string; color: string; icon: (color: string) => ReactNode }> = {
-  clear:  { label: "Clear",  color: "#E0A040", icon: (c) => <SunGlyph color={c} /> },
-  cloudy: { label: "Cloudy", color: "#90A0B8", icon: (c) => <CloudGlyph color={c} /> },
-  rain:   { label: "Rain",   color: "#5080C0", icon: (c) => <RainGlyph color={c} /> },
-  snow:   { label: "Snow",   color: "#A0C0E8", icon: (c) => <SnowGlyph color={c} /> },
-  fog:    { label: "Fog",    color: "#B0B0B0", icon: (c) => <FogGlyph color={c} /> },
+  clear:  { label: "Clear",  color: "var(--color-weather-clear)", icon: (c) => <SunGlyph color={c} /> },
+  cloudy: { label: "Cloudy", color: "var(--color-weather-cloudy)", icon: (c) => <CloudGlyph color={c} /> },
+  rain:   { label: "Rain",   color: "var(--color-weather-rain)", icon: (c) => <RainGlyph color={c} /> },
+  snow:   { label: "Snow",   color: "var(--color-weather-snow)", icon: (c) => <SnowGlyph color={c} /> },
+  fog:    { label: "Fog",    color: "var(--color-weather-fog)", icon: (c) => <FogGlyph color={c} /> },
 };
 
 export default function WeatherWidget({ weather, compact = false }: WeatherWidgetProps) {
@@ -83,8 +84,8 @@ export default function WeatherWidget({ weather, compact = false }: WeatherWidge
         alignItems: "center",
         gap: 6,
         padding: compact ? "3px 8px" : "4px 10px",
-        background: `${meta.color}1A`,
-        border: `1px solid ${meta.color}33`,
+        background: `${withAlpha(meta.color, 0.1)}`,
+        border: `1px solid ${withAlpha(meta.color, 0.2)}`,
         borderRadius: 999,
         color: meta.color,
         fontSize: 11,

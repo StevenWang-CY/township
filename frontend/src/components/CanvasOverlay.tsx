@@ -283,7 +283,7 @@ export function CanvasOverlay({
       <div
         ref={containerRef}
         className="absolute inset-0 pointer-events-none overflow-hidden"
-        style={{ zIndex: 10, willChange: "transform" }}
+        style={{ zIndex: "var(--z-hud)", willChange: "transform" }}
       />
       {proximity && proxAgent && (
         <ProximityCard

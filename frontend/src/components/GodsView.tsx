@@ -11,7 +11,7 @@ import type {
 } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
 import { DEMO_MODE, REPO_URL, demoUrl } from "../demo/demoMode";
-import { readableInk, textOnColor } from "../lib/color";
+import { readableInk, textOnColor, withAlpha } from "../lib/color";
 
 const DEMO_INJECT_HINT = "Scenario injection needs the local install — zero keys required.";
 
@@ -66,19 +66,19 @@ function humanize(raw: string | undefined, table: Record<string, string>): strin
 }
 
 const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
-  immigration: { label: "Immigration", color: "#E8763B" },
-  healthcare: { label: "Healthcare", color: "#3B82F6" },
-  economy: { label: "Economy", color: "#F59E0B" },
-  infrastructure: { label: "Infrastructure", color: "#6B7280" },
-  education: { label: "Education", color: "#8B5CF6" },
-  housing: { label: "Housing", color: "#10B981" },
-  national_politics: { label: "National Politics", color: "#EF4444" },
-  community: { label: "Community", color: "#EC4899" },
-  safety: { label: "Safety", color: "#B85050" },
-  development: { label: "Development", color: "#376F6A" },
-  civic_trust: { label: "Civic Trust", color: "#765A1F" },
-  fiscal: { label: "Fiscal", color: "#3B5998" },
-  weather: { label: "Weather", color: "#596D82" },
+  immigration: { label: "Immigration", color: "var(--color-cat-immigration)" },
+  healthcare: { label: "Healthcare", color: "var(--color-cat-healthcare)" },
+  economy: { label: "Economy", color: "var(--color-cat-economy)" },
+  infrastructure: { label: "Infrastructure", color: "var(--color-ink-3)" },
+  education: { label: "Education", color: "var(--color-cat-education)" },
+  housing: { label: "Housing", color: "var(--color-cat-housing)" },
+  national_politics: { label: "National Politics", color: "var(--color-danger)" },
+  community: { label: "Community", color: "var(--color-cat-community)" },
+  safety: { label: "Safety", color: "var(--color-danger)" },
+  development: { label: "Development", color: "var(--color-cat-development)" },
+  civic_trust: { label: "Civic Trust", color: "var(--color-accent-ink)" },
+  fiscal: { label: "Fiscal", color: "var(--color-civic)" },
+  weather: { label: "Weather", color: "var(--color-cat-weather)" },
 };
 
 interface GodsViewProps {
@@ -317,14 +317,14 @@ export default function GodsView({ ws }: GodsViewProps) {
                 className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                 style={{
                   background: !selectedCategory ? "var(--civic-blue)" : "var(--township-paper)",
-                  color: !selectedCategory ? "#fff" : "var(--township-ink-muted)",
+                  color: !selectedCategory ? "var(--color-on-accent)" : "var(--township-ink-muted)",
                   border: `1px solid ${!selectedCategory ? "var(--civic-blue)" : "var(--card-border)"}`,
                 }}
               >
                 All
               </button>
               {categories.map((cat) => {
-                const meta = CATEGORY_LABELS[cat] || { label: cat, color: "#6B7280" };
+                const meta = CATEGORY_LABELS[cat] || { label: cat, color: "var(--color-ink-3)" };
                 const active = selectedCategory === cat;
                 return (
                   <button
@@ -347,7 +347,7 @@ export default function GodsView({ ws }: GodsViewProps) {
             {/* Scenario cards grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
               {filteredScenarios.map((scenario) => {
-                const catMeta = CATEGORY_LABELS[scenario.category] || { label: scenario.category, color: "#6B7280" };
+                const catMeta = CATEGORY_LABELS[scenario.category] || { label: scenario.category, color: "var(--color-ink-3)" };
                 const isSelected = prompt === scenario.description;
 
                 return (
@@ -359,14 +359,14 @@ export default function GodsView({ ws }: GodsViewProps) {
                     style={{
                       background: isSelected ? `color-mix(in srgb, ${catMeta.color} 8%, white)` : "var(--card-bg)",
                       border: `1.5px solid ${isSelected ? catMeta.color : "var(--card-border)"}`,
-                      boxShadow: isSelected ? `0 0 0 1px ${catMeta.color}40` : "var(--card-shadow)",
+                      boxShadow: isSelected ? `0 0 0 1px ${withAlpha(catMeta.color, 0.25)}` : "var(--card-shadow)",
                     }}
                   >
                     {/* Category + name */}
                     <div className="flex items-center gap-2 mb-2">
                       <span
                         className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider"
-                        style={{ background: `${catMeta.color}18`, color: readableInk(catMeta.color) }}
+                        style={{ background: withAlpha(catMeta.color, 0.1), color: readableInk(catMeta.color) }}
                       >
                         {catMeta.label}
                       </span>

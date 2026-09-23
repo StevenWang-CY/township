@@ -1,12 +1,13 @@
+import { withAlpha } from "../lib/color";
 interface MoodIndicatorProps {
   mood?: "positive" | "negative" | "neutral";
   size?: number;
 }
 
 const MOOD_META = {
-  positive: { color: "#4A9B5C", label: "Positive" },
-  negative: { color: "#B85050", label: "Negative" },
-  neutral:  { color: "#9A8E80", label: "Neutral"  },
+  positive: { color: "var(--color-friendly)", label: "Positive" },
+  negative: { color: "var(--color-danger)", label: "Negative" },
+  neutral:  { color: "var(--color-neutral)", label: "Neutral"  },
 } as const;
 
 export default function MoodIndicator({ mood = "neutral", size = 18 }: MoodIndicatorProps) {
@@ -28,8 +29,8 @@ export default function MoodIndicator({ mood = "neutral", size = 18 }: MoodIndic
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        background: `${meta.color}1A`,
-        border: `1px solid ${meta.color}33`,
+        background: withAlpha(meta.color, 0.1),
+        border: `1px solid ${withAlpha(meta.color, 0.2)}`,
         color: meta.color,
         width: size + 6,
         height: size + 6,

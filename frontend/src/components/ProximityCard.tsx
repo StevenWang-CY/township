@@ -1,3 +1,4 @@
+import { withAlpha } from "../lib/color";
 import type { AgentState, LeanId } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
 import SpritePortrait from "./SpritePortrait";
@@ -50,7 +51,7 @@ export default function ProximityCard({
         top: y,
         transform: "translate(-50%, -100%)",
         pointerEvents: stale ? "none" : "auto",
-        zIndex: 20,
+        zIndex: "var(--z-hud)",
       }}
     >
       <div className="proximity-card-inner">
@@ -81,9 +82,9 @@ export default function ProximityCard({
           <span
             className="proximity-card-pill"
             style={{
-              background: `${candidateColor}1A`,
+              background: `${withAlpha(candidateColor, 0.1)}`,
               color: candidateColor,
-              borderColor: `${candidateColor}40`,
+              borderColor: `${withAlpha(candidateColor, 0.25)}`,
             }}
           >
             {optionLabel(candidate)}

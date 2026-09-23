@@ -1,0 +1,210 @@
+/* ── Base — fonts, resets, body, frames, utilities shared by every route. ── */
+
+/* Self-hosted variable fonts keep the mock/replay path complete offline. */
+@font-face {
+  font-family: "Cinzel";
+  src: url("../assets/fonts/cinzel-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("../assets/fonts/inter-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* Force nearest-neighbor scaling on Phaser canvas — HD-2D crisp pixels */
+canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ── Warm glass utility ───────────────────────────────────── */
+
+.warm-glass {
+  background: var(--warm-glass);
+  backdrop-filter: blur(var(--warm-glass-blur));
+  -webkit-backdrop-filter: blur(var(--warm-glass-blur));
+  border: 1px solid var(--warm-glass-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-soft);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--bg-cream);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.route-loading {
+  min-height: calc(100dvh - 56px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.route-loading-mark {
+  width: 16px;
+  height: 16px;
+  border: 3px solid var(--gold-light);
+  border-top-color: var(--gold-ink);
+  border-radius: 2px;
+  animation: minimap-loading-turn 1.2s steps(4, end) infinite;
+}
+
+.scenario-bootstrap-state {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  background:
+    radial-gradient(circle at 50% 15%, rgba(196, 163, 90, 0.14), transparent 34%),
+    var(--bg-cream);
+}
+
+.scenario-bootstrap-state > div {
+  width: min(100%, 560px);
+  padding: 32px;
+  border: 1px solid var(--warm-glass-border);
+  border-radius: 16px;
+  background: var(--bg-paper);
+  box-shadow: var(--shadow-soft);
+  text-align: center;
+}
+
+.scenario-bootstrap-state .route-loading-mark {
+  display: inline-block;
+  margin-bottom: 12px;
+}
+
+.scenario-bootstrap-state h1 {
+  margin: 0 0 10px;
+  font-size: clamp(24px, 5vw, 38px);
+}
+
+.scenario-bootstrap-state p {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.scenario-bootstrap-eyebrow {
+  margin: 0 0 6px;
+  color: var(--gold-ink) !important;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.scenario-bootstrap-state button {
+  margin-top: 8px;
+  padding: 9px 18px;
+  border: 1px solid var(--gold-ink);
+  border-radius: 999px;
+  background: var(--gold-accent);
+  color: var(--text-on-gold);
+  font: 600 13px var(--font-body);
+  cursor: pointer;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(196, 163, 90, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(196, 163, 90, 0.35);
+}
+
+/* General responsive utilities */
+@media (width < 768px) {
+  .max-w-7xl {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* Stack overall donut + metrics vertically */
+  .dashboard-overview {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .dashboard-overview > div:first-child {
+    align-self: center;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Pixel chrome unification — one frame language for every surface
+   that shows pixel art (canvas, minimap, portraits, previews).
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Stepped 2px "hand-cut" frame: parchment spacer ring + gold ring.
+   Hard rings only — no soft halo hugging the edge. */
+.pixel-frame {
+  border-radius: 3px;
+  image-rendering: pixelated;
+  box-shadow: var(--pixel-frame-shadow);
+}
+
+.pixel-frame--quiet {
+  box-shadow: var(--pixel-frame-shadow-quiet);
+}
+
+.pixel-frame img,
+.pixel-frame canvas,
+.pixel-frame image {
+  image-rendering: pixelated;
+}
+
+/* Inset variant for full-bleed surfaces (the Phaser canvas wrapper):
+   the stepped border is painted INSIDE the box so it never collides
+   with neighboring chrome. Overlay sits above the canvas, under HUD. */
+.pixel-frame--inset::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: calc(var(--z-canvas) + 1);
+  box-shadow:
+    inset 0 0 0 2px rgba(196, 163, 90, 0.4),
+    inset 0 0 0 4px rgba(250, 246, 239, 0.35);
+}
+
+/* ── Screen-reader-only utility (FIX 14) ───────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

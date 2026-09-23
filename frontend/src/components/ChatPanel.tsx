@@ -10,7 +10,7 @@ import { DEMO_MODE, REPO_URL, INSTALL_HINT } from "../demo/demoMode";
 import SpritePortrait from "./SpritePortrait";
 import MoodIndicator from "./MoodIndicator";
 import TrustBadge from "./TrustBadge";
-import { readableInk } from "../lib/color";
+import { readableInk, withAlpha } from "../lib/color";
 import { playerCapabilityHeaders, registerPlayerCapability } from "../lib/playerCapability";
 import { useLayerStack } from "../hooks/useLayerStack";
 
@@ -162,7 +162,7 @@ function ListenButton({ text, agentId }: { text: string; agentId: string }) {
           state === "playing"
             ? "var(--civic-blue)"
             : state === "error"
-              ? "#EF4444"
+              ? "var(--color-danger)"
               : "var(--township-ink-muted)",
         background: state === "playing" ? "rgba(59,89,152,0.08)" : "transparent",
         cursor: state === "loading" || state === "playing" ? "default" : "pointer",
@@ -931,7 +931,7 @@ export default function ChatPanel({
       />
       <div
         ref={panelRef}
-        className={`chat-panel fixed top-0 right-0 h-full w-[400px] max-w-full flex flex-col z-50 slide-panel-enter ${mobileExpanded ? "chat-panel--expanded" : ""}`}
+        className={`chat-panel fixed top-0 right-0 h-full w-[400px] max-w-full flex flex-col slide-panel-enter ${mobileExpanded ? "chat-panel--expanded" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="chat-panel-title"
@@ -1105,7 +1105,7 @@ export default function ChatPanel({
                 className="topic-chip"
                 onClick={() => onTopicChipClick(t)}
                 disabled={sending}
-                style={{ borderColor: `${meta.color}55`, color: meta.color }}
+                style={{ borderColor: `${withAlpha(meta.color, 0.33)}`, color: meta.color }}
               >
                 {t}
               </button>
@@ -1148,8 +1148,8 @@ export default function ChatPanel({
                 transition: "border-color 200ms, box-shadow 200ms",
               }}
               onFocus={(e) => {
-                e.currentTarget.style.borderColor = `${meta?.color || 'var(--gold-accent)'}80`;
-                e.currentTarget.style.boxShadow = `0 0 0 3px ${meta?.color || 'var(--gold-accent)'}14`;
+                e.currentTarget.style.borderColor = `${withAlpha(meta?.color || 'var(--gold-accent)', 0.5)}`;
+                e.currentTarget.style.boxShadow = `0 0 0 3px ${withAlpha(meta?.color || 'var(--gold-accent)', 0.08)}`;
               }}
               onBlur={(e) => {
                 e.currentTarget.style.borderColor = 'rgba(180,160,120,0.2)';
@@ -1162,8 +1162,8 @@ export default function ChatPanel({
                 onClick={() => { autoAbortRef.current = true; setChatMode("manual"); }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 rounded-full text-xs font-medium"
                 style={{
-                  background: autoRunning ? "#EF4444" : "transparent",
-                  color: autoRunning ? "#fff" : "var(--text-muted)",
+                  background: autoRunning ? "var(--color-danger)" : "transparent",
+                  color: autoRunning ? "var(--color-on-accent)" : "var(--text-muted)",
                   border: autoRunning ? "none" : "1px solid var(--card-border)",
                 }}
               >
@@ -1195,8 +1195,8 @@ export default function ChatPanel({
                   }}
                   className="mic-btn w-9 h-9 rounded-full flex items-center justify-center"
                   style={{
-                    background: recording ? "#EF4444" : "transparent",
-                    color: recording ? "#fff" : "var(--text-muted)",
+                    background: recording ? "var(--color-danger)" : "transparent",
+                    color: recording ? "var(--color-on-accent)" : "var(--text-muted)",
                     border: "1px solid var(--card-border)",
                     transition: "all 200ms ease",
                   }}

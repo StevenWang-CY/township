@@ -168,10 +168,9 @@ function AppShell() {
           backdropFilter: "blur(var(--warm-glass-blur))",
           WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
           borderBottom: "1px solid var(--warm-glass-border)",
-          // The blur creates a stacking context at z-auto; without an explicit
-          // level the settings/nav dropdowns paint UNDER the disclosure bar
-          // (z-35) and page content. Keep below the journal drawer (60/65).
-          zIndex: 50,
+          // The blur creates a stacking context; the sticky layer keeps the
+          // header's menus above page content and below drawers and modals.
+          zIndex: "var(--z-sticky)",
         }}
       >
         <Link to="/" className="flex items-center gap-2.5 no-underline">
@@ -360,8 +359,8 @@ function AppShell() {
               className="w-2 h-2 rounded-full"
               style={{
                 background: DEMO_MODE
-                  ? (ws.connected ? "var(--gold-accent)" : "#EF4444")
-                  : (ws.connected ? "#4CAF50" : "#EF4444"),
+                  ? (ws.connected ? "var(--gold-accent)" : "var(--color-danger)")
+                  : (ws.connected ? "var(--color-success)" : "var(--color-danger)"),
                 animation: ws.connected ? "pulse-glow 2s ease-in-out infinite" : "none",
               }}
             />

@@ -1,0 +1,213 @@
+/* ── Township design tokens ─────────────────────────────────────────────
+   One source for colour, type, spacing, radius, motion, breakpoints and
+   layering. `@theme` makes each token both a CSS variable and a Tailwind
+   utility (bg-surface-2, text-ink-2, rounded-md, duration-base …).
+   Component styles use the variables; nothing outside this file (and the
+   Phaser canvas code) carries a raw colour literal. The legacy names at the
+   bottom keep older rules working while they migrate. ───────────────── */
+
+@theme {
+  /* Surfaces — warm parchment, light to lightest, plus the canvas mat. */
+  --color-surface-1: #F5EDE0;
+  --color-surface-2: #EDE4D3;
+  --color-surface-3: #FAF6EF;
+  --color-surface-card: #FFFFFF;
+  --color-surface-mat: #E8DCC8;
+  --color-surface-glass: rgba(255, 252, 245, 0.72);
+  --color-surface-glass-strong: rgba(255, 252, 245, 0.8);
+
+  /* Ink — primary, secondary, muted. */
+  --color-ink: #2C2520;
+  --color-ink-2: #6B5E52;
+  --color-ink-3: #73675A;
+
+  /* Accent — the civic gold. */
+  --color-accent: #C4A35A;
+  --color-accent-ink: #765A1F;
+  --color-accent-light: #D9C48E;
+  --color-accent-glow: rgba(196, 163, 90, 0.25);
+  --color-accent-wash: rgba(196, 163, 90, 0.12);
+
+  /* Lines and shadows. */
+  --color-line: #E8E0D4;
+  --color-line-warm: rgba(180, 160, 120, 0.18);
+  --color-line-strong: rgba(180, 160, 120, 0.4);
+
+  /* Semantic. */
+  --color-success: #32733E;
+  --color-warning: #865018;
+  --color-danger: #B85050;
+  --color-live: #B5493A;
+  --color-civic: #3B5998;
+  --color-civic-light: #5B7EC0;
+  --color-undecided: #D1D5DB;
+
+  /* On-colour text. */
+  --color-on-accent: #FFFFFF;
+  --color-on-gold: #2C2520;
+  --color-on-overlay: #FFF8E0;
+  --color-overlay-ink: rgba(20, 16, 12, 0.55);
+
+  /* Parchment set for the atlas, notices and pixel plates. */
+  --color-parchment: #FBF4E4;
+  --color-parchment-2: #F1E4C8;
+  --color-parchment-3: #F1E4C6;
+  --color-parchment-line: #C9B285;
+  --color-parchment-ink: #4A3A24;
+  --color-parchment-ink-2: #8A755A;
+  --color-notice-bg: #FFF4DF;
+  --color-notice-ink: #5F351F;
+  --color-notice-link: #70452A;
+
+  /* Relationship + mood + weather hues (chips, badges, glyphs). */
+  --color-friendly: #4A9B5C;
+  --color-warming: #C09060;
+  --color-neutral: #9A8E80;
+  --color-weather-clear: #E0A040;
+  --color-weather-cloudy: #90A0B8;
+  --color-weather-rain: #5080C0;
+  --color-weather-snow: #A0C0E8;
+  --color-weather-fog: #B0B0B0;
+
+  /* God's View scenario categories. */
+  --color-cat-immigration: #E8763B;
+  --color-cat-healthcare: #3B82F6;
+  --color-cat-economy: #F59E0B;
+  --color-cat-infrastructure: #6B7280;
+  --color-cat-education: #8B5CF6;
+  --color-cat-housing: #10B981;
+  --color-cat-national: #EF4444;
+  --color-cat-community: #EC4899;
+  --color-cat-safety: #B85050;
+  --color-cat-development: #376F6A;
+  --color-cat-civic-trust: #765A1F;
+  --color-cat-fiscal: #3B5998;
+  --color-cat-weather: #596D82;
+
+  /* Wood, deep parchment and map greens for the atlas and pixel plates. */
+  --color-wood: #55402F;
+  --color-wood-light: #8A6F52;
+  --color-atlas-ink: #3A3226;
+  --color-atlas-ink-deep: #2C2416;
+  --color-atlas-parch: #F6EEDD;
+  --color-parchment-deep: #E4CFA4;
+  --color-parchment-accent: #B08F5A;
+  --color-map-green: #A9BF8C;
+  --color-map-hill: #B4A48C;
+  --color-civic-ink: #263E73;
+
+  /* Debug overlay (dark, developer only). */
+  --color-debug-ink: #CFD8E0;
+  --color-debug-line: #555555;
+  --color-debug-accent: #F2C071;
+
+  /* Type — Cinzel for display, Inter for everything read at length. */
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Inter', -apple-system, sans-serif;
+
+  --text-2xs: 11px;
+  --text-2xs--line-height: 16px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-md: 16px;
+  --text-md--line-height: 24px;
+  --text-lg: 18px;
+  --text-lg--line-height: 26px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 40px;
+
+  /* Space and shape. */
+  --spacing: 4px;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Motion. */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Breakpoints — the only four widths media queries may use. */
+  --breakpoint-sm: 480px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+}
+
+:root {
+  /* Layering — every z-index in the app reads one of these. */
+  --z-raised: 2;
+  --z-canvas: 5;
+  --z-hud: 10;
+  --z-sticky: 20;
+  --z-panel: 30;
+  --z-drawer: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+
+  /* Shadows. */
+  --shadow-soft: 0 2px 12px rgba(120, 100, 70, 0.08);
+  --shadow-hover: 0 4px 20px rgba(120, 100, 70, 0.13);
+  --shadow-float: 0 8px 28px rgba(100, 80, 50, 0.22);
+  /* Pixel surfaces cast hard, offset shadows — never blur. */
+  --shadow-pixel: 2px 2px 0 rgba(60, 45, 20, 0.28);
+  --shadow-pixel-lg: 3px 3px 0 rgba(60, 45, 20, 0.32);
+
+  /* Glass recipe shared by every off-canvas DOM panel. */
+  --warm-glass: var(--color-surface-glass);
+  --warm-glass-strong: var(--color-surface-glass-strong);
+  --warm-glass-border: var(--color-line-warm);
+  --warm-glass-blur: 12px;
+
+  /* Shared hard-edged frame language for pixel surfaces. */
+  --pixel-frame-spacer: rgba(250, 246, 239, 0.9);
+  --pixel-frame-gold: rgba(196, 163, 90, 0.45);
+  --pixel-frame-shadow:
+    0 0 0 2px var(--pixel-frame-spacer),
+    0 0 0 4px var(--pixel-frame-gold),
+    0 6px 18px rgba(100, 80, 50, 0.16);
+  --pixel-frame-shadow-quiet:
+    0 0 0 1px var(--pixel-frame-spacer),
+    0 0 0 2px var(--pixel-frame-gold);
+
+  /* ── Legacy names (aliases; prefer the tokens above in new rules) ── */
+  --bg-cream: var(--color-surface-1);
+  --bg-warm: var(--color-surface-2);
+  --bg-paper: var(--color-surface-3);
+  --bg-card: var(--color-surface-card);
+  --township-bg: var(--color-surface-1);
+  --township-paper: var(--color-surface-2);
+  --township-ink: var(--color-ink);
+  --township-ink-muted: var(--color-ink-2);
+  --text-primary: var(--color-ink);
+  --text-secondary: var(--color-ink-2);
+  --text-muted: var(--color-ink-3);
+  --gold-accent: var(--color-accent);
+  --gold-ink: var(--color-accent-ink);
+  --gold-light: var(--color-accent-light);
+  --gold-glow: var(--color-accent-glow);
+  --text-on-accent: var(--color-on-accent);
+  --text-on-gold: var(--color-on-gold);
+  --text-on-overlay: var(--color-on-overlay);
+  --overlay-ink: var(--color-overlay-ink);
+  --pixel-canvas-mat: var(--color-surface-mat);
+  --civic-blue: var(--color-civic);
+  --civic-blue-light: var(--color-civic-light);
+  --undecided: var(--color-undecided);
+  --card-bg: var(--color-surface-card);
+  --card-border: var(--color-line);
+  --card-shadow: var(--shadow-soft);
+  --ease-genshin: var(--ease-out-soft);
+}

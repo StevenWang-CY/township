@@ -1,0 +1,1276 @@
+/* ── Town route — canvas chrome, HUD, cards, toasts, sidebar rails. ── */
+
+/* TownView responsive canvas */
+.town-view-layout {
+  display: flex;
+  height: calc(100vh - 56px);
+}
+
+/* Town routes pin the shell so header + notice + tabs + canvas share exactly
+   one viewport on desktop — corner affordances never slip below the fold. */
+@media (width >= 768px) {
+  .app-shell--pinned {
+    height: 100dvh;
+  }
+
+  .app-shell--pinned main {
+    min-height: 0;
+  }
+
+  .app-shell--pinned .town-view-layout {
+    height: 100%;
+  }
+}
+
+.town-view-sidebar {
+  width: 280px;
+  border-left: 1px solid rgba(180,160,120,0.15);
+  background: var(--bg-paper);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (width < 768px) {
+  .town-view-layout {
+    flex-direction: column;
+    height: calc(100dvh - 56px);
+  }
+
+  .town-view-sidebar {
+    width: 100%;
+    height: 160px;
+    max-height: 160px;
+    border-left: none;
+    border-top: 1px solid var(--card-border);
+  }
+
+  /* The replay activity log is already available on the dashboard. On a
+     phone, spend the scarce rail height on tappable residents instead. */
+  .town-view-sidebar > .border-t {
+    display: none;
+  }
+
+  .town-canvas-wrapper {
+    min-height: min(48dvh, 420px);
+    max-height: none;
+  }
+
+  .demo-mode .town-view-layout > .flex-1,
+  .demo-mode .town-canvas-wrapper {
+    min-height: 0;
+  }
+
+  .dashboard-overview {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .dashboard-overview > :first-child {
+    align-self: center;
+  }
+}
+
+/* ── Player Badge ─────────────────────────────────────────── */
+
+.player-sidebar-card {
+  position: relative;
+  border-left: 3px solid var(--civic-blue);
+  border-radius: 8px;
+  background: rgba(59, 89, 152, 0.04);
+}
+
+.player-badge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-on-accent);
+  background: var(--civic-blue);
+  padding: 1px 6px;
+  border-radius: 9999px;
+  line-height: 1.4;
+}
+
+/* ── Canvas DOM Overlay Labels ────────────────────────────── */
+
+.overlay-agent-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: center;
+  translate: -50% -50%;
+  color: var(--color-on-accent);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6), 0 0 1px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.overlay-landmark-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: center;
+  translate: -50% -50%;
+  background: rgba(0, 0, 0, 0.46);
+  color: var(--color-on-accent);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Keyboard Hint Overlay ────────────────────────────────── */
+
+.keyboard-hint {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-hud);
+  animation: keyboard-hint-enter 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.keyboard-hint-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  border-radius: 16px;
+  background: rgba(250, 247, 242, 0.88);
+  backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid rgba(232, 224, 212, 0.6);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.keyboard-hint-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.keyboard-hint-keys {
+  display: flex;
+  gap: 3px;
+}
+
+.keyboard-hint-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-line);
+  box-shadow: 0 1px 0 1px rgba(0, 0, 0, 0.06), inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+  font-family: Inter, sans-serif;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--township-ink);
+}
+
+.keyboard-hint-click {
+  padding: 0 8px !important;
+  font-size: var(--text-2xs) !important;
+}
+
+.keyboard-hint-label {
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--township-ink-muted);
+}
+
+.keyboard-hint-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--card-border);
+}
+
+@keyframes keyboard-hint-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ── Player HUD ─────────────────────────────────────────── */
+
+.player-hud {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  pointer-events: auto;
+}
+
+.player-hud--compact {
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 4px 0;
+}
+
+.player-hud-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--warm-glass);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--warm-glass-border);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.player-hud-chip strong {
+  font-weight: 700;
+  color: var(--gold-ink);
+}
+
+.player-hud-chip--persuaded strong {
+  color: var(--gold-ink);
+}
+
+.player-hud-chip--countdown strong {
+  color: var(--gold-ink);
+}
+
+/* Replay provenance chip: "Recorded · Round X/N · <sim clock>" */
+.player-hud-chip--recorded {
+  border-color: rgba(196, 163, 90, 0.5);
+}
+
+.player-hud-recorded-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold-accent);
+  box-shadow: 0 0 6px rgba(196, 163, 90, 0.8);
+  animation: pulse-glow 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.player-hud-chip-quiet {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Phase of the round inside the round chip: "Round 3/5 · Opinion" */
+.player-hud-phase {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.town-hud-top-left {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: var(--z-hud);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.town-minimap-wrapper {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: var(--z-hud);
+}
+
+/* ── Town-tabs strip (R0) ──────────────────────────────────
+   One slim row above the canvas: hop towns without the atlas. */
+.town-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--warm-glass);
+  backdrop-filter: blur(var(--warm-glass-blur));
+  -webkit-backdrop-filter: blur(var(--warm-glass-blur));
+  border-bottom: 1px solid var(--warm-glass-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.town-tabs::-webkit-scrollbar { display: none; }
+
+.town-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 180ms ease, background 180ms ease, border-color 180ms ease;
+}
+
+.town-tab:hover {
+  color: var(--text-primary);
+  background: rgba(196, 163, 90, 0.08);
+}
+
+.town-tab--active {
+  color: var(--text-primary);
+  background: var(--bg-paper);
+  border-color: rgba(196, 163, 90, 0.45);
+  box-shadow: 0 1px 4px rgba(100, 80, 50, 0.12);
+}
+
+.town-tab-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.5), 0 1px 2px rgba(70, 55, 30, 0.25);
+  flex-shrink: 0;
+}
+
+.town-tab-count {
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold-ink);
+  background: rgba(196, 163, 90, 0.14);
+  border-radius: 999px;
+  padding: 3px 6px;
+}
+
+.town-tabs-spacer { flex: 1; }
+
+.town-tabs-round {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+  color: var(--color-success);
+}
+
+.town-tabs-cta {
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  background: var(--gold-accent);
+  color: var(--text-on-gold);
+  box-shadow: 0 1px 4px rgba(140, 105, 45, 0.3);
+  transition: filter 180ms ease, box-shadow 180ms ease;
+}
+
+.town-tabs-cta:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 2px 8px rgba(140, 105, 45, 0.4);
+}
+
+/* ── District Atlas corner card (R0) ───────────────────────
+   The doorway from the living town to the illustrated /map. */
+.atlas-card {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: var(--z-hud);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px 7px 8px;
+  background: linear-gradient(160deg, var(--color-parchment) 0%, var(--color-parchment-2) 100%);
+  border: 1px solid rgba(178, 148, 92, 0.55);
+  border-radius: 8px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 252, 240, 0.6),
+    0 2px 10px rgba(60, 45, 20, 0.28);
+  text-decoration: none;
+  transition: transform 180ms var(--ease-genshin, ease-out), box-shadow 180ms ease;
+}
+
+.atlas-card:hover,
+.atlas-card:focus-visible {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 252, 240, 0.6),
+    0 6px 18px rgba(60, 45, 20, 0.34);
+}
+
+.atlas-card-thumb svg {
+  display: block;
+  border-radius: 4px;
+}
+
+.atlas-card-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.atlas-card-label strong {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--color-parchment-ink);
+  line-height: 1.1;
+}
+
+.atlas-card-label span {
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--color-parchment-ink-2);
+  line-height: 1.1;
+}
+
+.atlas-card-arrow {
+  color: var(--color-parchment-accent);
+  font-size: 14px;
+  margin-left: 2px;
+  transition: transform 180ms ease;
+}
+
+.atlas-card:hover .atlas-card-arrow { transform: translateX(3px); }
+
+@media (width < 768px) {
+  /* Compact doorway on phones: thumbnail + title only. */
+  .atlas-card { gap: 8px; padding: 5px 10px 5px 6px; bottom: 8px; left: 8px; }
+  .atlas-card-thumb svg { width: 46px; height: 32px; }
+  .atlas-card-label span { display: none; }
+  .atlas-card-arrow { display: none; }
+
+  .town-tabs { padding: 5px 8px; }
+  .town-tab { padding: 5px 10px; font-size: 12px; }
+  .town-tabs-round { display: none; }
+}
+
+@media (width < 768px) {
+  .town-minimap-wrapper {
+    top: 8px;
+    right: 8px;
+    transform: scale(0.76);
+    transform-origin: top right;
+  }
+
+  .town-hud-top-left {
+    top: 8px;
+    left: 8px;
+    max-width: 48%;
+  }
+
+  .gossip-toast {
+    bottom: 10px;
+    max-width: calc(100% - 24px);
+    font-size: 11px;
+  }
+}
+
+/* ── MiniMap ────────────────────────────────────────────── */
+
+.minimap {
+  width: 180px;
+  height: 120px;
+  border: 1.5px solid var(--gold-accent);
+  border-radius: 8px;
+  background: rgba(255, 252, 245, 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(80, 60, 30, 0.18);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.minimap-loading-mark {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--gold-light);
+  border-top-color: var(--gold-accent);
+  border-radius: 2px;
+  animation: minimap-loading-turn 1.2s steps(4, end) infinite;
+}
+
+.minimap-loading-label {
+  margin-left: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+@keyframes minimap-loading-turn {
+  to { transform: rotate(360deg); }
+}
+
+.minimap-player-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: minimap-player-pulse 1.8s steps(2, end) infinite;
+}
+
+@keyframes minimap-player-pulse {
+  50% { opacity: 0.25; transform: scale(1.35); }
+}
+
+/* ── Tutorial ────────────────────────────────────────────── */
+
+.tutorial-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 14, 8, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.tutorial-modal {
+  background: var(--bg-paper);
+  border: 1px solid var(--gold-accent);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  padding: 28px 32px;
+  max-width: 360px;
+  width: 90%;
+  text-align: center;
+  animation: stagger-in 0.4s var(--ease-genshin) backwards;
+}
+
+.tutorial-modal-icon {
+  font-size: 36px;
+  margin-bottom: 8px;
+}
+
+.tutorial-modal-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.tutorial-modal-body {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.tutorial-modal-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.tutorial-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--card-border);
+  transition: all 0.3s;
+}
+
+.tutorial-dot--active {
+  width: 18px;
+  background: var(--gold-accent);
+}
+
+.tutorial-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.tutorial-skip, .tutorial-next {
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--card-border);
+  background: transparent;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.tutorial-next {
+  background: var(--gold-accent);
+  color: var(--text-on-gold);
+  border-color: var(--gold-accent);
+}
+
+.tutorial-skip:hover {
+  color: var(--text-primary);
+}
+
+.tutorial-next:hover {
+  filter: brightness(1.1);
+}
+
+/* ── Proximity Card ──────────────────────────────────────── */
+
+.proximity-card {
+  display: block;
+  width: 240px;
+  max-width: calc(100% - 20px);
+}
+
+.proximity-card-inner {
+  background: var(--bg-paper);
+  border: 1px solid var(--gold-accent);
+  box-shadow: 0 6px 20px rgba(40, 30, 10, 0.2);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-family: var(--font-body);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.proximity-card-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-primary);
+}
+
+.proximity-card-name {
+  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  letter-spacing: 0.3px;
+}
+
+.proximity-card-town {
+  margin-left: auto;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.proximity-card-activity {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 11px;
+}
+
+.proximity-card-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.proximity-card-pill {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.proximity-card-trust {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(154, 142, 128, 0.18);
+  overflow: hidden;
+}
+
+.proximity-card-trust-fill {
+  display: block;
+  height: 100%;
+  background: var(--gold-accent);
+  transition: width 0.4s var(--ease-genshin);
+}
+
+.proximity-card-tail {
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--bg-paper);
+  border-right: 1px solid var(--gold-accent);
+  border-bottom: 1px solid var(--gold-accent);
+}
+
+/* The card IS the talk affordance: one radius, one action. */
+.proximity-card-talk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(196, 163, 90, 0.55);
+  background: var(--gold-accent);
+  color: var(--text-on-gold);
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: filter 150ms ease, box-shadow 150ms ease;
+  box-shadow: 0 1px 6px var(--gold-glow);
+}
+
+.proximity-card-talk:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 0 12px var(--gold-glow);
+}
+
+.proximity-card-talk:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.proximity-card-talk kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: rgba(255, 252, 244, 0.92);
+  color: var(--color-parchment-ink);
+  border: 1px solid rgba(120, 95, 40, 0.4);
+  box-shadow: 0 1px 0 rgba(120, 95, 40, 0.35);
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Resident stepped out of range — the card lingers ~600ms, faded, so the
+   affordance never dies silently mid-keypress. */
+.proximity-card--stale {
+  opacity: 0.45;
+  transition: opacity 480ms ease;
+}
+
+/* ── Debug Overlay ───────────────────────────────────────── */
+
+.debug-overlay {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  z-index: var(--z-toast);
+  background: rgba(20, 14, 8, 0.85);
+  color: var(--color-debug-ink);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-debug-line);
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.debug-overlay-row {
+  display: flex;
+  gap: 6px;
+  padding: 1px 0;
+  align-items: baseline;
+}
+
+.debug-overlay-row strong {
+  color: var(--color-debug-accent);
+  font-weight: 600;
+}
+
+.debug-overlay-row--list {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.debug-overlay-row--list ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0 0 0 4px;
+  border-left: 1px solid var(--color-debug-line);
+}
+
+.debug-overlay-row--list li {
+  padding: 1px 0 1px 6px;
+}
+
+/* ── Weather widget ──────────────────────────────────────── */
+
+.weather-widget {
+  user-select: none;
+}
+
+/* ── Town canvas boot skeleton (parchment shimmer) ───────── */
+
+.town-canvas-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-canvas) - 1); /* above canvas, below the inset frame + HUD */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(100deg,
+      rgba(245, 237, 224, 0) 32%,
+      rgba(250, 246, 239, 0.85) 50%,
+      rgba(245, 237, 224, 0) 68%) no-repeat,
+    var(--bg-warm);
+  background-size: 240% 100%;
+  animation: parchment-shimmer 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes parchment-shimmer {
+  from { background-position: 130% 0; }
+  to   { background-position: -110% 0; }
+}
+
+.town-canvas-skeleton-label {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.town-canvas-error {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-hud);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 24px;
+  background: var(--bg-warm);
+  color: var(--text-muted);
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: 12px;
+}
+
+.town-canvas-error strong {
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+.town-canvas-error-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 45%, transparent);
+  border-radius: 3px;
+  box-shadow: var(--pixel-frame-shadow-quiet);
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .town-canvas-skeleton { animation: none; background-size: 100% 100%; }
+}
+
+/* ── Listen-in chip + panel ──────────────────────────────── */
+
+.listen-in-chip {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--warm-glass);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--gold-accent);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-primary);
+  z-index: var(--z-hud);
+  pointer-events: none;
+}
+
+.listen-in-chip kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--card-border);
+  background: var(--bg-card);
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-2xs);
+  color: var(--text-primary);
+  margin: 0 2px;
+}
+
+.listen-in-panel {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+  max-height: 240px;
+  background: var(--bg-paper);
+  border: 1px solid var(--gold-accent);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(40, 30, 10, 0.18);
+  display: flex;
+  flex-direction: column;
+  z-index: calc(var(--z-hud) + 1);
+}
+
+.listen-in-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--warm-glass-border);
+  background: var(--bg-warm);
+  border-radius: 10px 10px 0 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+.listen-in-panel-header button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.listen-in-panel-body {
+  padding: 8px 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.listen-in-line {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* Visit card: who is at this place + what was said here */
+.landmark-card-sub {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.landmark-card-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+.landmark-card-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 3px;
+  border-radius: 999px;
+  border: 1px solid var(--warm-glass-border);
+  background: var(--bg-warm);
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.landmark-card-person:hover,
+.landmark-card-person:focus-visible {
+  border-color: var(--gold-accent);
+}
+
+.landmark-card-quiet {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── Cross-town gossip toast (FIX 4) ───────────────────────── */
+.gossip-toast {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--overlay-ink);
+  color: var(--text-on-overlay);
+  font-family: var(--font-body);
+  font-size: 12px;
+  border: 1px solid rgba(255, 215, 100, 0.35);
+  z-index: var(--z-toast);
+  pointer-events: none;
+  animation: gossip-pop 220ms ease-out backwards;
+  max-width: min(80%, 480px);
+}
+
+.gossip-toast-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold-light);
+  box-shadow: 0 0 8px var(--gold-glow);
+}
+
+@keyframes gossip-pop {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ── Post-chat toast (journal saved / meet someone else) ────── */
+
+.chat-after-toast {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--overlay-ink);
+  color: var(--text-on-overlay);
+  font-family: var(--font-body);
+  font-size: 12px;
+  border: 1px solid rgba(255, 215, 100, 0.35);
+  z-index: var(--z-toast);
+  animation: gossip-pop 220ms ease-out backwards;
+  max-width: min(86%, 480px);
+}
+
+.chat-after-toast button {
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 215, 100, 0.5);
+  background: var(--gold-accent);
+  color: var(--text-on-gold);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: filter 150ms ease;
+}
+
+.chat-after-toast button:hover {
+  filter: brightness(1.1);
+}
+
+/* ── Spotlight offer chip (camera contract) ─────────────────── */
+
+.spotlight-chip {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: var(--overlay-ink);
+  color: var(--text-on-overlay);
+  font-family: var(--font-body);
+  font-size: 12px;
+  border: 1px solid rgba(255, 215, 100, 0.35);
+  z-index: var(--z-toast);
+  animation: gossip-pop 220ms ease-out backwards;
+  max-width: min(86%, 420px);
+}
+
+.spotlight-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold-light);
+  box-shadow: 0 0 8px var(--gold-glow);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.spotlight-chip-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotlight-chip button {
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 215, 100, 0.5);
+  background: var(--gold-accent);
+  color: var(--text-on-gold);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: filter 150ms ease;
+}
+
+.spotlight-chip button:hover {
+  filter: brightness(1.1);
+}
+
+/* ── Recent Activity rows that tap through to a resident ────── */
+
+.town-activity-row--link {
+  cursor: pointer;
+  border-radius: 6px;
+  margin: 0 -4px;
+  padding: 1px 4px;
+  /* WCAG 2.5.8 target size: these rows are real tap targets ("Talk to …"),
+     so they must present at least a 24px-tall hit area on their own. */
+  min-height: 24px;
+  transition: background 150ms ease;
+}
+
+.town-activity-row--link:hover,
+.town-activity-row--link:focus-visible {
+  background: rgba(196, 163, 90, 0.12);
+  outline: none;
+}
+
+/* ── Opinion-shift feedback (resident rows + activity feed) ── */
+
+.resident-card--shift {
+  animation: resident-shift-flash 1.6s var(--ease-genshin);
+}
+
+@keyframes resident-shift-flash {
+  0% { background: rgba(196, 163, 90, 0.02); }
+  18% { background: rgba(196, 163, 90, 0.22); }
+  100% { background: transparent; }
+}
+
+.stance-burst {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: calc(var(--z-raised) + 1);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font: 700 10px var(--font-body);
+  letter-spacing: 0.3px;
+  pointer-events: none;
+  animation: stance-burst-float 1.6s var(--ease-genshin) both;
+}
+
+@keyframes stance-burst-float {
+  0% { opacity: 0; transform: translateY(6px) scale(0.85); }
+  16% { opacity: 1; transform: translateY(0) scale(1.06); }
+  28% { transform: translateY(-1px) scale(1); }
+  78% { opacity: 1; transform: translateY(-10px); }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+
+.town-activity-row--shift {
+  animation: activity-shift-in 1.4s var(--ease-genshin);
+  border-radius: 6px;
+}
+
+@keyframes activity-shift-in {
+  0% { background: rgba(196, 163, 90, 0.28); }
+  100% { background: transparent; }
+}
+
+.town-activity-shift-dot {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6), 0 0 6px currentColor;
+  animation: opinion-shift 0.9s ease;
+}
+
+:root[data-reduced-motion="true"] .resident-card--shift,
+:root[data-reduced-motion="true"] .town-activity-row--shift,
+:root[data-reduced-motion="true"] .town-activity-shift-dot,
+:root[data-reduced-motion="true"] .dashboard-run-progress-fill,
+:root[data-reduced-motion="true"] .dashboard-working::after,
+:root[data-reduced-motion="true"] .dashboard-complete-banner,
+:root[data-reduced-motion="true"] .dashboard-recap {
+  animation: none;
+}
+
+:root[data-reduced-motion="true"] .stance-burst {
+  animation: none;
+  opacity: 1;
+}
+
+.dashboard-recap-body p.dashboard-recap-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border-left: 2px solid rgba(196, 163, 90, 0.5);
+  padding-left: 10px;
+  font-style: italic;
+}

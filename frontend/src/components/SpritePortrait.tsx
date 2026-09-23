@@ -97,7 +97,7 @@ export default function SpritePortrait({
   spriteKey,
   accessoryKey,
   fallbackInitials,
-  color = "#8B7D6B",
+  color = "var(--color-neutral)",
   size = 64,
   frame = 0,
   ringColor,
@@ -197,7 +197,7 @@ export default function SpritePortrait({
         // bright at 28px. The colored initials tile only appears on failure.
         background: failed
           ? color
-          : "radial-gradient(140% 120% at 32% 24%, #FBF2DD 0%, #F1E2C2 58%, #E4CFA4 100%)",
+          : "radial-gradient(140% 120% at 32% 24%, var(--color-parchment) 0%, var(--color-parchment-2) 58%, var(--color-parchment-deep) 100%)",
         border: ringColor
           ? (() => {
             const ring = ringStyleForTier(ringTier ?? "likely", ringColor);

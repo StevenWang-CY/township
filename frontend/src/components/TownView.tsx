@@ -1096,12 +1096,12 @@ export default function TownView({ ws }: TownViewProps) {
             <span className="atlas-card-thumb" aria-hidden="true">
               <svg viewBox="0 0 64 44" width="64" height="44">
                 {/* Parchment field */}
-                <rect x="1" y="1" width="62" height="42" rx="4" fill="#F1E4C6" stroke="#C9B285" strokeWidth="1" />
-                <rect x="4" y="4" width="56" height="36" rx="2.5" fill="none" stroke="#D8C49B" strokeWidth="0.8" strokeDasharray="2 2" />
+                <rect x="1" y="1" width="62" height="42" rx="4" fill="var(--color-parchment-3)" stroke="var(--color-parchment-line)" strokeWidth="1" />
+                <rect x="4" y="4" width="56" height="36" rx="2.5" fill="none" stroke="var(--color-accent-light)" strokeWidth="0.8" strokeDasharray="2 2" />
                 {/* Terrain hints */}
-                <path d="M8 33 Q 14 27 20 33 T 32 33" fill="none" stroke="#A9BF8C" strokeWidth="1.4" strokeLinecap="round" />
-                <path d="M46 9 l3.5 6 h-7 z" fill="#B4A48C" />
-                <path d="M52 11 l3 5 h-6 z" fill="#C2B49E" />
+                <path d="M8 33 Q 14 27 20 33 T 32 33" fill="none" stroke="var(--color-map-green)" strokeWidth="1.4" strokeLinecap="round" />
+                <path d="M46 9 l3.5 6 h-7 z" fill="var(--color-map-hill)" />
+                <path d="M52 11 l3 5 h-6 z" fill="var(--color-map-hill)" />
                 {/* Road linking the pins */}
                 {allTownIds.length > 1 && (
                   <path
@@ -1111,7 +1111,7 @@ export default function TownView({ ws }: TownViewProps) {
                       const py = 22 + (i % 2 === 0 ? -4 : 5);
                       return `${i === 0 ? "M" : "L"} ${px} ${py}`;
                     }).join(" ")}
-                    fill="none" stroke="#C4AE8C" strokeWidth="1.2" strokeDasharray="2.5 2" strokeLinecap="round"
+                    fill="none" stroke="var(--color-parchment-line)" strokeWidth="1.2" strokeDasharray="2.5 2" strokeLinecap="round"
                   />
                 )}
                 {/* Waypoint pins in each town's accent color */}
@@ -1121,8 +1121,8 @@ export default function TownView({ ws }: TownViewProps) {
                   const py = 22 + (i % 2 === 0 ? -4 : 5);
                   return (
                     <g key={id}>
-                      <circle cx={px} cy={py} r="4" fill={scen.townMeta(id).color} stroke="#FFF9EC" strokeWidth="1.4" />
-                      <circle cx={px} cy={py} r="1.2" fill="#FFF9EC" />
+                      <circle cx={px} cy={py} r="4" fill={scen.townMeta(id).color} stroke="var(--color-on-overlay)" strokeWidth="1.4" />
+                      <circle cx={px} cy={py} r="1.2" fill="var(--color-on-overlay)" />
                     </g>
                   );
                 })}

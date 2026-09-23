@@ -3,10 +3,39 @@ const LIGHT_INK = "#FFFFFF";
 
 type Rgb = [number, number, number];
 
+const tokenCache = new Map<string, string>();
+
+/**
+ * Resolve a `var(--token)` expression to the hex value declared on :root.
+ * Design tokens live in styles/tokens.css; components pass them around as
+ * strings, and the contrast maths below needs real channels. Cached per
+ * token (the sheet never changes at runtime). Non-token input passes through.
+ */
+export function resolveToken(color: string): string {
+  const match = /^var\((--[\w-]+)\)$/.exec(color.trim());
+  if (!match) return color;
+  const cached = tokenCache.get(match[1]);
+  if (cached) return cached;
+  if (typeof document === "undefined") return color;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim();
+  if (value) tokenCache.set(match[1], value);
+  return value || color;
+}
+
 function parseHex(color: string): Rgb | null {
-  const match = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  const match = /^#([0-9a-f]{6})$/i.exec(resolveToken(color).trim());
   if (!match) return null;
   return [0, 2, 4].map((offset) => parseInt(match[1].slice(offset, offset + 2), 16)) as Rgb;
+}
+
+/**
+ * A translucent wash of any colour string (hex, token or scenario colour):
+ * `withAlpha(color, 0.1)` replaces the old `${hex}1A` suffix trick, which
+ * only ever worked on six-digit literals.
+ */
+export function withAlpha(color: string, alpha: number): string {
+  const pct = Math.round(Math.max(0, Math.min(1, alpha)) * 100);
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
 }
 
 function toHex(rgb: Rgb): string {
@@ -38,7 +67,7 @@ export function readableInk(color: string, minimumRatio = 5.7): string {
   const background = parseHex(LIGHT_INK)!;
   const target = parseHex(DARK_INK)!;
   if (!source) return "var(--text-secondary)";
-  if (contrastRatio(source, background) >= minimumRatio) return color;
+  if (contrastRatio(source, background) >= minimumRatio) return resolveToken(color);
 
   for (let step = 1; step <= 20; step += 1) {
     const amount = step / 20;
