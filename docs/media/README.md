@@ -45,11 +45,13 @@ only inside the Playwright container, and the spec is skipped locally unless
 
 ```bash
 # from the repository root — compare against the committed baselines
-docker run --rm -v "$PWD":/work -w /work/frontend --ipc=host \
+docker run --rm -v "$PWD":/work -v /work/frontend/node_modules -w /work/frontend --ipc=host \
   mcr.microsoft.com/playwright:v1.61.1-noble bash -lc "npm ci && npm run test:visual"
 
+# (the anonymous volume on frontend/node_modules keeps the container's Linux
+#  install from overwriting your host's macOS/Windows node_modules)
 # regenerate after an intentional visual change (review the diff before committing)
-docker run --rm -v "$PWD":/work -w /work/frontend --ipc=host \
+docker run --rm -v "$PWD":/work -v /work/frontend/node_modules -w /work/frontend --ipc=host \
   mcr.microsoft.com/playwright:v1.61.1-noble bash -lc "npm ci && npm run test:visual:update"
 ```
 

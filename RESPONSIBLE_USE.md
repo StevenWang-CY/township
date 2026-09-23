@@ -42,6 +42,8 @@ quoted in general project documents; individual packages use more precise copy.
 > **The residents are fictional composites**, informed by public demographic data. No real resident is depicted.
 >
 > That includes the **neighbors tier**: the 12–18 background residents per town in `agents/<town>/_neighbors.json` are generated composites (names drawn from generic pools, occupations and leanings from authored per-town mixes), committed as scenario data and run by the deterministic influence ledger rather than a language model. Their generated prompts say they are not real people, and nothing they say or decide describes anyone who exists.
+>
+> A campaign run — three weeks of beats, a debate night, an election day with ballots and a count — is still a simulation of fictional residents. Its tallies, turnout and "winner" describe those characters and the model that voices them, never an electorate; treat a recorded campaign as a story about how opinions can move, not as evidence of how they did or will.
 > **Real public figures are represented through public source material**, summarized where necessary; verify the scenario's cited sources before relying on any claim.
 > **Every output is an LLM artifact**, shaped by who wrote the personas and by the model's own biases.
 
