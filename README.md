@@ -220,17 +220,24 @@ your towns or options. Start with the complete
 ## Providers
 
 Set `LLM_PROVIDER` explicitly, or leave it unset and Township will detect a
-configured credential before falling back—loudly—to `mock`.
+configured credential, then an installed `claude` CLI, before falling
+back—loudly—to `mock`.
 
 | Provider | `LLM_PROVIDER` | Credential / endpoint |
 |---|---|---|
 | Deterministic mock | `mock` | None |
+| Claude subscription (Claude Code CLI) | `claude-cli` | No API key — Claude through your Claude subscription via the local `claude` CLI; `CLAUDE_CLI_MODEL` default `claude-sonnet-5` |
 | AWS Bedrock | `bedrock` | `AWS_BEARER_TOKEN_BEDROCK` or the standard AWS credential chain |
 | Anthropic API | `anthropic` | `ANTHROPIC_API_KEY` |
 | OpenAI API | `openai` | `OPENAI_API_KEY` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
 | Ollama | `ollama` | Local OpenAI-compatible endpoint |
 | LM Studio | `lmstudio` | Local OpenAI-compatible endpoint |
+
+Have Claude Code installed and logged in? `LLM_PROVIDER=claude-cli township run`
+runs a real deliberation on your Claude subscription with no API key. The
+provider caps itself at four concurrent `claude` processes (`LLM_MAX_CONCURRENT`)
+and pauses on a usage limit instead of failing the run.
 
 Source installs and the Docker image include the OpenAI client; a plain wheel
 install needs `pip install 'township[openai]'` for the OpenAI-compatible four.

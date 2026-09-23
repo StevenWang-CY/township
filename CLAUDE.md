@@ -35,7 +35,7 @@ when recap generation succeeds; completed artifacts are served via `/api/runs`.
 - `make maps` — regenerate the custom tileset, every town `.tmj` + preview, the atlases, and the frontend tile metadata (`windowGids.json`, `stampDefs.json`, `roadGids.json`) after touching `scripts/mapgen/` or a town's landmarks
 - `make demo` — zero-key server via the mock provider; then `make sim` starts a run (`TOWN=dover` for one town)
 - `township run --provider mock` — headless simulation, printing the recap and run directory when available; `township replay --run-id <id>` replays a persisted run; `township new-scenario <id>` / `new-agent` scaffold packages and personas
-- `LLM_PROVIDER=mock` forces the deterministic mock anywhere (valid values: bedrock, anthropic, openai, openrouter, ollama, lmstudio, mock); unset, the factory auto-detects from whichever API key is present and falls back to mock — loudly
+- `LLM_PROVIDER=mock` forces the deterministic mock anywhere (valid values: bedrock, anthropic, claude-cli, openai, openrouter, ollama, lmstudio, mock); unset, the factory auto-detects from whichever API key is present, then from an installed `claude` CLI (`claude-cli` — your Claude subscription, the project's real provider; `TOWNSHIP_NO_CLI_AUTODETECT=1` skips it, as the test suite does), and falls back to mock — loudly
 - `SCENARIO=<id>` selects the scenario package (default `nj11-2026`; `millbrook-budget` also ships)
 
 ## Invariants — do not break

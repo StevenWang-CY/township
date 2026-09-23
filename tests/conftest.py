@@ -20,6 +20,9 @@ if REPO_ROOT not in sys.path:
 # package's dotenv loader and prevent accidental billable calls.
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["MOCK_DELAY_S"] = "0"
+# A test that clears LLM_PROVIDER must never auto-detect the claude CLI on a
+# contributor's machine: that would spawn a real, subscription-billed call.
+os.environ.setdefault("TOWNSHIP_NO_CLI_AUTODETECT", "1")
 
 # Keep player-state persistence (relationships/journal) out of the repo's
 # data/state/ during tests. Must happen before any `backend` import — the
@@ -45,6 +48,25 @@ def _runs_dir_outside_repo(tmp_path_factory):
         os.environ.pop("TOWNSHIP_RUNS_DIR", None)
     else:
         os.environ["TOWNSHIP_RUNS_DIR"] = previous
+
+
+@pytest.fixture(autouse=True)
+def _hide_claude_cli_from_factory(monkeypatch):
+    """Belt and braces for TOWNSHIP_NO_CLI_AUTODETECT above: inside the provider
+    factory the `claude` binary is never found, so autodetect cannot pick
+    claude-cli even if a test drops the env var. Explicit construction with a
+    binary path (tests/test_claude_cli_provider.py) is unaffected."""
+    import shutil
+
+    from backend.providers import factory
+
+    real_which = shutil.which
+
+    def _which(cmd, *args, **kwargs):
+        return None if cmd == "claude" else real_which(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(factory, "_which", _which)
+
 
 SCENARIOS_DIR = os.path.join(REPO_ROOT, "scenarios")
 NJ11_SCENARIO_DIR = os.path.join(SCENARIOS_DIR, "nj11-2026")

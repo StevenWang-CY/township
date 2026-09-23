@@ -9,6 +9,7 @@ All providers share one narrow contract (`LLMProvider`): an async
 from .anthropic_api import AnthropicProvider
 from .base import MODEL_COSTS, LLMProvider, UsageTracker
 from .bedrock import BedrockProvider
+from .claude_cli import ClaudeCLIProvider
 from .factory import create_provider
 from .mock import MockProvider
 from .openai_compat import OpenAICompatProvider
@@ -16,6 +17,7 @@ from .openai_compat import OpenAICompatProvider
 __all__ = [
     "AnthropicProvider",
     "BedrockProvider",
+    "ClaudeCLIProvider",
     "LLMProvider",
     "MODEL_COSTS",
     "MockProvider",
