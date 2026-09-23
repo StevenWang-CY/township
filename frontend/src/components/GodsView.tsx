@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
-import OpinionChart from "./OpinionChart";
+import BallotBar from "./charts/BallotBar";
 import type {
   NewsReaction,
   LeanId,
@@ -96,7 +96,7 @@ export default function GodsView({ ws }: GodsViewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reactions, setReactions] = useState<NewsReaction[]>([]);
-  const [opinionShifts, setOpinionShifts] = useState<OpinionShift[]>([]);
+  const [, setOpinionShifts] = useState<OpinionShift[]>([]);
   const [opinionBefore, setOpinionBefore] = useState<Record<LeanId, number> | null>(null);
   const [opinionAfter, setOpinionAfter] = useState<Record<LeanId, number> | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -527,12 +527,12 @@ export default function GodsView({ ws }: GodsViewProps) {
                   <div className="prediction-widget-pair">
                     <div className="prediction-widget-chart">
                       <span className="prediction-widget-label">Current</span>
-                      <OpinionChart opinions={currentOpinions} size={100} showLegend={false} />
+                      <BallotBar counts={currentOpinions} compact height={12} />
                     </div>
                     <span className="prediction-widget-arrow">→</span>
                     <div className="prediction-widget-chart">
                       <span className="prediction-widget-label">Projected</span>
-                      <OpinionChart opinions={projectedOpinions} size={100} showLegend={false} />
+                      <BallotBar counts={projectedOpinions} compact height={12} />
                     </div>
                   </div>
                   {predictionSummary && predictionSummary.length > 0 && (

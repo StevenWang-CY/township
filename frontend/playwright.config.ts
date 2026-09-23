@@ -26,10 +26,24 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },
+  // Baselines live beside the specs, keyed by project, never by platform:
+  // they are generated only inside the Playwright container.
+  snapshotPathTemplate: "{testDir}/__snapshots__/{testFileName}/{projectName}/{arg}{ext}",
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      testIgnore: /visual\.spec\.ts/,
+    },
+    {
+      name: "chromium-1x",
+      use: { ...devices["Desktop Chrome"], deviceScaleFactor: 1 },
+      testMatch: /visual\.spec\.ts/,
+    },
+    {
+      name: "chromium-2x",
+      use: { ...devices["Desktop Chrome"], deviceScaleFactor: 2 },
+      testMatch: /visual\.spec\.ts/,
     },
   ],
   webServer: {

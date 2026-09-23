@@ -27,7 +27,7 @@ import {
   type GestureKind,
   type VoteImpact,
 } from "./AgentSprite";
-import { stanceChangeKind, stanceTier, type StanceChange, type StanceState } from "../lib/stance";
+import { stanceChangeKind, type StanceChange, type StanceState } from "../lib/stance";
 import { PlayerSprite } from "./PlayerSprite";
 import { RENDER_DPR, townAccent, townBgColor, townMapKey } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";

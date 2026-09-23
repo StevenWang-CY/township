@@ -54,8 +54,9 @@ test: ## Run backend tests (no API keys needed) + frontend type-check
 test-e2e: ## Run the zero-backend Chromium, mobile, and WCAG browser suite
 	cd frontend && npm run test:e2e
 
-lint: ## Ruff lint over backend + tests
+lint: ## Ruff over backend + tests, ESLint over the frontend
 	$(PYTHON) -m ruff check backend tests
+	cd frontend && npm run lint
 
 format: ## Auto-format and fix lint findings in backend + tests
 	$(PYTHON) -m ruff format backend tests

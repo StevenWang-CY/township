@@ -731,11 +731,8 @@ export default function Dashboard({ ws }: DashboardProps) {
         return (
           <div className="dashboard-timeline">
             <h3 className="dashboard-timeline-title">Opinion Timeline</h3>
-            <ol
-              className="dashboard-timeline-list"
-              tabIndex={0}
-              aria-label="Recent opinion changes"
-            >
+            <div className="dashboard-timeline-scroll" role="region" tabIndex={0} aria-label="Recent opinion changes">
+            <ol className="dashboard-timeline-list">
               {shifts.map((evt, i) => {
                 const oldC = (evt.old_opinion?.candidate as LeanId) ?? undecidedId;
                 const newC = (evt.new_opinion?.candidate as LeanId) ?? undecidedId;
@@ -758,6 +755,7 @@ export default function Dashboard({ ws }: DashboardProps) {
                 );
               })}
             </ol>
+            </div>
           </div>
         );
       })()}

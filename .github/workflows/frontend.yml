@@ -30,6 +30,9 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      - name: Lint
+        run: npm run lint
+
       - name: Script unit tests
         run: npm run test:scripts
 
@@ -41,3 +44,21 @@ jobs:
 
       - name: Zero-backend browser and accessibility tests
         run: npm run test:e2e
+
+  visual:
+    # Screenshot baselines are rasterised inside the Playwright image so every
+    # machine agrees on fonts and anti-aliasing. Regenerate with
+    # `npm run test:visual:update` in the same image (docs/media/README.md).
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container: mcr.microsoft.com/playwright:v1.61.1-noble
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: npm ci
+      - name: Visual baselines
+        run: |
+          if [ -d e2e/__snapshots__ ]; then npm run test:visual; else echo "no baselines committed yet — skipping"; fi

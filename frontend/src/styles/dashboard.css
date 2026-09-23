@@ -300,6 +300,17 @@
   margin: 0 0 10px;
 }
 
+.dashboard-timeline-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: var(--radius-sm);
+}
+
+.dashboard-timeline-scroll:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .dashboard-timeline-list {
   list-style: none;
   padding: 0;
@@ -307,8 +318,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 260px;
-  overflow-y: auto;
   border-left: 1px solid var(--card-border);
   padding-left: 12px;
 }
@@ -368,6 +377,8 @@
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 
 .prediction-widget-label {

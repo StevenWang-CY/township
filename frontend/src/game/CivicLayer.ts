@@ -20,7 +20,6 @@ import Phaser from "phaser";
 import { ensureSingleTexture, ensureStampTexture, propDepth, type MapAnchor } from "./SceneAmbience";
 import {
   PIXEL_FONT,
-  PIXEL_FONT_OUTLINED,
   drawPixelPlate,
   ensureDitheredDiscTexture,
   pixelText,

@@ -28,6 +28,8 @@ import MediaBar from "./MediaBar";
 import Icon from "./Icon";
 import { activityEntries } from "../lib/activity";
 import ResultsOverlay from "./ResultsOverlay";
+import BottomSheet from "./BottomSheet";
+import { useIsPhone } from "../lib/breakpoints";
 import { resultsFromRun } from "../lib/election";
 import MiniMap from "./MiniMap";
 import Tutorial from "./Tutorial";
@@ -37,8 +39,6 @@ import { rosterAgentsFromPayload } from "./residentRoster";
 import type {
   AgentState,
   TownId,
-  LeanId,
-  SimulationEvent,
   Opinion,
   ChatMessage,
   EmotionalResponse,
@@ -46,7 +46,6 @@ import type {
 } from "../types/messages";
 import { buildCivicEnv, roundDecides } from "../lib/election";
 import { useScenario } from "../hooks/useScenario";
-import { readableInk } from "../lib/color";
 import { DEMO_MODE } from "../demo/demoMode";
 import { eventsSince, type WsState } from "../hooks/useWebSocket";
 import { playerCapabilityHeaders, registerPlayerCapability } from "../lib/playerCapability";
@@ -92,6 +91,7 @@ export default function TownView({ ws }: TownViewProps) {
   // The results moment shows once per finished run; a backward seek (which
   // clears finalSummary) arms it again for the next time the run ends.
   const [resultsDismissed, setResultsDismissed] = useState(false);
+  const isPhone = useIsPhone();
   useEffect(() => { if (ws.finalSummary === null) setResultsDismissed(false); }, [ws.finalSummary]);
   const runResults = useMemo(
     () => (ws.finalSummary ? resultsFromRun(ws.finalSummary, ws.events, scen.undecidedId) : null),
@@ -906,6 +906,88 @@ export default function TownView({ ws }: TownViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listenOpen, listenNearbyLandmark, ws.eventCursor, townAgents, agentLookup]);
 
+  const sidebarContent = (
+    <>
+      <div className="sidebar-tabs" role="tablist" aria-label="Town panel sections">
+        {([
+          ["residents", "Residents", "people", townAgents.length + (playerAgentState ? 1 : 0)],
+          ["today", "Today", "clock", null],
+          ["activity", "Activity", "feed", null],
+        ] as const).map(([id, label, icon, count]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`sidebar-tab-${id}`}
+            aria-selected={sidebarTab === id}
+            aria-controls={`sidebar-panel-${id}`}
+            className={`sidebar-tab${sidebarTab === id ? " sidebar-tab--active" : ""}`}
+            onClick={() => setSidebarTab(id)}
+          >
+            <Icon name={icon} size={14} />
+            <span>{label}</span>
+            {count != null && count > 0 && <span className="sidebar-tab-count">{count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {sidebarTab === "residents" && (
+        <div className="sidebar-panel sidebar-panel--list" role="tabpanel" id="sidebar-panel-residents" aria-labelledby="sidebar-tab-residents">
+          {!DEMO_MODE && !isOnboarded && (
+            <Link className="sidebar-cta" to={`/onboarding?town=${town}`}>
+              <Icon name="star" size={13} /> Create your resident
+            </Link>
+          )}
+          {playerAgentState && (
+            <div className="player-sidebar-card">
+              <AgentCard agent={playerAgentState} compact onClick={() => {}} />
+              <span className="player-badge">YOU</span>
+            </div>
+          )}
+          {townAgents.map((agent) => (
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              compact
+              onClick={() => requestChat(agent.id, "sidebar")}
+              met={profile?.metAgents?.includes(agent.id)}
+              persuaded={profile?.persuadedAgents?.includes(agent.id)}
+              trust={trustFor(agent.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {sidebarTab === "today" && (
+        <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-today" aria-labelledby="sidebar-tab-today">
+          <TodayStrip
+            plan={scen.roundPlan}
+            round={civicEnv.round}
+            totalRounds={ws.totalRounds || scen.totalRounds}
+            phase={civicEnv.phase}
+            running={ws.simulationRunning}
+            ended={ws.finalSummary !== null}
+            clock={ws.worldClock}
+            weather={ws.weather}
+            headline={ws.headlines.length ? ws.headlines[ws.headlines.length - 1].headline : null}
+            headlineRound={ws.headlines.length ? ws.headlines[ws.headlines.length - 1].round : null}
+          />
+        </div>
+      )}
+
+      {sidebarTab === "activity" && (
+        <div className="sidebar-panel sidebar-panel--list" role="tabpanel" id="sidebar-panel-activity" aria-labelledby="sidebar-tab-activity">
+          <ActivityFeed
+            entries={activityEntries(ws.events, town, { agentName: (id) => agentLookup.get(id)?.name }, { startIndex: ws.eventHistoryStart, limit: 40 })}
+            accent={meta.color}
+            onSelect={(id) => requestChat(id, "activity")}
+            emptyText={DEMO_MODE ? "Press play — the town's day unfolds here." : "Waiting for simulation events…"}
+          />
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="town-view-layout">
       {/* Main area */}
@@ -1133,89 +1215,20 @@ export default function TownView({ ws }: TownViewProps) {
         </div>
 
         {/* Live key legend under the canvas (the replay's dock is the app's). */}
-        <MediaBar variant="legend" playerInTown={playerInTown} />
+        <MediaBar variant="legend" playerInTown={playerInTown && tutorialDone} />
       </div>
 
       {/* Sidebar: residents · today · activity */}
-      <aside className="town-view-sidebar" aria-label="Town panel">
-        <div className="sidebar-tabs" role="tablist" aria-label="Town panel sections">
-          {([
-            ["residents", "Residents", "people", townAgents.length + (playerAgentState ? 1 : 0)],
-            ["today", "Today", "clock", null],
-            ["activity", "Activity", "feed", null],
-          ] as const).map(([id, label, icon, count]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              id={`sidebar-tab-${id}`}
-              aria-selected={sidebarTab === id}
-              aria-controls={`sidebar-panel-${id}`}
-              className={`sidebar-tab${sidebarTab === id ? " sidebar-tab--active" : ""}`}
-              onClick={() => setSidebarTab(id)}
-            >
-              <Icon name={icon} size={14} />
-              <span>{label}</span>
-              {count != null && count > 0 && <span className="sidebar-tab-count">{count}</span>}
-            </button>
-          ))}
-        </div>
-
-        {sidebarTab === "residents" && (
-          <div className="sidebar-panel sidebar-panel--list" role="tabpanel" id="sidebar-panel-residents" aria-labelledby="sidebar-tab-residents">
-            {!DEMO_MODE && !isOnboarded && (
-              <Link className="sidebar-cta" to={`/onboarding?town=${town}`}>
-                <Icon name="star" size={13} /> Create your resident
-              </Link>
-            )}
-            {playerAgentState && (
-              <div className="player-sidebar-card">
-                <AgentCard agent={playerAgentState} compact onClick={() => {}} />
-                <span className="player-badge">YOU</span>
-              </div>
-            )}
-            {townAgents.map((agent) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                compact
-                onClick={() => requestChat(agent.id, "sidebar")}
-                met={profile?.metAgents?.includes(agent.id)}
-                persuaded={profile?.persuadedAgents?.includes(agent.id)}
-                trust={trustFor(agent.id)}
-              />
-            ))}
-          </div>
-        )}
-
-        {sidebarTab === "today" && (
-          <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-today" aria-labelledby="sidebar-tab-today">
-            <TodayStrip
-              plan={scen.roundPlan}
-              round={civicEnv.round}
-              totalRounds={ws.totalRounds || scen.totalRounds}
-              phase={civicEnv.phase}
-              running={ws.simulationRunning}
-              ended={ws.finalSummary !== null}
-              clock={ws.worldClock}
-              weather={ws.weather}
-              headline={ws.headlines.length ? ws.headlines[ws.headlines.length - 1].headline : null}
-              headlineRound={ws.headlines.length ? ws.headlines[ws.headlines.length - 1].round : null}
-            />
-          </div>
-        )}
-
-        {sidebarTab === "activity" && (
-          <div className="sidebar-panel sidebar-panel--list" role="tabpanel" id="sidebar-panel-activity" aria-labelledby="sidebar-tab-activity">
-            <ActivityFeed
-              entries={activityEntries(ws.events, town, { agentName: (id) => agentLookup.get(id)?.name }, { startIndex: ws.eventHistoryStart, limit: 40 })}
-              accent={meta.color}
-              onSelect={(id) => requestChat(id, "activity")}
-              emptyText={DEMO_MODE ? "Press play — the town's day unfolds here." : "Waiting for simulation events…"}
-            />
-          </div>
-        )}
-      </aside>
+      {/* Sidebar host: a rail beside the canvas, or a bottom sheet over it on phones. */}
+      {isPhone ? (
+        <BottomSheet label="Town panel" className="town-view-sheet">
+          {sidebarContent}
+        </BottomSheet>
+      ) : (
+        <aside className="town-view-sidebar" aria-label="Town panel">
+          {sidebarContent}
+        </aside>
+      )}
 
       {/* Chat panel */}
       {chatOpen && (

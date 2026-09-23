@@ -628,6 +628,25 @@ test("the town surface passes automated WCAG A/AA checks", async ({ page }) => {
   await expectAxeClean(page, "town replay");
 });
 
+test("360px town fits the narrowest phones and hosts the panel in a bottom sheet", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto("/?capture=1#/town/dover");
+  await waitForTownScene(page);
+  await expectNoHorizontalPageOverflow(page);
+  // The rail becomes a bottom sheet: peek by default, tall after two taps.
+  const handle = page.getByRole("button", { name: /Town panel/ });
+  await expect(handle).toBeVisible();
+  await handle.click();
+  await handle.click();
+  await expect(page.locator(".bottom-sheet--snap-2")).toBeVisible();
+  await expect(page.locator("button.resident-card--compact").first()).toBeVisible({ timeout: 15_000 });
+  await expectNoHorizontalPageOverflow(page);
+  // The town switcher scrolls inside its pill instead of widening the page.
+  const switcher = await page.locator(".town-switcher").boundingBox();
+  expect(switcher).not.toBeNull();
+  expect(switcher!.x + switcher!.width).toBeLessThanOrEqual(360 + 1);
+});
+
 test("390px mobile map and town do not create horizontal page scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openMap(page);

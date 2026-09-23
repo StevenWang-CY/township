@@ -924,10 +924,12 @@ export default function ChatPanel({
   return (
     <>
       {/* Mobile backdrop */}
-      <div
+      <button
+        type="button"
         className="chat-panel-backdrop"
+        aria-label="Close the conversation"
+        tabIndex={-1}
         onClick={() => onClose()}
-        style={{ background: "rgba(0,0,0,0.12)" }}
       />
       <div
         ref={panelRef}

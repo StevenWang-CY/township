@@ -102,6 +102,10 @@
 /* ChatPanel: full-screen overlay on mobile */
 .chat-panel-backdrop {
   display: none;
+  padding: 0;
+  border: 0;
+  background: var(--color-overlay-ink);
+  opacity: 0.22;
 }
 
 @media (width < 768px) {
