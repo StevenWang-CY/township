@@ -27,7 +27,7 @@
 
 <p align="center">
   <a href="https://stevenwang-cy.github.io/township/">
-    <img src="docs/media/hero.gif" alt="The living town of Dover from above: residents go about their routines, the camera closes on two neighbors talking through the election in readable speech bubbles, one changes their mind with a burst of confetti, the polling place opens at the Public Library and residents queue, vote and take their stickers, then dusk settles and lamplit night falls over the decided town" width="896">
+    <img src="docs/media/hero.gif" alt="The living town of Dover from above on a weekday morning as commuters leave for work, then two residents talking through the election in readable speech bubbles, a week of the campaign passing as yard signs take colour, election day at the Public Library as residents queue, vote and take their stickers, results night under the bunting, and the district atlas of four pixel towns" width="896">
   </a>
 </p>
 

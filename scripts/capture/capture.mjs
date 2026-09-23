@@ -22,6 +22,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  captureDayInReview,
+  captureNeighbors,
+  heroCampaignBeats,
+  openFeedRoute,
+} from "./campaign.mjs";
+
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..", "..");
 const FRONTEND = join(REPO_ROOT, "frontend");
@@ -64,6 +71,10 @@ const finalEvent = [...defaultFeed.events]
   .reverse()
   .find((event) => event.type === "simulation_ended");
 const expectedFinalCounts = finalEvent?.summary?.overall_opinions;
+// The campaign recording (Evolution III stages every feed a scenario ships).
+const campaignFeedPath = join(DEMO_DIST, "demo", "nj11-2026--campaign.json");
+const campaignFeed = existsSync(campaignFeedPath) ? JSON.parse(readFileSync(campaignFeedPath, "utf8")) : null;
+if (!campaignFeed) console.warn("capture: no campaign feed staged — the hero's campaign beats will be skipped.");
 if (!expectedFinalCounts || typeof expectedFinalCounts !== "object") {
   console.error("capture: default demo feed has no final overall_opinions summary.");
   process.exit(1);
@@ -247,7 +258,7 @@ async function heroFrame(page) {
     type: "png",
     animations: "allow",
     style:
-      ".proximity-card, .keyboard-hint, .player-hud, .atlas-card, .town-minimap-wrapper { display: none !important; }",
+      ".proximity-card, .keyboard-hint, .player-hud, .atlas-card, .town-minimap-wrapper, .minimap, .town-switcher { display: none !important; }",
   });
 }
 
@@ -305,230 +316,43 @@ try {
   const runtimeFailures = [];
   watchRuntimeFailures(page, "desktop", runtimeFailures);
 
-  // Hero GIF: the landing itself, cut in four beats. Open on the living town
-  // overview at golden hour, cut to a framed two-shot whose dialogue is the
-  // recorded run's own exchange (fully visible, camera positioned first so
-  // bubbles never clip), then an opinion-flip beat with the ring morph and
-  // confetti, then the dusk-to-night finale as windows and lamps come on.
-  // Canvas only, no app chrome.
-  //
-  // The staged lines are verbatim prefixes of the committed replay's
-  // Miguel ↔ Esperanza conversation, and the staged flip (Miguel → Mejia)
-  // is the arc that same replay records for him.
-  const HERO_LINE_A =
-    "Señora Esperanza, buenas tardes. I heard people talking after mass about the election. You know... I wonder something.";
-  const HERO_LINE_B =
-    "Ay, mijo, you ask the question that keeps me up at night. I heard her on Telemundo and I thought — this woman understands, she is like us.";
-  const HERO_A = "miguel-hernandez";
-  const HERO_B = "esperanza-guzman";
-
-  await openRoute(page, "/");
-  await waitForTown(page, 6);
-  await page.evaluate(() => window.__town?.setOverviewMode(true));
-  await setTownMoment(page, 16, 30);
-  await settle(page, 600);
-  // Beat 1 — the living overview: the replay keeps running so residents
-  // move. Ambient replay bubbles are cleared per frame — at overview zoom
-  // they render as unreadable clutter that can clip against the map edge;
-  // readable dialogue is beat 2's job.
-  for (let i = 0; i < 5; i += 1) {
-    await page.evaluate(() => {
-      window.__townshipScene?.agentSprites?.forEach?.((s) => s.clearSpeechBubbles?.());
+  // Hero GIF: the campaign itself, cut in beats from the recorded 21-day
+  // run — a weekday morning as commuters leave, a recorded conversation
+  // between two voices with its own lines, a week of the calendar passing
+  // as yard signs take colour, election day at the polling place, results
+  // night — and the district atlas to close. Canvas only, no app chrome,
+  // nothing staged by hand (scripts/capture/campaign.mjs).
+  let heroBox = null;
+  if (campaignFeed) {
+    await openFeedRoute(page, ORIGIN, "/town/dover", "campaign");
+    await heroCampaignBeats({
+      page,
+      feed: campaignFeed,
+      town: "dover",
+      frame: async (repeats = 1) => addHeroFrame(await heroFrame(page), repeats),
+      setTownMoment,
+      waitForTown,
     });
-    addHeroFrame(await heroFrame(page));
-    await page.waitForTimeout(200);
-  }
-  // Beat 2 — the two-shot: stage the pair at the town's park anchor, frame
-  // the camera on them FIRST, then start the conversation and speak the
-  // recorded lines one at a time so each bubble reads clean.
-  await pauseReplay(page);
-  await page.evaluate(
-    ({ aId, bId }) => {
-      const scene = window.__townshipScene;
-      if (!scene) return;
-      scene.agentSprites.forEach((s) => s.clearSpeechBubbles?.());
-      scene.handleConversationEnded?.("capture-stage");
-      const a = scene.agentSprites.get(aId);
-      const b = scene.agentSprites.get(bId);
-      if (!a || !b) return;
-      // Stage point: a park/plaza label anchor, else the map centre.
-      let anchor;
-      for (const [name, pos] of scene.mapLabels) {
-        if (/park|plaza|green|square|commons/i.test(name)) { anchor = pos; break; }
-        anchor = anchor ?? pos;
+    heroBox = await page.locator("canvas").first().boundingBox();
+    // The closing beat: the district atlas, cropped to the canvas aspect so
+    // the GIF keeps one frame size.
+    await openRoute(page, "/map");
+    await page.locator(".atlas-site").first().waitFor({ timeout: 30_000 });
+    await resetPageScroll(page);
+    await settle(page, 900);
+    const panel = await page.locator(".atlas-panel").first().boundingBox();
+    if (panel && heroBox) {
+      const aspect = heroBox.width / heroBox.height;
+      let w = panel.width;
+      let h = w / aspect;
+      if (h > panel.height) { h = panel.height; w = h * aspect; }
+      const clip = { x: panel.x + (panel.width - w) / 2, y: panel.y + (panel.height - h) / 2, width: w, height: h };
+      for (let i = 0; i < 3; i += 1) {
+        addHeroFrame(await page.screenshot({ type: "png", clip }), i === 2 ? 4 : 2);
+        await page.waitForTimeout(500);
       }
-      const cx = anchor?.x ?? 600;
-      const cy = (anchor?.y ?? 400) - 26;
-      const left = scene.findFreeNear(cx - 16, cy, { clearOf: 24, exclude: a });
-      a.setPosition(left.x, left.y);
-      const right = scene.findFreeNear(cx + 16, cy, { clearOf: 24, exclude: b });
-      b.setPosition(right.x, right.y);
-      // Photobomber control: any other resident inside the two-shot steps
-      // out of frame, and their in-flight walk tween stops so they don't
-      // wander back through the dialogue.
-      scene.agentSprites.forEach((s) => {
-        if (s === a || s === b || s === scene.playerSprite) return;
-        const dx = s.x - cx;
-        const dy = s.y - cy;
-        if (dx * dx + dy * dy > 110 * 110) return;
-        scene.tweens.killTweensOf(s);
-        const spot = scene.findFreeNear(
-          cx + (dx >= 0 ? 190 : -190),
-          cy + (dy >= 0 ? 150 : -150),
-          { clearOf: 24, exclude: s },
-        );
-        s.setPosition(spot.x, spot.y);
-        s.setActivity("idle");
-      });
-      // Miguel opens the recorded arc undecided; beat 3's flip to Mejia then
-      // reads as an actual ring-color change, exactly as the replay tells it.
-      a.setOpinionColor("#FFFFFF", false);
-      const cam = scene.cameras.main;
-      cam.setZoom(1.6);
-      cam.centerOn((a.x + b.x) / 2, (a.y + b.y) / 2 - 14);
-      // Stage through the scene handler, NOT __town.triggerConversation —
-      // the capture API variant auto-ends after 5.2s, which would yank the
-      // camera back to base framing halfway through the second line.
-      scene.handleConversationStarted({ participants: [aId, bId] });
-      // Disarm the 12s lost-event failsafe for the same reason: this staged
-      // beat runs longer than that under screenshot overhead, and the
-      // failsafe's camera restore would cut away mid-line.
-      scene.convoFailsafe?.remove(false);
-      scene.convoFailsafe = undefined;
-    },
-    { aId: HERO_A, bId: HERO_B },
-  );
-  await page.waitForTimeout(800); // spotlight pan/zoom lands before any bubble
-  // Each line re-asserts the two-shot framing before it appears, so the
-  // bubble clamps against the exact view the frame is shot with.
-  const speak = (agentId, line) =>
-    page.evaluate(
-      ({ id, text, aId, bId }) => {
-        const scene = window.__townshipScene;
-        if (!scene) return;
-        const a = scene.agentSprites.get(aId);
-        const b = scene.agentSprites.get(bId);
-        const cam = scene.cameras.main;
-        if (a && b) {
-          cam.setZoom(1.744); // spotlight target: 1.6 × 1.09
-          cam.centerOn((a.x + b.x) / 2, (a.y + b.y) / 2 - 22);
-        }
-        scene.agentSprites.forEach((s) => s.clearSpeechBubbles?.());
-        scene.agentSprites.get(id)?.showSpeechBubble(text, 9_000, "neutral", true);
-      },
-      { id: agentId, text: line, aId: HERO_A, bId: HERO_B },
-    );
-  await speak(HERO_A, HERO_LINE_A);
-  for (let i = 0; i < 6; i += 1) {
-    addHeroFrame(await heroFrame(page));
-    await page.waitForTimeout(160);
-  }
-  await speak(HERO_B, HERO_LINE_B);
-  for (let i = 0; i < 6; i += 1) {
-    addHeroFrame(await heroFrame(page));
-    await page.waitForTimeout(160);
-  }
-  // Beat 3 — the mind changes: ring morph + confetti + ballot on Miguel.
-  // Re-assert the two-shot before triggering so the beat's own pan-and-return
-  // starts from (and lands back on) the framing the viewer is already in.
-  await page.evaluate(
-    ({ id, aId, bId }) => {
-      const scene = window.__townshipScene;
-      if (!scene) return;
-      const a = scene.agentSprites.get(aId);
-      const b = scene.agentSprites.get(bId);
-      const cam = scene.cameras.main;
-      if (a && b) {
-        // Tighter than the two-shot so the confetti/ballot pixels survive
-        // the GIF downscale. The camera is driven here and stays put —
-        // updateAgentOpinion (unlike triggerOpinionShift) has no camera
-        // beat, whose pan-back would land on a stale midpoint.
-        cam.setZoom(2.0);
-        cam.centerOn((a.x + b.x) / 2 - 6, (a.y + b.y) / 2 - 26);
-      }
-      scene.agentSprites.forEach((s) => s.clearSpeechBubbles?.());
-      scene.showAgentEmote(id, "opinion_changed");
-      scene.updateAgentOpinion(id, "mejia");
-    },
-    { id: HERO_A, aId: HERO_A, bId: HERO_B },
-  );
-  // Confetti + ballot land inside ~700ms — sample densely, then echo the
-  // burst once so the celebration survives GIF frame timing.
-  for (let i = 0; i < 3; i += 1) {
-    addHeroFrame(await heroFrame(page));
-    await page.waitForTimeout(140);
-  }
-  await page.evaluate(({ id }) => {
-    // Echo only the sprite celebration (ring pulse/confetti/ballot) — a
-    // second camera beat would fight the first one's pan-back.
-    const scene = window.__townshipScene;
-    scene?.showAgentEmote?.(id, "opinion_changed");
-    scene?.agentSprites?.get(id)?.setOpinionColor(scene.opinionColor("mejia"), true);
-  }, { id: HERO_A });
-  for (let i = 0; i < 3; i += 1) {
-    addHeroFrame(await heroFrame(page));
-    await page.waitForTimeout(200);
-  }
-  // Beat 4 — decision day: the replay is seeked to the moments before
-  // Dover's final round ends and resumed at 1×, with the camera held on
-  // the polling place, so the recorded decide phase plays as the town
-  // experiences it — the VOTE sign and ballot box appear, residents walk
-  // to the rope, step up one at a time, and take their stickers. The
-  // world clock is the replay's own (19:00, dusk).
-  await page.evaluate(() => {
-    const scene = window.__townshipScene;
-    scene?.agentSprites?.forEach?.((sprite) => sprite.clearSpeechBubbles?.());
-    scene?.handleConversationEnded?.("capture-hero");
-    const cam = scene?.cameras?.main;
-    cam?.panEffect?.reset();
-    cam?.zoomEffect?.reset();
-  });
-  const decideStaged = await seekToDecide(page, defaultFeed, "dover");
-  if (decideStaged) {
-    await setReplaySpeed(page, "1x");
-    await framePollingPlace(page, 1.7);
-    await page.waitForTimeout(400);
-    await resumeReplay(page);
-    // ~18 s of paced replay: the phase opens a few seconds in, then the
-    // procession. Sampled every ~1.1 s so the walk reads without bloating
-    // the GIF; hold on the sticker beat at the end.
-    for (let i = 0; i < 15; i += 1) {
-      await page.evaluate(() => {
-        window.__townshipScene?.agentSprites?.forEach?.((s) => s.clearSpeechBubbles?.());
-      });
-      addHeroFrame(await heroFrame(page));
-      await page.waitForTimeout(1_100);
     }
-    await pauseReplay(page);
-    addHeroFrame(await heroFrame(page), 2);
-    // Results: land the run's end (bunting, the tally at the kiosk).
-    const timeline = page.locator('[aria-label="Replay position"]');
-    await timeline.focus();
-    await timeline.press("End");
-    await page.waitForTimeout(900);
-    await framePollingPlace(page, 1.45);
-    await page.waitForTimeout(500);
-    addHeroFrame(await heroFrame(page), 2);
   }
-  // Beat 5 — finale: back to the wide overview as dusk deepens into night
-  // and windows and lamps come on over the decided town.
-  await page.evaluate(() => {
-    const scene = window.__townshipScene;
-    scene?.agentSprites?.forEach?.((sprite) => sprite.clearSpeechBubbles?.());
-    const cam = scene?.cameras?.main;
-    cam?.panEffect?.reset();
-    cam?.zoomEffect?.reset();
-    window.__town?.setOverviewMode(false);
-    window.__town?.setOverviewMode(true);
-  });
-  await page.waitForTimeout(900);
-  const duskSteps = [[19, 0], [19, 45], [20, 30], [21, 15]];
-  for (const [h, m] of duskSteps) {
-    await setTownMoment(page, h, m);
-    addHeroFrame(await heroFrame(page), 2);
-    await page.waitForTimeout(160);
-  }
-  addHeroFrame(await heroFrame(page), 4);
 
   // District atlas: the storybook pixel overworld at /map (the town itself
   // is the landing). One clean product surface, then a composed still per
@@ -714,7 +538,8 @@ try {
   });
   await page.waitForFunction((counts) => Object.entries(counts).every(([stance, count]) => {
     const node = document.querySelector(`[data-stance-id="${CSS.escape(stance)}"]`);
-    return node?.getAttribute("data-stance-count") === String(count);
+    if (!node) return count === 0; // a zero-count option may sit out the legend
+    return node.getAttribute("data-stance-count") === String(count);
   }), expectedFinalCounts);
   await settle(page, 1_200);
   await shot(page, join(MEDIA, "demo-player", "04-dashboard-end.png"));
@@ -722,6 +547,15 @@ try {
   await openRoute(page, "/gods-view");
   await settle(page, 500);
   await shot(page, join(MEDIA, "demo-player", "05-gods-view.png"));
+
+  // Campaign stills: the day in review as the calendar turns, and the roster
+  // with its neighbors group open.
+  if (campaignFeed) {
+    await openFeedRoute(page, ORIGIN, "/town/dover", "campaign");
+    await waitForTown(page, 12);
+    await captureDayInReview(page, campaignFeed, "dover", shot, join(MEDIA, "demo-player", "08-campaign-week.png"));
+    await captureNeighbors(page, shot, join(MEDIA, "demo-player", "09-neighbors.png"));
+  }
 
   // Mobile stranger proof: no hidden desktop-only escape hatch.
   const mobileContext = await browser.newContext({

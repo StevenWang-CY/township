@@ -1,7 +1,7 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useWebSocket as useWebSocketRaw } from "../hooks/useWebSocket";
 import type { WsState } from "../hooks/useWebSocket";
-import { useDemoFeed } from "../hooks/useDemoFeed";
+import { useDemoFeed, type DemoPlayer } from "../hooks/useDemoFeed";
 import { DemoPlayerContext } from "../demo/DemoPlayerContext";
 import { DEMO_MODE } from "../demo/demoMode";
 import { useScenarioContext } from "./ScenarioContext";
@@ -50,6 +50,11 @@ function DemoFeedProvider({ children }: { children: ReactNode }) {
   // Wait for the scenario bootstrap so the feed matches the active scenario id.
   const { state, player } = useDemoFeed(scen.scenario.id, !scen.loading, scen.demoFeed?.file ?? null);
   useRosterArt(scen.scenario.id, state);
+  // Debug/capture handle: scripts (scripts/capture) seek the replay precisely
+  // through the player instead of the 15-event keyboard steps.
+  useEffect(() => {
+    (window as typeof window & { __demoPlayer?: DemoPlayer }).__demoPlayer = player;
+  }, [player]);
   return (
     <WebSocketContext.Provider value={state}>
       <DemoPlayerContext.Provider value={player}>{children}</DemoPlayerContext.Provider>
