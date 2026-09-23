@@ -23,6 +23,7 @@ import { DEFAULT_EVENT_DELAY, EVENT_DELAYS, eventDelayMs } from "../demo/pacing"
 import type { DemoSpeed } from "../demo/pacing";
 import { demoUrl } from "../demo/demoMode";
 import { chaptersByDay, type DayChapter } from "../lib/calendar";
+import { noteCheckpoint, seekState } from "../demo/seek";
 
 /* ── Cold-open curation ──────────────────────────────────────
  * A raw feed opens on round-0 arrivals: 30-60s of walking with no dialogue.
@@ -111,7 +112,7 @@ export function buildChapters(events: SimulationEvent[]): DemoChapter[] {
  * @param scenarioId id of the staged demo scenario (drives the feed URL)
  * @param enabled    hold off fetching until the scenario bootstrap resolved
  */
-export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
+export function useDemoFeed(scenarioId: string, enabled: boolean, feedFile?: string | null): DemoFeed {
   // Mutable engine state — the setTimeout chain reads these, never React state.
   const eventsRef = useRef<SimulationEvent[]>([]);
   const stateRef = useRef<WsState>(initialState);
@@ -125,6 +126,9 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
   const talkIndexRef = useRef(-1);
   const startIndexRef = useRef(0);
   const boostRef = useRef(false);
+  // Reducer snapshots every CHECKPOINT_EVERY events (demo/seek.ts), filled
+  // lazily by playback and seeks, so a long campaign feed seeks in a blink.
+  const checkpointsRef = useRef<Map<number, WsState>>(new Map());
 
   // React-visible mirrors.
   const [view, setView] = useState<WsState>(initialState);
@@ -158,6 +162,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
     const evt = events[i];
     stateRef.current = replayReducer(stateRef.current, { type: "EVENT", payload: evt });
     posRef.current = i + 1;
+    noteCheckpoint(checkpointsRef.current, posRef.current, stateRef.current);
     setView(stateRef.current);
     setPosition(posRef.current);
     if (posRef.current >= events.length) {
@@ -180,11 +185,8 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
       const target = Math.max(0, Math.min(events.length, Math.floor(i)));
       window.clearTimeout(timerRef.current);
       boostRef.current = false; // seeking is user intent — drop the opening boost
-      // Pure reducer ⇒ position = synchronous prefix reduction. Instant.
-      let s = initialState;
-      for (let k = 0; k < target; k++) {
-        s = replayReducer(s, { type: "EVENT", payload: events[k] });
-      }
+      // Pure reducer ⇒ position = prefix reduction from the nearest snapshot.
+      const s = seekState(events, target, checkpointsRef.current);
       stateRef.current = s;
       posRef.current = target;
       setView(s);
@@ -275,7 +277,8 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
     boostRef.current = false;
     setTalkIndex(-1);
 
-    fetch(demoUrl(`${scenarioId}.json`), { signal: ctrl.signal })
+    checkpointsRef.current = new Map();
+    fetch(demoUrl(feedFile || `${scenarioId}.json`), { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
         if (cancelled) return;
@@ -329,7 +332,7 @@ export function useDemoFeed(scenarioId: string, enabled: boolean): DemoFeed {
       window.clearTimeout(timerRef.current);
       playingRef.current = false;
     };
-  }, [scenarioId, enabled, tick, stopPlayback]);
+  }, [scenarioId, feedFile, enabled, tick, stopPlayback]);
 
   // Safety net: never leak the timer on unmount.
   useEffect(() => () => window.clearTimeout(timerRef.current), []);

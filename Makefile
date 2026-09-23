@@ -17,7 +17,7 @@ else
 PYTHON ?= $(UV) run --locked --extra dev python
 endif
 
-.PHONY: help install dev dev-backend dev-frontend test test-e2e lint format build demo demo-build demo-preview capture-setup capture-media sim docker maps
+.PHONY: help install dev dev-backend dev-frontend test test-e2e lint format build demo demo-build demo-preview demo-cache capture-setup capture-media sim docker maps
 
 help: ## Show this help
 	@printf "\n  \033[1mTownship\033[0m — AI residents deliberating in a living pixel town\n\n"
@@ -75,6 +75,14 @@ demo-build: ## Build the zero-backend demo player (stages scenarios/*/demo cache
 
 demo-preview: ## Serve the built demo player locally (run 'make demo-build' first)
 	cd frontend && npm run demo:preview
+
+demo-cache: ## Record a campaign as a demo feed: SCENARIO=nj11-2026 PRESET=campaign DAYS=21 PROVIDER=claude-cli OUT=scenarios/$(SCENARIO)/demo/campaign_cache.json
+	$(eval SCENARIO ?= nj11-2026)
+	$(eval PRESET ?= campaign)
+	$(eval DAYS ?= 21)
+	$(eval PROVIDER ?= mock)
+	$(eval OUT ?= scenarios/$(SCENARIO)/demo/campaign_cache.json)
+	LLM_PROVIDER=$(PROVIDER) township run --scenario $(SCENARIO) --preset $(PRESET) --days $(DAYS) --provider $(PROVIDER) --yes --demo-out $(OUT)
 
 maps: ## Regenerate the tileset, every town map + preview + postcard, the atlases, and the frontend tile metadata
 	$(PYTHON) -m scripts.mapgen.moderntiles

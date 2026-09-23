@@ -48,7 +48,7 @@ function LiveWebSocketProvider({ children }: { children: ReactNode }) {
 function DemoFeedProvider({ children }: { children: ReactNode }) {
   const scen = useScenarioContext();
   // Wait for the scenario bootstrap so the feed matches the active scenario id.
-  const { state, player } = useDemoFeed(scen.scenario.id, !scen.loading);
+  const { state, player } = useDemoFeed(scen.scenario.id, !scen.loading, scen.demoFeed?.file ?? null);
   useRosterArt(scen.scenario.id, state);
   return (
     <WebSocketContext.Provider value={state}>

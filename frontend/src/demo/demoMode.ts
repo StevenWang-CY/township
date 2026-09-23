@@ -24,10 +24,43 @@ export function demoUrl(file: string): string {
   return appUrl(`demo/${file}`);
 }
 
-/** Manifest written by stage-demo.mjs listing every staged scenario. */
+/** One staged recording of a scenario (stage-demo.mjs, from demo/manifest.json). */
+export interface DemoFeedInfo {
+  id: string;
+  /** Staged file name under demo/ (e.g. "nj11-2026--campaign.json"). */
+  file: string;
+  label: string;
+  flagship: boolean;
+  events: number;
+  bytes: number;
+}
+
+/** Manifest written by stage-demo.mjs listing every staged scenario and,
+ *  per scenario, every recording it ships (older manifests carry none). */
 export interface DemoManifest {
   default: string;
   scenarios: string[];
+  feeds?: Record<string, DemoFeedInfo[]>;
+}
+
+/** `?feed=<id>` runtime override (validated to a safe slug). */
+export function requestedFeedId(): string | null {
+  try {
+    const q = new URLSearchParams(window.location.search).get("feed");
+    return q && /^[a-z0-9][a-z0-9-]{0,39}$/.test(q) ? q : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The recording to play for a scenario: the URL's pick when staged, else
+ *  the flagship, else the first; null when the manifest predates feeds (the
+ *  player then loads the classic <id>.json). */
+export function resolveDemoFeed(manifest: DemoManifest, scenarioId: string): DemoFeedInfo | null {
+  const feeds = manifest.feeds?.[scenarioId] ?? [];
+  if (feeds.length === 0) return null;
+  const wanted = requestedFeedId();
+  return feeds.find((f) => f.id === wanted) ?? feeds.find((f) => f.flagship) ?? feeds[0];
 }
 
 /** `?scenario=<id>` runtime override (validated to a safe slug). */

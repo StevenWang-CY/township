@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
-import { stageDemos } from "./stage-demo.mjs";
+import { FEED_MAX_EVENTS, stageDemos } from "./stage-demo.mjs";
 
 const CORE_NOTICE =
   "Township is a simulation, not a poll. Its outputs do not measure real public opinion and must never be presented as if they do.";
@@ -61,9 +61,17 @@ function fixture() {
 test("stageDemos stages a current contained package", () => {
   const value = fixture();
   try {
-    assert.deepEqual(
-      stageDemos({ scenariosDir: value.scenariosDir, outDir: value.outDir }),
-      { default: "safe-scenario", scenarios: ["safe-scenario"] },
+    const result = stageDemos({ scenariosDir: value.scenariosDir, outDir: value.outDir });
+    assert.equal(result.default, "safe-scenario");
+    assert.deepEqual(result.scenarios, ["safe-scenario"]);
+    // Without a demo manifest the classic cache is the one (flagship) feed,
+    // served at both the feed address and the classic <id>.json.
+    assert.deepEqual(result.feeds["safe-scenario"].map((f) => [f.id, f.file, f.flagship, f.events]), [
+      ["one-day", "safe-scenario--one-day.json", true, 1],
+    ]);
+    assert.equal(
+      readFileSync(join(value.outDir, "safe-scenario.json"), "utf8"),
+      readFileSync(join(value.outDir, "safe-scenario--one-day.json"), "utf8"),
     );
     // The staged bootstrap mirrors /api/scenario, round plan included.
     const payload = JSON.parse(readFileSync(join(value.outDir, "safe-scenario-scenario.json"), "utf8"));
@@ -120,6 +128,76 @@ test("stageDemos refuses an unversioned legacy demo", () => {
       () => stageDemos({ scenariosDir: value.scenariosDir, outDir: value.outDir }),
       /predates the private-player boundary/,
     );
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+
+test("a demo manifest stages every recording, marks the flagship, and keeps the classic address", () => {
+  const value = fixture();
+  try {
+    writeJson(join(value.packageDir, "demo", "campaign_cache.json"), {
+      schema_version: 1,
+      privacy_version: 1,
+      events: [
+        { type: "simulation_started", agents: [], towns: [] },
+        { type: "round_started", round: 0, total_rounds: 1, day: 1 },
+      ],
+      district_summary: null,
+    });
+    writeJson(join(value.packageDir, "demo", "manifest.json"), {
+      feeds: [
+        { id: "one-day", file: "simulation_cache.json", label: "One day" },
+        { id: "campaign", file: "campaign_cache.json", label: "The campaign", flagship: true },
+      ],
+    });
+    const result = stageDemos({ scenariosDir: value.scenariosDir, outDir: value.outDir });
+    assert.deepEqual(result.feeds["safe-scenario"].map((f) => [f.id, f.flagship, f.events]), [
+      ["one-day", false, 1],
+      ["campaign", true, 2],
+    ]);
+    const manifest = JSON.parse(readFileSync(join(value.outDir, "manifest.json"), "utf8"));
+    assert.deepEqual(manifest.feeds, result.feeds);
+    // the flagship answers at <id>.json
+    const classic = JSON.parse(readFileSync(join(value.outDir, "safe-scenario.json"), "utf8"));
+    assert.equal(classic.feed_id, "campaign");
+    assert.equal(classic.events.length, 2);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("a recording over the player's event budget is refused", () => {
+  const value = fixture();
+  try {
+    const events = Array.from({ length: FEED_MAX_EVENTS + 1 }, () => ({ type: "world_clock_tick", hour: 8, minute: 0 }));
+    writeJson(join(value.packageDir, "demo", "simulation_cache.json"), {
+      schema_version: 1,
+      privacy_version: 1,
+      events,
+      district_summary: null,
+    });
+    assert.throws(
+      () => stageDemos({ scenariosDir: value.scenariosDir, outDir: value.outDir }),
+      /budget is 16000/,
+    );
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("a demo manifest with a bad feed id or file is refused", () => {
+  const value = fixture();
+  try {
+    writeJson(join(value.packageDir, "demo", "manifest.json"), {
+      feeds: [{ id: "Bad Id", file: "simulation_cache.json", label: "x" }],
+    });
+    assert.throws(() => stageDemos({ scenariosDir: value.scenariosDir, outDir: value.outDir }), /unique slug/);
+    writeJson(join(value.packageDir, "demo", "manifest.json"), {
+      feeds: [{ id: "ok", file: "../scenario.json", label: "x" }],
+    });
+    assert.throws(() => stageDemos({ scenariosDir: value.scenariosDir, outDir: value.outDir }), /inside demo/);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }

@@ -836,3 +836,36 @@ test("390px mobile map and town do not create horizontal page scrolling", async 
   expect(shellBounds).not.toBeNull();
   expect(shellBounds!.mainBottom).toBeLessThanOrEqual(shellBounds!.timelineTop + 1);
 });
+
+
+test("a scenario with several recordings offers a switcher and honours ?feed=", async ({ page }) => {
+  const requested: string[] = [];
+  const feeds = [
+    { id: "one-day", file: "nj11-2026--one-day.json", label: "Recorded deliberation, one day", flagship: true, events: 883, bytes: 1 },
+    { id: "campaign", file: "nj11-2026--campaign.json", label: "21-day campaign", flagship: false, events: 883, bytes: 1 },
+  ];
+  await page.route("**/demo/manifest.json", (route) =>
+    route.fulfill({ json: { default: "nj11-2026", scenarios: ["nj11-2026"], feeds: { "nj11-2026": feeds } } }),
+  );
+  // Both recordings answer with the real flagship feed; the test is about
+  // which one the player asked for.
+  await page.route("**/demo/nj11-2026--*.json", async (route) => {
+    const url = new URL(route.request().url());
+    requested.push(url.pathname.split("/").pop() ?? "");
+    const real = await route.fetch({ url: url.toString().replace(/nj11-2026--[a-z-]+\.json$/, "nj11-2026.json") });
+    await route.fulfill({ response: real });
+  });
+
+  await page.goto("/?feed=campaign#/town/dover");
+  await waitForTownScene(page);
+  const switcher = page.getByRole("combobox", { name: "Recording" });
+  await expect(switcher).toHaveValue("campaign");
+  await expect.poll(() => requested).toContain("nj11-2026--campaign.json");
+  expect(requested).not.toContain("nj11-2026--one-day.json");
+
+  await switcher.selectOption("one-day");
+  await expect(page).toHaveURL(/[?&]feed=one-day/);
+  await waitForTownScene(page);
+  await expect(page.getByRole("combobox", { name: "Recording" })).toHaveValue("one-day");
+  await expect.poll(() => requested).toContain("nj11-2026--one-day.json");
+});

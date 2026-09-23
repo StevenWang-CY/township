@@ -24,6 +24,7 @@
 import {
   readFileSync,
   writeFileSync,
+  copyFileSync,
   readdirSync,
   existsSync,
   mkdirSync,
@@ -46,6 +47,40 @@ const CANONICAL_CORE_NOTICE =
   "Township is a simulation, not a poll. Its outputs do not measure real public opinion and must never be presented as if they do.";
 const ARTIFACT_SCHEMA_VERSION = 1;
 const ARTIFACT_PRIVACY_VERSION = 1;
+/** A staged feed must stay a download the player can hold and seek: a 21-day
+ *  campaign lands near 11k events / 6 MB with the neighbors tier. */
+export const FEED_MAX_EVENTS = 16_000;
+export const FEED_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_FEEDS = [
+  { id: "one-day", file: "simulation_cache.json", label: "Recorded deliberation", flagship: true },
+];
+const FEED_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** The recordings a package ships: demo/manifest.json when present, else the
+ *  classic simulation_cache.json alone. */
+function readFeedSpecs(scenarioDir, id) {
+  const candidate = join(scenarioDir, "demo", "manifest.json");
+  if (!pathExistsNoFollow(candidate)) return DEFAULT_FEEDS;
+  const manifestPath = checkedPath(scenarioDir, candidate, `${id}/demo/manifest.json`);
+  const doc = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (!doc || !Array.isArray(doc.feeds) || doc.feeds.length === 0) {
+    throw new Error(`stage-demo: ${id}/demo/manifest.json must list feeds`);
+  }
+  const seen = new Set();
+  return doc.feeds.map((feed) => {
+    if (!feed || typeof feed !== "object") throw new Error(`stage-demo: ${id} feed entry must be an object`);
+    const { id: feedId, file, label, flagship } = feed;
+    if (typeof feedId !== "string" || !FEED_ID_RE.test(feedId) || seen.has(feedId)) {
+      throw new Error(`stage-demo: ${id} feed id ${JSON.stringify(feedId)} must be a unique slug`);
+    }
+    seen.add(feedId);
+    if (typeof file !== "string" || !/^[A-Za-z0-9_.-]+\.json$/.test(file) || file.includes("..")) {
+      throw new Error(`stage-demo: ${id} feed ${feedId} must name a JSON file inside demo/`);
+    }
+    if (typeof label !== "string" || !label.trim()) throw new Error(`stage-demo: ${id} feed ${feedId} needs a label`);
+    return { id: feedId, file, label: label.trim(), flagship: Boolean(flagship) };
+  });
+}
 
 function pathExistsNoFollow(path) {
   try {
@@ -194,6 +229,7 @@ export function stageDemos({
   }
 
   const staged = [];
+  const feedsByScenario = {};
   for (const id of readdirSync(scenariosRoot).sort()) {
     const candidateDir = join(scenariosRoot, id);
     const entry = lstatSync(candidateDir);
@@ -204,53 +240,76 @@ export function stageDemos({
       `scenario package ${id}`,
       "directory",
     );
-    const cacheCandidate = join(scenarioDir, "demo", "simulation_cache.json");
-    if (!pathExistsNoFollow(cacheCandidate)) {
-      console.log(`stage-demo: skip ${id} (no demo/simulation_cache.json)`);
-      continue;
-    }
-    const cachePath = checkedPath(
-      scenarioDir,
-      cacheCandidate,
-      `${id}/demo/simulation_cache.json`,
-    );
+    const stagedFeeds = [];
+    for (const spec of readFeedSpecs(scenarioDir, id)) {
+      const cacheCandidate = join(scenarioDir, "demo", spec.file);
+      if (!pathExistsNoFollow(cacheCandidate)) {
+        console.log(`stage-demo: skip ${id}/${spec.file} (missing)`);
+        continue;
+      }
+      const cachePath = checkedPath(scenarioDir, cacheCandidate, `${id}/demo/${spec.file}`);
 
-    // Feed: keep events + district_summary, drop the usage report (dead
-    // weight for the player), minify.
-    const cache = JSON.parse(readFileSync(cachePath, "utf8"));
-    if (
-      cache.schema_version !== ARTIFACT_SCHEMA_VERSION ||
-      cache.privacy_version !== ARTIFACT_PRIVACY_VERSION
-    ) {
-      throw new Error(
-        `stage-demo: ${id} demo artifact predates the private-player boundary; regenerate it`,
-      );
+      // Feed: keep events + district_summary, drop the usage report (dead
+      // weight for the player), minify.
+      const cache = JSON.parse(readFileSync(cachePath, "utf8"));
+      if (
+        cache.schema_version !== ARTIFACT_SCHEMA_VERSION ||
+        cache.privacy_version !== ARTIFACT_PRIVACY_VERSION
+      ) {
+        throw new Error(
+          `stage-demo: ${id}/${spec.file} predates the private-player boundary; regenerate it`,
+        );
+      }
+      const rawEvents = Array.isArray(cache.events) ? cache.events : [];
+      if (
+        !Array.isArray(cache.events) ||
+        rawEvents.some((event) => !event || typeof event !== "object" || typeof event.type !== "string")
+      ) {
+        throw new Error(`stage-demo: ${id}/${spec.file} has an invalid events array`);
+      }
+      const events = publicDemoEvents(rawEvents);
+      if (events.length !== rawEvents.length) {
+        console.warn(
+          `stage-demo: ${id}/${spec.file} dropped ${rawEvents.length - events.length} private legacy event(s)`,
+        );
+      }
+      if (events.length === 0) {
+        console.log(`stage-demo: skip ${id}/${spec.file} (no events)`);
+        continue;
+      }
+      if (events.length > FEED_MAX_EVENTS) {
+        throw new Error(
+          `stage-demo: ${id}/${spec.file} has ${events.length} events; the player's budget is ${FEED_MAX_EVENTS}`,
+        );
+      }
+      const feed = JSON.stringify({
+        schema_version: ARTIFACT_SCHEMA_VERSION,
+        privacy_version: ARTIFACT_PRIVACY_VERSION,
+        scenario_id: id,
+        feed_id: spec.id,
+        events,
+        district_summary: cache.district_summary ?? null,
+      });
+      const bytes = Buffer.byteLength(feed);
+      if (bytes > FEED_MAX_BYTES) {
+        throw new Error(
+          `stage-demo: ${id}/${spec.file} is ${kb(bytes)}; the player's budget is ${kb(FEED_MAX_BYTES)}`,
+        );
+      }
+      const outName = `${id}--${spec.id}.json`;
+      writeFileSync(join(outDir, outName), feed);
+      stagedFeeds.push({ id: spec.id, file: outName, label: spec.label, flagship: spec.flagship, events: events.length, bytes });
     }
-    const rawEvents = Array.isArray(cache.events) ? cache.events : [];
-    if (
-      !Array.isArray(cache.events) ||
-      rawEvents.some((event) => !event || typeof event !== "object" || typeof event.type !== "string")
-    ) {
-      throw new Error(`stage-demo: ${id} demo artifact has an invalid events array`);
-    }
-    const events = publicDemoEvents(rawEvents);
-    if (events.length !== rawEvents.length) {
-      console.warn(
-        `stage-demo: ${id} dropped ${rawEvents.length - events.length} private legacy event(s)`,
-      );
-    }
-    if (events.length === 0) {
-      console.log(`stage-demo: skip ${id} (cache has no events)`);
+    if (stagedFeeds.length === 0) {
+      console.log(`stage-demo: skip ${id} (no demo feeds)`);
       continue;
     }
-    const feed = JSON.stringify({
-      schema_version: ARTIFACT_SCHEMA_VERSION,
-      privacy_version: ARTIFACT_PRIVACY_VERSION,
-      scenario_id: id,
-      events,
-      district_summary: cache.district_summary ?? null,
-    });
-    writeFileSync(join(outDir, `${id}.json`), feed);
+    // The flagship feed (the manifest's, else the first) also answers at the
+    // classic <id>.json address every older link and the e2e suite use.
+    const flagship = stagedFeeds.find((f) => f.flagship) ?? stagedFeeds[0];
+    for (const f of stagedFeeds) f.flagship = f === flagship;
+    copyFileSync(join(outDir, flagship.file), join(outDir, `${id}.json`));
+    feedsByScenario[id] = stagedFeeds;
 
     // Bootstrap payload (shape-compatible with GET /api/scenario).
     const manifestPath = checkedPath(
@@ -280,16 +339,17 @@ export function stageDemos({
 
     staged.push(id);
     console.log(
-      `stage-demo: staged ${id} — ${events.length} events (${kb(Buffer.byteLength(feed))}), scenario + town + God's View payloads OK`,
+      `stage-demo: staged ${id} — ${stagedFeeds.map((f) => `${f.id}: ${f.events} events (${kb(f.bytes)})`).join(", ")}; scenario + town + God's View payloads OK`,
     );
   }
 
   if (staged.length === 0) throw new Error("stage-demo: no demo caches found");
 
   const def = staged.includes(preferredDefault) ? preferredDefault : staged[0];
-  writeFileSync(join(outDir, "manifest.json"), JSON.stringify({ default: def, scenarios: staged }));
+  const manifest = { default: def, scenarios: staged, feeds: feedsByScenario };
+  writeFileSync(join(outDir, "manifest.json"), JSON.stringify(manifest));
   console.log(`stage-demo: manifest → default "${def}", scenarios [${staged.join(", ")}]`);
-  return { default: def, scenarios: staged };
+  return manifest;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -164,7 +164,7 @@ export default function DemoTimeline() {
   const electionDate = scen.scenario.campaign?.election_date ?? scen.scenario.dates?.decision_day ?? null;
 
   return (
-    <div className="demo-timeline pixel-frame" role="group" aria-label="Replay timeline">
+    <div className={`demo-timeline pixel-frame${scen.demoFeeds.length > 1 ? " demo-timeline--feeds" : ""}`} role="group" aria-label="Replay timeline">
       {/* Play / pause / replay-again */}
       <button
         className={`demo-timeline-play ${player.ended ? "demo-timeline-play--replay" : ""}`}
@@ -190,7 +190,7 @@ export default function DemoTimeline() {
 
       {/* The slider and chapter buttons are siblings: interactive elements
           must never be nested inside another interactive ARIA widget. */}
-      <div className="demo-timeline-scrubber">
+      <div className={`demo-timeline-scrubber${player.chapters.length > 12 ? " demo-timeline-scrubber--dense" : ""}`}>
         <div
           ref={trackRef}
           className="demo-timeline-track"
@@ -222,8 +222,12 @@ export default function DemoTimeline() {
           const left = player.duration > 0 ? (ch.index / player.duration) * 100 : 0;
           // Preserve a full 24 px hit target even when early/late chapter
           // positions bunch near an edge. Each neighbor gets its own lane.
-          const minimumLeft = 12 + chapterIndex * 24;
-          const minimumRight = 12 + (player.chapters.length - 1 - chapterIndex) * 24;
+          // Each tick keeps a lane of its own so neighbours never stack: a
+          // full 24 px hit target for a handful of rounds, tighter lanes for
+          // a three-week campaign (the letters then show on hover/focus).
+          const lane = player.chapters.length > 12 ? 8 : 24;
+          const minimumLeft = 12 + chapterIndex * lane;
+          const minimumRight = 12 + (player.chapters.length - 1 - chapterIndex) * lane;
           const chClock = fmtClock(ch.hour, ch.minute);
           const isDay = ch.kind === "day" && ch.day != null;
           const dayDate = isDay ? formatDate(ch.date, { weekday: true, comma: false }) : null;
@@ -283,6 +287,27 @@ export default function DemoTimeline() {
               ? `${dayLabel}${clock ? ` · ${clock}` : ""}`
               : `Round ${roundLabel}/${totalRounds || "–"}${clock ? ` · ${clock}` : ""}`}
       </div>
+
+      {/* Which recording: a scenario can ship several (the one-day
+          deliberation, the full campaign). Switching reloads the page with
+          ?feed=<id> — a different recording is a different replay. */}
+      {scen.demoFeeds.length > 1 && (
+        <select
+          className="demo-timeline-feed"
+          value={scen.demoFeed?.id ?? scen.demoFeeds[0].id}
+          onChange={(e) => {
+            const url = new URL(window.location.href);
+            url.searchParams.set("feed", e.target.value);
+            window.location.assign(url.toString());
+          }}
+          aria-label="Recording"
+          title="Recording"
+        >
+          {scen.demoFeeds.map((f) => (
+            <option key={f.id} value={f.id}>{f.label}</option>
+          ))}
+        </select>
+      )}
 
       {/* Speed toggle */}
       <button

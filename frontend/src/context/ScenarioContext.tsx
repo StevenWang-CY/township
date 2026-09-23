@@ -13,8 +13,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { ScenarioData, ScenarioOption, ScenarioRoundPlanEntry, ScenarioTownInfo, TownMapInfo } from "../types/messages";
-import { DEMO_MODE, demoUrl, resolveDemoScenarioId } from "../demo/demoMode";
-import type { DemoManifest } from "../demo/demoMode";
+import { DEMO_MODE, demoUrl, resolveDemoFeed, resolveDemoScenarioId } from "../demo/demoMode";
+import type { DemoFeedInfo, DemoManifest } from "../demo/demoMode";
 
 /* ── Context shape ─────────────────────────────────────────── */
 
@@ -53,6 +53,10 @@ export interface ScenarioContextValue {
   optionNoun: (plural?: boolean) => string;
   /** Round plan when the payload carries one (empty otherwise). */
   roundPlan: ScenarioRoundPlanEntry[];
+  /** Demo mode: the recordings this scenario ships and the one playing
+   *  (empty / null on the live app and on manifests without feeds). */
+  demoFeeds: DemoFeedInfo[];
+  demoFeed: DemoFeedInfo | null;
 }
 
 function deslug(id: string): string {
@@ -135,6 +139,8 @@ export function buildScenarioValue(
   };
 
   return {
+    demoFeeds: [],
+    demoFeed: null,
     scenario,
     loading,
     decisionKind,
@@ -246,6 +252,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   const [scenario, setScenario] = useState<ScenarioData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [demoFeeds, setDemoFeeds] = useState<{ feeds: DemoFeedInfo[]; feed: DemoFeedInfo | null }>({ feeds: [], feed: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -259,7 +266,11 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     const source: Promise<unknown> = DEMO_MODE
       ? fetch(demoUrl("manifest.json"), { signal: ctrl.signal })
           .then((r) => (r.ok ? (r.json() as Promise<DemoManifest>) : Promise.reject(new Error(`HTTP ${r.status}`))))
-          .then((m) => fetch(demoUrl(`${resolveDemoScenarioId(m)}-scenario.json`), { signal: ctrl.signal }))
+          .then((m) => {
+            const id = resolveDemoScenarioId(m);
+            if (!cancelled) setDemoFeeds({ feeds: m.feeds?.[id] ?? [], feed: resolveDemoFeed(m, id) });
+            return fetch(demoUrl(`${id}-scenario.json`), { signal: ctrl.signal });
+          })
           .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       : fetch("/api/scenario", { signal: ctrl.signal })
           .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
@@ -296,8 +307,8 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => (scenario ? buildScenarioValue(scenario, false) : null),
-    [scenario],
+    () => (scenario ? { ...buildScenarioValue(scenario, false), demoFeeds: demoFeeds.feeds, demoFeed: demoFeeds.feed } : null),
+    [scenario, demoFeeds],
   );
 
   if (loading) {

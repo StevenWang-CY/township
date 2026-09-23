@@ -360,6 +360,37 @@ A JSON array of curated injections served by `GET /api/gods-view/scenarios` and 
 
 A recorded event log that lets anyone *watch* your scenario without running a simulation (or holding an API key). When present, it is the default source for `POST /api/simulation/replay`, appears in `GET /api/simulation/replay/available`, and plays in the terminal via `township replay --demo --scenario <id>`.
 
+### Several recordings (`demo/manifest.json`) — optional
+
+A package can ship more than one recording — the one-day deliberation and
+the full campaign, say. List them in `demo/manifest.json`:
+
+```json
+{
+  "feeds": [
+    { "id": "one-day",  "file": "simulation_cache.json", "label": "Recorded deliberation, one day (Claude Sonnet)", "flagship": true },
+    { "id": "campaign", "file": "campaign_cache.json",   "label": "21-day campaign (Claude Sonnet)" }
+  ]
+}
+```
+
+- `id` is a slug the player addresses with `?feed=<id>`; `file` is a cache
+  in `demo/` with the same envelope as `simulation_cache.json`; `label` is
+  what the replay bar's recording switcher shows.
+- The `flagship` feed (else the first) is the default and also answers at
+  the classic `<id>.json` address, so older links keep working. Without a
+  manifest the classic cache is the only feed.
+- The static build (`make demo-build` → `frontend/scripts/stage-demo.mjs`)
+  stages every feed as `<id>--<feed>.json`, writes the global manifest with
+  per-feed event and byte counts, and refuses a feed over the player's
+  budget: 16 000 events or 10 MB. A 21-day campaign with the neighbors tier
+  lands near 11k events / 6 MB; the player seeks it from checkpoints every
+  500 events.
+- Record a campaign feed with `make demo-cache SCENARIO=nj11-2026 DAYS=21
+  PROVIDER=claude-cli` (the CLI's `township run … --demo-out`), which stamps
+  the artifact envelope for you. The engine's deterministic mock is fine as a
+  placeholder while a real recording is under way — say so in the label.
+
 Every current cache must carry the public-artifact envelope alongside `events`:
 
 ```json

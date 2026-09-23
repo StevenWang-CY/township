@@ -583,6 +583,32 @@
   cursor: pointer;
   transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
 }
+/* A bar with a recording switcher grows so the track keeps room for its
+   chapter ticks (every tick and the track itself stay 24 px targets). */
+.demo-timeline--feeds { width: min(760px, calc(100vw - 24px)); }
+.demo-timeline-feed {
+  flex-shrink: 0;
+  width: 150px;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--color-line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.demo-timeline-feed:hover,
+.demo-timeline-feed:focus-visible {
+  color: var(--gold-accent);
+  border-color: var(--gold-accent);
+  outline: none;
+}
+@media (width < 768px) {
+  .demo-timeline-feed { width: 108px; }
+}
 .demo-timeline-speed:hover {
   color: var(--gold-accent);
   border-color: rgba(196, 163, 90, 0.6);
@@ -1100,3 +1126,9 @@ button.provenance-chip:focus-visible {
   .app-header { padding: 0 12px; }
   .app-scenario-chip { display: none; }
 }
+
+/* Dense chapter rows (a campaign of days): letters only on hover/focus. */
+.demo-timeline-scrubber--dense .demo-timeline-tick-day { opacity: 0; }
+.demo-timeline-scrubber--dense .demo-timeline-tick:hover .demo-timeline-tick-day,
+.demo-timeline-scrubber--dense .demo-timeline-tick:focus-visible .demo-timeline-tick-day,
+.demo-timeline-scrubber--dense .demo-timeline-tick--election .demo-timeline-tick-day { opacity: 1; }
