@@ -16,6 +16,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import re
 import sys
@@ -25,6 +26,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mapgen import moderntiles as M  # noqa: E402
+from mapgen import seasons  # noqa: E402
 from mapgen import tiles as R  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -32,20 +34,45 @@ MAPS_DIR = REPO_ROOT / "frontend/public/assets/maps"
 PACKAGE_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 T = 16
 
-_rpg = None
-_modern = None
+_raw_sheets: tuple[Image.Image, Image.Image] | None = None
+_season_sheets: dict[str, tuple[Image.Image, Image.Image]] = {}
+_season = "summer"
 
 
-def _sheets():
-    global _rpg, _modern
-    if _rpg is None:
-        _rpg = Image.open(REPO_ROOT / "frontend/public/assets/tilesets/rpg-tileset.png").convert(
-            "RGBA"
+def _sheets(season: str | None = None) -> tuple[Image.Image, Image.Image]:
+    """The two tile sheets remapped for ``season`` (the current one when
+    omitted) — copies through ``seasons.apply_lut``; summer is the sheets
+    as painted."""
+    global _raw_sheets
+    season = season or _season
+    if _raw_sheets is None:
+        _raw_sheets = (
+            Image.open(REPO_ROOT / "frontend/public/assets/tilesets/rpg-tileset.png").convert(
+                "RGBA"
+            ),
+            Image.open(REPO_ROOT / "frontend/public/assets/tilesets/township-modern.png").convert(
+                "RGBA"
+            ),
         )
-        _modern = Image.open(
-            REPO_ROOT / "frontend/public/assets/tilesets/township-modern.png"
-        ).convert("RGBA")
-    return _rpg, _modern
+    if season not in _season_sheets:
+        _season_sheets[season] = tuple(
+            seasons.apply_lut(sheet, season).copy() for sheet in _raw_sheets
+        )
+    return _season_sheets[season]
+
+
+def scenario_season(scenario: str) -> str:
+    """The season of a scenario's decision day (``dates.decision_day`` in
+    its ``scenario.json``); summer when the package does not say."""
+    scenarios_root = (REPO_ROOT / "scenarios").resolve()
+    path = scenarios_root / _validated_id(scenario, label="scenario id") / "scenario.json"
+    if path.is_symlink() or not path.resolve().is_relative_to(scenarios_root) or not path.is_file():
+        return "summer"
+    day = (json.loads(path.read_text()).get("dates") or {}).get("decision_day")
+    try:
+        return seasons.season_for(datetime.date.fromisoformat(str(day)))
+    except (TypeError, ValueError):
+        return "summer"
 
 
 def tile_img(raw: int) -> Image.Image | None:
@@ -149,8 +176,39 @@ def _asset_path(scenario: str, filename: str) -> Path:
     return path
 
 
-def render(town_id: str, scenario: str = "nj11-2026", labels: bool = False) -> Path:
+def draw_stamp_centred(canvas: Image.Image, stamp, px: float, py: float) -> None:
+    """Place a stamp so its TOP tile is centred on (px, py) — the signal
+    anchor convention (the anchor marks the head tile's centre)."""
+    x0 = int(px - stamp.w * T / 2)
+    y0 = int(py - T / 2)
+    for r, c, g in stamp.cells():
+        img = tile_img(g)
+        if img is not None:
+            canvas.alpha_composite(img, (x0 + c * T, y0 + r * T))
+
+
+def draw_roadsign_chip(canvas: Image.Image, px: float, py: float, text: str) -> None:
+    """The runtime's destination chip: a small dark-green plate lettered
+    with the sign text, floating above the (blank) exit sign."""
+    draw = ImageDraw.Draw(canvas)
+    tw = draw.textlength(text)
+    x0, y0 = int(px - tw / 2) - 3, int(py - 22) - 6
+    draw.rectangle((x0, y0, x0 + int(tw) + 6, y0 + 12), fill=(47, 93, 58, 235))
+    draw.text((x0 + 3, y0 + 1), text, fill=(245, 234, 210, 255))
+
+
+def render(
+    town_id: str, scenario: str = "nj11-2026", labels: bool = False, season: str | None = None
+) -> Path:
+    """Composite ``<town>-preview.png`` (+ ``@2x``). ``season`` remaps both
+    sheets through the seasonal LUTs; when omitted it follows the
+    scenario's decision day (NJ-11's April is spring, Millbrook's November
+    autumn), which is what the running game shows."""
+    global _season
     town_id = _validated_id(town_id, label="town id")
+    _season = season or scenario_season(scenario)
+    if _season not in seasons.SEASONS:
+        raise ValueError(f"unknown season {_season!r}")
     tmj_path = _asset_path(scenario, f"{town_id}.tmj")
     if tmj_path.is_symlink() or not tmj_path.is_file():
         raise ValueError("generated town map is missing or unsafe")
@@ -188,12 +246,25 @@ def render(town_id: str, scenario: str = "nj11-2026", labels: bool = False) -> P
             draw_stamp(canvas, M.YARD_SIGN, obj["x"], obj["y"])
         elif kind == "banner":
             draw_stamp(canvas, M.BANNER_PLAIN, obj["x"], obj["y"])
+        elif kind == "signal":
+            # the head is a tile the runtime toggles; redraw the stamp so a
+            # preview of a hand-built canvas still shows it at rest (red)
+            draw_stamp_centred(canvas, M.SIGNAL, obj["x"], obj["y"])
+        elif kind == "roadsign":
+            draw_stamp(canvas, M.EXIT_SIGN, obj["x"], obj["y"])
         # noticeboard / pollplace / bunting / brazier: the kiosk and brazier
         # are tiles already; the polling dressing only exists on decision day.
         # spot: standing places for residents — nothing to draw
 
     if "buildings-top" in layers:
         draw_layer(canvas, layers["buildings-top"])
+
+    # the runtime letters every exit sign with a pixel-font chip; the sign
+    # face itself is blank, so the preview letters it the same way
+    for obj in anchors:
+        props = _anchor_props(obj)
+        if props.get("kind") == "roadsign" and (props.get("text") or obj["name"]):
+            draw_roadsign_chip(canvas, obj["x"], obj["y"], props.get("text") or obj["name"])
 
     if labels:
         # the layout's label anchors are authoritative (they may be nudged
@@ -236,8 +307,13 @@ def main() -> None:
     ap.add_argument("town")
     ap.add_argument("--scenario", default="nj11-2026")
     ap.add_argument("--labels", action="store_true")
+    ap.add_argument(
+        "--season",
+        choices=seasons.SEASONS,
+        help="palette season (default: the scenario's decision day)",
+    )
     args = ap.parse_args()
-    render(args.town, scenario=args.scenario, labels=args.labels)
+    render(args.town, scenario=args.scenario, labels=args.labels, season=args.season)
 
 
 if __name__ == "__main__":

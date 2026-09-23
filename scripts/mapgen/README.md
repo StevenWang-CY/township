@@ -36,8 +36,8 @@ are always isolated under `frontend/public/assets/maps/<scenario-id>/`:
 | `tiles.py` | Named-GID registry for the rpg tileset: `Blob` autotiles, `TileStamp` multi-tile objects, singles. Read its docstring first. |
 | `moderntiles.py` | Draws + quantizes the `township-modern` sheet (asphalt, sidewalk, road markings, street props, shingle-roof / chrome-diner / church / civic kits, and rows 17-29: building shadows, litter, the `GRASS_DARK` / `WORN` ground autotiles, vehicles, hedges, street / suburb kits, set-pieces) and exports the `Blob`s, `TileStamp`s and prop GIDs with `firstgid` 10001. Contact sheet: `_inspect/modern_sheet.png`. See "The township-modern kit" below. |
 | `seasons.py` | Seasonal exact-colour LUTs for both sheets (`season_for(date)`, `LUTS`, `apply_lut(image, season)`), sampled from the real tree / grass pixels; exported to `frontend/src/game/seasons.json` by `export_window_gids.py`. |
-| `build_maps.py` | `MapCanvas` (layers, blob autotiler, stamps, road network, collision + anchor emitters), building recipes (`storefront`, `grand`, `cottage`, `church`, `diner`), generic landmark interpreter, `.tmj` writer. |
-| `render_preview.py` | Compositor for generated maps; approximates anchors with registry stamps so previews match the in-game look. |
+| `build_maps.py` | `MapCanvas` (layers, blob autotiler, stamps, road network, collision + anchor emitters), building recipes (`storefront`, `grand`, `cottage`, `church`, `diner`, `garage`, `shed`), the Map II dressing vocabulary (`vehicle`, `park_stalls`, `porch`, `driveway`, `hedge_line`, `poles`, `signal`, `stop_sign`, `street_blade`, `road_sign`, `bus_shelter`, `desire_path`, `shade`) and its post-passes (`emit_edge_ring`, `emit_ground_shade`, `emit_ground_wear`, `emit_building_shadows`), generic landmark interpreter, `.tmj` writer. See "Map II — density dressing" below. |
+| `render_preview.py` | Compositor for generated maps; approximates anchors with registry stamps so previews match the in-game look, in the scenario's season (`--season` overrides; the decision day decides otherwise). |
 | `overworld.py` | District-Atlas overworld: a TRUE tilemap render on a 100x64-tile `MapCanvas` built from the same registry material as the towns (grass + `GRASS_LIGHT` meadows, `TREE_*` stamps with cast shadows, `WATER_DEEP` shoreline autotiles, the cliff kit, `township-modern` asphalt with dashes, `PATH_TAN` connector roads, cobble-pad town clearings), plus a translucent cloud-shadow layer and the town-site coordinates JSON. Geography per scenario lives in its `GEOGRAPHY` dict (tile coords); unknown scenarios get a deterministic generic layout. |
 | `layouts/<scenario>/<town>.py` | Optional hand-tuned layout per town; hyphens in both ids become underscores (for example `layouts/nj11_2026/dover.py`). |
 | `validate_registry.py`, `inspect_tiles.py` | Registry acceptance sheet and raw tileset inspection tools. |
@@ -57,11 +57,20 @@ Object layers:
 - `collision` — rectangles in px; blocked cells for agent movement
 - `anchors` — point objects TownScene turns into live sprites. `x/y` is the
   sprite's bottom-center. String properties:
-  - `kind`: one of `lamp | tree | flower | smoke | water-foam | windmill | label`
-    or the civic kinds `yardsign | noticeboard | pollplace | banner | bunting |
-    brazier` (see below)
+  - `kind`: one of `lamp | tree | flower | smoke | water-foam | windmill | label`,
+    the civic kinds `yardsign | noticeboard | pollplace | banner | bunting |
+    brazier` (see below), or the street kinds `roadsign | signal`
   - `stamp` (trees): registry stamp name, e.g. `tree_light`, `tree_fruit_a`
   - `text` (labels): display text; the object `name` carries the landmark name
+  - `text` (roadsign): the destination the runtime letters onto the blank
+    green exit sign in a pixel-font chip (`"TO RT 46"`); the anchor stands
+    at the sign post like any prop anchor
+  - `axis` (signal): `h` or `v` — the traffic axis whose cars the head
+    governs. A signal anchor is placed at the CENTRE of the head tile (not
+    bottom-centre): the runtime swaps the tile at `floor(x/16)`,
+    `floor(y/16)` between `signal_red` and `signal_green`, searching
+    `deco-below`, `buildings-top` and `ground-detail`; `emit_traffic` marks
+    a junction's stop lines `signal=1` when a head stands within two tiles
   - `mode` (smoke): `hearth` chimneys only smoke at dawn and dusk; anchors
     without a mode (factory stacks) smoke all day
   - `seat` / `home` (yardsign): a stable seat index and the dwelling's landmark
@@ -95,6 +104,60 @@ dwellings. Shingle-roofed recipes also get a `chimney` + hearth smoke anchor.
 Tilesets: `rpg-tileset` at `firstgid` 1 (100 cols, 10000 tiles) and
 `township-modern` at `firstgid` 10001 (10 cols, 300 tiles). Flip flags follow
 the Tiled top-3-bit convention (`tiles.FLIP_H/V/D`, mask with `GID_MASK`).
+
+## Map II — density dressing
+
+The second Map II pass places the kit below so the six towns read as
+finished pixel places, and raises building density to at least 14% of the
+map in `buildings-base` (`tests/test_mapgen_density.py` guards it, along
+with parked vehicles, signed exits, a dressed rim, clean streets, signal
+heads, byte-identical rebuilds and full-size previews).
+
+Recipes in `build_maps.py` (all tile-space; every prop a person should not
+walk through gets a collision rect; nothing lands on a street, a rail /
+river cell, a collision rect, an authored spot or door apron, or under an
+existing prop — the recipe skips the cell instead):
+
+| recipe | what it places |
+|--------|----------------|
+| `vehicle(m, kind, x, y, orient="h", color=None, facing=None)` | one `car` / `pickup` / `bus` / `schoolbus` on deco-below (a low prop), collided; `h` faces east, `v` south, `facing="w"` / `"n"` mirrors it; returns False when the footprint is taken |
+| `park_stalls(m, x, y, w, h, orient, landmark="", fill=0.7, surface="concrete", curb="n")` | a lot: 2x1 (h) or 1x2 (v) stalls at a one-cell pitch in `[2][aisle][2]` rhythm, each filled with p=`fill` by a random-colour car (one in eight a pickup) nosed in either way; concrete lots pour with the sidewalks (`m.pave`), asphalt lots join the road mask and get stall stripes on the `curb` side; a bike rack in the SE corner (+ a waiting spot on concrete lots with a landmark) |
+| `shadow_rect(m, x, y, w, h)` | queued by every building recipe last; `emit_building_shadows` paints `sh_full` along the south row and east column with `sh_fade_w` / `sh_fade_n` (and their mirrors) at the run ends — after the spots exist, so a shadow never takes a doorstep |
+| `garage(m, x, y, roof="cedar", door_dx=0, h=3)` / `shed(m, x, y)` | a 3-wide clapboard garage with the 2x2 `GARAGE_DOOR` (one eave row of shingles on the 3-tall box, ridge + eave with `h=4`); the 2x2 cedar shed. Both reserve, collide and shadow |
+| `porch(m, x, y, w, door_x=None)` | a one-row plank deck along a house's apron row (inset a cell each end so yard signs keep their lawn) and a two-tile step below the door — deferred markings, so a later walk does not erase them. `cottage()` adds it from `w >= 6` (`deck=False` opts out) and a `house_num` plaque + `ac_window` from `w >= 5` |
+| `driveway(m, x, y, w, h, car=True, car_at=None)` | concrete poured with the sidewalks, a car on it six times in ten |
+| `hedge_line(m, x0, y0, x1, y1)` | a straight clipped hedge from the `HEDGE` kit with end caps, a mulch bed on bare grass, one collision rect per run |
+| `poles(m, cells, pitch=6)` | utility poles every `pitch` cells along a verge (post on the cell, crossarm above on buildings-top) with `wire_h` / `wire_v` strung between aligned poles on buildings-top — over walkers, never over a street |
+| `signal(m, jx0, jy0, jx1, jy1)` | four `SIGNAL` heads on a junction's sidewalk corners (north heads one row up, so no tile hangs over the road) with `signal` anchors; SW + NE heads govern the east-west street, NW + SE the north-south one |
+| `stop_sign(m, x, y)` / `street_blade(m, x, y)` / `road_sign(m, x, y, text)` | 1x2 street props: post on deco-below (collided), face on buildings-top; the road sign also emits the `roadsign` anchor |
+| `bus_shelter(m, x, y, landmark="")` | the 3x2 glass shelter (roof row on buildings-top) with three `bench`-role waiting spots in front |
+| `shade(m, x, y, w, h)` / `MapCanvas.shade_cells` | the lawn's third tone: a `GRASS_DARK` patch over open grass, pouring together with every patch already painted |
+| `desire_path(m, a, b)` | a one-wide `WORN` line (4-connected Bresenham) over open grass only |
+
+Post-passes a layout calls at the end of `compose()` (after every building,
+prop and tree), in this order:
+
+1. `emit_edge_ring(m, EXITS)` — closes the map with woods: `GRASS_DARK`
+   over the outer two cells, small round trees every two cells along the
+   top, full canopies elsewhere wherever the canopy hides nothing (else a
+   small tree), a big tree every eight cells behind the top row. `EXITS =
+   [(side, c, text)]` names every road that leaves the map (`side` n/s/e/w,
+   `c` the road segment's first row / column) — each keeps a gap (road +
+   sidewalks) through the ring and gets an `EXIT_SIGN` + `roadsign` anchor
+   on the outbound driver's right; an undeclared edge road raises.
+2. `emit_ground_shade(m)` — shade under tree clusters (three or more trees
+   within three cells) and along the north face of every building at least
+   five wide; `clover` on 6% of park lawn, `mulch` under planters and
+   hedges, `litter` on 4% of shaded cells.
+3. `emit_ground_wear(m)` — desire lines from every dwelling's doorstep to
+   the nearest pavement when two to six cells of grass separate them, and
+   one diagonal across every park between its two farthest entrances.
+
+`build_town` then runs the civic and spot passes, `emit_building_shadows`,
+and `emit_traffic`. Buildings that front a street from behind (roof toward
+the sidewalk) must leave one grass row above their roof: a recipe reserves
+its `y - 1` row, and a reserved cell is skipped by the sidewalk ring and
+blocks a neighbour's doorstep spot.
 
 ## The township-modern kit (rows 17-29)
 
@@ -212,12 +275,17 @@ hover cards) belongs to the frontend, never to these PNGs.
    `scripts/mapgen/layouts/<id_with_underscores>/<town_with_underscores>.py`
    exporting `compose(m: MapCanvas)`. Follow `layouts/nj11_2026/dover.py`:
    - order matters: ground tone → large ground features → `road_h/road_v` +
-     `pave()` → buildings (they `reserve()` their cells) → `paint_roads()`
-     → dressing, trees (anchors), lamps, flowers, collision extras
+     `pave()` → buildings (they `reserve()` their cells), lots → `paint_roads()`
+     → dressing, trees (anchors), lamps, flowers, street kit, collision
+     extras → `emit_edge_ring(m, EXITS)`, `emit_ground_shade(m)`,
+     `emit_ground_wear(m)` → labels
+   - declare `EXITS` for every road that leaves the map (the ring pass
+     raises otherwise) with a real destination on the sign
    - composition rules: roads must connect landmarks and exit the map edge;
      every building door faces a road/path with a small apron; props go in
-     CLUSTERS; keep >= 30% open grass; give the town one memorable
-     set-piece.
+     CLUSTERS; buildings cover at least 14% of the map (`buildings-base`)
+     and every town parks at least four vehicles; give the town one
+     memorable set-piece.
 5. Iterate: re-render the preview after every change and actually look at
    it at native size and a crisp 2× browser zoom. Compare against
    `_inspect/example_map_render.png` for cohesion.

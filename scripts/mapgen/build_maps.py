@@ -241,6 +241,20 @@ class MapCanvas:
         #: Lane polylines and stop lines derived from the road network by
         #: ``emit_traffic`` (the frontend's TrafficLayer drives cars on them).
         self.traffic: list[dict] = []
+        #: Building footprints (x, y, w, h) queued by ``shadow_rect`` at the
+        #: end of every recipe; ``emit_building_shadows`` paints them once
+        #: the standing spots are known, so a shadow never takes a doorstep.
+        self.shadow_requests: list[tuple[int, int, int, int]] = []
+        #: Deferred ground-detail writes ``(x, y, gid)`` — stall stripes,
+        #: porch decks — flushed after the road/sidewalk blobs so they are
+        #: not poured over (``flush_markings``; ``paint_roads`` flushes too).
+        self.markings: list[tuple[int, int, int, bool]] = []
+        self.roads_painted = False
+        #: Cells taken by emitted ``spot`` anchors (filled by
+        #: ``emit_spot_anchors``); later dressing passes keep off them.
+        self.spot_cells: set[tuple[int, int]] = set()
+        #: Cells of the map-edge exit gaps (filled by ``emit_edge_ring``).
+        self.exit_gaps: set[tuple[int, int]] = set()
         self.landmarks: dict[str, Landmark] = {}
         for lm in town.get("landmarks", []):
             self.landmarks[lm["name"]] = Landmark(
@@ -448,6 +462,70 @@ class MapCanvas:
         self.anchor("lamp", x, y)
         self.collide(x + 0.25, y + 0.25, 0.5, 0.75)
 
+    def signal_anchor(self, tx: int, ty: int, axis: str) -> None:
+        """A ``signal`` anchor at the CENTRE of head tile (tx, ty): the
+        runtime swaps that tile between ``signal_red`` / ``signal_green``,
+        looking it up at ``floor(x / T)``, ``floor(y / T)``; ``axis`` is the
+        traffic axis (``h`` / ``v``) whose cars the head governs."""
+        self.anchors.append(
+            {
+                "name": "",
+                "x": (tx + 0.5) * T,
+                "y": (ty + 0.5) * T,
+                "props": {"kind": "signal", "axis": axis},
+            }
+        )
+
+    def apron_cells(self) -> set[tuple[int, int]]:
+        """Door aprons of every registered front: the cells directly under
+        each door, where the door / porch spots will stand."""
+        cells: set[tuple[int, int]] = set()
+        for fronts in self.fronts.values():
+            for f in fronts:
+                for dx in range(f["door_x"] - 2, f["door_x"] + f["door_w"] + 2):
+                    cells.add((dx, f["door_y"] + 1))
+        return cells
+
+    def authored_cells(self) -> set[tuple[int, int]]:
+        """Cells the layout has promised to residents: queued spot requests
+        (with their alternatives) plus every door apron."""
+        cells = self.apron_cells()
+        for req in self.spot_requests:
+            for x, y, _facing in [(req["x"], req["y"], ""), *req.get("alternatives", ())]:
+                cells.update(_spot_cells(x, y))
+        return cells
+
+    def placeable(
+        self, x: int, y: int, keep: set[tuple[int, int]] | None = None, street_only: bool = True
+    ) -> bool:
+        """May a new prop tile go on (x, y)? In bounds, off the street (or,
+        with ``street_only=False``, off every asphalt cell), not reserved,
+        not under a collision rect, nothing on deco-below / the building
+        layers, and not one of the ``keep`` cells (authored spots, aprons,
+        exit gaps)."""
+        if not self.inb(x, y) or (x, y) in self.reserved:
+            return False
+        if self.on_street(x, y) or (not street_only and (x, y) in self.road_mask):
+            return False
+        if keep and (x, y) in keep:
+            return False
+        if self.collided((x + 0.5) * T, (y + 0.5) * T):
+            return False
+        return not (
+            self.get("deco-below", x, y)
+            or self.get("buildings-base", x, y)
+            or self.get("buildings-top", x, y)
+        )
+
+    def flush_markings(self) -> None:
+        """Write the deferred ground-detail markings (idempotent). A
+        ``soft`` marking only lands on a still-bare cell."""
+        for x, y, g, soft in self.markings:
+            if soft and self.get("ground-detail", x, y):
+                continue
+            self.set("ground-detail", x, y, g)
+        self.markings = []
+
     def register_front(
         self,
         landmark: str | None,
@@ -543,6 +621,24 @@ class MapCanvas:
                 d = swk_corner.get(self.get("ground-detail", x, y))
                 if d and (x + d[0], y + d[1]) in road:
                     self.set("ground", x, y, self.rng.choice(M.ASPHALT.fill))
+            # Curb returns: at every convex sidewalk corner that turns
+            # toward asphalt (the four crooks of a junction, a lot mouth)
+            # the quarter-arc ``curb_*`` overlay draws the corner's curb
+            # line on deco-below; the corner tile and its backing stay.
+            curb_for = {
+                M.mg("swk_nw"): M.mg("curb_nw"),
+                M.mg("swk_ne"): M.mg("curb_ne"),
+                M.mg("swk_sw"): M.mg("curb_sw"),
+                M.mg("swk_se"): M.mg("curb_se"),
+            }
+            keep = self.authored_cells()
+            for x, y in ring:
+                g = self.get("ground-detail", x, y)
+                d = swk_corner.get(g)
+                if not d or (x + d[0], y + d[1]) not in road or (x, y) in keep:
+                    continue
+                if self.get("deco-below", x, y) == 0 and (x, y) not in self.reserved:
+                    self.set("deco-below", x, y, curb_for[g])
 
         junctions = self._junctions()
         if dashes:
@@ -566,6 +662,8 @@ class MapCanvas:
                 g = M.mg("crosswalk_h") if side in ("w", "e") else M.mg("crosswalk_v")
                 for c in band:
                     self.set("ground-detail", *c, g)
+        self.roads_painted = True
+        self.flush_markings()
 
     def crosswalk_bands(self) -> list[tuple[tuple[int, int, int, int], str, list[tuple[int, int]]]]:
         """Crosswalk bands at every real crossing: ``(junction, side, cells)``
@@ -618,6 +716,46 @@ class MapCanvas:
                 if edge >= 1 or self.rng.random() < 0.55:
                     cells.add((xx, yy))
         self.blob("ground-detail", cells, R.GRASS_LIGHT, holes=False)
+
+    def shade(self, x: int, y: int, w: int, h: int) -> None:
+        """Cooler ``GRASS_DARK`` lawn (tree shade, the strip behind a
+        building): a rect painted only over open grass, with the blob's
+        edges and hole fillets softening it back into the base grass."""
+        self.shade_cells(
+            {(xx, yy) for yy in range(y, y + h) for xx in range(x, x + w) if self.inb(xx, yy)}
+        )
+
+    def shade_cells(self, cells: set[tuple[int, int]]) -> None:
+        """Paint ``GRASS_DARK`` over the open-grass members of ``cells``
+        (base grass or light meadow, off roads and plazas). Every patch of
+        shade already on the map joins the autotile mask, so patches pour
+        together instead of drawing edges against each other, and cells
+        beyond the map border count as shade so the outer edge of a band
+        along the border stays seamless."""
+        lawn = _grass_gids()
+        dark = _dark_grass_gids()
+        keep = {
+            c
+            for c in cells
+            if self.inb(*c)
+            and c not in self.road_mask
+            and c not in self.paved
+            and (self.get("ground-detail", *c) == 0 or self.get("ground-detail", *c) in lawn)
+        }
+        if not keep:
+            return
+        mask = set(keep)
+        for y in range(self.h):
+            for x in range(self.w):
+                if self.layers["ground-detail"][y][x] in dark:
+                    mask.add((x, y))
+        for x, y in list(mask):
+            if x in (0, self.w - 1) or y in (0, self.h - 1):
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        if not self.inb(x + dx, y + dy):
+                            mask.add((x + dx, y + dy))
+        self.blob("ground-detail", mask, M.GRASS_DARK)
 
     def flowers(self, x: int, y: int, n: int = 5, spread: int = 3) -> None:
         for _ in range(n):
@@ -693,7 +831,7 @@ def storefront(
         m.chimney(x + w - 2, y - 1)
     m.register_front(landmark, x, y, w, h, x + dd, y + h - 1, y + roof_h)
     if yard and landmark:
-        m.homes.append({"x": x, "y": y, "w": w, "h": h, "landmark": landmark})
+        m.homes.append({"x": x, "y": y, "w": w, "h": h, "landmark": landmark, "door_x": x + dd})
     if awning:
         # hangs over the top of the shopfront, door row stays visible
         m.stamp("buildings-top", awning_strip(w), x, y + roof_h - 1)
@@ -701,6 +839,7 @@ def storefront(
         sx = x + w - 3 if dd <= (w - 2) // 2 else x + 1
         m.stamp("buildings-top", R.SIGNS_WALL[sign % len(R.SIGNS_WALL)], sx, y + roof_h)
     m.collide(x, y, w, h)
+    shadow_rect(m, x, y, w, h)
 
 
 def grand(
@@ -740,6 +879,7 @@ def grand(
     m.collide(x, y, w, h)
     door_x = x + (w - aw) // 2 if arch else x + (w - 2) // 2
     m.register_front(landmark, x, y, w, h, door_x, y + h - 1, y + roof_h + 1)
+    shadow_rect(m, x, y, w, h)
 
 
 def cottage(
@@ -751,23 +891,37 @@ def cottage(
     roof: str = "deck_light",
     landmark: str | None = None,
     chimney: bool = True,
+    deck: bool | None = None,
 ) -> None:
     """Colonial house: pitched shingle roof over a cream clapboard front —
     paired shutter windows upstairs, centered door below. Footprint w x h,
     h >= 6, w >= 6 keeps the paired windows. Every cottage is a dwelling:
-    it gets a hearth chimney and yard-sign anchors on its lawn."""
+    it gets a hearth chimney and yard-sign anchors on its lawn. From w >= 5
+    a house-number plaque hangs beside the door and one window carries an
+    AC unit; from w >= 6 (``deck`` unless overridden) a plank porch deck
+    with a step runs along the front."""
     m.reserve(x, y - 1, w, h + 1)
     roof_h = max(2, h - 4)
     m.stamp("buildings-top", roof_stamp(roof, w, roof_h), x, y)
     m.stamp("buildings-base", facade_wall("cream", w, rows=[2, 3, 4, 5]), x, y + roof_h)
     for wx in [x + 1, x + w - 3] if w >= 6 else [x + (w - 2) // 2]:
         m.stamp("buildings-base", M.SHUTTER_WINDOW, wx, y + roof_h)
-    m.building_stamp(R.DOOR_WOOD, x + (w - 2) // 2, y + roof_h + 2, top_rows=1)
+    dx = x + (w - 2) // 2
+    m.building_stamp(R.DOOR_WOOD, dx, y + roof_h + 2, top_rows=1)
+    if w >= 5:
+        # transparent overlays ride buildings-top so the wall tile stays
+        # behind them (the sign-tile trick); the plaque hangs right of the
+        # door's top row, the AC unit sits in the right window's lower sash
+        m.set("buildings-top", dx + 2, y + roof_h + 2, M.mg("house_num"))
+        m.set("buildings-top", x + w - 3 if w >= 6 else dx + 1, y + roof_h + 1, M.mg("ac_window"))
     m.collide(x, y, w, h)
     if chimney:
         m.chimney(x + w - 2, y - 1)
-    m.register_front(landmark, x, y, w, h, x + (w - 2) // 2, y + h - 1, y + roof_h)
-    m.homes.append({"x": x, "y": y, "w": w, "h": h, "landmark": landmark or ""})
+    m.register_front(landmark, x, y, w, h, dx, y + h - 1, y + roof_h)
+    m.homes.append({"x": x, "y": y, "w": w, "h": h, "landmark": landmark or "", "door_x": dx})
+    if deck or (deck is None and w >= 6):
+        porch(m, x, y + h, w, door_x=dx)
+    shadow_rect(m, x, y, w, h)
 
 
 def church(
@@ -820,6 +974,7 @@ def church(
     m.set("buildings-base", cx + 1, wy + 2, M.mg(f"ch_{v}_door_br"))
     m.collide(x, y, w, h)
     m.register_front(landmark, x, y, w, h, cx, y + h - 1, wy)
+    shadow_rect(m, x, y, w, h)
     if garden:  # modest side garden off the east wall
         gx, gy = x + w + 1, y + h - 2
         if m.inb(gx + 1, gy + 1):
@@ -848,6 +1003,7 @@ def diner(
     m.stamp("buildings-base", M.DINER_DOOR, x + dd, y + h - 2)
     m.collide(x, y, w, h)
     m.register_front(landmark, x, y, w, h, x + dd, y + h - 1, y + 3, door_w=1)
+    shadow_rect(m, x, y, w, h)
 
 
 def apron(m: MapCanvas, x: int, y: int, w: int = 2, h: int = 1, material: str = "sidewalk") -> None:
@@ -942,6 +1098,866 @@ def platform(
     facing = {"n": "up", "s": "down", "w": "left", "e": "right"}[edge]
     for cx, cy in cells:
         m.spot("platform", cx, cy, facing, landmark, exact=True)
+
+
+# ---------------------------------------------------------------------------
+# Map II — vehicles, lots and cast shadows
+# ---------------------------------------------------------------------------
+
+
+def _blob_gids(b: Blob) -> set[int]:
+    out: set[int] = set(b.fill)
+    for value in b.edge_tiles().values():
+        if isinstance(value, int):
+            if value:
+                out.add(value)
+        else:
+            out.update(g for g in value if g)
+    return out
+
+
+def _dark_grass_gids() -> set[int]:
+    return _blob_gids(M.GRASS_DARK)
+
+
+def _water_gids() -> set[int]:
+    out = _blob_gids(R.WATER_DEEP) | _blob_gids(R.WATER_SHALLOW) | set(R.WATER_LAKE_FILL)
+    out.update(R.STREAM_V)
+    for s in (R.POND_GRASS, R.POND_STONE, R.POND_TERRACOTTA, R.POND_STONE_OUTLET_S):
+        out.update(g for _, _, g in s.cells())
+    return out
+
+
+def _pavement_gids() -> set[int]:
+    """Ground-detail gids a resident walks on as pavement: sidewalk, tan
+    path, cobbles, plank decks and trodden dirt."""
+    out = _blob_gids(M.SIDEWALK) | _blob_gids(R.PATH_TAN) | _blob_gids(R.COBBLE_PAD)
+    out |= _blob_gids(M.WORN)
+    out.update(R.COBBLE_FILL)
+    out.update(R.PLAZA_COBBLE_FILL)
+    out.update(R.STONE_FLOOR_FILL)
+    out.update(R.PLANKS_LIGHT)
+    out.update(R.PLANKS_DARK)
+    for s in (R.DECK_LIGHT, R.DECK_DARK, R.STONE_FLOOR_PAD):
+        out.update(g for _, _, g in s.cells())
+    return out
+
+
+#: Vehicle stamps by (kind, orient); ``h`` faces east, ``v`` faces south.
+_VEHICLES: dict[tuple[str, str], TileStamp | dict[str, TileStamp]] = {
+    ("car", "h"): M.CAR_H,
+    ("car", "v"): M.CAR_V,
+    ("pickup", "h"): M.PICKUP_H,
+    ("pickup", "v"): M.PICKUP_V,
+    ("bus", "h"): M.BUS_H,
+    ("bus", "v"): M.BUS_V,
+    ("schoolbus", "h"): M.SCHOOLBUS_H,
+}
+
+
+def vehicle(
+    m: MapCanvas,
+    kind: str,
+    x: int,
+    y: int,
+    orient: str = "h",
+    color: str | None = None,
+    facing: str | None = None,
+) -> bool:
+    """Park one vehicle with its top-left tile at (x, y): the stamp goes on
+    deco-below (a car is a low prop residents walk in front of) and its
+    footprint is collided. ``kind`` is ``car`` / ``pickup`` / ``bus`` /
+    ``schoolbus`` (the school bus only exists horizontally); ``orient``
+    ``h`` faces east and ``v`` faces south unless ``facing`` turns it the
+    other way (``w`` / ``n``, a mirrored stamp). ``color`` picks a car's
+    paint, random when omitted. Nothing is placed — and False returned —
+    when a footprint cell is a street, reserved, already dressed, under a
+    collision rect or promised to a standing spot."""
+    try:
+        stamp = _VEHICLES[(kind, orient)]
+    except KeyError as exc:
+        raise ValueError(f"no {kind!r} vehicle with orient {orient!r}") from exc
+    if isinstance(stamp, dict):
+        stamp = stamp[color or m.rng.choice(M.CAR_COLORS)]
+    rows = [list(r) for r in stamp.gids]
+    if facing == "w" and orient == "h":
+        rows = [[g | R.FLIP_H if g else 0 for g in reversed(r)] for r in rows]
+    elif facing == "n" and orient == "v":
+        rows = [[g | R.FLIP_V if g else 0 for g in r] for r in reversed(rows)]
+    w, h = len(rows[0]), len(rows)
+    keep = m.authored_cells()
+    if not all(m.placeable(x + c, y + r, keep) for r in range(h) for c in range(w)):
+        return False
+    for r, row in enumerate(rows):
+        for c, g in enumerate(row):
+            if g:
+                m.set("deco-below", x + c, y + r, g)
+    m.collide(x, y, w, h)
+    return True
+
+
+def park_stalls(
+    m: MapCanvas,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    orient: str = "h",
+    landmark: str = "",
+    fill: float = 0.7,
+    surface: str = "concrete",
+    curb: str = "n",
+) -> int:
+    """A parking lot ``w x h`` at (x, y). ``surface="concrete"`` paves it so
+    it pours with the sidewalks (``m.pave``); ``"asphalt"`` adds it to the
+    road mask instead (the curbed ring wraps it — give it a driveway).
+    With ``orient="h"`` the stalls are 2x1 (cars facing east / west),
+    stacked at a one-cell pitch in columns of ``[2 stalls][aisle][2
+    stalls]``; with ``"v"`` they are 1x2 in rows of the same rhythm. Each
+    stall is filled with probability ``fill`` (seeded by the town rng) by a
+    random-colour car — one in eight a pickup — nosed in either way. An
+    asphalt lot with vertical stalls gets stall stripes on the closed end
+    of each stall — ``curb`` names the side (``n`` / ``s``) the first row
+    of stalls backs onto; the second row backs onto the other — deferred
+    until the lot is painted. A bike rack takes the south-east corner and,
+    on a concrete lot with a ``landmark``, a waiting spot stands beside it
+    (a spot never goes on asphalt). Returns the number of vehicles parked."""
+    if orient not in ("h", "v"):
+        raise ValueError("park_stalls orient must be 'h' or 'v'")
+    if curb not in ("n", "s"):
+        raise ValueError("park_stalls curb must be 'n' or 's'")
+    if surface == "asphalt":
+        for yy in range(y, y + h):
+            for xx in range(x, x + w):
+                if m.inb(xx, yy):
+                    m.road_mask.add((xx, yy))
+    else:
+        m.pave(x, y, w, h)
+    rack = (x + w - 1, y + h - 1)
+    stalls: list[tuple[int, int, int, int, bool]] = []  # x, y, w, h, curb_side_first
+    if orient == "h":
+        gx = x
+        while gx < x + w:
+            for sx, first in ((gx, True), (gx + 3, False)):
+                if sx + 1 < x + w:
+                    stalls.extend((sx, yy, 2, 1, first) for yy in range(y, y + h))
+            gx += 5
+    else:
+        gy = y
+        while gy < y + h:
+            for sy, first in ((gy, True), (gy + 3, False)):
+                if sy + 1 < y + h:
+                    stalls.extend((xx, sy, 1, 2, first) for xx in range(x, x + w))
+            gy += 5
+    parked = 0
+    stripe = M.mg("parking_stall")
+    for sx, sy, sw, sh, first in stalls:
+        if rack[0] in range(sx, sx + sw) and rack[1] in range(sy, sy + sh):
+            continue
+        if surface == "asphalt" and orient == "v":
+            north = first == (curb == "n")
+            mark = (sx, sy, stripe) if north else (sx, sy + 1, stripe | R.FLIP_V)
+            if m.roads_painted:
+                m.set("ground-detail", *mark)
+            else:
+                m.markings.append((*mark, False))
+        if m.rng.random() >= fill:
+            continue
+        kind = "pickup" if m.rng.random() < 0.12 else "car"
+        facing = None
+        if m.rng.random() < 0.5:
+            facing = "w" if orient == "h" else "n"
+        if vehicle(m, kind, sx, sy, orient, facing=facing):
+            parked += 1
+    if m.placeable(*rack):
+        m.stamp("deco-below", M.BIKE_RACK, *rack)
+        m.collide(rack[0], rack[1], 1, 1)
+        if landmark and surface != "asphalt":
+            m.spot("bench", rack[0] - 1, rack[1], "up", landmark, exact=True)
+    return parked
+
+
+def shadow_rect(m: MapCanvas, x: int, y: int, w: int, h: int) -> None:
+    """Queue the cast shadow of a ``w x h`` building at (x, y) — one row
+    along its south face and one column down its east side, light from the
+    north-west. Every recipe calls this last; ``emit_building_shadows``
+    paints the queue once the standing spots exist, so a shadow never lands
+    on a doorstep, a street, water, another building or a prop."""
+    m.shadow_requests.append((x, y, w, h))
+
+
+def emit_building_shadows(m: MapCanvas) -> None:
+    """Paint the queued building shadows onto empty deco-below cells:
+    ``sh_full`` along the south row (``y + h``) and the east column
+    (``x + w``), ``sh_fade_w`` (dithered west edge) at the west end of a
+    south run and mirrored at its east end, ``sh_fade_n`` at the top of the
+    column and mirrored at its foot, and a full tile where row and column
+    meet. Runs break around anything already there — a spot cell, a door
+    apron, a road, a planter — and end softly on both sides of the break."""
+    keep = m.spot_cells | m.authored_cells() | m.exit_gaps
+    # cells under prop sprites (yard signs, trees, lamps): a sign's lawn
+    # cell must stay bare, and a shadow under a trunk is wasted anyway
+    keep |= {
+        (int(a["x"] // T), int(round(a["y"] / T)) - 1)
+        for a in m.anchors
+        if a["props"].get("kind") in _PROP_ANCHOR_KINDS
+    }
+    water = _water_gids()
+    full, fade_n, fade_w = M.mg("sh_full"), M.mg("sh_fade_n"), M.mg("sh_fade_w")
+
+    def free(c: tuple[int, int]) -> bool:
+        return (
+            m.inb(*c)
+            and c not in keep
+            and c not in m.reserved
+            and not m.on_street(*c)
+            and m.get("deco-below", *c) == 0
+            and m.get("buildings-base", *c) == 0
+            and m.get("buildings-top", *c) == 0
+            and m.get("ground-detail", *c) not in water
+        )
+
+    for x, y, w, h in m.shadow_requests:
+        column = [(x + w, yy) for yy in range(y, y + h)]
+        row = [(xx, y + h) for xx in range(x, x + w)]
+        corner = (x + w, y + h)
+        cells = {c for c in column + row + [corner] if free(c)}
+        if corner in cells and (x + w - 1, y + h) not in cells and (x + w, y + h - 1) not in cells:
+            cells.discard(corner)  # a lone corner square reads as dirt
+        for cx, cy in cells:
+            if (cx, cy) == corner:
+                if (cx - 1, cy) in cells and (cx, cy - 1) in cells:
+                    g = full
+                elif (cx, cy - 1) in cells:
+                    g = fade_n | R.FLIP_V
+                else:
+                    g = fade_w | R.FLIP_H
+            elif cx == x + w:
+                if (cx, cy - 1) not in cells:
+                    g = fade_n
+                elif (cx, cy + 1) not in cells:
+                    g = fade_n | R.FLIP_V
+                else:
+                    g = full
+            elif (cx - 1, cy) not in cells:
+                g = fade_w
+            elif (cx + 1, cy) not in cells:
+                g = fade_w | R.FLIP_H
+            else:
+                g = full
+            m.set("deco-below", cx, cy, g)
+
+
+# ---------------------------------------------------------------------------
+# Map II — suburb and street vocabulary
+# ---------------------------------------------------------------------------
+
+_CURB_GIDS = frozenset(M.mg(n) for n in ("curb_nw", "curb_ne", "curb_sw", "curb_se"))
+
+
+def _post_free(m: MapCanvas, x: int, y: int, keep: set[tuple[int, int]]) -> bool:
+    """A sign / pole post may stand here: placeable; or only a curb-return
+    overlay is in the way (the post takes the corner); or the cell is a
+    building's reserved back row that is still bare, uncollided grass or
+    pavement (the one-row strip between a sidewalk and the roof behind
+    it is exactly where a corner post stands)."""
+    if m.placeable(x, y, keep):
+        return True
+    if not m.inb(x, y) or m.on_street(x, y) or (x, y) in keep:
+        return False
+    if m.collided((x + 0.5) * T, (y + 0.5) * T):
+        return False
+    if m.get("buildings-base", x, y) or m.get("buildings-top", x, y):
+        return False
+    deco = m.get("deco-below", x, y)
+    if deco and deco not in _CURB_GIDS:
+        return False
+    ground = m.get("ground-detail", x, y)
+    return ground == 0 or ground in _grass_gids() | _dark_grass_gids() | _pavement_gids()
+
+
+def _head_free(m: MapCanvas, x: int, y: int) -> bool:
+    """The tall tile of a 1x2 street prop may hang here: in bounds, not
+    over a street, and nothing drawn on the cell yet (a head over a wall,
+    a prop or another head would read as clutter) — a curb-return arc on a
+    junction crook is the one overlay a head may hang over."""
+    return (
+        m.inb(x, y)
+        and not m.on_street(x, y)
+        and m.get("buildings-top", x, y) == 0
+        and m.get("buildings-base", x, y) == 0
+        and m.get("deco-below", x, y) in _CURB_GIDS | {0}
+    )
+
+
+def _tall_prop(m: MapCanvas, x: int, y: int, top: int, base: int) -> bool:
+    """Stand a 1x2 prop with its post on (x, y) (deco-below, collided) and
+    its head on the row above (buildings-top, so walkers pass beneath)."""
+    if not (_post_free(m, x, y, m.authored_cells()) and _head_free(m, x, y - 1)):
+        return False
+    m.set("deco-below", x, y, base)
+    m.set("buildings-top", x, y - 1, top)
+    m.collide(x + 0.35, y + 0.3, 0.3, 0.7)
+    return True
+
+
+def porch(m: MapCanvas, x: int, y: int, w: int, door_x: int | None = None) -> None:
+    """A one-row plank porch deck along row ``y`` (a house's apron row),
+    inset one cell from either end of the ``w``-wide front so the lawn
+    corners stay free for yard signs, with a two-tile stone step below the
+    door. Both are deferred ground-detail markings, so a walk or lane
+    poured later does not erase them; the step is only laid on bare grass."""
+    dx = door_x if door_x is not None else x + (w - 2) // 2
+    for xx in range(x + 1, x + w - 1):
+        if m.inb(xx, y) and not m.on_street(xx, y) and (xx, y) not in m.reserved:
+            m.markings.append((xx, y, m.rng.choice(R.PLANKS_LIGHT), False))
+    for sx in (dx, dx + 1):
+        if m.inb(sx, y + 1) and not m.on_street(sx, y + 1):
+            m.markings.append((sx, y + 1, M.mg("steps"), True))
+
+
+def garage(m: MapCanvas, x: int, y: int, roof: str = "cedar", door_dx: int = 0, h: int = 3) -> None:
+    """A detached 3-wide clapboard garage: a shingle roof (one eave row on
+    the 3-tall box, ridge + eave when ``h`` is 4) over cream walls holding
+    the 2x2 panelled ``GARAGE_DOOR`` (``door_dx`` 0 or 1 picks the bay).
+    No front is registered — nobody loiters at a garage door."""
+    w = 3
+    if h not in (3, 4) or door_dx not in (0, 1):
+        raise ValueError("garage: h must be 3 or 4 and door_dx 0 or 1")
+    cw = SHINGLE_ALIASES.get(roof, roof)
+    m.reserve(x, y - 1, w, h + 1)
+    if h == 4:
+        m.stamp("buildings-top", roof_stamp(cw, w, 2), x, y)
+    else:
+        for c, side in enumerate(("l", "m", "r")):
+            m.set("buildings-top", x + c, y, M.mg(f"shg_{cw}_eave_{side}"))
+    wall_y = y + h - 2
+    m.stamp("buildings-base", facade_wall("cream", w, rows=[4, 5]), x, wall_y)
+    m.stamp("buildings-base", M.GARAGE_DOOR, x + door_dx, wall_y)
+    m.collide(x, y, w, h)
+    shadow_rect(m, x, y, w, h)
+
+
+def shed(m: MapCanvas, x: int, y: int) -> None:
+    """The 2x2 cedar-roofed garden shed: roof row on buildings-top, wall
+    row on buildings-base, footprint collided and shadowed."""
+    m.reserve(x, y - 1, 2, 3)
+    m.building_stamp(M.SHED, x, y, top_rows=1)
+    m.collide(x, y, 2, 2)
+    shadow_rect(m, x, y, 2, 2)
+
+
+def driveway(
+    m: MapCanvas,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    car: bool = True,
+    car_at: tuple[int, int] | None = None,
+) -> bool:
+    """A concrete driveway ``w x h`` poured with the sidewalks, usually
+    running from a garage door to the street. With ``car`` a car is parked
+    on it six times in ten (seeded), lengthwise, at ``car_at`` (default: the
+    driveway's top-left, the garage end). Returns whether a car was parked."""
+    m.pave(x, y, w, h)
+    if not car or m.rng.random() >= 0.6:
+        return False
+    cx, cy = car_at if car_at else (x, y)
+    orient = "v" if h >= w else "h"
+    facing = None
+    if m.rng.random() < 0.5:
+        facing = "n" if orient == "v" else "w"
+    return vehicle(m, "car", cx, cy, orient, facing=facing)
+
+
+def hedge_line(m: MapCanvas, x0: int, y0: int, x1: int, y1: int) -> None:
+    """A clipped hedge along a straight line (horizontal or vertical,
+    inclusive ends) from the ``HEDGE`` kit: end caps, straight runs, a
+    mulch bed on bare grass beneath, and one collision rect per run. Cells
+    that are taken (a street, a prop, a doorstep) break the hedge into
+    separate capped runs."""
+    if x0 != x1 and y0 != y1:
+        raise ValueError("hedge_line is straight only")
+    horizontal = y0 == y1
+    if horizontal:
+        cells = [(xx, y0) for xx in range(min(x0, x1), max(x0, x1) + 1)]
+    else:
+        cells = [(x0, yy) for yy in range(min(y0, y1), max(y0, y1) + 1)]
+    keep = m.authored_cells()
+    runs: list[list[tuple[int, int]]] = []
+    for c in cells:
+        if m.placeable(*c, keep):
+            if runs and runs[-1] and runs[-1][-1] in ((c[0] - 1, c[1]), (c[0], c[1] - 1)):
+                runs[-1].append(c)
+            else:
+                runs.append([c])
+        else:
+            runs.append([])
+    mulch = (M.mg("mulch_a"), M.mg("mulch_b"))
+    for run in runs:
+        if not run:
+            continue
+        for i, (cx, cy) in enumerate(run):
+            if len(run) == 1:
+                piece = "h" if horizontal else "v"
+            elif i == 0:
+                piece = "end_w" if horizontal else "end_n"
+            elif i == len(run) - 1:
+                piece = "end_e" if horizontal else "end_s"
+            else:
+                piece = "h" if horizontal else "v"
+            m.stamp("deco-below", M.HEDGE[piece], cx, cy)
+            if m.get("ground-detail", cx, cy) == 0:
+                m.set("ground-detail", cx, cy, m.rng.choice(mulch))
+        (ax, ay), (bx, by) = run[0], run[-1]
+        m.collide(ax, ay, bx - ax + 1, by - ay + 1)
+
+
+def poles(m: MapCanvas, cells: list[tuple[int, int]], pitch: int = 6) -> int:
+    """Utility poles every ``pitch`` cells along ``cells`` (an ordered run
+    of verge / sidewalk cells; the post stands ON the cell, the crossarm on
+    the row above) with wires strung between consecutive aligned poles on
+    buildings-top, so they cross above walkers and never over a street. A
+    pole whose post or crossarm cell is taken is skipped; a wire cell that
+    is taken leaves a gap. Returns the number of poles raised."""
+    placed: list[tuple[int, int]] = []
+    keep = m.authored_cells()
+    for i in range(0, len(cells), pitch):
+        x, y = cells[i]
+        if not (_post_free(m, x, y, keep) and _head_free(m, x, y - 1)):
+            continue
+        m.set("deco-below", x, y, M.mg("pole_base"))
+        m.set("buildings-top", x, y - 1, M.mg("pole_top"))
+        m.collide(x + 0.35, y + 0.3, 0.3, 0.7)
+        placed.append((x, y))
+    wire_h, wire_v = M.mg("wire_h"), M.mg("wire_v")
+    for (ax, ay), (bx, by) in zip(placed, placed[1:], strict=False):
+        if ay == by:
+            wires = [(xx, ay - 1) for xx in range(min(ax, bx) + 1, max(ax, bx))]
+            g = wire_h
+        elif ax == bx:
+            wires = [(ax, yy) for yy in range(min(ay, by), max(ay, by) - 1)]
+            g = wire_v
+        else:
+            continue
+        for wx, wy in wires:
+            if _head_free(m, wx, wy):
+                m.set("buildings-top", wx, wy, g)
+    return len(placed)
+
+
+def signal(m: MapCanvas, jx0: int, jy0: int, jx1: int, jy1: int) -> int:
+    """Traffic signals on the four sidewalk corners of the junction whose
+    asphalt rect is (jx0, jy0)-(jx1, jy1) inclusive. Each head is the top
+    tile of the 1x2 ``SIGNAL`` stamp (buildings-top; the pole below it on
+    deco-below, collided) placed so neither tile hangs over the street: the
+    north heads stand one row up from the crook, the south heads on it. A
+    ``signal`` anchor sits at each head's centre — ``axis`` is the traffic
+    it governs, the driver's near-right head: SW and NE for the east-west
+    street, NW and SE for the north-south one — which is what makes
+    ``emit_traffic`` mark the junction's stop lines signal-controlled.
+    Returns the number of heads placed."""
+    heads = (
+        (jx0 - 1, jy0 - 2, "v"),
+        (jx1 + 1, jy0 - 2, "h"),
+        (jx0 - 1, jy1 + 1, "h"),
+        (jx1 + 1, jy1 + 1, "v"),
+    )
+    n = 0
+    for hx, hy, axis in heads:
+        if _tall_prop(m, hx, hy + 1, M.mg("signal_red"), M.mg("signal_pole")):
+            m.signal_anchor(hx, hy, axis)
+            n += 1
+    return n
+
+
+def stop_sign(m: MapCanvas, x: int, y: int) -> bool:
+    """A stop sign with its post on (x, y) — a junction crook, on the
+    approaching driver's right — and the sign face on the row above."""
+    return _tall_prop(m, x, y, M.mg("stop_top"), M.mg("sign_post"))
+
+
+def street_blade(m: MapCanvas, x: int, y: int) -> bool:
+    """A street-name blade on a post at (x, y)."""
+    return _tall_prop(m, x, y, M.mg("blade_top"), M.mg("sign_post"))
+
+
+def road_sign(m: MapCanvas, x: int, y: int, text: str) -> bool:
+    """A blank green destination sign with its post on (x, y) plus a
+    ``roadsign`` anchor carrying ``text`` (the runtime letters a pixel-font
+    chip over it)."""
+    if not _tall_prop(m, x, y, M.mg("exit_sign_t"), M.mg("exit_sign_b")):
+        return False
+    m.anchor("roadsign", x, y, name=text, text=text)
+    return True
+
+
+def bus_shelter(m: MapCanvas, x: int, y: int, landmark: str = "") -> bool:
+    """The 3x2 glass bus shelter with its top-left at (x, y): roof row on
+    buildings-top, bench row on deco-below, footprint collided, and three
+    waiting spots on the row in front facing the street side (``bench``
+    role, precise cells)."""
+    keep = m.authored_cells()
+    if not all(m.placeable(x + c, y + r, keep) for r in range(2) for c in range(3)):
+        return False
+    m.building_stamp(M.SHELTER, x, y, top_rows=1)
+    m.collide(x, y, 3, 2)
+    for sx in range(x, x + 3):
+        m.spot("bench", sx, y + 2, "up", landmark, exact=True)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Map II — ground tones, desire lines and the edge ring
+# ---------------------------------------------------------------------------
+
+
+def _line4(a: tuple[int, int], b: tuple[int, int]) -> list[tuple[int, int]]:
+    """A 4-connected Bresenham walk from ``a`` to ``b`` (both inclusive):
+    one axis step per move, always the one that stays closest to the ideal
+    line, so every cell touches the next by an edge and the WORN autotile
+    can join them."""
+    (x0, y0), (x1, y1) = a, b
+    dx, dy = abs(x1 - x0), abs(y1 - y0)
+    sx, sy = (1 if x1 >= x0 else -1), (1 if y1 >= y0 else -1)
+    cells = [(x0, y0)]
+    x, y = x0, y0
+    n = dx + dy
+    for i in range(n):
+        t = (i + 1) / n
+        ix, iy = x0 + sx * dx * t, y0 + sy * dy * t
+        step_x = abs(x + sx - ix) + abs(y - iy) <= abs(x - ix) + abs(y + sy - iy)
+        if (step_x and x != x1) or y == y1:
+            x += sx
+        else:
+            y += sy
+        cells.append((x, y))
+    return cells
+
+
+def _open_grass(m: MapCanvas, c: tuple[int, int], lawn: set[int]) -> bool:
+    """Bare grass (base, light meadow or dark shade) with nothing on it."""
+    if not m.inb(*c) or c in m.road_mask or c in m.paved or c in m.reserved:
+        return False
+    if m.get("deco-below", *c) or m.get("buildings-base", *c) or m.get("buildings-top", *c):
+        return False
+    g = m.get("ground-detail", *c)
+    return g == 0 or g in lawn
+
+
+def desire_path(m: MapCanvas, a: tuple[int, int], b: tuple[int, int]) -> set[tuple[int, int]]:
+    """A one-wide trodden line (the ``WORN`` autotile) from cell ``a`` to
+    cell ``b`` over open grass only — pavement, props and buildings along
+    the walk are simply not painted, so the line breaks where people would
+    already be on something. Returns the cells painted."""
+    lawn = _grass_gids() | _dark_grass_gids()
+    worn = {c for c in _line4(a, b) if _open_grass(m, c, lawn)}
+    if worn:
+        m.blob("ground-detail", worn, M.WORN, holes=False)
+    return worn
+
+
+def _tree_cells(m: MapCanvas) -> list[tuple[int, int]]:
+    return [
+        (int(a["x"] // T), int(a["y"] // T) - 1)
+        for a in m.anchors
+        if a["props"].get("kind") == "tree"
+    ]
+
+
+def emit_ground_shade(m: MapCanvas) -> None:
+    """Post-pass, after a layout's props and trees are down: the lawn's
+    third tone plus its litter.
+
+    * ``GRASS_DARK`` shade under every tree cluster (three or more trees
+      within three cells of each other: the 3x3 around each trunk) and a
+      one-row strip along the north face of every building at least five
+      wide, so buildings and woods sit IN the grass instead of on it;
+    * ``clover_a/b`` on 6% of a park's open lawn cells, ``mulch_a/b`` on
+      the bare grass under planters and hedges, and ``litter_a/b`` on 4%
+      of the shaded cells — never on a street, a spot or a prop."""
+    m.flush_markings()
+    trees = _tree_cells(m)
+    shade: set[tuple[int, int]] = set()
+    for i, (tx, ty) in enumerate(trees):
+        near = sum(
+            1
+            for j, (ox, oy) in enumerate(trees)
+            if j != i and abs(ox - tx) <= 3 and abs(oy - ty) <= 3
+        )
+        if near >= 2:
+            shade.update((tx + dx, ty + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+    for x, y, w, _h in m.shadow_requests:
+        if w >= 5:
+            shade.update((xx, y - 1) for xx in range(x, x + w))
+    m.shade_cells(shade)
+
+    lawn = _grass_gids() | _dark_grass_gids()
+    keep = m.authored_cells()
+    clover = (M.mg("clover_a"), M.mg("clover_b"))
+    for lm in m.landmarks.values():
+        if lm.type != "park":
+            continue
+        for cy in range(lm.y, lm.y + lm.h):
+            for cx in range(lm.x, lm.x + lm.w):
+                if m.rng.random() < 0.06 and _open_grass(m, (cx, cy), lawn):
+                    if m.placeable(cx, cy, keep):
+                        m.set("deco-below", cx, cy, m.rng.choice(clover))
+    planter_gids = {M.mg("planter_box")}
+    for s in (R.PLANTER_YELLOW, R.PLANTER_PURPLE, R.PLANTER_EMPTY):
+        planter_gids.update(g for _, _, g in s.cells())
+    planter_gids.update(g for s in M.HEDGE.values() for _, _, g in s.cells())
+    mulch = (M.mg("mulch_a"), M.mg("mulch_b"))
+    dark = _dark_grass_gids()
+    litter = (M.mg("litter_a"), M.mg("litter_b"))
+    for cy in range(m.h):
+        for cx in range(m.w):
+            if (m.get("deco-below", cx, cy) & R.GID_MASK) in planter_gids:
+                if m.get("ground-detail", cx, cy) == 0 and (cx, cy) not in m.road_mask:
+                    m.set("ground-detail", cx, cy, m.rng.choice(mulch))
+            elif m.get("ground-detail", cx, cy) in dark and m.rng.random() < 0.04:
+                if m.placeable(cx, cy, keep):
+                    m.set("deco-below", cx, cy, m.rng.choice(litter))
+
+
+def _nearest_pavement(
+    m: MapCanvas, start: tuple[int, int], lawn: set[int], pavement: set[int], limit: int
+) -> tuple[tuple[int, int], int] | None:
+    """Breadth-first over open grass from ``start`` to the closest pavement
+    cell within ``limit`` steps: ``(cell, steps)`` or None."""
+    seen = {start}
+    frontier = [start]
+    for d in range(1, limit + 1):
+        nxt: list[tuple[int, int]] = []
+        for x, y in frontier:
+            for c in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if c in seen or not m.inb(*c):
+                    continue
+                seen.add(c)
+                if m.get("ground-detail", *c) in pavement and c not in m.road_mask:
+                    return c, d
+                if _open_grass(m, c, lawn) and not m.collided((c[0] + 0.5) * T, (c[1] + 0.5) * T):
+                    nxt.append(c)
+        frontier = nxt
+        if not frontier:
+            break
+    return None
+
+
+def emit_ground_wear(m: MapCanvas) -> None:
+    """Post-pass: desire lines. From every dwelling's doorstep to the nearest
+    sidewalk or path when two to six cells of grass separate them (a house
+    whose walk is already poured gets none), and one diagonal across every
+    park between its two farthest entrances (pavement cells on the park's
+    rim)."""
+    m.flush_markings()
+    lawn = _grass_gids() | _dark_grass_gids()
+    pavement = _pavement_gids()
+    for home in m.homes:
+        dx = home.get("door_x", home["x"] + (home["w"] - 2) // 2)
+        start = (dx, home["y"] + home["h"])
+        if not m.inb(*start):
+            continue
+        if m.get("ground-detail", *start) in pavement:
+            start = (dx, start[1] + 1)  # step off a porch deck
+        if not m.inb(*start) or m.get("ground-detail", *start) in pavement:
+            continue
+        if not _open_grass(m, start, lawn) or m.on_street(*start):
+            continue
+        hit = _nearest_pavement(m, start, lawn, pavement, 6)
+        if hit and 2 <= hit[1] <= 6:
+            desire_path(m, start, hit[0])
+    for lm in m.landmarks.values():
+        if lm.type != "park":
+            continue
+        rim = [
+            (cx, cy)
+            for cy in range(lm.y - 1, lm.y + lm.h + 1)
+            for cx in range(lm.x - 1, lm.x + lm.w + 1)
+            if (cx in (lm.x - 1, lm.x + lm.w) or cy in (lm.y - 1, lm.y + lm.h))
+            and m.inb(cx, cy)
+            and m.get("ground-detail", cx, cy) in pavement
+            and (cx, cy) not in m.road_mask
+        ]
+        if len(rim) < 2:
+            continue
+        a, b = max(
+            ((p, q) for i, p in enumerate(rim) for q in rim[i + 1 :]),
+            key=lambda pq: (pq[0][0] - pq[1][0]) ** 2 + (pq[0][1] - pq[1][1]) ** 2,
+        )
+        desire_path(m, a, b)
+
+
+#: Big canopies (6x7) with their footprint relative to the anchor cell.
+_BIG_TREES = ("tree_light", "tree_dark")
+_RING_BAND = 2
+
+
+def _edge_road_runs(m: MapCanvas, side: str) -> list[tuple[int, int]]:
+    """Contiguous runs ``(start, width)`` of road cells along a map edge."""
+    if side in ("w", "e"):
+        col = 0 if side == "w" else m.w - 1
+        line = [(col, a) for a in range(m.h)]
+    else:
+        row = 0 if side == "n" else m.h - 1
+        line = [(a, row) for a in range(m.w)]
+    runs: list[tuple[int, int]] = []
+    for i, c in enumerate(line):
+        if c in m.road_mask:
+            if runs and runs[-1][0] + runs[-1][1] == i:
+                runs[-1] = (runs[-1][0], runs[-1][1] + 1)
+            else:
+                runs.append((i, 1))
+    return runs
+
+
+def _exit_gap(m: MapCanvas, side: str, c: int) -> tuple[int, set[tuple[int, int]]]:
+    """Road width at a declared exit and the gap cells kept clear of the
+    ring: the road plus one sidewalk cell either side, through the band."""
+    runs = {start: width for start, width in _edge_road_runs(m, side)}
+    if c not in runs:
+        raise ValueError(f"declared exit {side}:{c} has no road leaving the map there")
+    width = runs[c]
+    along = range(c - 1, c + width + 1)
+    if side == "w":
+        gap = {(b, a) for b in range(_RING_BAND) for a in along}
+    elif side == "e":
+        gap = {(m.w - 1 - b, a) for b in range(_RING_BAND) for a in along}
+    elif side == "n":
+        gap = {(a, b) for b in range(_RING_BAND) for a in along}
+    else:
+        gap = {(a, m.h - 1 - b) for b in range(_RING_BAND) for a in along}
+    return width, {g for g in gap if m.inb(*g)}
+
+
+def _exit_sign_spots(m: MapCanvas, side: str, c: int, width: int) -> list[tuple[int, int]]:
+    """Post cells to try for an exit's destination sign, nearest the edge
+    first: two cells inside the map on the outbound driver's right (the
+    sidewalk when the sign's face can hang over the verge behind it, else
+    the verge behind that sidewalk), then the other side, then one cell
+    further in, up to four cells deep."""
+    spots: list[tuple[int, int]] = []
+    right, left = c + width, c - 1  # the two sidewalks flanking the road
+    for lanes in ((right, left), (right + 1, left - 1)):  # then the verges beyond
+        for depth in range(_RING_BAND, _RING_BAND + 4):
+            a, b = lanes
+            if side == "w":
+                spots += [(depth, b), (depth, a + 1)]
+            elif side == "e":
+                spots += [(m.w - 1 - depth, a + 1), (m.w - 1 - depth, b)]
+            elif side == "n":
+                spots += [(a, depth), (b, depth)]
+            else:
+                spots += [(b, m.h - 1 - depth), (a, m.h - 1 - depth)]
+    return spots
+
+
+def emit_edge_ring(m: MapCanvas, exits: list[tuple[str, int, str]]) -> None:
+    """Close the map with woods: a two-cell canopy band inside the border.
+
+    ``exits`` lists every road that leaves the map as ``(side, c, text)``
+    — ``side`` n/s/e/w, ``c`` the road segment's first row / column, and
+    the destination the sign reads (``"TO RT 46"``). Each exit keeps a gap
+    through the band (the road plus its sidewalks) and gets a blank green
+    ``EXIT_SIGN`` on the outbound driver's right with a ``roadsign`` anchor
+    carrying ``text``. A declared exit without a road, or an edge road
+    without a declaration, is an error.
+
+    Ground: the band's open grass becomes ``GRASS_DARK`` (``shade_cells``
+    keeps the outer edge seamless). Trees: every two cells along
+    each edge — small round trees along the top (their two-row canopies
+    fit the band), full canopies elsewhere wherever the canopy's footprint
+    hides nothing (else a small tree), plus a big tree every eight cells
+    along the top where the ground behind it is open — skipping the gaps,
+    roads, rails, water, reserved cells, existing props and existing trees.
+    """
+    keep = m.authored_cells()
+    gaps: set[tuple[int, int]] = set()
+    declared: dict[str, set[int]] = {"n": set(), "s": set(), "e": set(), "w": set()}
+    signs: list[tuple[str, int, int, str]] = []
+    for side, c, text in exits:
+        width, gap = _exit_gap(m, side, c)
+        gaps |= gap
+        declared[side].add(c)
+        signs.append((side, c, width, text))
+    for side, runs in ((s, _edge_road_runs(m, s)) for s in ("n", "s", "e", "w")):
+        for start, _width in runs:
+            if start not in declared[side]:
+                raise ValueError(
+                    f"road leaves the map at {side}:{start} but no EXITS entry names it"
+                )
+    m.exit_gaps |= gaps
+
+    lawn = _grass_gids() | _dark_grass_gids()
+    band = {
+        (x, y)
+        for y in range(m.h)
+        for x in range(m.w)
+        if x < _RING_BAND or y < _RING_BAND or x >= m.w - _RING_BAND or y >= m.h - _RING_BAND
+    }
+    m.shade_cells({c for c in band if c not in gaps and _open_grass(m, c, lawn)})
+
+    existing = set(_tree_cells(m))
+
+    def near_tree(x: int, y: int) -> bool:
+        return any(abs(tx - x) <= 1 and abs(ty - y) <= 1 for tx, ty in existing)
+
+    def anchor_ok(x: int, y: int) -> bool:
+        return (
+            (x, y) not in gaps
+            and m.placeable(x, y, keep, street_only=False)
+            and _open_grass(m, (x, y), lawn)
+            and not near_tree(x, y)
+        )
+
+    def canopy_ok(x: int, y: int, stamp: TileStamp) -> bool:
+        """The stamp's footprint (bottom-centre on (x, y)) hides nothing."""
+        x0, y0 = x - stamp.w // 2, y - stamp.h + 1
+        for yy in range(max(0, y0), min(m.h, y0 + stamp.h)):
+            for xx in range(max(0, x0), min(m.w, x0 + stamp.w)):
+                c = (xx, yy)
+                if c in gaps or c in m.road_mask or c in m.reserved or c in keep:
+                    return False
+                if m.get("deco-below", xx, yy) or m.get("buildings-base", xx, yy):
+                    return False
+                if m.get("buildings-top", xx, yy):
+                    return False
+        return True
+
+    def plant(x: int, y: int, big_first: bool) -> None:
+        if not anchor_ok(x, y):
+            return
+        if big_first:
+            stamp = m.rng.choice(_BIG_TREES)
+            if canopy_ok(x, y, R.STAMPS[stamp]):
+                m.tree(x, y, stamp=stamp)
+                existing.add((x, y))
+                return
+        m.tree(x, y, stamp="tree_round_small")
+        existing.add((x, y))
+
+    # top: a neat small-tree line, a big tree every eight cells behind it
+    for x in range(1, m.w, 2):
+        plant(x, 1, big_first=False)
+    for x in range(4, m.w - 2, 8):
+        if anchor_ok(x, 5) and canopy_ok(x, 5, R.TREE_LIGHT):
+            stamp = m.rng.choice(_BIG_TREES)
+            m.tree(x, 5, stamp=stamp)
+            existing.add((x, 5))
+    # bottom and sides: full canopies where they hide nothing
+    for i, x in enumerate(range(1, m.w, 2)):
+        plant(x, m.h - 1, big_first=i % 2 == 0)
+    for i, y in enumerate(range(3, m.h - 2, 2)):
+        plant(1, y, big_first=i % 2 == 0)
+        plant(m.w - 2, y, big_first=i % 2 == 1)
+
+    for side, c, width, text in signs:
+        for sx, sy in _exit_sign_spots(m, side, c, width):
+            if road_sign(m, sx, sy, text):
+                break
+        else:
+            print(f"  ! no room for the {side}:{c} exit sign ({text!r})")
 
 
 def _grass_gids() -> set[int]:
@@ -1356,6 +2372,7 @@ def emit_spot_anchors(m: MapCanvas) -> None:
         # anchor on the boundary samples the NEXT tile row (the street in
         # front of an apron) when the runtime classifies the ground.
         m.anchor("spot", s["x"], s["y"] - 0.15, name=s["landmark"], **props)
+    m.spot_cells = set(placer.taken)
 
 
 # ---------------------------------------------------------------------------
@@ -1379,9 +2396,7 @@ def emit_traffic(m: MapCanvas) -> None:
 
     def signalled(j: tuple[int, int, int, int]) -> bool:
         jx0, jy0, jx1, jy1 = j
-        return any(
-            jx0 - 2 <= sx <= jx1 + 3 and jy0 - 2 <= sy <= jy1 + 3 for sx, sy in signal_pts
-        )
+        return any(jx0 - 2 <= sx <= jx1 + 3 and jy0 - 2 <= sy <= jy1 + 3 for sx, sy in signal_pts)
 
     bands = m.crosswalk_bands()
     for seg in m.road_segs:
@@ -1389,9 +2404,7 @@ def emit_traffic(m: MapCanvas) -> None:
         last = seg.c + seg.width - 1
         # driving directions: h-road east on the south row, west on the north
         # row; v-road south on the west column, north on the east column
-        lanes = (
-            [("e", last), ("w", first)] if seg.orient == "h" else [("s", first), ("n", last)]
-        )
+        lanes = [("e", last), ("w", first)] if seg.orient == "h" else [("s", first), ("n", last)]
         a_lo, a_hi = seg.a0 * T, (seg.a1 + 1) * T
         for d, row in lanes:
             centre = (row + 0.5) * T
@@ -1401,7 +2414,7 @@ def emit_traffic(m: MapCanvas) -> None:
                 pts = [(centre, a_lo), (centre, a_hi)]
             if d in ("w", "n"):
                 pts.reverse()
-            through = (a_lo <= T and a_hi >= (m.w if seg.orient == "h" else m.h) * T - T)
+            through = a_lo <= T and a_hi >= (m.w if seg.orient == "h" else m.h) * T - T
             m.traffic.append(
                 {
                     "kind": "lane",
@@ -1425,8 +2438,14 @@ def emit_traffic(m: MapCanvas) -> None:
                     else:
                         continue
                     m.traffic.append(
-                        {"kind": "stopline", "axis": "h", "dir": d, "x": x, "y": centre,
-                         "signal": signalled(j)}
+                        {
+                            "kind": "stopline",
+                            "axis": "h",
+                            "dir": d,
+                            "x": x,
+                            "y": centre,
+                            "signal": signalled(j),
+                        }
                     )
                 elif seg.orient == "v" and side in ("n", "s"):
                     by = band[0][1]
@@ -1439,8 +2458,14 @@ def emit_traffic(m: MapCanvas) -> None:
                     else:
                         continue
                     m.traffic.append(
-                        {"kind": "stopline", "axis": "v", "dir": d, "x": centre, "y": y,
-                         "signal": signalled(j)}
+                        {
+                            "kind": "stopline",
+                            "axis": "v",
+                            "dir": d,
+                            "x": centre,
+                            "y": y,
+                            "signal": signalled(j),
+                        }
                     )
 
 
@@ -1614,7 +2639,11 @@ def to_tmj(m: MapCanvas) -> dict:
                         {"name": "kind", "type": "string", "value": "lane"},
                         {"name": "dir", "type": "string", "value": t["dir"]},
                         {"name": "road", "type": "string", "value": t["road"]},
-                        {"name": "through", "type": "string", "value": "1" if t["through"] else "0"},
+                        {
+                            "name": "through",
+                            "type": "string",
+                            "value": "1" if t["through"] else "0",
+                        },
                     ],
                 }
             )
@@ -1699,8 +2728,10 @@ def build_town(scenario: str, town_id: str, out_dir: Path = MAPS_DIR) -> Path:
         mod.compose(m)
     else:
         interpret_landmarks(m)
+    m.flush_markings()
     emit_civic_anchors(m)
     emit_spot_anchors(m)
+    emit_building_shadows(m)
     emit_traffic(m)
     out = _map_output_path(out_dir, scenario, town_id)
     out.parent.mkdir(parents=True, exist_ok=True)

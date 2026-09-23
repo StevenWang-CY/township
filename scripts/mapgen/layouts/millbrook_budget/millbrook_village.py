@@ -8,28 +8,41 @@ supported by the preview renderer, so the vertical bridge is composed from
 deck fill + parapet columns). The memorable set-piece is the Harrow Mill
 Ruins on the east riverbank: a roofless stone shell, a brick smokestack
 standing over the dam, an exposed slab floor with moss and ferns growing
-through it, rubble drifts, and a rusty metal railing along the fenced-off
-south approach. Melancholy — no lamps east of the town hall block.
+through it, rubble drifts, a rusty metal railing along the fenced-off south
+approach, and the old mill race — a stone-banked channel the greenway
+crosses on planks — still running from the dam down past the ruins to the
+wheel pit. Melancholy — no lamps east of the town hall block. Clapboard
+houses with sheds and garages fill the lanes south of Main Street.
 
 Grid plan (cols x rows):
   - Stillwater River ..... wavy water band rows 3-8, full map width
-  - dam .................. stone weir cols 59-60 across the water
+  - dam .................. stone weir cols 59-60 across the water; the
+                           mill race leaves the river at cols 65-66 and
+                           runs south to row 19, then west to col 58
   - Main Street Bridge ... deck cols 34-36 / parapets cols 33+37, rows 2-9
   - Bridge Street ........ vertical road cols 34-36 (exits north edge),
                            jogs west on River Street rows 12-14, then south
                            on Mill Street cols 24-26 down to Main Street
-  - Main Street .......... horizontal road rows 25-27, west + east exits
+  - Main Street .......... horizontal road rows 25-27, west + east exits,
+                           stop signs where Mill Street tees in
   - farmers market green . cols 11-21 rows 11-16 (stall, cider stand, jam
-                           table on the old mill green)
+                           table on the old mill green, a farmer's pickup)
   - Wheelhouse Diner ..... cols 16-22 rows 17-22, corner of Mill & Main
   - town hall + green .... hall cols 32-40 rows 17-23; memorial green with
-                           statue cols 27-31
-  - Harrow Mill Ruins .... cols 52-65 rows 10-19 + greenway path on the bank
+                           statue cols 27-31; Grange hall cols 41-49
+  - Harrow Mill Ruins .... cols 52-65 rows 10-19 + greenway path on the
+                           bank; a clapboard house east of the race
   - shops south of Main .. Corbin's Hardware cols 21-27, general store
-                           cols 29-33, library cols 40-47, all row 30 down
+                           cols 29-33, feed store cols 34-39, library cols
+                           40-47, all row 30 down
   - Chestnut Row ......... three attached row houses cols 4-15 rows 30-35
-  - shops lane ........... row 37, exits the west edge and ties into Main
-                           Street at cols 17-18 and cols 48-49
+  - shops lane ........... row 37, exits the west edge, ties into Main
+                           Street at cols 17-18 and cols 48-49, and runs
+                           on east past three clapboard houses cols 51-70
+  - Water Street ......... a walk (row 46) south of the lane with three
+                           clapboard houses, two garages and their
+                           driveways, cols 11-35; one more house on the
+                           orchard's edge cols 66-71
 """
 
 from __future__ import annotations
@@ -42,15 +55,32 @@ from mapgen.build_maps import (
     MapCanvas,
     apron,
     bench,
+    cottage,
+    emit_edge_ring,
+    emit_ground_shade,
+    emit_ground_wear,
+    garage,
     grand,
+    hedge_line,
     market_stall,
     noticeboard,
     path,
     path_rect,
     patio,
+    shed,
+    stop_sign,
     storefront,
+    street_blade,
+    vehicle,
 )
 from mapgen.tiles import TileStamp
+
+#: Roads leaving the map: (side, road segment's first row / column, sign).
+EXITS = [
+    ("w", 25, "TO COUNTY RD 7"),
+    ("e", 25, "TO DEPOT RD"),
+    ("n", 34, "TO HARLOW"),
+]
 
 
 def compose(m: MapCanvas) -> None:
@@ -62,9 +92,7 @@ def compose(m: MapCanvas) -> None:
     m.meadow(10, 10, 13, 7)  # farmers market green
     m.meadow(27, 17, 5, 7)  # memorial green by the town hall
     m.meadow(44, 0, 16, 3)  # far bank clearing
-    m.meadow(52, 39, 16, 8)  # SE orchard meadow
-    m.meadow(12, 40, 14, 7)  # south meadow
-    m.meadow(2, 16, 8, 6)  # west woods clearing
+    m.meadow(52, 40, 12, 6)  # SE orchard meadow
 
     # ================= Stillwater River =================
     shore = random.Random(19)
@@ -99,6 +127,22 @@ def compose(m: MapCanvas) -> None:
     m.anchor("water-foam", 61, 5)
     m.anchor("water-foam", 61, 7)
 
+    # ---- the mill race: a two-wide channel off the river east of the dam,
+    # south past the ruins' east side, then west to the wheel pit; the
+    # greenway crosses it on a plank footbridge (row 9) and the whole
+    # channel is impassable water
+    race = {(x, y) for x in (65, 66) for y in range(bots[65] + 1, 20)}
+    race |= {(x, y) for x in range(58, 67) for y in (20, 21)}
+    race -= {(65, 9), (66, 9)}  # the footbridge cells stay planks
+    m.blob("ground-detail", race, R.WATER_DEEP)
+    for c in race:
+        m.reserved.add(c)
+    m.collide(65, bots[65] + 1, 2, 9 - bots[65] - 1)
+    m.collide(65, 10, 2, 10)
+    m.collide(58, 20, 9, 2)
+    m.anchor("water-foam", 65.5, 15)
+    m.anchor("water-foam", 60, 21)
+
     # ================= roads =================
     m.road_h(25, 0, 74, width=3)  # Main Street, west + east exits
     m.road_v(34, 0, 2, width=3)  # Bridge St north stub (exit)
@@ -107,7 +151,7 @@ def compose(m: MapCanvas) -> None:
     m.road_v(24, 12, 27, width=3)  # Mill Street down to Main
 
     # ================= buildings (reserve before paint_roads) =============
-    # -- Millbrook Town Hall: white clapboard, 1874
+    # -- Millbrook Town Hall: white clapboard, 1874; the Grange hall beside
     grand(
         m,
         32,
@@ -119,12 +163,16 @@ def compose(m: MapCanvas) -> None:
         windows=True,
         landmark="Millbrook Town Hall",
     )
+    grand(m, 41, 16, 9, 8, facade="stone_small", roof="deck_dark")  # Grange hall
     # -- The Wheelhouse Diner, corner of Mill & Main
     storefront(m, 16, 17, 7, 6, facade="brick", awning=True, landmark="The Wheelhouse Diner")
-    # -- Corbin's Hardware
+    # -- the west clearing's clapboard house, and one east of the race
+    cottage(m, 3, 16, 6, 7)
+    cottage(m, 67, 17, 6, 7, roof="slate")
+    # -- Corbin's Hardware, the general store, the feed store
     storefront(m, 21, 30, 7, 5, facade="brick", sign=0, landmark="Corbin's Hardware")
-    # -- small general store beside it
     storefront(m, 29, 30, 5, 5, facade="cream", roof="deck_light", awning=True)
+    storefront(m, 34, 30, 6, 5, facade="brick", roof="cedar", sign=2)  # feed store
     # -- Millbrook Free Library (Carnegie-style brick)
     grand(
         m,
@@ -174,6 +222,26 @@ def compose(m: MapCanvas) -> None:
         yard=True,
         landmark="Chestnut Row",
     )
+    # -- clapboard houses on the lane east of the library
+    cottage(m, 51, 30, 6, 7, landmark="Chestnut Row")
+    cottage(m, 58, 30, 6, 7, roof="slate", landmark="Chestnut Row")
+    cottage(m, 65, 30, 6, 7, landmark="Chestnut Row")
+    shed(m, 71, 34)
+    # -- Water Street: houses, garages and driveways south of the lane
+    cottage(m, 11, 39, 6, 7, roof="slate")
+    garage(m, 17, 41, roof="slate")
+    cottage(m, 20, 39, 6, 7)
+    garage(m, 26, 41, roof="cedar", door_dx=1)
+    cottage(m, 29, 39, 6, 7, roof="slate")
+    cottage(m, 66, 39, 6, 7, roof="cedar")  # on the orchard's edge
+    shed(m, 62, 44)
+    shed(m, 2, 45)
+    shed(m, 2, 38)
+
+    # paved bits poured with the sidewalks
+    m.pave(17, 44, 2, 2)  # garage driveways down to Water Street
+    m.pave(26, 44, 2, 2)
+    m.pave(71, 30, 1, 7)  # east house's side drive
 
     # ================= paint the road network =================
     m.paint_roads()
@@ -254,15 +322,15 @@ def compose(m: MapCanvas) -> None:
     m.set("deco-below", 61, 13, R.ROCK_TINY_A)
     m.set("deco-below", 59, 12, R.PEBBLE)
     m.set("deco-below", 57, 12, R.ROCK_TINY_B)
-    m.stamp("deco-below", R.ROCK_BIG, 65, 13)
-    m.collide(65, 14, 3, 3)
+    m.stamp("deco-below", R.ROCK_BIG, 68, 13)
+    m.collide(68, 14, 3, 3)
     # ferns and old timber reclaiming the floor
     m.stamp("deco-below", R.FERN, 59, 13)
     m.stamp("deco-below", R.FERN, 63, 14)
     m.stamp("deco-below", R.FERN, 53, 17)
     m.stamp("deco-below", R.LOG, 55, 18)
-    m.stamp("deco-below", R.STUMP_WIDE, 67, 16)
-    m.collide(67, 17, 2, 1)
+    m.stamp("deco-below", R.STUMP_WIDE, 68, 20)
+    m.collide(68, 21, 2, 1)
     # rusty railing fencing off the south approach, gate gap at cols 56-57
     fm = R.FENCE_METAL
     for x in (52, 54):
@@ -279,16 +347,19 @@ def compose(m: MapCanvas) -> None:
     # trees closing in around the ruins
     m.tree(48, 11, stamp="tree_dark")
     m.tree(49, 19, stamp="tree_dark")
-    m.tree(68, 12, stamp="tree_dark")
-    m.tree(70, 18, stamp="tree_light")
+    m.tree(68, 10, stamp="tree_dark")
+    m.tree(71, 13, stamp="tree_light")
 
-    # ---- riverside greenway path: bridge -> ruins -> east edge
+    # ---- riverside greenway path: bridge -> ruins -> east edge, over the
+    # race on planks
     greenway: set[tuple[int, int]] = set()
     for x in range(38, 75):
         greenway.add((x, 9 if 56 <= x <= 66 else 10))
     for x in range(38, 47):
         greenway.add((x, 9))
     path(m, greenway)
+    for x in (65, 66):
+        m.set("ground-detail", x, 9, rng.choice(R.PLANKS_LIGHT))
     bench(m, 45, 9, landmark="Stillwater River")  # bench facing the water
     m.flowers(48, 11, n=5, spread=2)
 
@@ -303,6 +374,7 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.CRATE, 12, 16)
     m.stamp("deco-below", R.BARREL, 14, 16)
     m.collide(12, 16, 4, 2)
+    vehicle(m, "pickup", 20, 11, "h", facing="w")  # a farmer's truck
     path_rect(m, 22, 13, 1, 2)  # market gate to Mill Street
     m.tree(11, 10, stamp="tree_dark")  # the old green's maple
     m.flowers(17, 16, n=6, spread=2)
@@ -322,13 +394,14 @@ def compose(m: MapCanvas) -> None:
     m.flowers(28, 22, n=6, spread=2)
     m.flowers(31, 18, n=4, spread=1)
     m.lamp(27, 21)
+    hedge_line(m, 42, 15, 49, 15)  # hedge behind the Grange hall
 
     # ================= diner corner =================
     apron(m, 18, 23, 2, 1)
     m.stamp("deco-below", R.SIGNS_STANDING[1], 21, 21)  # utensils board
     m.collide(21, 22, 2, 1)
-    noticeboard(m, 23, 15, landmark="Millbrook Farmers Market")
-    m.collide(23.2, 16.3, 0.6, 0.7)
+    noticeboard(m, 22, 15, landmark="Millbrook Farmers Market")
+    m.collide(22.2, 16.3, 0.6, 0.7)
     # side patio: two stools under the west window
     patio(
         m,
@@ -351,11 +424,11 @@ def compose(m: MapCanvas) -> None:
     m.collide(19, 31, 2, 4)
     apron(m, 30, 35, 2, 1)  # general store doorstep
     path_rect(m, 30, 36, 2, 1)
+    apron(m, 36, 35, 2, 1)  # feed store doorstep
+    path_rect(m, 36, 36, 2, 1)
     apron(m, 43, 37, 2, 1)  # library arch onto the lane
-    m.set("deco-below", 39, 36, M.mg("newsbox"))
-    m.collide(39.2, 36.3, 0.6, 0.7)
-    m.stamp("deco-below", R.PLANTER_PURPLE, 51, 34)  # beside the lane bend
-    m.collide(51, 34, 2, 2)
+    m.set("deco-below", 48, 36, M.mg("newsbox"))
+    m.collide(48.2, 36.3, 0.6, 0.7)
 
     # ================= Chestnut Row =================
     for hx in (5, 9, 13):
@@ -365,12 +438,12 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.PLANTER_YELLOW, 2, 34)
     m.collide(2, 34, 2, 2)
 
-    # shops lane: Chestnut Row -> hardware -> library. Exits the west map
-    # edge and ties into Main Street twice — a connector between Chestnut
-    # Row and the hardware, and the curl east of the library — so the row
-    # fronts a real loop street, not a dead-end rear path.
+    # shops lane: Chestnut Row -> hardware -> library -> the east houses.
+    # Exits the west map edge and ties into Main Street twice — a connector
+    # between Chestnut Row and the hardware, and the curl east of the
+    # library — so the row fronts a real loop street, not a rear path.
     lane: set[tuple[int, int]] = set()
-    for x in range(-2, 50):  # off-map cells kill the end cap
+    for x in range(-2, 73):  # off-map cells kill the end cap
         lane.add((x, 37))
     for y in range(28, 37):  # connector west of the hardware
         lane.add((17, y))
@@ -378,10 +451,24 @@ def compose(m: MapCanvas) -> None:
     for y in range(28, 37):  # curl up to Main St east of library
         lane.add((48, y))
         lane.add((49, y))
+    # Water Street: down from the lane, west along the houses' fronts,
+    # and the orchard house's path off the lane's east end
+    lane |= {(36, y) for y in range(38, 47)} | {(x, 46) for x in range(11, 37)}
+    lane |= {(72, y) for y in range(38, 46)} | {(x, 46) for x in range(60, 73)}
     path(m, lane)
     # lane mouths butt flush against Main Street's asphalt curb
     for mx in (17, 18, 48, 49):
         m.set("ground-detail", mx, 28, rng.choice(R.PATH_TAN.fill))
+    # cars: on the driveways and the east house's side drive
+    vehicle(m, "car", 17, 44, "v", color="blue")
+    vehicle(m, "car", 27, 44, "v", color="silver", facing="n")
+    vehicle(m, "car", 71, 31, "v", color="green")
+    m.set("deco-below", 10, 45, M.mg("mailbox"))
+    m.collide(10.2, 45.2, 0.6, 0.8)
+    m.set("deco-below", 50, 36, M.mg("mailbox"))
+    m.collide(50.2, 36.2, 0.6, 0.8)
+    hedge_line(m, 57, 31, 57, 36)  # hedges between the lane houses
+    hedge_line(m, 64, 31, 64, 36)
 
     # ---- widows' vegetable garden south of the lane
     f = R.FENCE_WOOD
@@ -406,9 +493,8 @@ def compose(m: MapCanvas) -> None:
     for ox, oy, st in (
         (55, 41, "tree_fruit_a"),
         (59, 44, "tree_fruit_b"),
-        (63, 40, "tree_fruit_a"),
-        (67, 44, "tree_fruit_c"),
-        (71, 41, "tree_fruit_a"),
+        (57, 47, "tree_fruit_c"),
+        (53, 45, "tree_fruit_a"),
     ):
         m.tree(ox, oy, stamp=st)
     m.flowers(61, 42, n=5, spread=2)
@@ -416,59 +502,32 @@ def compose(m: MapCanvas) -> None:
 
     # ================= tree fringes (clustered) =================
     # far bank: dark woods across the river (the Crossing side)
-    for x, y in (
-        (2, 1),
-        (6, 2),
-        (12, 1),
-        (17, 2),
-        (22, 1),
-        (27, 2),
-        (41, 2),
-        (47, 1),
-        (52, 2),
-        (58, 1),
-        (64, 2),
-        (70, 1),
-        (73, 2),
-    ):
+    for x, y in ((6, 2), (17, 2), (27, 2), (41, 2), (52, 2), (64, 2)):
         m.tree(x, y, stamp=rng.choice(("tree_dark", "tree_dark", "tree_light")))
     m.stamp("deco-below", R.BUSH_ROUND, 44, 1)
     m.stamp("deco-below", R.FERN, 30, 1)
     # west woods between the market and Chestnut Row
-    for x, y in ((2, 12), (6, 14), (3, 19), (8, 20), (1, 23)):
+    for x, y in ((2, 12), (6, 13)):
         m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark")))
-    m.stamp("deco-below", R.ROCK_MED, 6, 17)
-    m.stamp("deco-below", R.BUSH_ROUND, 4, 16)
+    m.stamp("deco-below", R.BUSH_ROUND, 9, 20)
+    m.flowers(10, 22, n=4, spread=1)
     # west riverbank strip
     m.stamp("deco-below", R.BUSH_ROUND, 12, 9)
     m.stamp("deco-below", R.BUSH_ROUND, 26, 9)
     m.stamp("deco-below", R.FERN, 5, 9)
     m.flowers(30, 10, n=4, spread=1)
-    # riverbank meadow east of the hall
-    m.tree(44, 14, stamp="tree_round_small")
-    m.tree(47, 17, stamp="tree_light")
-    m.stamp("deco-below", R.BUSH_ROUND, 42, 16)
-    m.flowers(45, 19, n=5, spread=2)
-    m.stamp("deco-below", R.BUSH_ROUND, 41, 19)
-    m.flowers(43, 22, n=4, spread=1)
-    # quiet block east of the library
-    for x, y in ((58, 32), (63, 35), (70, 31)):
-        m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark")))
-    m.flowers(66, 33, n=4, spread=2)
-    m.stamp("deco-below", R.BUSH_ROUND, 54, 34)
+    # riverbank east of the Grange hall
+    m.tree(51, 15, stamp="tree_round_small")
+    m.flowers(51, 20, n=4, spread=1)
+    m.stamp("deco-below", R.BUSH_ROUND, 50, 22)
     # Main Street maples
     m.tree(16, 29, stamp="tree_light")
     m.tree(51, 29, stamp="tree_light")
     # south meadow clusters
-    for x, y in ((17, 44), (21, 47), (30, 43), (37, 46), (44, 42)):
+    for x, y in ((21, 47), (37, 46), (44, 42), (47, 45)):
         m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark", "tree_round_small")))
-    m.stamp("deco-below", R.ROCK_SMALL, 33, 45)
-    m.stamp("deco-below", R.FERN, 26, 45)
-    # bottom fringe, canopies cropped by the map edge
-    for x, y in ((3, 49), (10, 48), (28, 49), (41, 49), (57, 49), (69, 48)):
-        m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark")))
-    m.flowers(18, 41, n=5, spread=2)
-    m.flowers(35, 41, n=4, spread=2)
+    m.stamp("deco-below", R.ROCK_SMALL, 40, 44)
+    m.flowers(18, 47, n=4, spread=1)
     m.flowers(46, 46, n=5, spread=2)
 
     # ================= Main Street furniture =================
@@ -489,12 +548,22 @@ def compose(m: MapCanvas) -> None:
         m.set("ground-detail", x, 25, M.mg("parking_stall"))
     for x in (43, 45, 47):
         m.set("ground-detail", x, 25, M.mg("parking_stall"))
+    # stop signs where Mill Street tees into Main, a blade at the jog
+    stop_sign(m, 23, 24)
+    stop_sign(m, 27, 24)
+    stop_sign(m, 23, 29)
+    street_blade(m, 37, 11)
 
     # ================= map edge walls + labels =================
     m.collide(0, -1, m.w, 1)
     m.collide(0, m.h, m.w, 1)
     m.collide(-1, 0, 1, m.h)
     m.collide(m.w, 0, 1, m.h)
+
+    # ================= woods ring, ground tones, desire lines ============
+    emit_edge_ring(m, EXITS)
+    emit_ground_shade(m)
+    emit_ground_wear(m)
 
     # the river and bridge landmarks overlap, so their centered labels
     # collide on the bridge deck; nudge the river label to the west reach

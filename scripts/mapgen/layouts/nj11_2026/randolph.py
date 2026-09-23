@@ -1,28 +1,37 @@
 """Hand-tuned layout for Randolph, NJ (nj11-2026) — 75x50 tiles.
 
 Reading of the town: affluent, green, horse-country township. Everything is
-set back from one long Main Road; the west block is the memorable set-piece —
-the Randolph Diner (chrome band, DINER letterboard, outdoor stools, menu
-board) next to the VFW hall (brick, terracotta shingles, twin red banners,
-memorial statue on a concrete pad). Homes are cream colonials: slate-blue
-shingle roofs, shuttered sash windows, ranch-fenced front yards. The
-north-west corner is the crops corner: wheat + tilled field + a ranch-fence
-horse pen with haystacks. Big negative space and clustered trees.
+set back from one long Main Road under a run of utility poles; the west
+block is the memorable set-piece — the Randolph Diner (chrome band, DINER
+letterboard, outdoor stools, menu board) next to the VFW hall (brick,
+terracotta shingles, twin red banners, memorial statue on a concrete pad),
+its lot across the road half full of cars and a pickup. Homes are cream
+colonials with garages: slate-blue shingle roofs, shuttered sash windows,
+driveways, picket fences and hedges. The north-west corner is the crops
+corner: wheat + tilled field + a ranch-fence horse pen with haystacks and a
+farmhouse by the windmill. Stop signs, never signals.
 
 Grid plan (cols x rows):
   - Main Road .......... horizontal rows 24-26, west+east map exits
   - Quaker Hill Rd ..... vertical cols 43-45, north exit -> cul-de-sac bulb
-  - farm corner ........ wheat 1-7 / tilled 8-13 rows 1-5, pen rows 7-14
+  - farm corner ........ wheat 1-7 / tilled 8-13 rows 1-5, pen rows 7-14,
+                         farmhouse cols 16-21 rows 2-8
   - diner set-piece .... diner cols 2-8, terrace 9-12, VFW 14-21,
-                         memorial pad 23-26 (all rows 15-23)
+                         memorial pad 23-26 (all rows 15-23); lot cols
+                         2-11 rows 28-31 across the road
   - shops .............. finance office 28-33, boutique 37-41
-  - Town Hall .......... cols 31-39 rows 8-15, concrete walk cols 34-35
-  - High School ........ cols 47-56 rows 10-18, deck playcourt rows 3-7
-  - church + home ...... cols 58-65 / 69-74, backyard garden pen NE
-  - sports fields ...... fenced complex cols 8-26 rows 32-45 (pitch+diamond)
-  - cul-de-sac ......... asphalt bulb ~ (44,40), two cream colonials
+  - Town Hall .......... cols 31-39 rows 8-15, concrete walk cols 34-35;
+                         municipal annex cols 23-30 beside it
+  - High School ........ cols 47-56 rows 10-18, lot rows 3-7, two colonials
+                         on a walk east of the lot
+  - church + home ...... cols 58-65 / 69-74, garage + driveway between
+  - sports fields ...... fenced complex cols 8-26 rows 32-45 (pitch +
+                         Little League diamond with its backstop)
+  - cul-de-sac ......... asphalt bulb ~ (44,40); colonials either side of
+                         Quaker Hill with garages and a shared driveway,
+                         two more below the bulb on a walk (row 47)
   - Hedden Park ........ pond + creek to the S edge, stone bridge, trails,
-                         picnic clearing, wooded fringe (cols 46-74)
+                         picnic clearing, colonials on the trail's east side
 """
 
 from __future__ import annotations
@@ -31,17 +40,37 @@ from mapgen import moderntiles as M
 from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
-    apron,
     bench,
     church,
     cottage,
     diner,
+    driveway,
+    emit_edge_ring,
+    emit_ground_shade,
+    emit_ground_wear,
+    garage,
     grand,
+    hedge_line,
     noticeboard,
+    park_stalls,
     path,
     patio,
+    poles,
+    shed,
+    stop_sign,
     storefront,
+    street_blade,
+    vehicle,
 )
+
+#: Roads leaving the map: (side, road segment's first row / column, sign).
+EXITS = [
+    ("w", 24, "TO CHESTER"),
+    ("e", 24, "TO DOVER"),
+    ("n", 43, "TO RT 10"),
+]
+
+HOMES = "Residential Cul-de-sacs"
 
 
 def _fence_pen(
@@ -77,10 +106,10 @@ def compose(m: MapCanvas) -> None:
 
     # ================= ground tone =================
     m.base_grass()
-    m.meadow(22, 2, 13, 5)  # open lawn north-centre
-    m.meadow(2, 28, 8, 7)  # west verge
-    m.meadow(64, 27, 9, 5)  # east verge by the park entrance
-    m.meadow(28, 44, 12, 5)  # south lawn below the cul-de-sac
+    m.meadow(23, 2, 8, 4)  # open lawn north-centre
+    m.meadow(2, 33, 5, 6)  # west verge
+    m.meadow(64, 27, 5, 2)  # east verge by the park entrance
+    m.meadow(41, 45, 7, 3)  # south lawn below the cul-de-sac
 
     # ================= crops corner (NW farm) =================
     # organic wheat patch: clipped corners round off via the inverse-corner
@@ -119,8 +148,16 @@ def compose(m: MapCanvas) -> None:
 
     # concrete walks + the memorial pad (painted with the sidewalks)
     m.pave(34, 16, 3, 8)  # Town Hall walk, door -> Main Road
+    m.pave(23, 16, 11, 1)  # annex apron joining the Town Hall walk
     m.pave(50, 19, 4, 5)  # school walk, door -> Main Road
     m.pave(23, 19, 4, 4)  # VFW memorial pad
+    m.pave(57, 8, 1, 3)  # from the school lot's east curb...
+    m.pave(57, 10, 14, 1)  # ...along the north colonials' walk
+    m.pave(28, 36, 13, 1)  # cul-de-sac west walk to the bulb
+    m.pave(48, 36, 6, 1)  # cul-de-sac east walk from the bulb
+    m.pave(27, 47, 14, 1)  # south colonials' walk...
+    m.pave(40, 44, 1, 4)  # ...up to the bulb's curb
+    m.pave(15, 9, 7, 1)  # farmhouse walk to the pen's east side
 
     # ================= buildings (reserve before paint_roads) =============
     # -- the diner + VFW set-piece corner
@@ -128,19 +165,40 @@ def compose(m: MapCanvas) -> None:
     # VFW hall: brick front under terracotta shingles (the old brick-arch
     # "fort" recomposed as a hall with a door, flags stay)
     storefront(m, 14, 15, 8, 8, facade="brick", roof="terracotta", sign=None)
+    # diner lot across Main Road: a pickup nosed in first, then the crowd
+    vehicle(m, "pickup", 2, 28, "h")
+    park_stalls(m, 2, 28, 10, 4, "h", landmark="Randolph Diner", fill=0.7)
     # -- shops
     storefront(
         m, 28, 17, 6, 6, facade="brick", roof="slate", sign=0, landmark="Commercial Strip"
     )  # finance
     storefront(m, 37, 17, 5, 6, facade="cream", awning=True, landmark="Commercial Strip")
-    # -- civic north tier
+    # -- civic north tier: Town Hall with a municipal annex beside it
     grand(m, 31, 8, 9, 8, facade="stone_large", windows=True, landmark="Town Hall")
+    grand(m, 23, 8, 8, 8, facade="stone_small", roof="stone")  # annex (police / tax office)
     grand(m, 47, 10, 10, 9, facade="stone_large", windows=True, landmark="High School")
+    park_stalls(m, 49, 3, 8, 3, "v", fill=0.5, surface="asphalt")
     church(m, 58, 16, 8, 7, variant="clapboard", landmark="Church")
-    # -- housing: cream colonials, slate-blue shingles, shutters
-    cottage(m, 69, 15, 6, 8, roof="slate", landmark="Residential Cul-de-sacs")  # colonial E
-    cottage(m, 36, 29, 6, 7, roof="slate", landmark="Residential Cul-de-sacs")  # cul-de-sac W
-    cottage(m, 47, 29, 6, 7, roof="slate", landmark="Residential Cul-de-sacs")  # cul-de-sac E
+    # -- housing: cream colonials, slate-blue shingles, shutters, garages
+    cottage(m, 69, 15, 6, 8, roof="slate", landmark=HOMES)  # colonial E
+    garage(m, 66, 17, roof="slate")
+    driveway(m, 66, 20, 2, 3)
+    cottage(m, 27, 29, 6, 7, roof="slate", landmark=HOMES)  # cul-de-sac W pair
+    cottage(m, 36, 29, 6, 7, roof="slate", landmark=HOMES)
+    garage(m, 33, 30, roof="slate", door_dx=1)  # shared garage between them
+    driveway(m, 34, 33, 1, 3, car_at=(34, 33))
+    cottage(m, 47, 29, 6, 7, roof="slate", landmark=HOMES)  # cul-de-sac E
+    garage(m, 53, 29, roof="slate")
+    driveway(m, 53, 32, 1, 4, car_at=(53, 33))
+    cottage(m, 27, 40, 6, 7, roof="slate", landmark=HOMES)  # below the bulb
+    cottage(m, 34, 40, 6, 7, roof="deck_dark", landmark=HOMES)
+    cottage(m, 58, 3, 6, 7, roof="slate")  # north colonials off the lot
+    cottage(m, 65, 3, 6, 7, roof="deck_dark")
+    cottage(m, 64, 29, 6, 7, roof="slate")  # Hedden Park side
+    cottage(m, 67, 37, 6, 7, roof="slate")
+    cottage(m, 16, 2, 6, 7, roof="cedar")  # farmhouse by the windmill
+    shed(m, 17, 11)
+    shed(m, 70, 11)
 
     # ================= tan paths / trails (before paint_roads) ============
     # sports-fields path from Main Road to the gate
@@ -153,10 +211,9 @@ def compose(m: MapCanvas) -> None:
     trail |= {
         (x, y) for x in range(48, 55) for y in range(41, 48) if (x - 51) ** 2 + (y - 44) ** 2 <= 7
     }
+    trail |= {(x, 36) for x in range(63, 70)}  # to the trail-side colonial
+    trail |= {(63, y) for y in range(41, 45)} | {(x, 44) for x in range(63, 68)}
     path(m, trail)
-    # cul-de-sac door walks
-    apron(m, 37, 36, 4, 1, material="path")
-    apron(m, 48, 36, 3, 1, material="path")
 
     # ================= paint the road network =================
     m.paint_roads()
@@ -188,9 +245,9 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.POST_WOOD_B, 9, 9)
     m.stamp("deco-below", R.BUCKET, 9, 11)
     m.collide(9, 11, 2, 2)
-    m.stamp("deco-below", R.HAYSTACK, 13, 10)  # bales by the pen
-    m.collide(13, 10, 4, 4)
-    m.anchor("windmill", 15, 6)
+    m.stamp("deco-below", R.HAYSTACK, 13, 11)  # bales by the pen
+    m.collide(13, 11, 4, 4)
+    m.anchor("windmill", 14, 7)
 
     # ================= Town Hall frontage =================
     # flags hung on the granite facade, flanking the windows
@@ -198,18 +255,15 @@ def compose(m: MapCanvas) -> None:
     m.stamp("buildings-base", R.BANNER_RED_B, 37, 11)
     m.flowers(32, 18, n=4, spread=1)
     m.flowers(37, 18, n=4, spread=1)
-    m.stamp("deco-below", R.PLANTER_YELLOW, 29, 15)
-    m.collide(29, 15, 2, 2)
+    m.stamp("deco-below", R.PLANTER_YELLOW, 29, 17)
+    m.collide(29, 17, 2, 2)
+    hedge_line(m, 24, 17, 27, 17)  # annex frontage hedge
 
     # ================= school =================
-    # parking lot behind the school (asphalt painted with the road network;
-    # stripe the bays along the north kerb)
-    for px in (50, 52, 54):
-        m.set("ground-detail", px, 3, M.mg("parking_stall"))
     bench(m, 50, 8, landmark="High School")
     bench(m, 53, 8, landmark="High School")
-    m.stamp("deco-below", R.PLANTER_PURPLE, 57, 4)
-    m.collide(57, 4, 2, 2)
+    m.stamp("deco-below", R.PLANTER_PURPLE, 57, 5)
+    m.collide(57, 5, 2, 2)
     m.lamp(48, 2)
     # frontage: school sign + bus stop
     m.stamp("deco-below", R.SIGNS_STANDING[0], 47, 20)
@@ -218,19 +272,16 @@ def compose(m: MapCanvas) -> None:
     m.collide(54.3, 23.3, 0.4, 0.7)
     m.lamp(50, 20)
     m.lamp(53, 20)
+    hedge_line(m, 59, 11, 63, 11)  # hedges below the north colonials' walk
+    hedge_line(m, 66, 11, 69, 11)
 
     # ================= church + colonial home (E) =================
     m.set("deco-below", 59, 23, M.mg("planter_box"))
     m.set("deco-below", 64, 23, M.mg("planter_box"))
     m.collide(59.1, 23.3, 0.8, 0.7)
     m.collide(64.1, 23.3, 0.8, 0.7)
-    m.stamp("deco-below", R.BUSH_ROUND, 66, 19)
-    m.flowers(67, 21, n=5, spread=1)
-    # backyard garden pen behind the home
-    _fence_pen(m, 67, 9, 8, 6)
-    m.stamp("deco-below", R.FLOWER_PATCH, 69, 11)
-    m.stamp("deco-below", R.SNOWDROP, 72, 11)
-    m.tree(71, 12, stamp="tree_round_small")
+    m.flowers(67, 14, n=4, spread=1)
+    m.stamp("deco-below", R.FLOWER_PATCH, 72, 13)
 
     # ================= sports fields complex =================
     _fence_pen(m, 8, 32, 19, 14, gate=(16, 18))
@@ -246,15 +297,18 @@ def compose(m: MapCanvas) -> None:
         m.set("ground-detail", 17, ly, chalk)
     for lx in range(11, 17):
         m.set("ground-detail", lx, 38, chalk)
-    # baseball diamond: crisp tan infield + pale bases at the points
+    # Little League diamond: crisp tan infield, pale bases at the points,
+    # chain-link backstop behind home plate
     for dx in range(-3, 4):
         for dy in range(-3, 4):
             if abs(dx) + abs(dy) <= 3:
                 m.set("ground-detail", 21 + dx, 38 + dy, rng.choice(R.PATH_TAN.fill))
     for bx, by in ((21, 35), (18, 38), (24, 38), (21, 41)):
         m.set("ground-detail", bx, by, chalk)
-    bench(m, 20, 42, landmark="Sports Fields")
-    bench(m, 24, 42, landmark="Sports Fields")
+    m.stamp("deco-below", M.BACKSTOP, 20, 42)
+    m.collide(20, 42, 3, 2)
+    bench(m, 18, 44, landmark="Sports Fields")
+    bench(m, 24, 44, landmark="Sports Fields")
     m.stamp("deco-below", R.CRATE, 12, 43)
     m.stamp("deco-below", R.BUCKET, 14, 43)
     m.collide(12, 43, 4, 2)
@@ -262,30 +316,22 @@ def compose(m: MapCanvas) -> None:
     m.flowers(21, 30, n=5, spread=2)
 
     # ================= cul-de-sac =================
-    # picket-fenced front yards for the colonials (runs flank the door walks)
+    # picket fences and hedges mark the colonials' front yards
     f = R.FENCE_WOOD
-    for i, cx in enumerate(range(33, 37)):  # W colonial, left of its walk
-        m.stamp("deco-below", f["rail_h_a" if i % 2 == 0 else "rail_h_b"], cx, 36)
-    m.collide(33, 36, 4, 1)
-    for i, cx in enumerate(range(51, 55)):  # E colonial, right of its walk
-        m.stamp("deco-below", f["rail_h_a" if i % 2 == 0 else "rail_h_b"], cx, 36)
-    m.collide(51, 36, 4, 1)
-    m.flowers(34, 35, n=4, spread=1)
-    m.flowers(52, 35, n=4, spread=1)
+    for i, cx in enumerate(range(28, 32)):  # W pair: fence below the walk
+        m.stamp("deco-below", f["rail_h_a" if i % 2 == 0 else "rail_h_b"], cx, 37)
+    m.collide(28, 37, 4, 1)
+    hedge_line(m, 37, 37, 39, 37)
+    hedge_line(m, 49, 37, 52, 37)
+    m.flowers(33, 37, n=3, spread=1)
     for px in (42, 46):
         m.set("ground-detail", px, 38, M.mg("parking_stall"))
     m.lamp(40, 36)
     m.lamp(48, 36)
-    m.stamp("deco-below", R.BUSH_ROUND, 34, 31)
-    m.stamp("deco-below", R.BUSH_ROUND, 34, 34)
-    m.stamp("deco-below", R.BUSH_ROUND, 53, 31)
-    m.tree(33, 34, stamp="tree_fruit_a")
-    m.tree(32, 40, stamp="tree_light")
-    m.flowers(35, 28, n=5, spread=2)
-    m.flowers(50, 28, n=4, spread=2)
-    m.anchor("flower", 33, 37)
+    m.anchor("flower", 41, 46)
     m.set("deco-below", 41, 44, M.mg("mailbox"))
     m.collide(41.2, 44.2, 0.6, 0.8)
+    m.flowers(43, 46, n=4, spread=1)
 
     # ================= Hedden Park =================
     # stone bridge over the creek (deck row stays walkable)
@@ -315,12 +361,9 @@ def compose(m: MapCanvas) -> None:
     park_trees = [
         (53, 39, "tree_round_small"),
         (47, 45, "tree_round_small"),
-        (67, 33, "tree_light"),
-        (71, 36, "tree_dark"),
+        (72, 33, "tree_dark"),
         (66, 41, "tree_light"),
-        (64, 45, "tree_light"),
-        (73, 44, "tree_dark"),
-        (69, 47, "tree_light"),
+        (64, 46, "tree_light"),
         (61, 47, "tree_round_small"),
     ]
     for tx, ty, ts in park_trees:
@@ -328,55 +371,58 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.ROCK_MED, 65, 38)
 
     # ================= tree clusters (negative space stays open) ==========
-    for tx, ty, ts in [(15, 3, "tree_light"), (18, 5, "tree_dark"), (20, 3, "tree_round_small")]:
-        m.tree(tx, ty, stamp=ts)
-    for tx, ty, ts in [(24, 12, "tree_light"), (27, 14, "tree_dark"), (22, 14, "tree_round_small")]:
-        m.tree(tx, ty, stamp=ts)
-    for tx, ty, ts in [(33, 3, "tree_light"), (37, 4, "tree_dark"), (40, 6, "tree_light")]:
-        m.tree(tx, ty, stamp=ts)
-    for tx, ty, ts in [
-        (59, 6, "tree_dark"),
-        (63, 4, "tree_light"),
-        (66, 2, "tree_dark"),
-        (71, 4, "tree_light"),
-        (74, 7, "tree_dark"),
-    ]:
-        m.tree(tx, ty, stamp=ts)
-    for tx, ty, ts in [(1, 31, "tree_light"), (4, 34, "tree_dark"), (2, 38, "tree_light")]:
+    m.tree(23, 4, stamp="tree_light")
+    m.tree(28, 3, stamp="tree_round_small")
+    m.tree(33, 3, stamp="tree_light")
+    m.tree(37, 4, stamp="tree_dark")
+    m.tree(40, 6, stamp="tree_light")
+    m.tree(72, 5, stamp="tree_light")
+    for tx, ty, ts in [(4, 34, "tree_dark"), (2, 38, "tree_light")]:
         m.tree(tx, ty, stamp=ts)
     m.stamp("deco-below", R.FERN, 5, 37)
     m.stamp("deco-below", R.ROCK_SMALL, 1, 35)
-    for tx, ty, ts in [(28, 47, "tree_light"), (33, 48, "tree_dark"), (41, 48, "tree_light")]:
-        m.tree(tx, ty, stamp=ts)
     m.stamp("deco-below", R.ROCK_OUTCROP_A, 1, 44)
     m.collide(1, 45, 5, 4)
+    m.tree(24, 12, stamp="tree_round_small")
 
     # ================= Main Road furniture =================
     for lx in (1, 27, 57, 68):
         m.lamp(lx, 22)
-    for lx in (10, 31, 66):
+    for lx in (14, 31, 66):
         m.lamp(lx, 26)
     m.set("deco-below", 13, 23, M.mg("hydrant"))
     m.collide(13.2, 23.3, 0.6, 0.7)
     m.set("deco-below", 27, 23, M.mg("mailbox"))
     m.collide(27.2, 23.2, 0.6, 0.8)
-    m.set("deco-below", 42, 23, M.mg("trash_bin"))
-    m.collide(42.2, 23.3, 0.6, 0.7)
+    m.set("deco-below", 41, 23, M.mg("trash_bin"))
+    m.collide(41.2, 23.3, 0.6, 0.7)
     m.set("deco-below", 36, 23, M.mg("planter_box"))
     m.collide(36.1, 23.3, 0.8, 0.7)
-    m.set("deco-below", 11, 26, M.mg("storm_drain"))
-    m.set("deco-below", 62, 24, M.mg("storm_drain"))
+    m.set("ground-detail", 13, 26, M.mg("storm_drain"))
+    m.set("ground-detail", 62, 24, M.mg("storm_drain"))
     # kerbside parking for the diner and the shops
     for px in (3, 5, 7):
         m.set("ground-detail", px, 24, M.mg("parking_stall"))
     for px in (29, 31, 38, 40):
         m.set("ground-detail", px, 24, M.mg("parking_stall"))
+    # horse country keeps stop signs, never signals: three at the tee,
+    # a street blade at the school lot's drive, poles down the south verge
+    stop_sign(m, 42, 23)
+    stop_sign(m, 46, 23)
+    stop_sign(m, 42, 28)
+    street_blade(m, 46, 3)
+    poles(m, [(x, 28) for x in range(13, 73)])
 
     # map edge collision walls
     m.collide(0, -1, m.w, 1)
     m.collide(0, m.h, m.w, 1)
     m.collide(-1, 0, 1, m.h)
     m.collide(m.w, 0, 1, m.h)
+
+    # ================= woods ring, ground tones, desire lines ============
+    emit_edge_ring(m, EXITS)
+    emit_ground_shade(m)
+    emit_ground_wear(m)
 
     # landmark labels for the scene
     for lm in m.landmarks.values():

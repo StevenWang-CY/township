@@ -1,34 +1,43 @@
 """Hand-tuned layout for Harlow Crossing (millbrook-budget) — 75x50 tiles.
 
 Reading of the town: the growth side of the Stillwater. Route 9 is the spine
-— the strip that carries 14,000 cars and every school bus in town — and
-everything young about Harlow hangs off it: the plaza shopping row behind its
-big parking lot, Rocco's Slice House, the 1968 brick elementary school with
-its fenced playfield, the volunteer firehouse on its poured slab, Fairview's
-subdivision loop of cream cottages, and the rec-league Community Fields down
-at the river bend that flood every April.
+— the strip that carries 14,000 cars and every school bus in town under its
+run of utility poles — and everything young about Harlow hangs off it: the
+plaza shopping row behind its big parking lot (cars, a cart corral), Rocco's
+Slice House, the 1968 brick elementary school with its fenced playfield and
+a school bus at the door, the volunteer firehouse on its poured slab, the
+Fairview loop of cream cottages with sheds, Orchard Street's new colonials
+on the old orchard behind the plaza, the riverside inn, and the rec-league
+Community Fields down at the river bend that flood every April.
 
 The memorable set-piece is the center of the map: the namesake crossing —
 one straight north-south street (Crossing Road) meeting Route 9 in a clean
-four-way junction with a single zebra set, the school on its NE shoulder and
-the firehouse (brick, twin metal bay doors, red pancake-breakfast bunting)
-on its SE. The Stillwater river runs the whole east edge — Route 9 crosses
-it on a stone bridge toward Millbrook Village.
+four-way junction with a single zebra set and the town's only traffic
+signal, the school on its NE shoulder and the firehouse (brick, twin metal
+bay doors, red pancake-breakfast bunting) on its SE. The Stillwater river
+runs the whole east edge — Route 9 crosses it on a stone bridge toward
+Millbrook Village.
 
 Grid plan (cols x rows):
   - Route 9 ............ horizontal road rows 24-26, west exit + east bridge
   - Crossing Road ...... vertical road cols 35-37 straight through the map
                          (north + south exits); its four-way junction with
                          Route 9 is the namesake crossing, zebras cols 34/38
+  - Orchard Street ..... walk row 11 from the farmstead (cols 2-7) past
+                         four colonials (cols 9-33) to Crossing Road; a
+                         lane (col 8) drops to Route 9 past the barn
   - plaza strip ........ storefront row rows 13-18, walk row 19, parking lot
-                         rows 20-22 (stalls, cart corral, hydrant)
+                         rows 20-22 (nose-in stalls, cart corral, hydrant)
   - Rocco's ............ cols 29-34 rows 15-20, striped awning
-  - school ............. cols 41-51 rows 9-16, forecourt + bus stop,
-                         fenced playground cols 52-59 (sand pit, climb bar)
+  - school ............. cols 41-51 rows 9-16, forecourt + bus, fenced
+                         playground cols 52-59 (sand pit, climb bar)
+  - riverside inn ...... cols 60-68 rows 3-9, walk down the church's east
+                         side to Route 9
   - church ............. cols 56-62 rows 16-22, garden + open memorial plot
-  - firehouse .......... cols 39-46 rows 29-35, wide apron rows 36-38
+  - firehouse .......... cols 39-46 rows 29-35, wide apron rows 36-38; the
+                         senior center east of it, cottages below the slab
   - Fairview loop ...... narrow streets cols 6-7 / 23-24 + lane rows 42-43,
-                         three flat-roof homes (door + window fronts)
+                         three cottages with sheds, carriage houses west
   - Community Fields ... light-grass pitch cols 54-65 rows 33-41 with chalk
                          lines and metal goals, by the river bend
   - Stillwater river ... east edge, bend into the SE corner, stone bridge
@@ -42,14 +51,36 @@ from mapgen.build_maps import (
     MapCanvas,
     bench,
     church,
+    cottage,
+    emit_edge_ring,
+    emit_ground_shade,
+    emit_ground_wear,
     facade_wall,
     grand,
+    hedge_line,
     noticeboard,
+    park_stalls,
     path,
     path_rect,
     patio,
+    poles,
+    road_sign,
+    shadow_rect,
+    shed,
+    signal,
     storefront,
+    vehicle,
 )
+
+#: Roads leaving the map: (side, road segment's first row / column, sign).
+EXITS = [
+    ("w", 24, "TO COUNTY RD 7"),
+    ("n", 35, "TO RIDGE RD"),
+    ("s", 35, "TO THE QUARRY"),
+    ("w", 42, "TO FAIRVIEW HILL"),
+]
+
+FAIRVIEW = "Fairview Subdivision"
 
 
 def _river_cells(m: MapCanvas) -> set[tuple[int, int]]:
@@ -105,11 +136,8 @@ def compose(m: MapCanvas) -> None:
 
     # ================= ground tone =================
     m.base_grass()
-    m.meadow(1, 1, 13, 9)  # NW orchard meadow
-    m.meadow(27, 2, 9, 8)  # north-center clearing
     m.meadow(41, 18, 12, 5)  # school front lawn
-    m.meadow(2, 28, 4, 12)  # west verge of Fairview
-    m.meadow(26, 44, 14, 5)  # south band
+    m.meadow(26, 44, 14, 4)  # south band
 
     # ================= Stillwater river (before roads) =================
     river = _river_cells(m)
@@ -132,7 +160,8 @@ def compose(m: MapCanvas) -> None:
     m.road_v(23, 27, 43, width=2)
     m.road_h(42, 0, 24, width=2)  # Fairview Lane, west exit
 
-    # plaza parking lot: rows 20-22 with a driveway onto Route 9
+    # plaza parking lot: rows 20-22 with a driveway onto Route 9 (stalls
+    # and cars are dealt below, once the walk and buildings are placed)
     lot = {(x, y) for x in range(9, 28) for y in range(20, 23)}
     lot |= {(x, 23) for x in range(17, 20)}  # driveway mouth
     m.road_mask |= lot
@@ -142,6 +171,13 @@ def compose(m: MapCanvas) -> None:
     m.pave(38, 17, 18, 2)  # school forecourt, meets the road walk
     m.pave(38, 36, 10, 3)  # firehouse apron (the wide slab)
     m.pave(31, 21, 2, 2)  # Rocco's doorstep
+    m.pave(2, 11, 33, 1)  # Orchard Street walk, farmstead -> Crossing Rd
+    m.pave(8, 12, 1, 12)  # lane down the plaza's west side to Route 9
+    m.pave(2, 18, 6, 1)  # barn apron to the lane
+    m.pave(60, 10, 4, 1)  # inn's walk...
+    m.pave(63, 10, 1, 14)  # ...down the church's east side to Route 9
+    m.pave(39, 47, 15, 1)  # south cottages' walk to Crossing Rd
+    m.pave(2, 34, 4, 1)  # upper carriage house to Fairview's sidewalk
 
     # ================= buildings (reserve before paint_roads) =============
     # -- plaza strip: pharmacy / bank / barber / laundromat
@@ -154,8 +190,17 @@ def compose(m: MapCanvas) -> None:
     storefront(m, 22, 13, 5, 6, facade="cream", roof="stone", sign=None, landmark=plaza)
     # -- Rocco's Slice House
     storefront(m, 29, 15, 6, 6, facade="brick", awning=True, landmark="Rocco's Slice House")
+    # -- Orchard Street: the farmstead, four colonials on the old orchard
+    cottage(m, 2, 3, 6, 8, roof="cedar")  # farmhouse
+    storefront(m, 2, 12, 6, 6, facade="brick", roof="terracotta", window=False, sign=None)  # barn
+    cottage(m, 9, 3, 6, 8, roof="slate")
+    cottage(m, 16, 3, 6, 8, roof="deck_dark")
+    cottage(m, 22, 3, 6, 8, roof="slate")
+    cottage(m, 28, 3, 6, 8, roof="cedar")
     # -- Harlow Elementary School (1968 brick, arch entry)
     grand(m, 41, 9, 11, 8, facade="brick", windows=True, landmark="Harlow Elementary School")
+    # -- the riverside inn above the church
+    grand(m, 60, 3, 9, 7, facade="brick", windows=True)
     # -- Harlow Congregational Church (1841, whitewashed)
     church(m, 56, 15, 7, 8, variant="clapboard", landmark="Harlow Congregational Church")
     # -- Harlow Firehouse (hand-composed: twin metal bays + red bunting),
@@ -171,47 +216,51 @@ def compose(m: MapCanvas) -> None:
     # both bay doors are fronts, so the apron spots spread across the slab
     for bay in (40, 44):
         m.register_front("Harlow Firehouse", 39, 29, 8, 7, bay, 35, 33)
-    # -- Fairview homes: flat deck roofs over plain brick/cream fronts with
-    #    a real door + window each, matching the town's building language
+    shadow_rect(m, 39, 29, 8, 7)
+    # -- senior center beside the firehouse, cottages below the slab
+    grand(m, 47, 28, 7, 7, facade="stone_small", roof="stone")
+    cottage(m, 40, 40, 6, 7, roof="slate")
+    cottage(m, 48, 40, 6, 7, roof="deck_dark")
+    # -- Fairview cottages with sheds, carriage houses on the west verge
+    cottage(m, 9, 33, 6, 8, landmark=FAIRVIEW)
+    cottage(m, 16, 33, 6, 8, roof="deck_dark", landmark=FAIRVIEW)
+    cottage(m, 26, 33, 6, 8, roof="slate", landmark=FAIRVIEW)
+    shed(m, 18, 29)
+    shed(m, 28, 29)
     storefront(
         m,
-        9,
-        34,
-        6,
-        7,
+        2,
+        29,
+        3,
+        5,
         facade="cream",
         roof="deck_light",
-        door_dx=3,
+        window=False,
         sign=None,
         yard=True,
-        landmark="Fairview Subdivision",
+        landmark=FAIRVIEW,
     )
     storefront(
         m,
-        16,
-        34,
-        6,
-        7,
+        2,
+        36,
+        3,
+        5,
         facade="brick",
         roof="deck_dark",
-        door_dx=3,
+        window=False,
         sign=None,
         yard=True,
-        landmark="Fairview Subdivision",
+        landmark=FAIRVIEW,
     )
-    storefront(
-        m,
-        26,
-        34,
-        6,
-        7,
-        facade="cream",
-        roof="stone",
-        door_dx=3,
-        sign=None,
-        yard=True,
-        landmark="Fairview Subdivision",
-    )
+
+    # ================= plaza lot: cart corral + nose-in stalls ============
+    for bx, by in ((23, 20), (23, 21), (26, 20), (26, 21)):
+        m.set("deco-below", bx, by, M.mg("bollard"))
+        m.collide(bx + 0.3, by + 0.3, 0.4, 0.7)
+    m.stamp("deco-below", R.FENCE_METAL["rail_h"], 24, 21)  # the carts
+    m.collide(24, 20, 2, 2)
+    park_stalls(m, 9, 20, 19, 3, "v", fill=0.65, surface="asphalt", curb="n")
 
     # ================= paint the road network =================
     m.paint_roads(crosswalks=False)
@@ -224,19 +273,11 @@ def compose(m: MapCanvas) -> None:
     m.stamp("ground-detail", R.BRIDGE_STONE, 70, 24)
     m.collide(70, 24, 5, 1)
     m.collide(70, 26, 5, 1)
+    road_sign(m, 68, 28, "TO MILLBROOK")
 
     # ================= plaza set-piece dressing =================
-    # nose-in stalls against the storefront walk, second row along the aisle
-    for x in (10, 12, 14, 20, 22, 24, 26):
-        m.set("ground-detail", x, 20, M.mg("parking_stall"))
-    for x in (10, 12, 14, 16, 20, 22):
-        m.set("ground-detail", x, 22, M.mg("parking_stall") | R.FLIP_V)
     m.set("ground-detail", 18, 22, M.mg("storm_drain"))
     m.lamp(28, 21)  # lot light on the sidewalk edge, clear of the stalls
-    # cart corral improvised from metal railing
-    m.stamp("deco-below", R.FENCE_METAL["rail_h"], 24, 21)
-    m.stamp("deco-below", R.FENCE_METAL["rail_h"], 24, 22)
-    m.collide(24, 21.4, 2, 1.2)
     # street furniture on the storefront walk
     m.set("deco-below", 15, 19, M.mg("planter_box"))
     m.collide(15.1, 19.3, 0.8, 0.7)
@@ -248,15 +289,13 @@ def compose(m: MapCanvas) -> None:
     m.collide(9.2, 19.2, 0.6, 0.8)
     m.set("deco-below", 26, 23, M.mg("hydrant"))
     m.collide(26.2, 23.3, 0.6, 0.7)
-    m.stamp("deco-below", R.SIGNS_STANDING[0], 15, 23)  # plaza sign
-    m.collide(15, 23.6, 2, 0.4)
-    m.lamp(8, 19)
-    m.stamp("deco-below", M.BUS_SIGN, 4, 22)  # strip bus stop
-    m.collide(4.3, 23.3, 0.4, 0.7)
+    m.stamp("deco-below", R.SIGNS_STANDING[0], 4, 22)  # plaza sign by the exit
+    m.collide(4, 22.6, 2, 0.4)
+    m.lamp(7, 20)
 
     # ================= Rocco's frontage =================
-    m.stamp("deco-below", R.SIGNS_STANDING[1], 33, 21)  # utensils board
-    m.collide(33, 22.6, 2, 0.4)
+    m.stamp("deco-below", R.SIGNS_STANDING[1], 27, 20)  # utensils board
+    m.collide(27, 21.6, 2, 0.4)
     patio(
         m,
         29,
@@ -274,10 +313,24 @@ def compose(m: MapCanvas) -> None:
     m.set("ground-detail", 13, 26, M.mg("storm_drain"))  # Culvert 9 grates
     m.set("ground-detail", 8, 26, M.mg("storm_drain"))
 
+    # ================= Orchard Street =================
+    for hx in (15, 21, 27):  # hedges between the lots
+        hedge_line(m, hx, 5, hx, 10)
+    m.tree(33, 5, stamp="tree_fruit_a")  # last of the orchard
+    m.tree(33, 9, stamp="tree_fruit_c")
+    m.flowers(11, 12, n=4, spread=1)
+    m.set("deco-below", 34, 10, M.mg("mailbox"))
+    m.collide(34.2, 10.2, 0.6, 0.8)
+    m.stamp("deco-below", R.HAYSTACK, 4, 19)  # barn yard
+    m.collide(4, 19, 4, 4)
+    m.stamp("deco-below", R.BARREL, 2, 19)
+    m.collide(2, 19, 2, 2)
+
     # ================= school zone =================
     m.stamp("deco-below", M.BUS_SIGN, 41, 17)  # bus loop stop
     m.collide(41.3, 18.3, 0.4, 0.7)
-    bench(m, 51, 18, landmark="Harlow Elementary School")
+    vehicle(m, "schoolbus", 48, 18, "h", facing="w")  # bus at the door
+    bench(m, 52, 18, landmark="Harlow Elementary School")
     m.set("deco-below", 49, 17, M.mg("planter_box"))
     m.collide(49.1, 17.3, 0.8, 0.7)
     m.lamp(40, 17)
@@ -296,15 +349,15 @@ def compose(m: MapCanvas) -> None:
     # school lawn sign by the zebra
     m.stamp("deco-below", R.SIGNS_STANDING[3], 41, 21)
     m.collide(41, 22.6, 2, 0.4)
+    hedge_line(m, 44, 20, 50, 20)  # hedge along the lawn
 
-    # ================= church garden + cemetery =================
+    # ================= inn + church garden + cemetery =================
+    bench(m, 66, 10)
+    m.stamp("deco-below", R.FERN, 68, 9)
     path_rect(m, 58, 23, 2, 1)
     m.stamp("deco-below", R.PLANTER_YELLOW, 54, 21)
     m.collide(54, 21, 2, 2)
-    m.stamp("deco-below", R.PLANTER_PURPLE, 63, 21)
-    m.collide(63, 21, 2, 2)
     m.flowers(55, 19, n=6, spread=1)
-    m.flowers(64, 19, n=5, spread=1)
     # tiny 1841 churchyard: OPEN memorial garden — statue on a rounded tan
     # plot with old stones and flower drifts, a walk down to Route 9 (no
     # fence; a caged monument reads as a mistake)
@@ -348,8 +401,8 @@ def compose(m: MapCanvas) -> None:
     m.flowers(67, 17, n=3, spread=1)
 
     # ================= firehouse set-piece =================
-    m.set("deco-below", 38, 27, M.mg("hydrant"))  # hydrant at the corner
-    m.collide(38.2, 27.3, 0.6, 0.7)
+    m.set("deco-below", 40, 27, M.mg("hydrant"))  # hydrant by the corner
+    m.collide(40.2, 27.3, 0.6, 0.7)
     # pancake-breakfast bunting posts at the apron's south corners
     for bx, banner in ((38, R.BANNER_RED_A), (46, R.BANNER_RED_B)):
         m.stamp("deco-below", R.POST_WOOD_A, bx, 38)
@@ -357,34 +410,29 @@ def compose(m: MapCanvas) -> None:
         m.collide(bx + 0.25, 38.5, 0.5, 0.5)
     m.stamp("deco-below", R.SIGNS_STANDING[4], 42, 36)  # pancake board
     m.collide(42, 37.6, 2, 0.4)
-    m.stamp("deco-below", R.MENU_BOARD, 48, 38)
-    m.collide(48, 38.4, 2, 1.6)
-    m.set("deco-below", 47, 39, M.mg("trash_bin"))
-    m.collide(47.2, 39.3, 0.6, 0.7)
+    m.stamp("deco-below", R.MENU_BOARD, 48, 36)
+    m.collide(48, 36.4, 2, 1.6)
+    m.set("deco-below", 47, 38, M.mg("trash_bin"))
+    m.collide(47.2, 38.3, 0.6, 0.7)
     m.set("ground-detail", 43, 26, M.mg("storm_drain"))
+    m.lamp(46, 47)
 
     # ================= Fairview subdivision =================
     # shared garden pen on the loop's upper green
-    _fence_pen(m, 11, 28, 6, 5)
+    _fence_pen(m, 11, 27, 6, 5)
     for gx in range(12, 15):
-        m.set("deco-below", gx, 30, rng.choice(R.CROP_TILES))
-    m.stamp("deco-below", R.BEANPOLES, 18, 29)
-    m.collide(18, 29, 2, 2)
-    m.flowers(10, 33, n=4, spread=1)
-    m.flowers(20, 32, n=4, spread=1)
-    # third cottage's path to the lane's sidewalk
-    path(m, {(26, 41), (27, 41), (28, 41)})
+        m.set("deco-below", gx, 29, rng.choice(R.CROP_TILES))
+    m.flowers(10, 31, n=4, spread=1)
     # curbside details
     m.set("deco-below", 8, 30, M.mg("mailbox"))
     m.collide(8.2, 30.2, 0.6, 0.8)
-    m.set("deco-below", 22, 33, M.mg("mailbox"))
-    m.collide(22.2, 33.2, 0.6, 0.8)
-    m.set("deco-below", 3, 41, M.mg("trash_bin"))
-    m.collide(3.2, 41.3, 0.6, 0.7)
+    m.set("deco-below", 22, 31, M.mg("mailbox"))
+    m.collide(22.2, 31.2, 0.6, 0.8)
     m.lamp(8, 27)
-    m.lamp(22, 39)
-    m.tree(3, 33, stamp="tree_round_small")
-    m.stamp("deco-below", R.BUSH_ROUND, 2, 36)
+    m.lamp(22, 41)
+    m.lamp(30, 41)
+    hedge_line(m, 32, 34, 32, 40)  # hedge between the east cottage and the road
+    m.stamp("deco-below", R.BUSH_ROUND, 2, 44)
 
     # ================= Community Fields =================
     # rec-league pitch: light-grass sward, worn tan boundary, rail goals,
@@ -401,14 +449,14 @@ def compose(m: MapCanvas) -> None:
     for fx, fy in ((55, 32), (63, 32), (55, 42), (63, 42)):  # corner flags
         m.stamp("deco-below", R.POST_WOOD_B, fx, fy - 1)
         m.collide(fx + 0.25, fy + 0.25, 0.5, 0.5)
-    # walk from the firehouse apron + spectator benches
-    path(m, {(x, y) for x in range(48, 54) for y in (36, 37)})
-    for by in (35, 39):
-        bench(m, 52, by, landmark="Community Fields")
-    m.lamp(49, 34)
-    m.stamp("deco-below", R.SIGNS_STANDING[3], 48, 32)  # rec-league board
-    m.collide(48, 33.6, 2, 0.4)
-    m.flowers(50, 40, n=4, spread=1)
+    # walk from the senior center's apron + spectator benches
+    path(m, {(x, y) for x in range(47, 54) for y in (35, 36)} | {(x, 37) for x in range(50, 54)})
+    for by in (34, 39):
+        bench(m, 53, by, landmark="Community Fields")
+    m.lamp(54, 44)
+    m.stamp("deco-below", R.SIGNS_STANDING[3], 51, 38)  # rec-league board
+    m.collide(51, 39.6, 2, 0.4)
+    m.flowers(50, 41, n=4, spread=1)
     # practice diamond by the river bend
     m.blob(
         "ground-detail",
@@ -422,54 +470,49 @@ def compose(m: MapCanvas) -> None:
     m.anchor("water-foam", 71, 20)
 
     # ================= trees (clustered) =================
-    # NW orchard remnant — loosely planted rows
-    for x, y in ((2, 6), (7, 6), (3, 11), (8, 11)):
-        m.tree(x, y, stamp="tree_fruit_a")
-    m.tree(12, 5, stamp="tree_fruit_c")
-    # north-center clearing cluster (west of Crossing Road)
-    for x, y in ((28, 5), (33, 4), (30, 8), (26, 6)):
-        m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark")))
-    m.tree(25, 3, stamp="tree_small")
-    m.stamp("deco-below", R.BUSH_ROUND, 26, 9)
-    m.tree(40, 5, stamp="tree_light")  # lone tree on the east shoulder
-    # NE riverbank
-    for x, y in ((64, 3), (68, 6), (62, 9)):
-        m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark")))
-    m.stamp("deco-below", R.FERN, 68, 9)
-    # crossing-road verge
-    m.tree(33, 12, stamp="tree_round_small")
+    m.tree(40, 5, stamp="tree_light")  # lone tree on the school's shoulder
+    m.tree(57, 4, stamp="tree_dark")
+    m.tree(33, 13, stamp="tree_round_small")
     m.stamp("deco-below", R.BUSH_ROUND, 31, 12)
     # riverbank at the fields + south fringe
-    for x, y in ((59, 31), (51, 48), (57, 49), (62, 46)):
+    for x, y in ((59, 31), (62, 46), (57, 45)):
         m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark")))
-    m.tree(48, 46, stamp="tree_fruit_a")
-    for x, y in ((3, 47), (10, 46), (17, 48), (28, 47), (33, 46), (41, 48)):
+    for x, y in ((28, 46), (33, 46)):
         m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark", "tree_round_small")))
     m.stamp("deco-below", R.ROCK_MED, 31, 45)
     m.stamp("deco-below", R.FERN, 6, 45)
+    m.tree(10, 46, stamp="tree_light")
+    m.tree(17, 46, stamp="tree_round_small")
     # west verge
-    for x, y in ((2, 20), (2, 26)):
+    for x, y in ((2, 21), (2, 26)):
         m.tree(x, y, stamp=rng.choice(("tree_light", "tree_round_small")))
 
     # ================= flower drifts =================
-    m.flowers(11, 8, n=5, spread=2)
-    m.flowers(31, 11, n=4, spread=2)
-    m.flowers(48, 21, n=5, spread=2)
+    m.flowers(31, 11, n=4, spread=1)
+    m.flowers(48, 22, n=5, spread=2)
     m.flowers(30, 30, n=4, spread=2)
     m.flowers(58, 44, n=5, spread=2)
-    m.flowers(4, 44, n=4, spread=2)
+    m.flowers(4, 45, n=4, spread=2)
 
-    # ================= street lamps along Route 9 =================
+    # ================= Route 9 street furniture ==========================
     for x in (52, 67):
         m.lamp(x, 22)
     for x in (11, 30, 55, 66):
         m.lamp(x, 26)
+    # the crossing's signal, poles down Route 9's south verge
+    signal(m, 35, 24, 37, 26)
+    poles(m, [(x, 28) for x in range(3, 68)])
 
     # map edge collision walls
     m.collide(0, -1, m.w, 1)
     m.collide(0, m.h, m.w, 1)
     m.collide(-1, 0, 1, m.h)
     m.collide(m.w, 0, 1, m.h)
+
+    # ================= woods ring, ground tones, desire lines ============
+    emit_edge_ring(m, EXITS)
+    emit_ground_shade(m)
+    emit_ground_wear(m)
 
     # landmark labels for the scene
     for lm in m.landmarks.values():
