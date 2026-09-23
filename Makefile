@@ -76,12 +76,13 @@ demo-build: ## Build the zero-backend demo player (stages scenarios/*/demo cache
 demo-preview: ## Serve the built demo player locally (run 'make demo-build' first)
 	cd frontend && npm run demo:preview
 
-maps: ## Regenerate the tileset, every town map + preview, the atlases, and the frontend tile metadata
+maps: ## Regenerate the tileset, every town map + preview + postcard, the atlases, and the frontend tile metadata
 	$(PYTHON) -m scripts.mapgen.moderntiles
 	@for dir in scenarios/*/; do \
 		id=$$(basename "$$dir"); \
 		if [ -d "$$dir/towns" ]; then $(PYTHON) -m scripts.mapgen.build_maps --scenario "$$id" --all --preview; fi; \
 	done
+	$(PYTHON) scripts/mapgen/render_postcards.py --all
 	$(PYTHON) -m scripts.mapgen.overworld --all
 	$(PYTHON) scripts/mapgen/export_window_gids.py
 	$(PYTHON) scripts/mapgen/export_road_gids.py

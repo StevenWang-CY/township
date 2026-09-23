@@ -1,176 +1,164 @@
-/* ── District atlas — overworld panel, sites, nameplates, hover cards. ── */
+/* ── District atlas — the /map route ──────────────────────────
+   A native-resolution pixel overworld (960x608, one image pixel per CSS
+   pixel) in a parchment frame: hanging nameplates, 4x6 px resident
+   figures strolling each town's main street, a postcard hover card (a tap
+   sheet on touch), the cartouche + compass chrome, and the town-card grid.
+   Every colour is a token; pixel surfaces cast hard offset shadows.
+   ─────────────────────────────────────────────────────────── */
 
-/* ── District Map ──────────────────────────────────────────── */
+:root {
+  --atlas-ink: var(--color-atlas-ink);
+  --atlas-ink-deep: var(--color-atlas-ink-deep);
+  --atlas-parch: var(--color-atlas-parch);
+  --atlas-frame-pad: 14px;
+  /* Pixel 9-slice plaque ring: 2px ink border + hard offset pixel shadow.
+     box-shadow, not filter, so nothing blurs and nothing gets clipped. */
+  --atlas-plaque-shadow:
+    0 0 0 2px var(--atlas-ink),
+    3px 4px 0 2px color-mix(in srgb, var(--atlas-ink-deep) 26%, transparent);
+  --atlas-plaque-shadow-lit:
+    0 0 0 2px var(--town-accent, var(--atlas-ink)),
+    4px 6px 0 2px color-mix(in srgb, var(--atlas-ink-deep) 22%, transparent);
+  --atlas-gold-line: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
 
-.district-map-pin {
-  cursor: pointer;
-  transition: transform 0.3s var(--ease-genshin);
-}
-.district-map-pin:hover {
-  transform: scale(1.12);
-}
-.district-map-pin:hover .pin-details {
-  opacity: 1;
-  transform: translateY(0);
-}
-.pin-details {
+/* ── Page ─────────────────────────────────────────────────── */
+
+.district-map {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 16px 16px 40px;
+  /* One soft fade for the whole page (an opacity ease, no motion): the
+     shell's demo banner finishes its own entrance under the same beat, so
+     nothing is audited or read mid-transition. */
   opacity: 0;
-  transform: translateY(6px);
-  transition: all 0.25s var(--ease-genshin);
+  transition: opacity 0.8s ease-out;
 }
 
-.pin-ripple {
-  animation: ripple 2s ease-out infinite;
+.district-map.is-ready {
+  opacity: 1;
 }
 
-/* Waypoint hover — speed up pulse animations */
-.waypoint-marker:hover .waypoint-pulse {
-  animation-duration: 1.5s !important;
-}
-.waypoint-marker:hover .waypoint-core {
-  filter: brightness(1.2);
-  transition: filter 0.2s ease;
+.district-map-head {
+  max-width: 48rem;
+  margin-bottom: 12px;
+  text-align: center;
 }
 
-/* DistrictMap: larger touch targets */
-@media (width < 768px) {
-  .district-map-pin circle {
-    cursor: pointer;
-  }
-
-  /* Increase tap target size on touch devices */
-  .district-map-pin {
-    touch-action: manipulation;
-  }
-
-  .district-map-pin > circle:first-of-type {
-    r: 24;
-  }
-
-  .district-map-pin-hit-area {
-    r: 32;
-    fill: transparent;
-    cursor: pointer;
-  }
+.district-map-head h1 {
+  font-family: var(--font-display);
+  font-size: clamp(16px, 1.5vw + 10px, 20px);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.4px;
+  color: var(--text-primary);
 }
 
-/* District map town cards responsive */
-.district-town-cards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+.district-map-sub {
+  margin-top: 4px;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
-@media (width < 768px) {
-  .district-town-cards {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
+/* ── Frame + panel ────────────────────────────────────────── */
 
-@media (width < 480px) {
-  .district-town-cards {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   District Atlas — pixel overworld in parchment chrome.
-   The interior is a mapgen-rendered overworld PNG; the frame, cartouche
-   and compass are warm parchment/gold chrome around it.
-   ═══════════════════════════════════════════════════════════════ */
-
-.district-atlas-frame {
+.atlas-frame {
   position: relative;
-  padding: 14px;
-  border-radius: 10px;
+  /* 960 px of terrain + padding + the 1 px border each side (border-box). */
+  width: min(100%, calc(960px + 2 * var(--atlas-frame-pad) + 2px));
+  padding: var(--atlas-frame-pad);
+  border-radius: var(--radius-md);
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 40%),
+    linear-gradient(160deg, color-mix(in srgb, var(--color-surface-card) 35%, transparent), transparent 40%),
     linear-gradient(160deg, var(--color-parchment-3), var(--color-surface-mat));
-  border: 1px solid rgba(196, 163, 90, 0.55);
+  border: 1px solid var(--atlas-gold-line);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 14px 38px rgba(100, 80, 50, 0.18);
+    inset 0 1px 0 color-mix(in srgb, var(--color-surface-card) 60%, transparent),
+    var(--shadow-float);
 }
 
 /* Inner hairline + corner rivets, drawn as chrome (no extra DOM). */
-.district-atlas-frame::before {
+.atlas-frame::before {
   content: "";
   position: absolute;
   inset: 6px;
-  border: 1px solid rgba(196, 163, 90, 0.38);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 38%, transparent);
   border-radius: 7px;
   pointer-events: none;
 }
 
-.district-atlas-frame::after {
+.atlas-frame::after {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   pointer-events: none;
+  --rivet: color-mix(in srgb, var(--color-parchment-accent) 60%, transparent);
   background:
-    radial-gradient(circle 3px at 10px 10px, rgba(168, 144, 120, 0.6) 45%, transparent 55%),
-    radial-gradient(circle 3px at calc(100% - 10px) 10px, rgba(168, 144, 120, 0.6) 45%, transparent 55%),
-    radial-gradient(circle 3px at 10px calc(100% - 10px), rgba(168, 144, 120, 0.6) 45%, transparent 55%),
-    radial-gradient(circle 3px at calc(100% - 10px) calc(100% - 10px), rgba(168, 144, 120, 0.6) 45%, transparent 55%);
+    radial-gradient(circle 3px at 10px 10px, var(--rivet) 45%, transparent 55%),
+    radial-gradient(circle 3px at calc(100% - 10px) 10px, var(--rivet) 45%, transparent 55%),
+    radial-gradient(circle 3px at 10px calc(100% - 10px), var(--rivet) 45%, transparent 55%),
+    radial-gradient(circle 3px at calc(100% - 10px) calc(100% - 10px), var(--rivet) 45%, transparent 55%);
 }
 
-.district-atlas-panel {
+.atlas-panel {
   position: relative;
-  /* Markers may poke slightly past the pixel panel; the frame absorbs it. */
+  width: 100%;
 }
 
-.district-atlas-viewport {
-  position: relative;
+.atlas-viewport {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   border-radius: 3px;
+  background: var(--color-map-green);
   box-shadow: var(--pixel-frame-shadow-quiet);
 }
 
-.district-atlas-terrain {
+.atlas-terrain {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   image-rendering: pixelated;
   user-select: none;
+  opacity: 0;
+  transition: opacity var(--duration-slow) ease-out;
 }
 
-/* ── Drifting cloud layer (tileable PNG, two copies for a seamless loop) */
+.atlas-viewport.is-loaded .atlas-terrain {
+  opacity: 1;
+}
 
-.district-atlas-clouds {
+/* Drifting cloud shadows: a tileable PNG, two copies for a seamless loop. */
+.atlas-clouds {
   position: absolute;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
 }
 
-.district-atlas-clouds-shadow {
-  position: absolute;
-  inset: 0;
-  transform: translate(6px, 10px);
-  filter: brightness(0);
-  opacity: 0.1;
-}
-
-.district-atlas-clouds-strip {
+.atlas-clouds-strip {
   position: absolute;
   top: 0;
   left: 0;
+  display: flex;
   width: 200%;
   height: 100%;
-  display: flex;
   opacity: 0.8;
 }
 
-.district-atlas-clouds-strip img {
+.atlas-clouds-strip img {
+  display: block;
   width: 50%;
   height: 100%;
-  display: block;
   image-rendering: pixelated;
   user-select: none;
 }
 
-.district-atlas-clouds-strip.is-drifting {
+.atlas-clouds-strip.is-drifting {
   animation: atlas-clouds-drift 280s linear infinite;
 }
 
@@ -179,54 +167,138 @@
   to   { transform: translateX(-50%); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .district-atlas-clouds-strip.is-drifting { animation: none; }
-}
-
 /* Soft aged-map shading toward the frame edges. */
-.district-atlas-shade {
+.atlas-shade {
   position: absolute;
   inset: 0;
   pointer-events: none;
   border-radius: 3px;
   box-shadow:
-    inset 0 0 64px rgba(60, 45, 20, 0.2),
-    inset 0 0 10px rgba(60, 45, 20, 0.14);
+    inset 0 0 64px color-mix(in srgb, var(--atlas-ink-deep) 20%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--atlas-ink-deep) 14%, transparent);
 }
 
-/* ── Town site marker: pixel object on the clearing ─────────
-   Anatomy (top→bottom): gold pixel-framed vignette on plinth legs,
-   rope pixels, hanging parchment nameplate (2px ink 9-slice — the
-   speech-bubble language), Cinzel name + accent ribbon + meta row.
-   Fixed colors throughout: these sit ON the pixel map, which never
-   changes theme. */
+/* ── Resident figures ─────────────────────────────────────────
+   The pixel-space layer is the overworld's own 960x608 box, scaled with
+   the panel, so `offset-path` coordinates stay in image pixels. */
 
-:root {
-  --atlas-ink: var(--color-atlas-ink);
-  --atlas-ink-deep: var(--color-atlas-ink-deep);
-  --atlas-parch: var(--color-atlas-parch);
-  /* Pixel 9-slice plaque ring: 2px ink border (2px radius ≈ the bubbles'
-     notched corner) + hard offset pixel shadow. box-shadow, not filter,
-     so nothing blurs and nothing gets clipped. */
-  --atlas-plaque-shadow:
-    0 0 0 2px var(--atlas-ink),
-    3px 4px 0 2px rgba(44, 36, 22, 0.26);
+.atlas-folk-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: scale(var(--atlas-scale, 1));
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.atlas-folk {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 6px;
+  offset-anchor: 50% 100%;
+  offset-rotate: 0deg;
+  animation-name: atlas-stroll;
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+}
+
+.atlas-folk--still {
+  animation: none;
+  transform: translate(-50%, -100%);
+}
+
+/* Head (skin) + body (stance colour), one pixel per shadow. */
+.atlas-folk::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  box-shadow:
+    1px 0 0 var(--color-atlas-skin),
+    2px 0 0 var(--color-atlas-skin),
+    1px 1px 0 var(--color-atlas-skin),
+    2px 1px 0 var(--color-atlas-skin),
+    0 2px 0 currentColor,
+    1px 2px 0 currentColor,
+    2px 2px 0 currentColor,
+    3px 2px 0 currentColor,
+    0 3px 0 currentColor,
+    1px 3px 0 currentColor,
+    2px 3px 0 currentColor,
+    3px 3px 0 currentColor,
+    1px 4px 0 currentColor,
+    2px 4px 0 currentColor,
+    1px 6px 0 color-mix(in srgb, var(--atlas-ink-deep) 30%, transparent),
+    2px 6px 0 color-mix(in srgb, var(--atlas-ink-deep) 30%, transparent);
+}
+
+/* Legs: a two-frame cycle (apart / together), stepped like the sprites. */
+.atlas-folk::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  box-shadow:
+    0 0 0 var(--atlas-ink-deep),
+    3px 0 0 var(--atlas-ink-deep);
+  animation: atlas-legs 0.6s steps(2, jump-none) infinite;
+  animation-delay: var(--leg-delay, 0s);
+}
+
+.atlas-folk--still::after {
+  animation: none;
+}
+
+@keyframes atlas-stroll {
+  from { offset-distance: 0%; }
+  to   { offset-distance: 100%; }
+}
+
+@keyframes atlas-legs {
+  from {
+    box-shadow:
+      0 0 0 var(--atlas-ink-deep),
+      3px 0 0 var(--atlas-ink-deep);
+  }
+  to {
+    box-shadow:
+      1px 0 0 var(--atlas-ink-deep),
+      2px 0 0 var(--atlas-ink-deep);
+  }
+}
+
+/* ── Nameplates ───────────────────────────────────────────────
+   Two rope pixels drop from the pad's south edge into a parchment plaque
+   (2px ink 9-slice — the speech-bubble language): Cinzel name that may
+   wrap, a ribbon in the town accent, the census line in Inter. */
+
+.atlas-sites {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .atlas-site {
   position: absolute;
-  /* Plinth feet stand on the clearing center. */
-  transform: translate(-50%, -86px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0;
-  background: none;
-  border: none;
-  padding: 0;
+  width: max-content;
+  max-width: 196px;
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  transform: translateX(-50%);
   cursor: pointer;
-  z-index: calc(var(--z-raised) + 1);
+  pointer-events: auto;
+  z-index: var(--z-raised);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -234,514 +306,173 @@
   outline: none;
 }
 
-.atlas-site:focus-visible .atlas-site-vignette {
-  box-shadow:
-    0 0 0 2px rgba(250, 246, 239, 0.95),
-    0 0 0 4px var(--gold-accent),
-    0 0 0 6px rgba(58, 50, 38, 0.85),
-    6px 10px 0 2px rgba(44, 36, 22, 0.24);
-}
-
-/* Easel: relative anchor for the plinth legs behind the frame. */
-.atlas-site-easel {
-  position: relative;
-  display: block;
-  /* Clear the 4px stepped frame ring drawn via box-shadow. */
-  margin: 4px 4px 0;
-}
-
-.atlas-site-leg {
-  position: absolute;
-  bottom: -13px;
-  width: 10px;
-  height: 17px;
-  background: var(--color-wood);
-  /* Ink outline + lit edge so the posts read against the cobble clearing. */
-  box-shadow:
-    0 0 0 2px var(--atlas-ink),
-    inset 2px 0 0 var(--color-wood-light),
-    inset 0 -3px 0 var(--color-atlas-ink-deep);
-}
-
-/* Poke out past the gold frame corners — easel stance. */
-.atlas-site-leg--l { left: -3px; }
-.atlas-site-leg--r { right: -3px; }
-
-.atlas-site-vignette {
-  position: relative;
-  display: block;
-  width: 112px;
-  height: 72px;
-  overflow: hidden;
-  border-radius: 0;
-  background: var(--bg-warm);
-  /* Stepped 2px gold frame (matches .pixel-frame) + thin ink keyline +
-     HARD pixel drop shadow cast onto the terrain — no blur. */
-  box-shadow:
-    0 0 0 2px rgba(250, 246, 239, 0.95),
-    0 0 0 4px var(--gold-accent),
-    0 0 0 5px rgba(58, 50, 38, 0.55),
-    4px 6px 0 2px rgba(44, 36, 22, 0.22);
-  image-rendering: pixelated;
-  transition: transform 0.25s var(--ease-genshin), box-shadow 0.25s ease;
-}
-
-.atlas-site--hovered .atlas-site-vignette,
-.atlas-site:hover .atlas-site-vignette {
-  transform: translateY(-3px);
-  box-shadow:
-    0 0 0 2px rgba(250, 246, 239, 0.98),
-    0 0 0 4px var(--gold-accent),
-    0 0 0 5px rgba(58, 50, 38, 0.55),
-    6px 10px 0 2px rgba(44, 36, 22, 0.18);
-}
-
-/* Tight crop around the town's central set-piece: the preview PNG is
-   rendered oversized and centered, so the vignette shows a neighborhood,
-   not the whole shrunken map. */
-.atlas-site-vignette-img {
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  width: 260%;
-  height: auto;
-  transform: translate(-50%, -50%);
-  image-rendering: pixelated;
-  user-select: none;
-}
-
-.atlas-site-vignette-fallback {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--gold-ink);
-  background:
-    linear-gradient(135deg, transparent 48%, rgba(196, 163, 90, 0.12) 49% 51%, transparent 52%),
-    var(--bg-warm);
-  background-size: 12px 12px;
-}
-
-/* Rope pixels + nail heads hang the plate from the frame's lower rail. */
 .atlas-site-ropes {
   display: flex;
-  justify-content: space-between;
-  width: 56px;
-  height: 10px;
-  margin-top: 4px; /* clear the gold ring */
+  gap: 28px;
+  height: 7px;
 }
 
 .atlas-site-ropes i {
-  width: 4px;
+  width: 2px;
   height: 100%;
-  /* Dark chain-link strand: reads on grass AND on cobble. */
-  background: repeating-linear-gradient(
-    180deg,
-    var(--atlas-ink) 0 2px,
-    var(--color-wood-light) 2px 4px
-  );
+  background: var(--color-wood-light);
   box-shadow:
-    1px 0 0 rgba(58, 50, 38, 0.55),
-    -1px 0 0 rgba(58, 50, 38, 0.55),
-    0 -3px 0 1px var(--gold-accent),
-    0 -4px 0 1px var(--atlas-ink);
+    0 0 0 1px var(--atlas-ink),
+    0 -2px 0 1px var(--atlas-ink);
 }
 
-/* Hanging nameplate — parchment fill, 2px ink border, notched corners,
-   hard offset shadow: the same 9-slice as the in-town speech bubbles. */
 .atlas-site-plate {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 4px 12px 5px;
-  background: var(--atlas-parch);
+  padding: 4px 10px 5px;
   border-radius: 1px;
+  background: var(--atlas-parch);
   box-shadow: var(--atlas-plaque-shadow);
-  transition: transform 0.25s var(--ease-genshin);
+  text-align: center;
+  transition:
+    transform var(--duration-slow) var(--ease-out-soft),
+    box-shadow var(--duration-slow) ease;
 }
 
-.atlas-site--hovered .atlas-site-plate,
-.atlas-site:hover .atlas-site-plate {
-  transform: translateY(-2px);
+.atlas-site:hover .atlas-site-plate,
+.atlas-site--lit .atlas-site-plate {
+  transform: translateY(-3px);
+  box-shadow: var(--atlas-plaque-shadow-lit);
 }
 
-.atlas-site-plate-name {
+.atlas-site:focus-visible .atlas-site-plate {
+  transform: translateY(-3px);
+  box-shadow:
+    0 0 0 2px var(--atlas-parch),
+    0 0 0 4px var(--gold-accent),
+    0 0 0 6px var(--atlas-ink),
+    4px 6px 0 2px color-mix(in srgb, var(--atlas-ink-deep) 22%, transparent);
+}
+
+.atlas-site-name {
+  max-width: 124px;
   font-family: var(--font-display);
   font-size: 12.5px;
   font-weight: 700;
+  line-height: 1.25;
   letter-spacing: 0.4px;
-  line-height: 1.3;
   color: var(--atlas-ink-deep);
-  white-space: nowrap;
+  text-wrap: balance;
 }
 
-/* Thin ribbon underline in the town accent. */
-.atlas-site-plate-ribbon {
+.atlas-site-ribbon {
   width: 78%;
   height: 2px;
-  margin-top: 1px;
+  margin-top: 3px;
   background: var(--town-accent, var(--gold-accent));
   box-shadow:
     -2px 1px 0 -1px var(--town-accent, var(--gold-accent)),
     2px 1px 0 -1px var(--town-accent, var(--gold-accent));
 }
 
-.atlas-site-plate-meta {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.atlas-site-meta {
   margin-top: 3px;
   font-family: var(--font-body);
   font-size: var(--text-2xs);
-  font-weight: 700;
-  line-height: 1.4;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.2px;
   color: var(--color-ink-2);
   white-space: nowrap;
 }
 
-/* Leading-option pixel dot: square, ink-keyed like everything else. */
-.atlas-site-plate-dot {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 1px var(--atlas-ink);
-}
+/* ── Hover card / tap sheet ───────────────────────────────── */
 
-/* ── Ground pulse: discrete pixel-ellipse frames in the town accent ── */
-
-.atlas-site-pulse {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 176px;
-  z-index: var(--z-raised);
-  pointer-events: none;
-}
-
-.atlas-site-pulse svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.atlas-pulse-shadow rect {
-  fill: var(--color-atlas-ink-deep);
-  opacity: 0.2;
-}
-
-.atlas-pulse-ring rect {
-  fill: currentColor;
-}
-
-/* Two-frame stepped pulse: inner ring, then outer ring, then rest.
-   Constant plateaus with 1% ramps ≈ discrete pixel animation. */
-.atlas-pulse-ring--inner {
-  opacity: 0;
-  animation: atlas-pulse-inner 2.8s linear infinite;
-}
-
-.atlas-pulse-ring--outer {
-  opacity: 0;
-  animation: atlas-pulse-outer 2.8s linear infinite;
-}
-
-@keyframes atlas-pulse-inner {
-  0%, 40%  { opacity: 0.75; }
-  41%, 100% { opacity: 0; }
-}
-
-@keyframes atlas-pulse-outer {
-  0%, 36%  { opacity: 0; }
-  37%, 92% { opacity: 0.6; }
-  93%, 100% { opacity: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .atlas-pulse-ring--inner { animation: none; opacity: 0; }
-  .atlas-pulse-ring--outer { animation: none; opacity: 0.3; }
-}
-
-[data-reduced-motion] .atlas-pulse-ring--inner {
-  animation: none;
-  opacity: 0;
-}
-
-[data-reduced-motion] .atlas-pulse-ring--outer {
-  animation: none;
-  opacity: 0.3;
-}
-
-[data-reduced-motion] .district-atlas-clouds-strip.is-drifting {
-  animation: none;
-}
-
-/* ── Cartouche + compass chrome over the pixel panel ───────── */
-
-/* Cartouche shares the nameplates' 9-slice: parchment, 2px ink border,
-   notched corners, hard offset shadow — one material language inside
-   the pixel panel. */
-.district-atlas-cartouche {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: calc(var(--z-raised) + 2);
-  background: var(--atlas-parch);
-  border-radius: 1px;
-  box-shadow: var(--atlas-plaque-shadow);
-  padding: 7px 14px 6px;
-  pointer-events: none;
-}
-
-.district-atlas-cartouche-title {
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  color: var(--atlas-ink-deep);
-}
-
-.district-atlas-cartouche-sub {
-  margin-top: 2px;
-  font-family: var(--font-body);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--color-parchment-ink-2);
-  border-top: 1px solid rgba(196, 163, 90, 0.55);
-  padding-top: 3px;
-}
-
-.district-atlas-compass {
-  position: absolute;
-  right: 14px;
-  bottom: 12px;
-  width: 74px;
-  height: auto;
-  z-index: var(--z-raised);
-  pointer-events: none;
-  filter: drop-shadow(0 2px 4px rgba(60, 45, 20, 0.28));
-}
-
-/* Hover card needs extra clearance above the vignette in atlas mode. */
-.map-hover-card.map-hover-card--atlas {
-  margin-top: -96px;
-}
-
-@media (width < 768px) {
-  .district-atlas-frame {
-    padding: 8px;
-    border-radius: 8px;
-  }
-
-  .district-atlas-frame::before {
-    inset: 4px;
-    border-radius: 5px;
-  }
-
-  .district-atlas-frame::after {
-    background:
-      radial-gradient(circle 2px at 6px 6px, rgba(168, 144, 120, 0.6) 45%, transparent 55%),
-      radial-gradient(circle 2px at calc(100% - 6px) 6px, rgba(168, 144, 120, 0.6) 45%, transparent 55%),
-      radial-gradient(circle 2px at 6px calc(100% - 6px), rgba(168, 144, 120, 0.6) 45%, transparent 55%),
-      radial-gradient(circle 2px at calc(100% - 6px) calc(100% - 6px), rgba(168, 144, 120, 0.6) 45%, transparent 55%);
-  }
-
-  .atlas-site {
-    transform: translate(-50%, -46px);
-  }
-
-  .atlas-site-easel {
-    margin: 3px 3px 0;
-  }
-
-  .atlas-site-vignette {
-    width: 58px;
-    height: 38px;
-    box-shadow:
-      0 0 0 1.5px rgba(250, 246, 239, 0.95),
-      0 0 0 3px var(--gold-accent),
-      0 0 0 4px rgba(58, 50, 38, 0.55),
-      3px 6px 0 1px rgba(44, 36, 22, 0.24);
-  }
-
-  .atlas-site-leg {
-    bottom: -6px;
-    width: 5px;
-    height: 8px;
-    box-shadow:
-      inset 1px 0 0 var(--color-wood-light),
-      inset -1px 0 0 var(--color-wood),
-      inset 0 -2px 0 var(--color-atlas-ink);
-  }
-
-  .atlas-site-leg--l { left: 7px; }
-  .atlas-site-leg--r { right: 7px; }
-
-  .atlas-site-ropes {
-    width: 30px;
-    height: 6px;
-    margin-top: 3px;
-  }
-
-  .atlas-site-ropes i {
-    box-shadow:
-      1px 0 0 var(--color-wood),
-      0 -2px 0 1px var(--atlas-ink);
-  }
-
-  .atlas-site-plate {
-    padding: 2px 7px 3px;
-    box-shadow:
-      0 0 0 2px var(--atlas-ink),
-      2px 3px 0 2px rgba(44, 36, 22, 0.26);
-  }
-
-  .atlas-site-plate-name {
-    font-size: var(--text-2xs);
-    letter-spacing: 0.2px;
-  }
-
-  /* The chips repeat in the town cards below the map — drop them here. */
-  .atlas-site-plate-meta {
-    display: none;
-  }
-
-  .atlas-site-pulse {
-    width: 80px;
-  }
-
-  /* The header badge + question already carry the scenario title on
-     phones, and the plaque collides with top-row markers — drop it. */
-  .district-atlas-cartouche {
-    display: none;
-  }
-
-  .district-atlas-cartouche-title {
-    font-size: var(--text-2xs);
-    letter-spacing: 0.4px;
-  }
-
-  .district-atlas-cartouche-sub {
-    font-size: var(--text-2xs);
-    letter-spacing: 0.4px;
-  }
-
-  .district-atlas-compass {
-    width: 42px;
-    right: 8px;
-    bottom: 8px;
-  }
-
-  .map-hover-card.map-hover-card--atlas {
-    margin-top: -56px;
-  }
-}
-
-/* ── District map hover card (waypoint enrichment) ───────── */
-
-/* Parchment 9-slice, same as the site nameplates and the in-town speech
-   bubbles: parchment fill, 2px ink border, notched corners, hard shadow.
-   Fixed colors — it floats over the pixel map in both themes. */
-.map-hover-card {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  margin-top: -26px;
-  width: 172px;
-  pointer-events: none;
-  z-index: var(--z-hud);
-  background: var(--atlas-parch);
-  border-radius: 1px;
-  box-shadow: var(--atlas-plaque-shadow);
-  padding: 7px 8px;
+.atlas-hover-card {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  animation: map-hover-card-in 260ms var(--ease-genshin) backwards;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 1px;
+  background: var(--atlas-parch);
+  box-shadow: var(--atlas-plaque-shadow);
 }
 
-@keyframes map-hover-card-in {
-  from { opacity: 0; transform: translate(-50%, -100%) translateY(6px); }
-  to   { opacity: 1; transform: translate(-50%, -100%) translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .map-hover-card { animation: none; }
-}
-
-.map-hover-card-preview-frame {
-  position: relative;
-  width: calc(100% - 4px);
-  height: 74px;
-  overflow: hidden;
-  border-radius: 2px;
-  box-shadow:
-    0 0 0 1px rgba(250, 246, 239, 0.9),
-    0 0 0 2px var(--gold-accent);
-  margin: 2px;
-  background: var(--bg-warm);
-}
-
-.map-hover-card-preview {
+/* Kept to ~256 px tall so it clears a neighbouring nameplate when it sits
+   at the top of the panel (AtlasPanel scores placements with CARD_H). */
+.atlas-hover-card--float {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  image-rendering: pixelated;
+  width: 240px;
+  gap: 3px;
+  padding: 6px 8px 7px;
+  pointer-events: none;
+  z-index: var(--z-hud);
+  animation: atlas-card-in var(--duration-base) var(--ease-out-soft) backwards;
 }
 
-.map-hover-card-preview-fallback {
+.atlas-hover-card--float .atlas-postcard-frame {
+  margin-top: 0;
+}
+
+@keyframes atlas-card-in {
+  from { transform: translateY(6px); }
+  to   { transform: translateY(0); }
+}
+
+.atlas-postcard-frame {
+  position: relative;
+  width: 224px;
+  height: 144px;
+  margin: 2px auto 0;
+  background: var(--bg-warm);
+  box-shadow:
+    0 0 0 1px var(--pixel-frame-spacer),
+    0 0 0 2px var(--pixel-frame-gold);
+}
+
+.atlas-postcard {
+  display: block;
+  width: 224px;
+  height: 144px;
+  image-rendering: pixelated;
+  user-select: none;
+}
+
+.atlas-postcard-fallback {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
   padding: 8px;
-  background:
-    linear-gradient(135deg, transparent 48%, rgba(196, 163, 90, 0.12) 49% 51%, transparent 52%),
-    var(--bg-warm);
-  background-size: 12px 12px;
-  color: var(--text-muted);
   font-family: var(--font-display);
   font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.7px;
   text-align: center;
   text-transform: uppercase;
+  color: var(--text-muted);
+  background:
+    linear-gradient(135deg, transparent 48%, var(--color-accent-wash) 49% 51%, transparent 52%),
+    var(--bg-warm);
+  background-size: 12px 12px;
 }
 
-.district-map-pin:focus {
-  outline: none;
-}
-
-.district-map-pin:focus-visible {
-  filter: drop-shadow(0 0 5px var(--gold-accent));
-}
-
-.map-hover-card-row {
+.atlas-hover-card-row {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  margin-top: 2px;
 }
 
-.map-hover-card-name {
+.atlas-hover-card-name {
+  overflow: hidden;
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.3px;
   color: var(--atlas-ink-deep);
   white-space: nowrap;
-  overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.map-hover-card-tagline {
+.atlas-hover-card-tagline {
   font-family: var(--font-body);
   font-size: var(--text-2xs);
   font-style: italic;
@@ -749,41 +480,458 @@
   color: var(--color-ink-2);
 }
 
-.map-hover-card-detail {
-  font-family: var(--font-body);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--color-parchment-ink-2);
-  border-top: 1px solid rgba(196, 163, 90, 0.55);
-  padding-top: 4px;
-}
-
-.map-hover-card-chip {
-  align-self: flex-start;
+.atlas-hover-card-chip,
+.district-town-card-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  align-self: flex-start;
+  max-width: 100%;
   padding: 2px 8px;
-  border-radius: 2px;
   border: 1px solid transparent;
+  border-radius: var(--radius-xs);
   font-family: var(--font-body);
   font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.4px;
   text-transform: uppercase;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.map-hover-card-chip-dot {
+.atlas-hover-card-chip-dot,
+.district-town-card-chip-dot {
+  flex-shrink: 0;
   width: 5px;
   height: 5px;
   border-radius: 1px; /* square pixel, not neon dot */
-  flex-shrink: 0;
 }
 
+.atlas-hover-card-detail {
+  padding-top: 4px;
+  border-top: 1px solid var(--atlas-gold-line);
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atlas-sheet {
+  width: min(100%, 420px);
+  margin-top: 14px;
+}
+
+.atlas-hover-card--sheet {
+  width: 100%;
+}
+
+.atlas-sheet-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.atlas-sheet-enter,
+.atlas-sheet-close {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+
+.atlas-sheet-enter {
+  flex: 1;
+  border: 2px solid var(--atlas-ink);
+  background: var(--gold-accent);
+  color: var(--text-on-gold);
+  box-shadow: var(--shadow-pixel);
+}
+
+.atlas-sheet-close {
+  border: 2px solid var(--atlas-ink);
+  background: var(--atlas-parch);
+  color: var(--atlas-ink-deep);
+}
+
+.atlas-sheet-enter:focus-visible,
+.atlas-sheet-close:focus-visible {
+  outline: 2px solid var(--gold-accent);
+  outline-offset: 2px;
+}
+
+/* ── Cartouche + compass chrome ───────────────────────────── */
+
+.atlas-cartouche {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 7px 14px 6px;
+  border-radius: 1px;
+  background: var(--atlas-parch);
+  box-shadow: var(--atlas-plaque-shadow);
+  pointer-events: none;
+  z-index: calc(var(--z-raised) + 2);
+}
+
+.atlas-cartouche-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--atlas-ink-deep);
+}
+
+.atlas-cartouche-sub {
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px solid var(--atlas-gold-line);
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+}
+
+.atlas-compass {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  width: 74px;
+  height: auto;
+  pointer-events: none;
+  z-index: var(--z-raised);
+  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--atlas-ink-deep) 28%, transparent));
+}
+
+/* ── Skeleton + unavailable ───────────────────────────────── */
+
+.atlas-skeleton {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0 14px,
+      color-mix(in srgb, var(--color-accent) 8%, transparent) 14px 28px
+    ),
+    var(--color-parchment-2);
+  z-index: var(--z-raised);
+}
+
+.atlas-skeleton-label {
+  font-family: var(--font-display);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.atlas-unavailable {
+  width: min(100%, 560px);
+  padding: 24px;
+  border-radius: 1px;
+  background: var(--atlas-parch);
+  box-shadow: var(--atlas-plaque-shadow);
+  text-align: center;
+}
+
+.atlas-unavailable-title {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--atlas-ink-deep);
+}
+
+.atlas-unavailable-sub {
+  margin-top: 4px;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+}
+
+.atlas-unavailable-towns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* Town buttons on the unavailable card share the nameplate class for the
+   e2e contract but sit in flow. */
+.atlas-unavailable-town.atlas-site {
+  position: static;
+  transform: none;
+  padding: 8px 14px;
+  border: 2px solid var(--atlas-ink);
+  border-left: 4px solid var(--town-accent, var(--gold-accent));
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-card);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--atlas-ink-deep);
+  box-shadow: var(--shadow-pixel);
+}
+
+.atlas-unavailable-town.atlas-site:focus-visible {
+  outline: 2px solid var(--gold-accent);
+  outline-offset: 2px;
+}
+
+/* ── Decision line ────────────────────────────────────────── */
+
+.atlas-decision {
+  width: min(100%, 42rem);
+  margin-top: 24px;
+  padding: 12px 20px;
+  border: 1px solid var(--warm-glass-border);
+  border-top-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--warm-glass);
+  backdrop-filter: blur(var(--warm-glass-blur));
+  -webkit-backdrop-filter: blur(var(--warm-glass-blur));
+  text-align: center;
+}
+
+.atlas-decision-title {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--gold-ink);
+}
+
+.atlas-decision-prose {
+  margin-top: 4px;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* ── Town cards ───────────────────────────────────────────── */
+
+.district-town-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  width: min(100%, 960px);
+  margin-top: 20px;
+}
+
+.district-town-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 12px;
+  border: 1.5px solid var(--card-border);
+  border-left: 3px solid var(--town-accent, var(--gold-accent));
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  animation: stagger-in var(--duration-slow) var(--ease-out-soft) backwards;
+  transition:
+    transform var(--duration-slow) var(--ease-out-soft),
+    box-shadow var(--duration-slow) ease,
+    border-color var(--duration-slow) ease;
+}
+
+.district-town-card:hover,
+.district-town-card--lit {
+  transform: translateY(-2px);
+  border-color: var(--town-accent, var(--gold-accent));
+  box-shadow: var(--shadow-hover);
+}
+
+.district-town-card:focus-visible {
+  outline: 2px solid var(--gold-accent);
+  outline-offset: 2px;
+}
+
+.district-town-card-postcard-frame {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 14 / 9;
+  background: var(--bg-warm);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.district-town-card-postcard {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+
+.district-town-card-postcard-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--gold-ink);
+}
+
+.district-town-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px 0;
+}
+
+.district-town-card-name {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.district-town-card-tagline {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.district-town-card-meta {
+  font-family: var(--font-body);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--color-ink-2);
+}
+
+.district-town-card-chip {
+  margin-top: 4px;
+}
+
+/* ── Motion preferences ───────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .atlas-folk,
+  .atlas-folk::after,
+  .atlas-clouds-strip.is-drifting,
+  .atlas-hover-card--float,
+  .district-town-card {
+    animation: none;
+  }
+}
+
+[data-reduced-motion] .atlas-folk,
+[data-reduced-motion] .atlas-folk::after,
+[data-reduced-motion] .atlas-clouds-strip.is-drifting,
+[data-reduced-motion] .atlas-hover-card--float,
+[data-reduced-motion] .district-town-card {
+  animation: none;
+}
+
+/* ── Compact screens ──────────────────────────────────────── */
+
 @media (width < 768px) {
+  :root {
+    --atlas-frame-pad: 8px;
+  }
+
+  .district-map {
+    padding: 12px 16px 32px;
+  }
+
+  .atlas-frame {
+    border-radius: var(--radius-md);
+  }
+
+  .atlas-frame::before {
+    inset: 4px;
+    border-radius: 5px;
+  }
+
+  /* Below native size the page scales the pixels down; smoothing beats
+     nearest-neighbour row-dropping at 0.4x. */
+  .atlas-terrain,
+  .atlas-clouds-strip img {
+    image-rendering: auto;
+  }
+
+  .atlas-site {
+    max-width: 104px;
+  }
+
+  .atlas-site-ropes {
+    gap: 18px;
+    height: 4px;
+  }
+
+  .atlas-site-plate {
+    padding: 2px 6px 3px;
+    box-shadow:
+      0 0 0 2px var(--atlas-ink),
+      2px 3px 0 2px color-mix(in srgb, var(--atlas-ink-deep) 26%, transparent);
+  }
+
+  .atlas-site-name {
+    max-width: 92px;
+    font-size: var(--text-2xs);
+    letter-spacing: 0.2px;
+  }
+
+  .atlas-site-ribbon {
+    margin-top: 2px;
+  }
+
+  /* The census line moves to the tap sheet and the cards below. */
+  .atlas-site-meta {
+    display: none;
+  }
+
+  /* The header carries the scenario title on phones, and the plaque would
+     collide with the north-row nameplates — drop it. */
+  .atlas-cartouche {
+    display: none;
+  }
+
+  /* Top-right on small screens: the bottom-right corner is a town's plaza. */
+  .atlas-compass {
+    top: 8px;
+    right: 8px;
+    bottom: auto;
+    width: 40px;
+  }
+
+  .district-town-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  /* Below native size the card postcards scale non-integrally; smoothing
+     reads better than dropped rows. */
+  .district-town-card-postcard {
+    image-rendering: auto;
+  }
+
+  /* Town-surface rules that live here for historical reasons; TownView's
+     mobile behaviour depends on them. */
   .keyboard-hint {
     /* WASD is desktop guidance; on touch screens it only hides the town. */
     display: none;
@@ -801,103 +949,10 @@
   .proximity-card-town {
     display: none;
   }
+}
 
-  .map-hover-card {
-    width: 152px;
-    margin-top: -14px;
-    gap: 5px;
+@media (width < 480px) {
+  .district-town-cards {
+    grid-template-columns: 1fr;
   }
-
-  .map-hover-card-preview-frame {
-    height: 62px;
-  }
-
-  .map-hover-card-name {
-    font-size: 11px;
-  }
-
-  .map-hover-card-chip {
-    max-width: 100%;
-    overflow: hidden;
-    font-size: var(--text-2xs);
-    text-overflow: ellipsis;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   Round-1 polish: living atlas, run recap, journal structure,
-   opinion-shift feedback. (2026-07 quality pass)
-   ═══════════════════════════════════════════════════════════════ */
-
-/* ── Atlas ambient speech bubble ───────────────────────────── */
-
-/* Same 9-slice parchment as the in-town speech bubbles: parchment fill,
-   2px ink ring, hard pixel shadow, square rotated tail. Fixed colors. */
-.map-ambient-bubble {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  max-width: 210px;
-  padding: 5px 10px 6px;
-  border-radius: 1px;
-  background: var(--atlas-parch);
-  box-shadow: var(--atlas-plaque-shadow);
-  pointer-events: none;
-  z-index: var(--z-canvas);
-  animation: ambient-bubble 4.2s ease-in-out both;
-}
-
-.map-ambient-bubble::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -6px;
-  width: 8px;
-  height: 8px;
-  transform: translateX(-50%) rotate(45deg);
-  background: var(--atlas-parch);
-  border-right: 2px solid var(--atlas-ink);
-  border-bottom: 2px solid var(--atlas-ink);
-}
-
-.map-ambient-bubble-name {
-  font: 700 9.5px var(--font-display);
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--gold-ink);
-}
-
-.map-ambient-bubble-text {
-  font: 400 11px/1.35 var(--font-body);
-  color: var(--atlas-ink-deep);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-@keyframes ambient-bubble {
-  0% { opacity: 0; margin-top: 6px; }
-  8%, 82% { opacity: 1; margin-top: 0; }
-  100% { opacity: 0; margin-top: -8px; }
-}
-
-:root[data-reduced-motion="true"] .map-ambient-bubble {
-  animation: ambient-bubble-fade 4.2s ease both;
-}
-
-@media (width < 768px) {
-  /* The rotating ambient bubble covers a third of the small map — the
-     town cards below carry the life instead. */
-  .map-ambient-bubble {
-    display: none;
-  }
-}
-
-@keyframes ambient-bubble-fade {
-  0% { opacity: 0; }
-  10%, 85% { opacity: 1; }
-  100% { opacity: 0; }
 }

@@ -79,6 +79,10 @@ EXITS = [
     ("s", 33, "TO MORRIS PLAINS"),
 ]
 
+#: District Atlas postcard: top-left tile of the 14x9 crop framing the
+#: set-piece (the stone bridge over the lake's narrows).
+POSTCARD = (9, 6)
+
 # Lake Parsippany water mask: row -> (x0, x1) inclusive. ONE connected
 # water body: two broad convex lobes merged through a narrows (cols 14-18,
 # rows 10-11) that sits entirely under the 5x3 stone bridge, so open water

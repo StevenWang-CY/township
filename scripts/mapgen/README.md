@@ -13,6 +13,8 @@ make maps                                   # everything below, for every scenar
 python3 -m scripts.mapgen.moderntiles
 python3 -m scripts.mapgen.build_maps --scenario nj11-2026 --town dover --preview
 python3 -m scripts.mapgen.render_preview --scenario nj11-2026 dover --labels
+python3 scripts/mapgen/render_postcards.py --all   # <town>-postcard.png (+@2x) set-piece crops
+python3 -m scripts.mapgen.overworld --all          # District Atlas overworld + sites JSON
 python3 scripts/mapgen/export_window_gids.py   # windowGids.json + stampDefs.json + seasons.json
 python3 scripts/mapgen/export_road_gids.py     # roadGids.json (nav-grid ground kinds)
 python3 scripts/mapgen/validate_registry.py
@@ -38,8 +40,10 @@ are always isolated under `frontend/public/assets/maps/<scenario-id>/`:
 | `seasons.py` | Seasonal exact-colour LUTs for both sheets (`season_for(date)`, `LUTS`, `apply_lut(image, season)`), sampled from the real tree / grass pixels; exported to `frontend/src/game/seasons.json` by `export_window_gids.py`. |
 | `build_maps.py` | `MapCanvas` (layers, blob autotiler, stamps, road network, collision + anchor emitters), building recipes (`storefront`, `grand`, `cottage`, `church`, `diner`, `garage`, `shed`), the Map II dressing vocabulary (`vehicle`, `park_stalls`, `porch`, `driveway`, `hedge_line`, `poles`, `signal`, `stop_sign`, `street_blade`, `road_sign`, `bus_shelter`, `desire_path`, `shade`) and its post-passes (`emit_edge_ring`, `emit_ground_shade`, `emit_ground_wear`, `emit_building_shadows`), generic landmark interpreter, `.tmj` writer. See "Map II — density dressing" below. |
 | `render_preview.py` | Compositor for generated maps; approximates anchors with registry stamps so previews match the in-game look, in the scenario's season (`--season` overrides; the decision day decides otherwise). |
-| `overworld.py` | District-Atlas overworld: a TRUE tilemap render on a 100x64-tile `MapCanvas` built from the same registry material as the towns (grass + `GRASS_LIGHT` meadows, `TREE_*` stamps with cast shadows, `WATER_DEEP` shoreline autotiles, the cliff kit, `township-modern` asphalt with dashes, `PATH_TAN` connector roads, cobble-pad town clearings), plus a translucent cloud-shadow layer and the town-site coordinates JSON. Geography per scenario lives in its `GEOGRAPHY` dict (tile coords); unknown scenarios get a deterministic generic layout. |
-| `layouts/<scenario>/<town>.py` | Optional hand-tuned layout per town; hyphens in both ids become underscores (for example `layouts/nj11_2026/dover.py`). |
+| `overworld.py` | District-Atlas overworld: a TRUE tilemap render on a 60x38-tile `MapCanvas` (960x608 px, the panel's native size) built from the same registry material as the towns (grass + `GRASS_LIGHT` meadows, `TREE_*` stamps with cast shadows, `WATER_DEEP` shoreline autotiles, the cliff kit, wheat / tilled fields, `township-modern` asphalt with dashes, `PATH_TAN` district roads), with a real mini-town on every site, plus a translucent cloud-shadow layer and the v2 sites JSON (pad rect + walk loop per town). Geography per scenario lives in its `GEOGRAPHY` dict (tile coords); unknown scenarios get a deterministic generic layout. See "Overworld contract". |
+| `atlas_towns.py` | The overworld's mini-towns: a shared 12x10 pad frame (building zone, sidewalks, 2-wide main street, asphalt connector to the highway, walk loop) and one signature per shipped town built from the town recipes — station + rail stub + bus, museum + fountain plaza, campus + lot + lake lobe, diner + crop rows, strip + zebra, mill + weir — with a generic pad for anything else. |
+| `render_postcards.py` | 14x9-tile (224x144) set-piece crops of every town's `.tmj`, composited like the preview, at 1x and nearest-neighbour 2x; each layout names its crop with `POSTCARD = (tx, ty)`. |
+| `layouts/<scenario>/<town>.py` | Optional hand-tuned layout per town; hyphens in both ids become underscores (for example `layouts/nj11_2026/dover.py`). Exports `compose(m)` and the atlas `POSTCARD` crop origin. |
 | `validate_registry.py`, `inspect_tiles.py` | Registry acceptance sheet and raw tileset inspection tools. |
 
 ## Layer contract (TownScene binds to these names)
@@ -204,43 +208,74 @@ of both sheets.
 ## Overworld contract (District Atlas)
 
 `python3 -m scripts.mapgen.overworld --scenario <id>` (or `--all`) writes four
-assets plus one JSON into `frontend/public/assets/maps/<scenario-id>/`:
+assets plus one JSON into `frontend/public/assets/maps/<scenario-id>/`. The
+canvas is **60x38 tiles = 960x608 px @1x** — the exact size the atlas panel
+shows it at (`width: min(100%, 960px)`, `image-rendering: pixelated`), so one
+image pixel is one CSS pixel and the `@2x` file serves retina 1:1.
 
 | File | Contents |
 |------|----------|
-| `overworld.png` | 1600x1024 opaque terrain panel (@1x) — a real 100x64-tile map render of 16 px registry tiles, so the material is identical to a town screenshot |
-| `overworld@2x.png` | 3200x2048 nearest-neighbour upscale of the same frame |
+| `overworld.png` | 960x608 opaque terrain panel (@1x) — a real 60x38-tile map render of 16 px registry tiles, so the material is identical to a town screenshot |
+| `overworld@2x.png` | 1920x1216 nearest-neighbour upscale of the same frame |
 | `overworld-clouds.png` / `overworld-clouds@2x.png` | translucent cloud-shadow blobs on transparency, **tileable on both axes** — the frontend can wrap-drift the layer freely (respect reduced motion) |
-| `overworld-sites.json` | town-site coordinates for vignette/pin placement |
+| `overworld-sites.json` | v2 site records: pad rect + walk loop per town |
 
-`overworld-sites.json` schema (all pixel values are in the 1600x1024 @1x
-space; multiply by 2 for the @2x assets):
+Every town is a real **mini-town** (`atlas_towns.py`): a 12x10-tile pad with a
+2-wide asphalt main street, sidewalks, the town's set-piece composed from the
+town recipes (`storefront` / `grand` / `cottage` / `diner`, the modern street
+kit, the rpg props) and an asphalt connector bending into the highway. The
+shipped signatures: Dover — station house, rail stub along the back, a bus;
+Montclair — the museum front and a fountain plaza; Parsippany — campus block,
+parking lot, the lake lobe; Randolph — diner and crop rows; Harlow Crossing —
+the strip with a zebra set; Millbrook Village — mill on the river with its
+weir. Unknown scenarios or towns get a generic pad (two cottages, a shop, a
+tree). Per-scenario geography (pads, highway course, river, ridge, lakes,
+fields, tan district roads) lives in `overworld.GEOGRAPHY` in tile coordinates.
+
+`overworld-sites.json` schema (pixel values are in the 960x608 @1x space,
+`pad` is in tiles; multiply pixels by 2 for the @2x assets):
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "scenario": "nj11-2026",
   "image":  { "path": "overworld.png", "path2x": "overworld@2x.png",
-              "width": 1600, "height": 1024 },
+              "width": 960, "height": 608, "tile": 16 },
   "clouds": { "path": "overworld-clouds.png",
               "path2x": "overworld-clouds@2x.png", "tileable": true },
   "sites": [
     {
-      "town_id": "dover",            // matches scenarios/<id>/towns/<town>.json
-      "name": "Dover",               // display name from the town payload
-      "x": 320, "y": 416,            // clearing center — put the vignette here
-      "clearing": { "rx": 64, "ry": 48 }  // cobble-pad radii around it (px)
+      "id": "dover", "town_id": "dover",     // matches scenarios/<id>/towns/<town>.json
+      "name": "Dover",                       // display name from the town payload
+      "x": 160, "y": 176,                    // pad centre (px)
+      "pad": { "x": 4, "y": 6, "w": 12, "h": 10 },   // tile rect of the mini-town
+      "walk": [[88, 200], [232, 200], [232, 248], [88, 248], [88, 200]],
+      "connector": "e"                       // street end that meets the highway
     }
   ]
 }
 ```
 
-`sites` is sorted by `town_id` and contains one entry per town in the
-scenario package. Each clearing is a flat plaza-cobble pad (~8x6 tiles) with
-a tan apron, guaranteed free of trees, props, and water (connector roads end
-at its rim), so a vignette of `2*rx x 2*ry` or smaller never covers terrain
-features that matter. Chrome (parchment frame, cartouche, compass, pins,
-hover cards) belongs to the frontend, never to these PNGs.
+`sites` is sorted by `id` and contains one entry per town in the scenario
+package. `pad` is the town's tile rectangle (hang the nameplate at its south
+edge); `walk` is a closed polyline in pixels along both sidewalks of the main
+street — the frontend's resident figures follow it with `offset-path`. Every
+pad contains buildings-base tiles and no tree canopy ever covers a pad, a
+connector leg or the highway. Chrome (parchment frame, cartouche, compass,
+nameplates, hover cards) belongs to the frontend, never to these PNGs.
+
+## Postcards
+
+`python3 scripts/mapgen/render_postcards.py --all` (also run by `make maps`
+after the previews) writes `<town>-postcard.png` (224x144) and
+`<town>-postcard@2x.png` (448x288, nearest-neighbour) next to each preview: a
+14x9-tile crop of the town's set-piece composited from the `.tmj` exactly like
+the preview (ground, ground-detail, deco-below, buildings-base, tree / lamp
+anchors, buildings-top). Each layout module exports the crop's top-left tile as
+`POSTCARD = (tx, ty)`; a town without one gets the map's centre. The atlas
+shows the postcard in the hover card and the town cards, so frame the corner a
+visitor should recognise — the station, the museum garden, the lake bridge,
+the diner, the crossing, the mill ruins.
 
 ## Adding a town
 

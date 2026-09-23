@@ -72,6 +72,10 @@ EXITS = [
 
 HOMES = "Residential Cul-de-sacs"
 
+#: District Atlas postcard: top-left tile of the 14x9 crop framing the
+#: set-piece (the Randolph Diner, its terrace and the VFW hall).
+POSTCARD = (1, 16)
+
 
 def _fence_pen(
     m: MapCanvas, x: int, y: int, w: int, h: int, gate: tuple[int, int] | None = None

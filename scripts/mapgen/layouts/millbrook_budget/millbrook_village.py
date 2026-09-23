@@ -82,6 +82,10 @@ EXITS = [
     ("n", 34, "TO HARLOW"),
 ]
 
+#: District Atlas postcard: top-left tile of the 14x9 crop framing the
+#: set-piece (the Harrow Mill Ruins, the dam and the smokestack).
+POSTCARD = (52, 7)
+
 
 def compose(m: MapCanvas) -> None:
     m.rng.seed(1874)  # deterministic builds (town hall's year)

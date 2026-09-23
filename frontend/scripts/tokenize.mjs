@@ -106,8 +106,8 @@ export const TOKEN_MAP = {
   "#f2c071": "var(--color-debug-accent)",
 };
 
-/** Files whose colour literals are allowed (source of truth / canvas / pending rewrite). */
-export const EXEMPT = [/^styles\/tokens\.css$/, /^game\//, /^components\/DistrictMap\.tsx$/];
+/** Files whose colour literals are allowed (source of truth / canvas). */
+export const EXEMPT = [/^styles\/tokens\.css$/, /^game\//];
 
 const HEX = /#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/g;
 

@@ -95,6 +95,8 @@
   --color-map-green: #A9BF8C;
   --color-map-hill: #B4A48C;
   --color-civic-ink: #263E73;
+  /* The atlas's 4x6 px resident figures: head pixels; bodies take the stance colour. */
+  --color-atlas-skin: #E8C39E;
 
   /* Debug overlay (dark, developer only). */
   --color-debug-ink: #CFD8E0;

@@ -15,6 +15,13 @@ interface MiniMapProps {
   townId?: string;
   /** Scenario-qualified preview asset declared by the town package. */
   previewPath?: string;
+  /** The town's crisp 224x144 set-piece postcard. Preferred over the
+   *  full-map preview as the loading placeholder and as the fallback when
+   *  the preview cannot load: at mini-map size a 1200x800 preview scaled
+   *  to 180 px is mush, the postcard stays legible. The live background
+   *  stays the preview because the resident dots are mapped to the whole
+   *  town, not to the postcard's crop. */
+  postcardPath?: string;
   /** False for scenario-local town ids that do not own vendored preview art. */
   showAuthoredPreview?: boolean;
   /** Called when the player clicks on an agent dot. */
@@ -27,6 +34,7 @@ export default function MiniMap({
   getData,
   townId,
   previewPath,
+  postcardPath,
   showAuthoredPreview = true,
   onPinClick,
   width = 180,
@@ -34,9 +42,16 @@ export default function MiniMap({
 }: MiniMapProps) {
   const [data, setData] = useState<MiniMapData | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
+  const [postcardFailed, setPostcardFailed] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => setPreviewFailed(false), [townId, previewPath, showAuthoredPreview]);
+  useEffect(() => {
+    setPreviewFailed(false);
+    setPostcardFailed(false);
+  }, [townId, previewPath, postcardPath, showAuthoredPreview]);
+
+  const postcardUrl =
+    postcardPath && showAuthoredPreview && !postcardFailed ? appUrl(postcardPath) : null;
 
   useEffect(() => {
     const tick = () => {
@@ -54,11 +69,30 @@ export default function MiniMap({
     return (
       <div
         className="minimap pixel-frame"
-        style={{ width, height }}
+        style={{ width, height, position: "relative", overflow: "hidden" }}
         aria-label="Mini-map"
         aria-busy="true"
         role="status"
       >
+        {postcardUrl && (
+          <img
+            src={postcardUrl}
+            alt=""
+            width={width}
+            height={height}
+            onError={() => setPostcardFailed(true)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              opacity: 0.55,
+              borderRadius: "inherit",
+              imageRendering: "pixelated",
+            }}
+          />
+        )}
         <span className="minimap-loading-mark" aria-hidden="true" />
         <span className="minimap-loading-label">Mapping the neighborhood…</span>
       </div>
@@ -87,6 +121,19 @@ export default function MiniMap({
           </pattern>
         </defs>
         <rect x={0} y={0} width={width} height={height} fill="url(#minimap-fallback-grid)" />
+        {/* Postcard stands in when the whole-map preview is missing or failed. */}
+        {postcardUrl && (!previewPath || !showAuthoredPreview || previewFailed) ? (
+          <image
+            href={postcardUrl}
+            x={0}
+            y={0}
+            width={width}
+            height={height}
+            preserveAspectRatio="xMidYMid slice"
+            onError={() => setPostcardFailed(true)}
+            style={{ imageRendering: "pixelated" }}
+          />
+        ) : null}
         {/* Generated map preview as the background — keep it crisp. */}
         {previewPath && showAuthoredPreview && !previewFailed ? (
           <image

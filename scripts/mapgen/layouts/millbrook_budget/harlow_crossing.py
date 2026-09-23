@@ -82,6 +82,10 @@ EXITS = [
 
 FAIRVIEW = "Fairview Subdivision"
 
+#: District Atlas postcard: top-left tile of the 14x9 crop framing the
+#: set-piece (the namesake four-way crossing with its zebra set).
+POSTCARD = (30, 22)
+
 
 def _river_cells(m: MapCanvas) -> set[tuple[int, int]]:
     """Stillwater river: straight along the east edge, bending west into

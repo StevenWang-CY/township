@@ -1,11 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "millbrook-budget",
   "image": {
     "path": "overworld.png",
     "path2x": "overworld@2x.png",
-    "width": 1600,
-    "height": 1024
+    "width": 960,
+    "height": 608,
+    "tile": 16
   },
   "clouds": {
     "path": "overworld-clouds.png",
@@ -14,24 +15,76 @@
   },
   "sites": [
     {
+      "id": "harlow-crossing",
       "town_id": "harlow-crossing",
       "name": "Harlow Crossing",
-      "x": 1120,
-      "y": 672,
-      "clearing": {
-        "rx": 64,
-        "ry": 48
-      }
+      "x": 688,
+      "y": 464,
+      "pad": {
+        "x": 37,
+        "y": 24,
+        "w": 12,
+        "h": 10
+      },
+      "walk": [
+        [
+          616,
+          488
+        ],
+        [
+          760,
+          488
+        ],
+        [
+          760,
+          536
+        ],
+        [
+          616,
+          536
+        ],
+        [
+          616,
+          488
+        ]
+      ],
+      "connector": "w"
     },
     {
+      "id": "millbrook-village",
       "town_id": "millbrook-village",
       "name": "Millbrook Village",
-      "x": 448,
-      "y": 384,
-      "clearing": {
-        "rx": 64,
-        "ry": 48
-      }
+      "x": 336,
+      "y": 192,
+      "pad": {
+        "x": 15,
+        "y": 7,
+        "w": 12,
+        "h": 10
+      },
+      "walk": [
+        [
+          264,
+          216
+        ],
+        [
+          408,
+          216
+        ],
+        [
+          408,
+          264
+        ],
+        [
+          264,
+          264
+        ],
+        [
+          264,
+          216
+        ]
+      ],
+      "connector": "e"
     }
   ]
 }

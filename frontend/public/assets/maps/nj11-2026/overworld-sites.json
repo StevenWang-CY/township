@@ -1,11 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "nj11-2026",
   "image": {
     "path": "overworld.png",
     "path2x": "overworld@2x.png",
-    "width": 1600,
-    "height": 1024
+    "width": 960,
+    "height": 608,
+    "tile": 16
   },
   "clouds": {
     "path": "overworld-clouds.png",
@@ -14,44 +15,148 @@
   },
   "sites": [
     {
+      "id": "dover",
       "town_id": "dover",
       "name": "Dover",
-      "x": 320,
-      "y": 416,
-      "clearing": {
-        "rx": 64,
-        "ry": 48
-      }
+      "x": 160,
+      "y": 176,
+      "pad": {
+        "x": 4,
+        "y": 6,
+        "w": 12,
+        "h": 10
+      },
+      "walk": [
+        [
+          88,
+          200
+        ],
+        [
+          232,
+          200
+        ],
+        [
+          232,
+          248
+        ],
+        [
+          88,
+          248
+        ],
+        [
+          88,
+          200
+        ]
+      ],
+      "connector": "e"
     },
     {
+      "id": "montclair",
       "town_id": "montclair",
       "name": "Montclair",
-      "x": 1344,
-      "y": 720,
-      "clearing": {
-        "rx": 64,
-        "ry": 48
-      }
+      "x": 784,
+      "y": 480,
+      "pad": {
+        "x": 43,
+        "y": 25,
+        "w": 12,
+        "h": 10
+      },
+      "walk": [
+        [
+          712,
+          504
+        ],
+        [
+          856,
+          504
+        ],
+        [
+          856,
+          552
+        ],
+        [
+          712,
+          552
+        ],
+        [
+          712,
+          504
+        ]
+      ],
+      "connector": "w"
     },
     {
+      "id": "parsippany",
       "town_id": "parsippany",
       "name": "Parsippany-Troy Hills",
-      "x": 912,
-      "y": 368,
-      "clearing": {
-        "rx": 64,
-        "ry": 48
-      }
+      "x": 528,
+      "y": 176,
+      "pad": {
+        "x": 27,
+        "y": 6,
+        "w": 12,
+        "h": 10
+      },
+      "walk": [
+        [
+          456,
+          200
+        ],
+        [
+          600,
+          200
+        ],
+        [
+          600,
+          248
+        ],
+        [
+          456,
+          248
+        ],
+        [
+          456,
+          200
+        ]
+      ],
+      "connector": "w"
     },
     {
+      "id": "randolph",
       "town_id": "randolph",
       "name": "Randolph",
-      "x": 480,
-      "y": 768,
-      "clearing": {
-        "rx": 64,
-        "ry": 48
-      }
+      "x": 304,
+      "y": 480,
+      "pad": {
+        "x": 13,
+        "y": 25,
+        "w": 12,
+        "h": 10
+      },
+      "walk": [
+        [
+          232,
+          504
+        ],
+        [
+          376,
+          504
+        ],
+        [
+          376,
+          552
+        ],
+        [
+          232,
+          552
+        ],
+        [
+          232,
+          504
+        ]
+      ],
+      "connector": "w"
     }
   ]
 }

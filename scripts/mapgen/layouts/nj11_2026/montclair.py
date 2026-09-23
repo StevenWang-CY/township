@@ -73,6 +73,10 @@ EXITS = [
     ("s", 27, "TO WEST ORANGE"),
 ]
 
+#: District Atlas postcard: top-left tile of the 14x9 crop framing the
+#: set-piece (the Art Museum's banners over the sculpture garden).
+POSTCARD = (8, 11)
+
 
 def tudor_shop(
     m: MapCanvas,

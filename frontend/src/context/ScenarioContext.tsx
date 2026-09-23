@@ -27,6 +27,9 @@ export interface ResolvedTownMeta {
   /** Pre-formatted for display (e.g. "18,435"). */
   population?: string;
   map?: TownMapInfo;
+  /** The 224x144 set-piece crop rendered next to the preview
+   *  (`<town>-postcard.png`); derived from `map.preview_path`. */
+  postcardPath?: string;
 }
 
 export interface ScenarioContextValue {
@@ -111,6 +114,7 @@ export function buildScenarioValue(
         color: UNKNOWN_INK,
       };
     }
+    const preview = t.map?.preview_path;
     return {
       id: t.id,
       name: t.name,
@@ -119,6 +123,9 @@ export function buildScenarioValue(
       county: t.county || undefined,
       population: formatPopulation(t.population),
       map: t.map ?? undefined,
+      postcardPath: preview?.endsWith("-preview.png")
+        ? preview.replace(/-preview\.png$/, "-postcard.png")
+        : undefined,
     };
   };
 

@@ -1,16 +1,36 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect, useMemo, useRef } from "react";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useWebSocketContext } from "../context/WebSocketContext";
-import { useScenario } from "../hooks/useScenario";
-import type { ResolvedTownMeta, ScenarioContextValue } from "../hooks/useScenario";
-import type { TownId, LeanId, AgentState } from "../types/messages";
-import { appUrl } from "../lib/assetUrl";
-import SpritePortrait from "./SpritePortrait";
-import { rosterAgentsFromPayload } from "./residentRoster";
 import { DEMO_MODE } from "../demo/demoMode";
+import { useScenario } from "../hooks/useScenario";
+import type { ScenarioContextValue } from "../hooks/useScenario";
+import { appUrl } from "../lib/assetUrl";
+import { below, useMediaQuery } from "../lib/breakpoints";
+import { readableInk, withAlpha } from "../lib/color";
+import type { AgentState, LeanId, TownId } from "../types/messages";
+import AtlasHoverCard from "./atlas/AtlasHoverCard";
+import AtlasPanel from "./atlas/AtlasPanel";
+import { supportsOffsetPath } from "./atlas/AtlasFolk";
+import { useOverworldAtlas } from "./atlas/overworld";
+import type { AtlasSiteRecord } from "./atlas/overworld";
+import type { SiteView } from "./atlas/types";
+import { residentsLine } from "./atlas/types";
+import { rosterAgentsFromPayload } from "./residentRoster";
 
-/** Compute leading (non-undecided) option per town from agent states. */
+/* ───────────────────────────────────────────────────────────────
+   District Atlas — /map.
+
+   A native-resolution pixel overworld (scripts/mapgen/overworld.py) with a
+   real mini-town on every site, hanging nameplates, the residents strolling
+   each town's main street tinted by their stance, a postcard hover card
+   (a tap sheet on touch), and the town-card grid below. Everything the
+   page knows about towns comes from the scenario package; the atlas
+   assets are presentation only and the page degrades to town buttons
+   without them.
+   ─────────────────────────────────────────────────────────────── */
+
+/** Leading (non-undecided) option per town from agent states. */
 function leadingOptionPerTown(
   agents: AgentState[],
   townIds: TownId[],
@@ -26,11 +46,10 @@ function leadingOptionPerTown(
   for (const t of townIds) {
     let best: LeanId | null = null;
     let bestN = 0;
-    for (const k of Object.keys(counts[t])) {
-      if (k === undecidedId) continue;
-      if (counts[t][k] > bestN) {
+    for (const [k, n] of Object.entries(counts[t])) {
+      if (k !== undecidedId && n > bestN) {
         best = k;
-        bestN = counts[t][k];
+        bestN = n;
       }
     }
     out[t] = best;
@@ -46,923 +65,6 @@ function motionIsReduced(): boolean {
   );
 }
 
-function withAlpha(color: string, alphaHex: string, fallback: string): string {
-  return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}${alphaHex}` : fallback;
-}
-
-/* ───────────────────────────────────────────────────────────────
-   Illustrated District Map — Genshin / Anime style atlas page.
-
-   The flagship NJ-11 scenario keeps its hand-drawn map (pins, rivers,
-   county labels) exactly as designed. Any other scenario gets a GENERIC
-   atlas page in the same visual language: parchment, watercolor terrain,
-   compass, clouds — with a seeded, pleasing waypoint layout derived from
-   the scenario's town roster.
-   ─────────────────────────────────────────────────────────────── */
-
-interface Pin {
-  id: TownId;
-  cx: number;
-  cy: number;
-  description: string;
-}
-
-/* ── Pixel overworld atlas (mapgen-rendered) ──────────────────
-   scripts/mapgen renders a per-scenario overworld PNG (rolling grass,
-   forests, water, connecting roads) plus an overworld-sites.json under
-   public/assets/maps/<scenario>/. When those assets exist, the atlas
-   interior IS the pixel overworld — parchment frame, Cinzel cartouche
-   and compass stay as chrome around it, and each town becomes a
-   gold-framed pixel vignette anchored at its rendered clearing.
-   Scenarios without rendered assets fall back to the seeded SVG below. */
-
-interface OverworldSite {
-  town_id: TownId;
-  x: number;
-  y: number;
-}
-
-interface OverworldAtlas {
-  width: number;
-  height: number;
-  imageUrl: string;
-  image2xUrl: string | null;
-  cloudsUrl: string | null;
-  sites: OverworldSite[];
-}
-
-/** Validate + resolve overworld-sites.json. Returns null (→ SVG fallback)
- *  unless the image metadata is sound and EVERY town has a rendered site. */
-function parseOverworldAtlas(
-  payload: unknown,
-  scenarioId: string,
-  townIds: string[],
-): OverworldAtlas | null {
-  if (typeof payload !== "object" || payload === null) return null;
-  const data = payload as Record<string, unknown>;
-  const image = (data.image ?? null) as Record<string, unknown> | null;
-  const clouds = (data.clouds ?? null) as Record<string, unknown> | null;
-  if (!image || typeof image.path !== "string") return null;
-  const width = typeof image.width === "number" ? image.width : 0;
-  const height = typeof image.height === "number" ? image.height : 0;
-  if (width <= 0 || height <= 0 || !Array.isArray(data.sites)) return null;
-  const asset = (p: unknown): string | null =>
-    typeof p === "string" && p.length > 0
-      ? appUrl(`assets/maps/${scenarioId}/${p}`)
-      : null;
-  const sites: OverworldSite[] = [];
-  for (const raw of data.sites) {
-    const s = (raw ?? null) as Record<string, unknown> | null;
-    if (!s || typeof s.town_id !== "string") continue;
-    if (typeof s.x !== "number" || typeof s.y !== "number") continue;
-    if (!townIds.includes(s.town_id)) continue;
-    sites.push({ town_id: s.town_id, x: s.x, y: s.y });
-  }
-  if (townIds.length === 0 || !townIds.every((id) => sites.some((s) => s.town_id === id))) {
-    return null;
-  }
-  return {
-    width,
-    height,
-    imageUrl: asset(image.path) as string,
-    image2xUrl: asset(image.path2x),
-    cloudsUrl: clouds ? asset(clouds.path) : null,
-    sites,
-  };
-}
-
-/* ── Seeded layout helpers (generic scenarios) ───────────────── */
-
-function hashString(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(a: number): () => number {
-  return function () {
-    let t = (a += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/**
- * Seeded waypoint layout for a scenario's towns:
- * - 1 town  → centered hero waypoint;
- * - 2 towns → facing each other across a river;
- * - N towns → a gentle arc across the parchment, organic jitter.
- */
-function genericPins(
-  towns: Array<{ id: string; tagline?: string }>,
-  seedKey: string,
-): Pin[] {
-  const rng = mulberry32(hashString(seedKey));
-  const n = towns.length;
-  if (n === 0) return [];
-  if (n === 1) {
-    return [{ id: towns[0].id, cx: 500, cy: 290, description: towns[0].tagline ?? "" }];
-  }
-  if (n === 2) {
-    // Two communities across the river — the bridge between them is the story.
-    const j = () => (rng() - 0.5) * 30;
-    return [
-      { id: towns[0].id, cx: 330 + j(), cy: 265 + j(), description: towns[0].tagline ?? "" },
-      { id: towns[1].id, cx: 665 + j(), cy: 295 + j(), description: towns[1].tagline ?? "" },
-    ];
-  }
-  // Gentle arc, west to east, cresting mid-map.
-  return towns.map((t, i) => {
-    const f = i / (n - 1);
-    const cx = 220 + f * 560 + (rng() - 0.5) * 36;
-    const cy = 340 - Math.sin(f * Math.PI) * 130 + (rng() - 0.5) * 44;
-    return { id: t.id, cx, cy, description: t.tagline ?? "" };
-  });
-}
-
-type Pt = [number, number];
-
-/** Evaluate a cubic bezier at t. */
-function cubicAt(p0: Pt, c1: Pt, c2: Pt, p1: Pt, t: number): Pt {
-  const u = 1 - t;
-  return [
-    u * u * u * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * p1[0],
-    u * u * u * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * p1[1],
-  ];
-}
-
-/** Seeded scatter positions that keep clear of the waypoints. */
-function scatterPoints(
-  rng: () => number,
-  count: number,
-  pins: Pin[],
-  minDist = 78,
-): Array<{ x: number; y: number; r: number }> {
-  const out: Array<{ x: number; y: number; r: number }> = [];
-  let guard = 0;
-  while (out.length < count && guard < count * 30) {
-    guard++;
-    const x = 170 + rng() * 660;
-    const y = 100 + rng() * 370;
-    if (pins.some((p) => Math.hypot(p.cx - x, p.cy - y + 40) < minDist)) continue;
-    out.push({ x, y, r: rng() });
-  }
-  return out;
-}
-
-/* ── Decorative terrain elements ─────────────────────────────── */
-
-function Tree({ x, y, s = 1, shade = 0 }: { x: number; y: number; s?: number; shade?: number }) {
-  const greens = ["#5F9A4E", "#4E8A3F", "#72AD5B", "#408A30"];
-  const fill = greens[shade % greens.length];
-  return (
-    <g transform={`translate(${x},${y}) scale(${s})`}>
-      <ellipse cx="0" cy="3" rx="4" ry="2" fill="#2A2A2A" opacity="0.1" />
-      <rect x="-1.2" y="-2" width="2.4" height="6" rx="0.8" fill="#7A6245" />
-      <ellipse cx="0" cy="-9" rx="6" ry="9" fill={fill} />
-      <ellipse cx="-1.5" cy="-12" rx="3.5" ry="4.5" fill="#8FCC70" opacity="0.45" />
-    </g>
-  );
-}
-
-function PineTree({ x, y, s = 1 }: { x: number; y: number; s?: number }) {
-  return (
-    <g transform={`translate(${x},${y}) scale(${s})`}>
-      <ellipse cx="0" cy="3" rx="3" ry="1.5" fill="#2A2A2A" opacity="0.08" />
-      <rect x="-1" y="-1" width="2" height="5" rx="0.5" fill="#6B5B45" />
-      <path d="M0,-20 L-7,-4 L-3.5,-6 L-8,3 L-4.5,0 L-9,9 L9,9 L4.5,0 L8,3 L3.5,-6 L7,-4 Z" fill="#3A7A30" />
-      <path d="M0,-20 L-3.5,-11 L0,-13 L3.5,-11 Z" fill="#4FA040" opacity="0.5" />
-    </g>
-  );
-}
-
-function Mountain({ x, y, s = 1, variant = 0 }: { x: number; y: number; s?: number; variant?: number }) {
-  const fills = ["#8A7A6A", "#988878", "#7B6B5B"];
-  const snowFills = ["#F0ECE6", "#F5F1EB", "#E8E2DA"];
-  return (
-    <g transform={`translate(${x},${y}) scale(${s})`}>
-      {/* Base shadow */}
-      <ellipse cx="2" cy="4" rx="34" ry="8" fill="#000000" opacity="0.06" />
-      {/* Mountain body */}
-      <path d={variant === 0
-        ? "M-30,0 L-10,-45 L0,-40 L12,-52 L32,0 Z"
-        : variant === 1
-          ? "M-26,0 L-4,-44 L24,0 Z"
-          : "M-22,0 L0,-38 L6,-32 L14,-42 L28,0 Z"}
-        fill={fills[variant % 3]}
-      />
-      {/* Snow cap */}
-      <path d={variant === 0
-        ? "M-10,-45 L0,-40 L12,-52 L6,-38 L-4,-40 Z"
-        : variant === 1
-          ? "M-4,-44 L-10,-24 L5,-28 L14,-20 Z"
-          : "M0,-38 L6,-32 L14,-42 L8,-30 L-4,-32 Z"}
-        fill={snowFills[variant % 3]}
-        opacity="0.8"
-      />
-      {/* Ridge highlight */}
-      <path d={variant === 0
-        ? "M-10,-45 L0,-40 L12,-52"
-        : variant === 1
-          ? "M-4,-44 L8,-28"
-          : "M0,-38 L6,-32 L14,-42"}
-        fill="none" stroke="white" strokeWidth="0.6" opacity="0.3"
-      />
-      {/* Misty base */}
-      <ellipse cx="0" cy="2" rx="35" ry="7" fill="white" opacity="0.18" />
-    </g>
-  );
-}
-
-function Cloud({ x, y, s = 1, driftDur = "100s" }: { x: number; y: number; s?: number; driftDur?: string }) {
-  return (
-    <g transform={`translate(${x},${y}) scale(${s})`} opacity="0.35">
-      <g>
-        {!motionIsReduced() && (
-          <animateTransform attributeName="transform" type="translate" values="0,0;80,0;0,0" dur={driftDur} repeatCount="indefinite" />
-        )}
-        <ellipse cx="0" cy="0" rx="22" ry="9" fill="white" />
-        <ellipse cx="-14" cy="2" rx="14" ry="7" fill="white" />
-        <ellipse cx="16" cy="1" rx="16" ry="8" fill="white" />
-        <ellipse cx="5" cy="-5" rx="12" ry="7" fill="white" />
-      </g>
-    </g>
-  );
-}
-
-function House({ x, y, s = 1, roofColor = "#C8706E" }: { x: number; y: number; s?: number; roofColor?: string }) {
-  return (
-    <g transform={`translate(${x},${y}) scale(${s})`}>
-      <ellipse cx="0" cy="4" rx="6" ry="2" fill="#000" opacity="0.06" />
-      <rect x="-6" y="-7" width="12" height="10" rx="0.8" fill="#F0E4D0" stroke="#D0C0A8" strokeWidth="0.4" />
-      <path d="M-8,-7 L0,-14 L8,-7 Z" fill={roofColor} stroke="#A05A58" strokeWidth="0.4" />
-      <rect x="-2.5" y="-4" width="2.2" height="2.2" rx="0.3" fill="#8CC8E0" opacity="0.7" />
-      <rect x="0.8" y="-4" width="2.2" height="2.2" rx="0.3" fill="#8CC8E0" opacity="0.7" />
-      <rect x="-1.2" y="-1.5" width="2.4" height="4.5" rx="0.3" fill="#8B7355" />
-    </g>
-  );
-}
-
-function Bridge({ x, y, s = 1 }: { x: number; y: number; s?: number }) {
-  return (
-    <g transform={`translate(${x},${y}) scale(${s})`}>
-      <path d="M-18,0 C-10,-7 10,-7 18,0" stroke="#A89078" strokeWidth="2.2" fill="none" />
-      <line x1="-12" y1="-3.5" x2="-12" y2="3" stroke="#A89078" strokeWidth="1.2" />
-      <line x1="0" y1="-6" x2="0" y2="3" stroke="#A89078" strokeWidth="1.2" />
-      <line x1="12" y1="-3.5" x2="12" y2="3" stroke="#A89078" strokeWidth="1.2" />
-    </g>
-  );
-}
-
-function CompassRose({ x, y, opacity = 0.6 }: { x: number; y: number; opacity?: number }) {
-  return (
-    <g transform={`translate(${x},${y})`} opacity={opacity}>
-      <circle cx="0" cy="0" r="30" fill="none" stroke="#A89078" strokeWidth="1" />
-      <circle cx="0" cy="0" r="27" fill="none" stroke="#A89078" strokeWidth="0.5" />
-      {/* Tick marks */}
-      {Array.from({ length: 16 }).map((_, i) => {
-        const angle = (i * 22.5 * Math.PI) / 180;
-        const r1 = i % 4 === 0 ? 24 : i % 2 === 0 ? 26 : 27;
-        return (
-          <line key={i}
-            x1={Math.sin(angle) * r1} y1={-Math.cos(angle) * r1}
-            x2={Math.sin(angle) * 30} y2={-Math.cos(angle) * 30}
-            stroke="#A89078" strokeWidth={i % 4 === 0 ? 1 : 0.4}
-          />
-        );
-      })}
-      {/* Cardinal points */}
-      <path d="M0,-26 L3.5,-8 L0,-12 L-3.5,-8 Z" fill="#7A5E40" />
-      <path d="M0,26 L3,-8 L0,12 L-3,8 Z" fill="#B0A088" />
-      <path d="M-26,0 L-8,3 L-12,0 L-8,-3 Z" fill="#B0A088" />
-      <path d="M26,0 L8,3 L12,0 L8,-3 Z" fill="#B0A088" />
-      {/* Intercardinal */}
-      <path d="M-18,-18 L-6,-6 L-8,-3 Z" fill="#CCC0AA" />
-      <path d="M18,-18 L6,-6 L8,-3 Z" fill="#CCC0AA" />
-      <path d="M-18,18 L-6,6 L-3,8 Z" fill="#CCC0AA" />
-      <path d="M18,18 L6,6 L3,8 Z" fill="#CCC0AA" />
-      {/* Center ornament */}
-      <circle cx="0" cy="0" r="4" fill="#A89078" />
-      <circle cx="0" cy="0" r="2" fill="#E8D8C4" />
-      <text y="-33" textAnchor="middle" fontSize="9" fontWeight="700" fill="#6B5B45"
-        fontFamily="var(--font-display)">N</text>
-    </g>
-  );
-}
-
-/* ── Genshin-Style Waypoint Marker ───────────────────────────── */
-
-function TownMarker({
-  pin,
-  meta,
-  isHovered,
-  onHover,
-  onLeave,
-  onClick,
-  leader,
-  leaderColor,
-  leaderLabel,
-  metCount,
-  totalCount,
-  showMet,
-}: {
-  pin: Pin;
-  meta: ResolvedTownMeta;
-  isHovered: boolean;
-  onHover: () => void;
-  onLeave: () => void;
-  onClick: () => void;
-  leader: LeanId | null;
-  leaderColor: string | null;
-  leaderLabel: string | null;
-  metCount: number;
-  totalCount: number;
-  /** Player-quest chrome ("x/y met") renders only when a real player exists. */
-  showMet: boolean;
-}) {
-  const glowId = `town-glow-${pin.id}`;
-  const gradId = `waypoint-grad-${pin.id}`;
-  const r = isHovered ? 19 : 16;
-  const detailLine = [
-    meta.population ? `Pop. ${meta.population}` : "",
-    meta.county ?? "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  return (
-    <g
-      className="district-map-pin"
-      role="button"
-      tabIndex={0}
-      aria-label={`${meta.name}. ${leaderLabel ? `${leaderLabel} is leading. ` : "No leading option yet. "}${showMet ? `${metCount} of ${totalCount} residents met. ` : `${totalCount} residents. `}Enter town.`}
-      onClick={onClick}
-      onMouseEnter={onHover}
-      onMouseLeave={onLeave}
-      onFocus={onHover}
-      onBlur={onLeave}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      }}
-      style={{ cursor: "pointer" }}
-    >
-      {/* Hit area */}
-      <circle className="district-map-pin-hit-area" cx={pin.cx} cy={pin.cy} r="50" fill="transparent" />
-
-      <defs>
-        <radialGradient id={glowId}>
-          <stop offset="0%" stopColor={meta.color} stopOpacity={isHovered ? "0.35" : "0.15"} />
-          <stop offset="50%" stopColor={meta.color} stopOpacity={isHovered ? "0.12" : "0.05"} />
-          <stop offset="100%" stopColor={meta.color} stopOpacity="0" />
-        </radialGradient>
-        <radialGradient id={gradId} cx="35%" cy="30%">
-          <stop offset="0%" stopColor="white" stopOpacity="0.5" />
-          <stop offset="40%" stopColor={meta.color} stopOpacity="1" />
-          <stop offset="100%" stopColor={meta.color} stopOpacity="0.75" />
-        </radialGradient>
-      </defs>
-
-      {/* Ambient glow */}
-      <circle
-        cx={pin.cx} cy={pin.cy}
-        r={isHovered ? 50 : 35}
-        fill={`url(#${glowId})`}
-        style={{ transition: "r 0.4s ease-out" }}
-      />
-
-      {/* Outer pulsing ring */}
-      <circle cx={pin.cx} cy={pin.cy} r="24" fill="none" stroke={meta.color} strokeWidth="1" opacity="0.3">
-        {!motionIsReduced() && <animate attributeName="r" values="24;34;24" dur="3s" repeatCount="indefinite" />}
-        {!motionIsReduced() && <animate attributeName="opacity" values="0.35;0;0.35" dur="3s" repeatCount="indefinite" />}
-      </circle>
-
-      {/* Second pulse (offset timing) */}
-      <circle cx={pin.cx} cy={pin.cy} r="21" fill="none" stroke={meta.color} strokeWidth="0.6" opacity="0.2">
-        {!motionIsReduced() && <animate attributeName="r" values="21;30;21" dur="3s" begin="1.5s" repeatCount="indefinite" />}
-        {!motionIsReduced() && <animate attributeName="opacity" values="0.2;0;0.2" dur="3s" begin="1.5s" repeatCount="indefinite" />}
-      </circle>
-
-      {/* Waypoint base — outer ring */}
-      <circle cx={pin.cx} cy={pin.cy + 1} r={r + 3} fill="rgba(0,0,0,0.1)" />
-      <circle
-        cx={pin.cx} cy={pin.cy} r={r + 2}
-        fill="none"
-        stroke="rgba(255,255,255,0.5)"
-        strokeWidth="1.5"
-        style={{ transition: "r 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
-      />
-
-      {/* Waypoint core — gradient circle */}
-      <circle
-        cx={pin.cx} cy={pin.cy} r={r}
-        fill={`url(#${gradId})`}
-        stroke="white" strokeWidth="2.5"
-        style={{
-          transition: "r 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
-          filter: isHovered ? "url(#townGlow)" : "none",
-        }}
-      />
-
-      {/* Inner diamond waypoint symbol */}
-      <path
-        d={`M${pin.cx},${pin.cy - 6.5} L${pin.cx + 5},${pin.cy} L${pin.cx},${pin.cy + 6.5} L${pin.cx - 5},${pin.cy} Z`}
-        fill="white" opacity="0.9"
-      />
-      {/* Inner dot */}
-      <circle cx={pin.cx} cy={pin.cy} r="1.8" fill="white" opacity="0.7" />
-
-      {/* ── Status pill: leader dot + labeled met count between pin and plate ── */}
-      {(totalCount > 0 || leader) && (
-        <g style={{ pointerEvents: "none" }}>
-          <rect
-            x={pin.cx - 33} y={pin.cy + 19}
-            width="66" height="15" rx="7.5" ry="7.5"
-            fill="rgba(255,255,255,0.96)"
-            stroke={leaderColor ?? "rgba(196,180,154,0.55)"}
-            strokeWidth="0.8"
-            filter="url(#labelShadow)"
-          />
-          {leader && leaderColor && (
-            <circle
-              cx={pin.cx - 24} cy={pin.cy + 26.5}
-              r="2.8"
-              fill={leaderColor}
-            >
-              <title>Leading: {leader}</title>
-            </circle>
-          )}
-          <text
-            x={leader ? pin.cx + 3 : pin.cx}
-            y={pin.cy + 29.5}
-            textAnchor="middle" fontSize="8" fontWeight="700"
-            fill="#2C2416"
-            fontFamily="Inter, sans-serif"
-          >
-            {showMet ? `${metCount}/${totalCount} met` : `${totalCount} residents`}
-          </text>
-        </g>
-      )}
-
-      {/* ── Town label: full-width name plate; expands on hover with tagline + pop ── */}
-      <g>
-        <rect
-          x={pin.cx - 58} y={pin.cy + 40}
-          width="116" height={isHovered ? 52 : 26}
-          rx="6" ry="6"
-          fill="rgba(255,255,255,0.93)"
-          stroke={isHovered ? meta.color : "rgba(196,180,154,0.4)"}
-          strokeWidth={isHovered ? 1.2 : 0.6}
-          filter="url(#labelShadow)"
-          style={{ transition: "all 0.3s ease" }}
-        />
-
-        {/* Town name — full label width, no inline chips to collide with */}
-        <text
-          x={pin.cx} y={pin.cy + 57}
-          textAnchor="middle" fontSize="13" fontWeight="600"
-          fill="#2C2416"
-          fontFamily="var(--font-display)"
-          letterSpacing="0.3"
-        >
-          {meta.name}
-        </text>
-
-        {/* Tagline + population (on hover) */}
-        {isHovered && (
-          <>
-            {meta.tagline && (
-              <text
-                x={pin.cx} y={pin.cy + 72}
-                textAnchor="middle" fontSize="8" fontWeight="500"
-                fill={meta.color}
-                fontFamily="Inter, sans-serif"
-                letterSpacing="0.2"
-              >
-                {meta.tagline}
-              </text>
-            )}
-            {detailLine && (
-              <text
-                x={pin.cx} y={pin.cy + 84}
-                textAnchor="middle" fontSize="7" fontWeight="600"
-                fill="#8A7E6E"
-                fontFamily="Inter, sans-serif"
-              >
-                {detailLine}
-              </text>
-            )}
-          </>
-        )}
-      </g>
-    </g>
-  );
-}
-
-/* ── Resident dots ────────────────────────────────────────────
-   Each town's roster rendered as tiny wandering villagers around its
-   waypoint, tinted by their current stance. The atlas reads as inhabited,
-   and the deliberation state is visible at a glance on /map. ── */
-
-function ResidentDots({
-  pin,
-  agents,
-  stanceColor,
-  motionReduced,
-}: {
-  pin: Pin;
-  agents: AgentState[];
-  stanceColor: (a: AgentState) => string;
-  motionReduced: boolean;
-}) {
-  const placed = useMemo(() => {
-    const rng = mulberry32(hashString(`dots:${pin.id}`));
-    const n = agents.length;
-    return agents.map((a, i) => {
-      // Upper arc around the pin — the pill + name plate own the space below.
-      const t = n <= 1 ? 0.5 : i / (n - 1);
-      const angle = Math.PI * (1.08 + 0.84 * t) + (rng() - 0.5) * 0.22;
-      const radius = 30 + rng() * 20;
-      return {
-        id: a.id,
-        x: pin.cx + Math.cos(angle) * radius,
-        y: pin.cy + Math.sin(angle) * radius * 0.8,
-        dx: (rng() - 0.5) * 9,
-        dy: (rng() - 0.5) * 7,
-        dur: 4.5 + rng() * 3.5,
-        begin: rng() * 3,
-      };
-    });
-  }, [pin, agents]);
-
-  return (
-    <g aria-hidden="true" style={{ pointerEvents: "none" }}>
-      {placed.map((p, i) => (
-        <g key={p.id}>
-          {!motionReduced && (
-            <animateTransform
-              attributeName="transform"
-              type="translate"
-              values={`0,0; ${p.dx},${p.dy}; 0,0`}
-              dur={`${p.dur}s`}
-              begin={`${p.begin}s`}
-              repeatCount="indefinite"
-            />
-          )}
-          <ellipse cx={p.x} cy={p.y + 3} rx="2.6" ry="1" fill="#2A2A2A" opacity="0.12" />
-          <circle
-            cx={p.x} cy={p.y} r="2.8"
-            fill={stanceColor(agents[i])}
-            stroke="white" strokeWidth="0.9"
-            opacity="0.95"
-          />
-        </g>
-      ))}
-    </g>
-  );
-}
-
-/* ── Generic seeded terrain (any other scenario) ─────────────── */
-
-function GenericTerrain({ pins, seedKey }: { pins: Pin[]; seedKey: string }) {
-  const layout = useMemo(() => {
-    const rng = mulberry32(hashString(`${seedKey}::terrain`));
-    const twoTowns = pins.length === 2;
-
-    // Mountain range hugs whichever top corner the seed favors.
-    const mountainsWest = rng() < 0.5;
-    const mx = mountainsWest ? 160 : 830;
-    const mSign = mountainsWest ? 1 : -1;
-
-    // River: for two towns it runs BETWEEN them; otherwise it wanders down
-    // from the mountains through open terrain. Built from two cubic bezier
-    // segments so we can sample exact points for the shimmer sparkles.
-    let seg1: [Pt, Pt, Pt, Pt];
-    let seg2: [Pt, Pt, Pt, Pt];
-    let bridge: { x: number; y: number } | null = null;
-    if (twoTowns) {
-      const midX = (pins[0].cx + pins[1].cx) / 2 + (rng() - 0.5) * 20;
-      const sway = 24 + rng() * 22;
-      seg1 = [[midX - sway, 78], [midX + sway, 170], [midX - sway, 250], [midX + sway * 0.6, 330]];
-      seg2 = [[midX + sway * 0.6, 330], [midX + sway, 410], [midX - sway * 0.5, 470], [midX + sway * 0.3, 515]];
-      bridge = { x: midX + sway * 0.1, y: (pins[0].cy + pins[1].cy) / 2 + 8 };
-    } else {
-      const startX = mountainsWest ? 210 : 780;
-      const d = mountainsWest ? 1 : -1;
-      seg1 = [[startX, 140], [startX + 40 * d, 210], [startX + 20 * d, 280], [startX + 70 * d, 340]];
-      seg2 = [[startX + 70 * d, 340], [startX + 110 * d, 395], [startX + 90 * d, 450], [startX + 140 * d, 495]];
-      bridge = null;
-    }
-    const river =
-      `M ${seg1[0][0]},${seg1[0][1]} C ${seg1[1][0]},${seg1[1][1]} ${seg1[2][0]},${seg1[2][1]} ${seg1[3][0]},${seg1[3][1]}` +
-      ` C ${seg2[1][0]},${seg2[1][1]} ${seg2[2][0]},${seg2[2][1]} ${seg2[3][0]},${seg2[3][1]}`;
-    const shimmers: Pt[] = [0.15, 0.4, 0.65, 0.85, 0.95].map((t) =>
-      t < 0.5
-        ? cubicAt(seg1[0], seg1[1], seg1[2], seg1[3], t * 2)
-        : cubicAt(seg2[0], seg2[1], seg2[2], seg2[3], (t - 0.5) * 2),
-    );
-
-    // Road: a dashed track linking the waypoints in order.
-    let road = "";
-    if (pins.length >= 2) {
-      road = `M ${pins[0].cx},${pins[0].cy + 8}`;
-      for (let i = 1; i < pins.length; i++) {
-        const a = pins[i - 1];
-        const b = pins[i];
-        const mx2 = (a.cx + b.cx) / 2 + (rng() - 0.5) * 50;
-        const my2 = (a.cy + b.cy) / 2 + 22 + (rng() - 0.5) * 30;
-        road += ` Q ${mx2},${my2} ${b.cx},${b.cy + 8}`;
-      }
-    }
-
-    const trees = scatterPoints(rng, 12, pins);
-    const houses = scatterPoints(rng, 5, pins, 90);
-    const hills = scatterPoints(rng, 5, pins, 70);
-
-    return { mountainsWest, mx, mSign, river, bridge, road, trees, houses, hills, shimmers };
-  }, [pins, seedKey]);
-
-  const roofs = ["#C8706E", "#B08060", "#A07858"];
-
-  return (
-    <>
-      {/* ─── Terrain base — same watercolor landmass language ── */}
-      <path
-        d={`
-          M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
-          C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
-          C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
-          C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
-          C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
-        `}
-        fill="url(#terrainBase)"
-        filter="url(#watercolor)"
-        stroke="#A0906E"
-        strokeWidth="1"
-        opacity="0.95"
-      />
-      {/* Highland tint on the mountain side */}
-      <path
-        d={layout.mountainsWest
-          ? `M 140,160 C 160,130 210,95 280,80 C 340,68 380,65 420,64 L 400,200 L 380,320 L 350,400 C 300,455 260,442 220,420 C 190,390 162,358 145,320 C 138,280 130,240 130,200 C 130,200 140,160 140,160 Z`
-          : `M 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200 C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458 C 660,468 640,470 620,472 L 600,350 L 590,250 L 600,160 Z`}
-        fill="url(#highlands)" opacity="0.35"
-      />
-      {/* Soft meadow tint on the far side */}
-      <path
-        d={layout.mountainsWest
-          ? `M 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200 C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458 C 660,468 640,470 620,472 L 600,350 L 590,250 L 600,160 Z`
-          : `M 140,160 C 160,130 210,95 280,80 C 340,68 380,65 420,64 L 400,200 L 380,320 L 350,400 C 300,455 260,442 220,420 C 190,390 162,358 145,320 C 138,280 130,240 130,200 C 130,200 140,160 140,160 Z`}
-        fill="url(#piedmont)" opacity="0.3"
-      />
-      {/* Grass texture */}
-      <path
-        d={`
-          M 140,160 C 160,130 210,95 280,80 C 340,68 400,65 460,62
-          C 530,58 590,60 640,68 C 690,76 730,90 770,110 C 810,130 840,160 860,200
-          C 875,235 880,270 870,310 C 862,345 840,375 810,400 C 780,425 740,445 700,458
-          C 660,468 620,472 580,475 C 530,478 480,480 440,478 C 390,475 340,468 300,455
-          C 260,442 220,420 190,390 C 162,358 145,320 138,280 C 130,240 130,200 140,160 Z
-        `}
-        fill="url(#grassPattern)" opacity="0.4"
-      />
-
-      {/* Mountain range in the seeded corner */}
-      <Mountain x={layout.mx} y={195} s={0.9} variant={0} />
-      <Mountain x={layout.mx + 32 * layout.mSign} y={150} s={1.1} variant={1} />
-      <Mountain x={layout.mx + 7 * layout.mSign} y={260} s={0.7} variant={2} />
-      <Mountain x={layout.mx + 47 * layout.mSign} y={130} s={0.55} variant={0} />
-
-      {/* Rolling hills */}
-      {layout.hills.map((h, i) => (
-        <ellipse key={`ghill-${i}`} cx={h.x} cy={h.y + 40}
-          rx={30 + h.r * 18} ry={8 + h.r * 4}
-          fill={["#A4C488", "#B0CC98", "#9CBC80"][i % 3]} opacity="0.35" />
-      ))}
-
-      {/* River + shimmer */}
-      <path
-        d={layout.river}
-        fill="none" stroke="url(#waterGrad)" strokeWidth="4" strokeLinecap="round"
-        opacity="0.8"
-      />
-      {layout.shimmers.map(([sx, sy], i) => (
-        <circle key={`gshimmer-${i}`} cx={sx} cy={sy} r="1.3" fill="white" opacity="0.5">
-          {!motionIsReduced() && (
-            <animate attributeName="opacity" values="0.3;0.7;0.3" dur={`${2 + i * 0.3}s`} repeatCount="indefinite" />
-          )}
-        </circle>
-      ))}
-      {layout.bridge && <Bridge x={layout.bridge.x} y={layout.bridge.y} s={0.75} />}
-
-      {/* Road linking the waypoints */}
-      {layout.road && (
-        <path
-          d={layout.road}
-          fill="none" stroke="#C4AE8C" strokeWidth="2.5" strokeLinecap="round"
-          opacity="0.5" strokeDasharray="8 4"
-        />
-      )}
-
-      {/* Forests + scattered homesteads */}
-      {layout.trees.map((t, i) =>
-        t.r < 0.45 ? (
-          <PineTree key={`gtree-${i}`} x={t.x} y={t.y} s={0.5 + t.r * 0.5} />
-        ) : (
-          <Tree key={`gtree-${i}`} x={t.x} y={t.y} s={0.5 + t.r * 0.45} shade={i % 4} />
-        ),
-      )}
-      {layout.houses.map((h, i) => (
-        <House key={`ghouse-${i}`} x={h.x} y={h.y} s={0.55 + h.r * 0.2} roofColor={roofs[i % roofs.length]} />
-      ))}
-
-      {/* Clouds */}
-      <Cloud x={150} y={85} s={0.85} driftDur="80s" />
-      <Cloud x={500} y={48} s={1.1} driftDur="100s" />
-      <Cloud x={830} y={95} s={0.75} driftDur="120s" />
-      <Cloud x={390} y={510} s={0.65} driftDur="90s" />
-      <Cloud x={750} y={490} s={0.55} driftDur="110s" />
-    </>
-  );
-}
-
-/* ── Pixel-atlas town site (HTML marker over the overworld PNG) ──
-   A designed pixel object standing on the town's clearing: the town's
-   set-piece vignette in a gold stepped frame mounted on plinth legs,
-   a wooden nameplate hanging from pixel ropes beneath it (parchment
-   fill, 2px ink border — the speech-bubble 9-slice language), and a
-   discrete pixel-ellipse ground pulse in the town accent. */
-
-/** Outline cells of a pixel ellipse (integer lattice, 1 cell = 1 SVG unit). */
-function pixelEllipseCells(rx: number, ry: number): Array<[number, number]> {
-  const seen = new Set<string>();
-  const cells: Array<[number, number]> = [];
-  const steps = Math.max(rx, ry) * 10;
-  for (let i = 0; i < steps; i++) {
-    const a = (i / steps) * Math.PI * 2;
-    const x = Math.round(Math.cos(a) * rx);
-    const y = Math.round(Math.sin(a) * ry);
-    const key = `${x},${y}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      cells.push([x, y]);
-    }
-  }
-  return cells;
-}
-
-/** Filled cells of a pixel ellipse (used for the ground-contact shadow). */
-function pixelEllipseFill(rx: number, ry: number): Array<[number, number]> {
-  const cells: Array<[number, number]> = [];
-  for (let y = -Math.ceil(ry); y <= Math.ceil(ry); y++) {
-    for (let x = -Math.ceil(rx); x <= Math.ceil(rx); x++) {
-      if ((x / rx) ** 2 + (y / ry) ** 2 <= 1) cells.push([x, y]);
-    }
-  }
-  return cells;
-}
-
-const PULSE_RX = 21;
-const PULSE_RY = 7;
-
-/** Ground pulse under a town marker: a static pixel contact shadow plus two
- *  concentric pixel-ellipse rings that step outward (discrete frames — a
- *  true pixel animation, not a blurred CSS glow). Reduced motion freezes it
- *  on a faint outer ring. */
-function AtlasPulse({ pct, color }: { pct: { x: number; y: number }; color: string }) {
-  const rings = useMemo(
-    () => ({
-      shadow: pixelEllipseFill(10, 3),
-      inner: pixelEllipseCells(14, 4.6),
-      outer: pixelEllipseCells(PULSE_RX - 1, PULSE_RY - 1),
-    }),
-    [],
-  );
-  const w = PULSE_RX * 2 + 2;
-  const h = PULSE_RY * 2 + 2;
-  return (
-    <div
-      className="atlas-site-pulse"
-      style={{ left: `${pct.x}%`, top: `${pct.y}%`, color }}
-      aria-hidden="true"
-    >
-      <svg
-        viewBox={`${-PULSE_RX - 1} ${-PULSE_RY - 1} ${w} ${h}`}
-        shapeRendering="crispEdges"
-        preserveAspectRatio="xMidYMid meet"
-      >
-        <g className="atlas-pulse-shadow">
-          {rings.shadow.map(([x, y]) => (
-            <rect key={`s${x},${y}`} x={x} y={y} width="1" height="1" />
-          ))}
-        </g>
-        <g className="atlas-pulse-ring atlas-pulse-ring--inner">
-          {rings.inner.map(([x, y]) => (
-            <rect key={`i${x},${y}`} x={x} y={y} width="1" height="1" />
-          ))}
-        </g>
-        <g className="atlas-pulse-ring atlas-pulse-ring--outer">
-          {rings.outer.map(([x, y]) => (
-            <rect key={`o${x},${y}`} x={x} y={y} width="1" height="1" />
-          ))}
-        </g>
-      </svg>
-    </div>
-  );
-}
-
-function AtlasSite({
-  meta,
-  pct,
-  previewUrl,
-  previewFailed,
-  onPreviewError,
-  isHovered,
-  onHover,
-  onLeave,
-  onClick,
-  leaderColor,
-  leaderLabel,
-  metCount,
-  totalCount,
-  showMet,
-}: {
-  meta: ResolvedTownMeta;
-  pct: { x: number; y: number };
-  previewUrl: string | null;
-  previewFailed: boolean;
-  onPreviewError: () => void;
-  isHovered: boolean;
-  onHover: () => void;
-  onLeave: () => void;
-  onClick: () => void;
-  leaderColor: string | null;
-  leaderLabel: string | null;
-  metCount: number;
-  totalCount: number;
-  showMet: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className={`atlas-site${isHovered ? " atlas-site--hovered" : ""}`}
-      style={{
-        left: `${pct.x}%`,
-        top: `${pct.y}%`,
-        ["--town-accent" as string]: meta.color,
-      }}
-      aria-label={`${meta.name}. ${leaderLabel ? `${leaderLabel} is leading. ` : "No leading option yet. "}${showMet ? `${metCount} of ${totalCount} residents met. ` : `${totalCount} residents. `}Enter town.`}
-      onClick={onClick}
-      onMouseEnter={onHover}
-      onMouseLeave={onLeave}
-      onFocus={onHover}
-      onBlur={onLeave}
-    >
-      {/* Easel: gold pixel-framed vignette standing on tiny plinth legs */}
-      <span className="atlas-site-easel" aria-hidden="true">
-        <span className="atlas-site-leg atlas-site-leg--l" />
-        <span className="atlas-site-leg atlas-site-leg--r" />
-        <span className="atlas-site-vignette">
-          <span className="atlas-site-vignette-fallback">{meta.name.charAt(0)}</span>
-          {previewUrl && !previewFailed && (
-            <img
-              className="atlas-site-vignette-img"
-              src={previewUrl}
-              alt=""
-              loading="lazy"
-              onError={onPreviewError}
-            />
-          )}
-        </span>
-      </span>
-      {/* Pixel ropes + nails hang the nameplate from the frame */}
-      <span className="atlas-site-ropes" aria-hidden="true">
-        <i />
-        <i />
-      </span>
-      {/* Wooden nameplate: parchment 9-slice with ink border */}
-      <span className="atlas-site-plate">
-        <span className="atlas-site-plate-name">{meta.name}</span>
-        <span className="atlas-site-plate-ribbon" aria-hidden="true" />
-        <span className="atlas-site-plate-meta" aria-hidden="true">
-          {leaderColor && (
-            <span className="atlas-site-plate-dot" style={{ background: leaderColor }} />
-          )}
-          {showMet ? `${metCount}/${totalCount} met` : `${totalCount} residents`}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-/* ── Banner copy helpers ─────────────────────────────────────── */
-
 function decisionDayLabel(scen: ScenarioContextValue): string {
   const raw = scen.scenario.dates?.decision_day;
   if (!raw) return "";
@@ -971,73 +73,34 @@ function decisionDayLabel(scen: ScenarioContextValue): string {
   return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
-/* ── Main Component ──────────────────────────────────────────── */
+/** Sites for towns the overworld does not know (or before it loads): a
+ *  notional pad, so the card grid never waits on the atlas. */
+function placeholderRecord(id: TownId, name: string): AtlasSiteRecord {
+  return { id, name, x: 0, y: 0, pad: { x: 0, y: 0, w: 12, h: 10 }, walk: [] };
+}
 
 export default function DistrictMap() {
   const navigate = useNavigate();
   const { isOnboarded, profile } = useUserProfile();
   const ws = useWebSocketContext();
   const scen = useScenario();
+  const compact = useMediaQuery(below("md"));
+  const coarse = useMediaQuery("(pointer: coarse)");
   const [hovered, setHovered] = useState<TownId | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [selected, setSelected] = useState<TownId | null>(null);
+  const sheetRef = useRef<HTMLElement>(null);
+  // The page fades in as a whole (the shell's demo banner settles under the
+  // same beat); the e2e suite waits for this to reach 1 before auditing.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
 
-  useEffect(() => { setLoaded(true); }, []);
-
-  const townIds = useMemo(
-    () => scen.scenario.towns.map((t) => t.id),
-    [scen.scenario],
-  );
-
-  // Pixel overworld assets: presentation-only, rendered by scripts/mapgen.
-  // undefined = probing, null = not available (→ seeded SVG fallback).
-  const [overworld, setOverworld] = useState<OverworldAtlas | null | undefined>(undefined);
-  const [terrainFailed, setTerrainFailed] = useState(false);
-  useEffect(() => {
-    setOverworld(undefined);
-    setTerrainFailed(false);
-    const ctrl = new AbortController();
-    fetch(appUrl(`assets/maps/${scen.scenario.id}/overworld-sites.json`), { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((payload) => setOverworld(parseOverworldAtlas(payload, scen.scenario.id, townIds)))
-      .catch(() => {
-        if (!ctrl.signal.aborted) setOverworld(null);
-      });
-    return () => ctrl.abort();
-  }, [scen.scenario.id, townIds]);
-  const atlas = !terrainFailed && overworld ? overworld : null;
-  // Only commit to the SVG fallback once the probe has actually failed —
-  // avoids a one-frame flash of the generic map before the pixel atlas loads.
-  const showSvgFallback = overworld === null || terrainFailed;
-
-  const pins = useMemo<Pin[]>(
-    () =>
-      genericPins(
-        scen.scenario.towns.map((t) => ({ id: t.id, tagline: t.tagline })),
-        scen.scenario.id,
-      ),
-    [scen.scenario],
-  );
-
-  // Unified overlay anchors (percent of the map surface) for the hover card
-  // and ambient bubble, valid in both pixel-atlas and SVG-fallback modes.
-  const anchorPct = useMemo(() => {
-    const out: Record<TownId, { x: number; y: number }> = {};
-    if (atlas) {
-      for (const s of atlas.sites) {
-        out[s.town_id] = { x: (s.x / atlas.width) * 100, y: (s.y / atlas.height) * 100 };
-      }
-    } else {
-      for (const p of pins) out[p.id] = { x: (p.cx / 1000) * 100, y: (p.cy / 620) * 100 };
-    }
-    return out;
-  }, [atlas, pins]);
-
-  const agents = useMemo(() => Object.values(ws.agents), [ws.agents]);
-  const [rosterAgents, setRosterAgents] = useState<AgentState[]>([]);
+  const townIds = useMemo(() => scen.scenario.towns.map((t) => t.id), [scen.scenario]);
+  const overworld = useOverworldAtlas(scen.scenario.id, townIds);
 
   // Before a live simulation starts, use the real scenario roster so every
   // atlas gets the same portrait + leading-option treatment. Static demos get
   // an authoritative transport roster primed from their staged feed.
+  const [rosterAgents, setRosterAgents] = useState<AgentState[]>([]);
   useEffect(() => {
     setRosterAgents([]);
     if (DEMO_MODE) return;
@@ -1045,656 +108,174 @@ export default function DistrictMap() {
     fetch("/api/simulation/agents", { signal: ctrl.signal })
       .then((response) => (response.ok ? response.json() : null))
       .then((payload) => {
-        if (!payload) return;
-        setRosterAgents(rosterAgentsFromPayload(payload, townIds, scen.undecidedId));
+        if (payload) setRosterAgents(rosterAgentsFromPayload(payload, townIds, scen.undecidedId));
       })
-      .catch(() => { /* zero-backend demo: the replay supplies residents */ });
+      .catch(() => {
+        /* zero-backend demo: the replay supplies residents */
+      });
     return () => ctrl.abort();
   }, [scen.scenario.id, scen.undecidedId, townIds]);
 
   const displayAgents = useMemo(() => {
-    if (agents.length > 0) return agents;
+    const live = Object.values(ws.agents);
+    if (live.length > 0) return live;
     const transportRoster = Object.values(ws.agentRoster);
-    if (transportRoster.length > 0) return transportRoster;
-    return rosterAgents;
-  }, [agents, ws.agentRoster, rosterAgents]);
+    return transportRoster.length > 0 ? transportRoster : rosterAgents;
+  }, [ws.agents, ws.agentRoster, rosterAgents]);
 
-  const leaders = useMemo(
-    () => leadingOptionPerTown(displayAgents, townIds, scen.undecidedId),
-    [displayAgents, townIds, scen.undecidedId],
-  );
-  const townTotals: Record<TownId, number> = useMemo(() => {
-    const out: Record<TownId, number> = {};
-    for (const t of townIds) out[t] = 0;
-    for (const a of displayAgents) out[a.town] = (out[a.town] || 0) + 1;
-    return out;
-  }, [displayAgents, townIds]);
-  // Deterministic "face of the town" for the hover card: first roster entry
-  // from the live stream, replay metadata, or API roster.
-  const firstResident: Record<TownId, AgentState | null> = useMemo(() => {
-    const out: Record<TownId, AgentState | null> = {};
-    for (const t of townIds) {
-      out[t] = displayAgents.find((agent) => agent.town === t) ?? null;
-    }
-    return out;
-  }, [displayAgents, townIds]);
+  const showMet = !DEMO_MODE && isOnboarded;
+  const sites = useMemo<SiteView[]>(() => {
+    const leaders = leadingOptionPerTown(displayAgents, townIds, scen.undecidedId);
+    const met = new Set(profile?.metAgents ?? []);
+    const records = overworld.state === "ready" ? overworld.atlas.sites : [];
+    return townIds.map((id) => {
+      const meta = scen.townMeta(id);
+      const agents = displayAgents.filter((a) => a.town === id);
+      const leader = leaders[id];
+      return {
+        id,
+        meta,
+        record: records.find((r) => r.id === id) ?? placeholderRecord(id, meta.name),
+        agents,
+        total: agents.length,
+        met: agents.filter((a) => met.has(a.id)).length,
+        showMet,
+        leaderLabel: leader ? scen.optionLabel(leader) : null,
+        leaderColor: leader ? scen.optionColor(leader) : null,
+      };
+    });
+  }, [displayAgents, townIds, scen, overworld, profile?.metAgents, showMet]);
 
-  // Towns whose preview PNG 404'd — hide the image, keep the card.
-  const [previewFailed, setPreviewFailed] = useState<Record<string, boolean>>({});
-
-  // Ambient life: rotate a short resident speech/thought bubble across the
-  // towns so the atlas shows the deliberation, not just its geography.
-  const [ambient, setAmbient] = useState<{
-    town: TownId; name: string; text: string; seq: number;
-  } | null>(null);
-  const ambientSourceRef = useRef<{ agents: AgentState[]; events: typeof ws.events }>({
-    agents: [], events: [],
-  });
-  ambientSourceRef.current = { agents: displayAgents, events: ws.events };
-  const hasAmbient = displayAgents.length > 0;
-  useEffect(() => {
-    if (!hasAmbient) {
-      setAmbient(null);
-      return;
-    }
-    let seq = Math.floor(Math.random() * 97);
-    const pick = () => {
-      const { agents, events } = ambientSourceRef.current;
-      if (agents.length === 0) return;
-      const agent = agents[seq % agents.length];
-      seq += 7; // co-prime stride: cycles all residents without reshuffling
-      // Prefer a real spoken line from the stream; otherwise the persona's
-      // top concern keeps the bubble honest to the scenario data.
-      let text: string | null = null;
-      for (let i = events.length - 1; i >= 0; i--) {
-        const e = events[i];
-        if (e.type === "agent_speech" && e.agent_id === agent.id) {
-          text = e.text;
-          break;
-        }
-      }
-      if (!text) {
-        const concern = agent.opinion?.top_issues?.[0] ?? agent.top_concerns?.[0];
-        text = concern ? `thinking about ${concern}…` : agent.current_activity || agent.occupation;
-      }
-      if (text.length > 80) text = `${text.slice(0, 77).trimEnd()}…`;
-      setAmbient({
-        town: agent.town,
-        name: agent.name.split(" ")[0],
-        text,
-        seq,
-      });
-    };
-    pick();
-    const id = window.setInterval(pick, 4200);
-    return () => window.clearInterval(id);
-  }, [hasAmbient]);
-
-  const metPerTown: Record<TownId, number> = useMemo(() => {
-    const out: Record<TownId, number> = {};
-    for (const t of townIds) out[t] = 0;
-    if (!profile?.metAgents) return out;
-    // We can't know the town of every met agent without the agent list; intersect
-    // with whatever roster is currently visible.
-    for (const a of displayAgents) {
-      if (profile.metAgents.includes(a.id) && out[a.town] !== undefined) out[a.town]++;
-    }
-    return out;
-  }, [profile?.metAgents, displayAgents, townIds]);
+  const stanceColor = (a: AgentState) =>
+    scen.optionColor((a.opinion?.candidate as LeanId) || scen.undecidedId);
 
   const goToTown = (id: TownId) => {
     // The hosted replay should reveal its strongest surface immediately;
     // profile creation remains part of the interactive local experience.
-    if (DEMO_MODE || isOnboarded) {
-      navigate(`/town/${id}`);
-    } else {
-      navigate(`/onboarding?town=${id}`);
-    }
+    navigate(DEMO_MODE || isOnboarded ? `/town/${id}` : `/onboarding?town=${id}`);
   };
+  // Touch and compact screens have no hover: the first tap opens the sheet
+  // below the panel, whose button enters the town. Pointers go straight in.
+  const touchFirst = compact || coarse;
+  const activateSite = (id: TownId) => {
+    if (!touchFirst) return goToTown(id);
+    setSelected(id);
+    setHovered(id);
+  };
+  useEffect(() => {
+    if (selected) sheetRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selected]);
 
-  const totalResidents = displayAgents.length;
-  const dday = decisionDayLabel(scen);
   const motionReduced = motionIsReduced();
-
-  /* Shared overlay layers — rendered inside the pixel panel (atlas mode,
-     exact % anchors) or as siblings of the fallback SVG. */
-  const hoverCardLayer = (atlasMode: boolean) =>
-    townIds.map((id) => {
-      if (hovered !== id) return null;
-      const a = anchorPct[id];
-      if (!a) return null;
-      const meta = scen.townMeta(id);
-      const leader = leaders[id];
-      const chipColor = leader ? scen.optionColor(leader) : "rgba(154,142,128,0.9)";
-      const resident = firstResident[id];
-      const detailLine = [meta.population ? `Pop. ${meta.population}` : "", meta.county ?? ""]
-        .filter(Boolean)
-        .join(" · ");
-      return (
-        <div
-          key={`hover-${id}`}
-          className={`map-hover-card${atlasMode ? " map-hover-card--atlas" : ""}`}
-          style={{ left: `${a.x}%`, top: `${a.y}%` }}
-          role="tooltip"
-          aria-hidden="true"
-        >
-          {/* In atlas mode the marker itself is the preview — the card
-              carries the meta instead of repeating the same crop. */}
-          {!atlasMode && (
-            <div className="map-hover-card-preview-frame">
-              <div className="map-hover-card-preview-fallback" aria-hidden="true">
-                {!meta.map?.preview_path || previewFailed[id]
-                  ? "Preview unavailable"
-                  : `Opening ${meta.name}`}
-              </div>
-              {!previewFailed[id] && meta.map?.preview_path && (
-                <img
-                  className="map-hover-card-preview"
-                  src={appUrl(meta.map.preview_path)}
-                  alt=""
-                  onError={() =>
-                    setPreviewFailed((m) => (m[id] ? m : { ...m, [id]: true }))
-                  }
-                />
-              )}
-            </div>
-          )}
-          <div className="map-hover-card-row">
-            {resident && (
-              <SpritePortrait
-                agentId={resident.id}
-                spriteKey={resident.sprite_key}
-                accessoryKey={resident.accessory_key}
-                fallbackInitials={resident.initials}
-                color={resident.color || meta.color}
-                size={22}
-              />
-            )}
-            <span className="map-hover-card-name">{meta.name}</span>
-          </div>
-          <span
-            className="map-hover-card-chip"
-            style={{
-              background: leader
-                ? withAlpha(chipColor, "1F", "color-mix(in srgb, currentColor 12%, transparent)")
-                : "rgba(154,142,128,0.1)",
-              color: leader ? chipColor : "var(--text-muted)",
-              borderColor: leader
-                ? withAlpha(chipColor, "55", "color-mix(in srgb, currentColor 34%, transparent)")
-                : "rgba(154,142,128,0.35)",
-            }}
-          >
-            <span className="map-hover-card-chip-dot" style={{ background: chipColor }} />
-            {leader ? `Leading: ${scen.optionLabel(leader)}` : "No leader yet"}
-          </span>
-          {atlasMode && meta.tagline && (
-            <span className="map-hover-card-tagline">{meta.tagline}</span>
-          )}
-          {atlasMode && detailLine && (
-            <span className="map-hover-card-detail">{detailLine}</span>
-          )}
-        </div>
-      );
-    });
-
-  const ambientLayer = (atlasMode: boolean) => {
-    if (!ambient || hovered === ambient.town) return null;
-    const a = anchorPct[ambient.town];
-    if (!a) return null;
-    // In atlas mode the marker is a tall standing object — float the bubble
-    // clear above its framed vignette instead of on top of it.
-    const lift = atlasMode ? 102 : 42;
-    return (
-      <div
-        key={ambient.seq}
-        className="map-ambient-bubble"
-        aria-hidden="true"
-        style={{ left: `${a.x}%`, top: `calc(${a.y}% - ${lift}px)` }}
-      >
-        <span className="map-ambient-bubble-name">{ambient.name}</span>
-        <span className="map-ambient-bubble-text">{ambient.text}</span>
-      </div>
-    );
-  };
+  const dday = decisionDayLabel(scen);
+  const totalResidents = displayAgents.length;
+  const subtitle = [
+    totalResidents ? `${totalResidents} AI Residents` : "AI Residents",
+    `${townIds.length} Town${townIds.length === 1 ? "" : "s"}`,
+  ].join(" · ");
+  const selectedSite = selected ? sites.find((s) => s.id === selected) ?? null : null;
 
   return (
-    <div
-      className="flex flex-col items-center justify-center min-h-[calc(100vh-56px)] px-4 py-4"
-      style={{ opacity: loaded ? 1 : 0, transition: "opacity 0.8s ease-out" }}
-    >
-      {/* ── Header ──────────────────────────────────────────────
-          The wordmark already lives in the app header, and the scenario
-          title sits on the atlas plaque — so this block leads with the one
-          thing nothing else on the page says: the question at stake. */}
-      <div className="text-center mb-3 max-w-3xl">
-        <h1
-          className="leading-snug"
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 600,
-            fontSize: "clamp(16px, 1.5vw + 10px, 20px)",
-            color: "var(--text-primary)",
-            letterSpacing: "0.4px",
-            animation: "stagger-in 0.5s var(--ease-genshin) backwards",
-            animationDelay: "0ms",
-          }}
-        >
-          {scen.question}
-        </h1>
-        <p
-          className="text-sm mt-1"
-          style={{
-            fontFamily: "var(--font-body)",
-            color: "var(--text-muted)",
-            animation: "stagger-in 0.5s var(--ease-genshin) backwards",
-            animationDelay: "120ms",
-          }}
-        >
-          Click a community to meet your AI neighbors
+    <div className={`district-map${ready ? " is-ready" : ""}`}>
+      {/* The wordmark lives in the app header and the scenario title on the
+          cartouche, so this block leads with the one thing nothing else on
+          the page says: the question at stake. */}
+      <div className="district-map-head">
+        <h1>{scen.question}</h1>
+        <p className="district-map-sub">
+          {touchFirst ? "Tap a community to meet your AI neighbors" : "Click a community to meet your AI neighbors"}
           {dday ? ` · Decision day ${dday}` : ""}
         </p>
       </div>
 
-      {/* ── Atlas surface — pixel overworld, or seeded SVG fallback ── */}
-      <div
-        className="relative w-full max-w-[960px] mx-auto"
-        style={{
-          animation: "stagger-in 0.5s var(--ease-genshin) backwards",
-          animationDelay: "300ms",
-        }}
-      >
-        {atlas && (
-          <div className="district-atlas-frame">
-            <div
-              className="district-atlas-panel"
-              style={{ aspectRatio: `${atlas.width} / ${atlas.height}` }}
-            >
-              <div className="district-atlas-viewport">
-                <img
-                  className="district-atlas-terrain"
-                  src={atlas.imageUrl}
-                  srcSet={atlas.image2xUrl ? `${atlas.imageUrl} 1x, ${atlas.image2xUrl} 2x` : undefined}
-                  alt=""
-                  draggable={false}
-                  onError={() => setTerrainFailed(true)}
-                />
-                {atlas.cloudsUrl && (
-                  <div className="district-atlas-clouds" aria-hidden="true">
-                    {/* Shadow pass first (beneath), then the cloud blobs —
-                        both drift on the same very slow seamless loop. */}
-                    <div className="district-atlas-clouds-shadow">
-                      <div className={`district-atlas-clouds-strip${motionReduced ? "" : " is-drifting"}`}>
-                        <img src={atlas.cloudsUrl} alt="" draggable={false} />
-                        <img src={atlas.cloudsUrl} alt="" draggable={false} />
-                      </div>
-                    </div>
-                    <div className={`district-atlas-clouds-strip${motionReduced ? "" : " is-drifting"}`}>
-                      <img src={atlas.cloudsUrl} alt="" draggable={false} />
-                      <img src={atlas.cloudsUrl} alt="" draggable={false} />
-                    </div>
-                  </div>
-                )}
-                <div className="district-atlas-shade" aria-hidden="true" />
-              </div>
+      <AtlasPanel
+        status={overworld}
+        sites={sites}
+        towns={sites.map((s) => ({ id: s.id, name: s.meta.name, color: s.meta.color }))}
+        title={scen.title}
+        subtitle={subtitle}
+        hovered={hovered}
+        onHover={setHovered}
+        onActivate={activateSite}
+        animateFolk={!motionReduced && supportsOffsetPath()}
+        driftClouds={!motionReduced}
+        stanceColor={stanceColor}
+        renderHoverCard={
+          touchFirst
+            ? undefined
+            : (site, style, id) => (
+                <AtlasHoverCard key={site.id} site={site} scenario={scen} variant="float" id={id} style={style} />
+              )
+        }
+      />
 
-              {/* Ground pulses sit on the terrain, beneath the markers */}
-              {atlas.sites.map((site) => (
-                <AtlasPulse
-                  key={`pulse-${site.town_id}`}
-                  pct={anchorPct[site.town_id]}
-                  color={scen.townMeta(site.town_id).color}
-                />
-              ))}
+      {touchFirst && selectedSite && (
+        <section ref={sheetRef} className="atlas-sheet" aria-label={`${selectedSite.meta.name} details`}>
+          <AtlasHoverCard
+            site={selectedSite}
+            scenario={scen}
+            variant="sheet"
+            onEnter={() => goToTown(selectedSite.id)}
+            onClose={() => setSelected(null)}
+          />
+        </section>
+      )}
 
-              {/* Town sites: framed vignette + hanging nameplate */}
-              {atlas.sites.map((site) => {
-                const leader = leaders[site.town_id];
-                const meta = scen.townMeta(site.town_id);
-                return (
-                  <AtlasSite
-                    key={site.town_id}
-                    meta={meta}
-                    pct={anchorPct[site.town_id]}
-                    previewUrl={meta.map?.preview_path ? appUrl(meta.map.preview_path) : null}
-                    previewFailed={!!previewFailed[site.town_id]}
-                    onPreviewError={() =>
-                      setPreviewFailed((m) => (m[site.town_id] ? m : { ...m, [site.town_id]: true }))
-                    }
-                    isHovered={hovered === site.town_id}
-                    onHover={() => setHovered(site.town_id)}
-                    onLeave={() => setHovered(null)}
-                    onClick={() => goToTown(site.town_id)}
-                    leaderColor={leader ? scen.optionColor(leader) : null}
-                    leaderLabel={leader ? scen.optionLabel(leader) : null}
-                    metCount={metPerTown[site.town_id]}
-                    totalCount={townTotals[site.town_id]}
-                    showMet={!DEMO_MODE && isOnboarded}
-                  />
-                );
-              })}
-
-              {/* Cinzel title cartouche — chrome over the pixel panel */}
-              <div className="district-atlas-cartouche">
-                <div className="district-atlas-cartouche-title">{scen.title}</div>
-                <div className="district-atlas-cartouche-sub">
-                  {[
-                    totalResidents ? `${totalResidents} AI Residents` : "AI Residents",
-                    `${townIds.length} Town${townIds.length === 1 ? "" : "s"}`,
-                  ].join(" · ")}
-                </div>
-              </div>
-
-              {/* Compass rose — bottom-right chrome */}
-              <svg className="district-atlas-compass" viewBox="-42 -46 84 88" aria-hidden="true">
-                <circle r="36" fill="rgba(250,246,239,0.78)" stroke="rgba(196,163,90,0.5)" strokeWidth="1" />
-                <CompassRose x={0} y={0} opacity={0.95} />
-              </svg>
-
-              {/* Overlay layers live inside the panel so % anchors are exact */}
-              {hoverCardLayer(true)}
-              {ambientLayer(true)}
-            </div>
-          </div>
-        )}
-
-        {showSvgFallback && (
-        <svg viewBox="0 0 1000 620" className="w-full h-auto" style={{ overflow: "visible" }}>
-          <defs>
-            <filter id="paperTexture" x="-5%" y="-5%" width="110%" height="110%">
-              <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="4" seed="3" result="noise" />
-              <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise" />
-              <feBlend mode="multiply" in="SourceGraphic" in2="grayNoise" result="textured" />
-              <feComponentTransfer in="textured">
-                <feFuncA type="linear" slope="1" />
-              </feComponentTransfer>
-            </filter>
-
-            <filter id="watercolor" x="-2%" y="-2%" width="104%" height="104%">
-              <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" seed="7" result="warp" />
-              <feDisplacementMap in="SourceGraphic" in2="warp" scale="3" xChannelSelector="R" yChannelSelector="G" />
-            </filter>
-
-            <filter id="townGlow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="4" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-
-            <filter id="labelShadow" x="-10%" y="-10%" width="120%" height="140%">
-              <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.12" />
-            </filter>
-
-            {/* Vibrant terrain gradients — Genshin-style saturation */}
-            <linearGradient id="terrainBase" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#CCC6A0" />
-              <stop offset="35%" stopColor="#B8D098" />
-              <stop offset="100%" stopColor="#A4C488" />
-            </linearGradient>
-
-            <linearGradient id="highlands" x1="0%" y1="100%" x2="0%" y2="0%">
-              <stop offset="0%" stopColor="#A8B890" />
-              <stop offset="100%" stopColor="#90A878" />
-            </linearGradient>
-
-            <linearGradient id="piedmont" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#BCD8A0" />
-              <stop offset="100%" stopColor="#C8E0A8" />
-            </linearGradient>
-
-            <linearGradient id="waterGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#60ACD0" stopOpacity="0.65" />
-              <stop offset="50%" stopColor="#4CA0CC" stopOpacity="0.85" />
-              <stop offset="100%" stopColor="#60ACD0" stopOpacity="0.55" />
-            </linearGradient>
-
-            <radialGradient id="vignetteGrad" cx="50%" cy="50%" r="55%">
-              <stop offset="0%" stopColor="transparent" />
-              <stop offset="85%" stopColor="transparent" />
-              <stop offset="100%" stopColor="rgba(44,36,22,0.08)" />
-            </radialGradient>
-
-            <pattern id="grassPattern" patternUnits="userSpaceOnUse" width="12" height="12">
-              <line x1="3" y1="10" x2="3" y2="6" stroke="#6EAA50" strokeWidth="0.5" opacity="0.3" />
-              <line x1="7" y1="11" x2="8" y2="7" stroke="#5E9A40" strokeWidth="0.5" opacity="0.25" />
-              <line x1="10" y1="10" x2="10" y2="7" stroke="#6EAA50" strokeWidth="0.5" opacity="0.2" />
-            </pattern>
-          </defs>
-
-          {/* ─── Layer 0: Parchment Background ─────────────── */}
-          <rect x="30" y="20" width="940" height="580" rx="12" ry="12"
-            fill="#EDE7DA" filter="url(#paperTexture)" />
-
-          {/* ─── Layer 1: Ornamental Border ────────────────── */}
-          <rect x="30" y="20" width="940" height="580" rx="12" ry="12"
-            fill="none" stroke="#C4B49A" strokeWidth="1.5" />
-          <rect x="36" y="26" width="928" height="568" rx="9" ry="9"
-            fill="none" stroke="#C4B49A" strokeWidth="0.5" opacity="0.5" />
-          {[[44, 34], [958, 34], [44, 586], [958, 586]].map(([cx, cy], i) => (
-            <g key={i} transform={`translate(${cx},${cy})`}>
-              <circle r="3.5" fill="#C4B49A" opacity="0.4" />
-              <circle r="1.8" fill="#A89078" opacity="0.5" />
-            </g>
-          ))}
-
-          {/* ─── Layers 2–7: Terrain ───────────────────────── */}
-          <GenericTerrain pins={pins} seedKey={scen.scenario.id} />
-
-          {/* ─── Layer 8: Resident dots + Town Markers ─────── */}
-          {pins.map((pin) => (
-            <ResidentDots
-              key={`dots-${pin.id}`}
-              pin={pin}
-              agents={displayAgents.filter((a) => a.town === pin.id)}
-              stanceColor={(a) =>
-                scen.optionColor((a.opinion?.candidate as LeanId) || scen.undecidedId)
-              }
-              motionReduced={motionReduced}
-            />
-          ))}
-          {pins.map((pin) => (
-            <TownMarker
-              key={pin.id}
-              pin={pin}
-              meta={scen.townMeta(pin.id)}
-              isHovered={hovered === pin.id}
-              onHover={() => setHovered(pin.id)}
-              onLeave={() => setHovered(null)}
-              onClick={() => goToTown(pin.id)}
-              leader={leaders[pin.id]}
-              leaderColor={leaders[pin.id] ? scen.optionColor(leaders[pin.id]) : null}
-              leaderLabel={leaders[pin.id] ? scen.optionLabel(leaders[pin.id]) : null}
-              metCount={metPerTown[pin.id]}
-              totalCount={townTotals[pin.id]}
-              showMet={!DEMO_MODE && isOnboarded}
-            />
-          ))}
-
-          {/* ─── Layer 9: Compass Rose ─────────────────────── */}
-          {/* NOTE: no CSS transform-origin here — SMIL rotate(θ,cx,cy) already
-              encodes its pivot, and stacking both makes the rose orbit. */}
-          <g>
-            {!motionReduced && (
-              <animateTransform attributeName="transform" type="rotate" from="0 905 530" to="360 905 530" dur="120s" repeatCount="indefinite" />
-            )}
-            <CompassRose x={905} y={530} />
-          </g>
-
-          {/* ─── Layer 10: Vignette ────────────────────────── */}
-          <rect x="30" y="20" width="940" height="580" rx="12" fill="url(#vignetteGrad)" pointerEvents="none" />
-
-          {/* ─── Title cartouche ───────────────────────────── */}
-          <g transform="translate(65, 48)">
-            <rect x="-10" y="-8" width={Math.max(155, scen.title.length * 6.8 + 24)} height="40" rx="5" fill="rgba(237,231,218,0.92)"
-              stroke="#C4B49A" strokeWidth="0.6" filter="url(#labelShadow)" />
-            <text x="0" y="7" fontSize="11" fontWeight="700" fill="#5A4A38"
-              fontFamily="var(--font-display)" letterSpacing="0.5">
-              {scen.title}
-            </text>
-            <text x="0" y="22" fontSize="7.5" fill="#A89078" fontFamily="Inter, sans-serif" letterSpacing="0.3">
-              {[
-                totalResidents ? `${totalResidents} AI Residents` : "AI Residents",
-                `${pins.length} Town${pins.length === 1 ? "" : "s"}`,
-              ].join(" · ")}
-            </text>
-          </g>
-
-          {/* ─── Decorative birds ───────────────────────────── */}
-          <g opacity="0.3">
-            <path d="M420,95 Q425,87 430,93 Q435,87 440,95" fill="none" stroke="#6B5B45" strokeWidth="0.9">
-              {!motionReduced && <animateMotion dur="18s" repeatCount="indefinite" path="M0,0 C50,-10 100,5 150,-5 C200,-15 250,0 300,-10 L350,0" />}
-            </path>
-            <path d="M415,100 Q418,94 421,99 Q424,94 427,100" fill="none" stroke="#6B5B45" strokeWidth="0.7">
-              {!motionReduced && <animateMotion dur="20s" repeatCount="indefinite" path="M0,0 C40,-8 80,3 120,-3 C160,-10 200,5 280,-8 L320,0" />}
-            </path>
-            <path d="M410,97 Q413,92 416,96 Q419,92 422,97" fill="none" stroke="#6B5B45" strokeWidth="0.5">
-              {!motionReduced && <animateMotion dur="22s" repeatCount="indefinite" path="M0,0 C30,-6 60,4 100,-4 C140,-8 180,2 240,-6 L280,0" />}
-            </path>
-          </g>
-        </svg>
-        )}
-
-        {/* Fallback overlays are siblings of the SVG (same box, no frame
-            padding), so the original percentage anchors still hold. */}
-        {showSvgFallback && hoverCardLayer(false)}
-        {showSvgFallback && ambientLayer(false)}
-
-        {/* ── Ambient Floating Particles ──────────────────────── */}
-        <div className="ambient-particles">
-          <span className="ambient-particle" style={{ left: "12%", bottom: "8%", animation: "particle-float-0 14s 0s infinite", opacity: 0.2 }} />
-          <span className="ambient-particle" style={{ left: "28%", bottom: "15%", animation: "particle-float-1 12s 1s infinite", opacity: 0.18 }} />
-          <span className="ambient-particle" style={{ left: "45%", bottom: "22%", animation: "particle-float-2 16s 2.5s infinite", opacity: 0.22 }} />
-          <span className="ambient-particle" style={{ left: "62%", bottom: "10%", animation: "particle-float-3 11s 0.5s infinite", opacity: 0.15 }} />
-          <span className="ambient-particle" style={{ left: "78%", bottom: "30%", animation: "particle-float-0 18s 4s infinite", opacity: 0.2 }} />
-          <span className="ambient-particle" style={{ left: "15%", bottom: "40%", animation: "particle-float-1 13s 3s infinite", opacity: 0.17 }} />
-          <span className="ambient-particle" style={{ left: "35%", bottom: "5%", animation: "particle-float-2 15s 6s infinite", opacity: 0.25 }} />
-          <span className="ambient-particle" style={{ left: "55%", bottom: "35%", animation: "particle-float-3 10s 2s infinite", opacity: 0.19 }} />
-          <span className="ambient-particle" style={{ left: "85%", bottom: "18%", animation: "particle-float-0 17s 8s infinite", opacity: 0.16 }} />
-          <span className="ambient-particle" style={{ left: "22%", bottom: "48%", animation: "particle-float-1 14s 5s infinite", opacity: 0.21 }} />
-          <span className="ambient-particle" style={{ left: "70%", bottom: "42%", animation: "particle-float-2 12s 7s infinite", opacity: 0.18 }} />
-          <span className="ambient-particle" style={{ left: "40%", bottom: "12%", animation: "particle-float-3 16s 9s infinite", opacity: 0.23 }} />
-          <span className="ambient-particle" style={{ left: "90%", bottom: "25%", animation: "particle-float-0 11s 10s infinite", opacity: 0.15 }} />
-          <span className="ambient-particle" style={{ left: "50%", bottom: "50%", animation: "particle-float-1 18s 12s infinite", opacity: 0.2 }} />
-        </div>
+      <div className="atlas-decision">
+        <p className="atlas-decision-title">{dday ? `Decision day — ${dday}` : scen.title}</p>
+        <p className="atlas-decision-prose">{scen.scenario.dates?.prose || scen.question}</p>
       </div>
 
-      {/* ── Decision Info Banner ──────────────────────────────── */}
-      <div
-        className="mt-6 max-w-2xl w-full rounded-xl px-6 py-4 text-center relative overflow-hidden"
-        style={{
-          background: "var(--warm-glass)",
-          backdropFilter: "blur(var(--warm-glass-blur))",
-          WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
-          borderWidth: "1px",
-          borderStyle: "solid",
-          borderColor: "rgba(196, 163, 90, 0.3) var(--warm-glass-border) var(--warm-glass-border)",
-          animation: "stagger-in 0.5s var(--ease-genshin) backwards",
-          animationDelay: "500ms",
-        }}
-      >
-        {/* Top-left corner ornament */}
-        <svg className="absolute top-2 left-2" width="20" height="20" viewBox="0 0 20 20" opacity="0.25">
-          <path d="M0,15 L0,3 C0,1.5 1.5,0 3,0 L15,0" fill="none" stroke="var(--gold-accent)" strokeWidth="1.5" />
-          <circle cx="0" cy="15" r="1.5" fill="var(--gold-accent)" />
-        </svg>
-        {/* Bottom-right corner ornament */}
-        <svg className="absolute bottom-2 right-2" width="20" height="20" viewBox="0 0 20 20" opacity="0.25">
-          <path d="M20,5 L20,17 C20,18.5 18.5,20 17,20 L5,20" fill="none" stroke="var(--gold-accent)" strokeWidth="1.5" />
-          <circle cx="20" cy="5" r="1.5" fill="var(--gold-accent)" />
-        </svg>
-        <p style={{
-          fontFamily: "var(--font-display)",
-          color: "var(--gold-ink)",
-          fontSize: "14px",
-          fontWeight: 600,
-        }}>
-          {dday ? `Decision day — ${dday}` : scen.title}
-        </p>
-        <p className="mt-1" style={{
-          fontFamily: "var(--font-body)",
-          color: "var(--text-secondary)",
-          fontSize: "12px",
-        }}>
-          {scen.scenario.dates?.prose || scen.question}
-        </p>
-      </div>
-
-      {/* ── Town Cards ───────────────────────────────────────── */}
-      <div className="mt-6 district-town-cards max-w-3xl w-full">
-        {townIds.map((id, idx) => {
-          const meta = scen.townMeta(id);
-          const isActive = hovered === id;
+      {/* Town cards: the postcard, the name, the tagline, the census, the leader. */}
+      <div className="district-town-cards">
+        {sites.map((site, idx) => {
+          const { meta } = site;
+          const chipTone = site.leaderColor ?? "var(--color-neutral)";
+          const postcard = meta.postcardPath ? appUrl(meta.postcardPath) : null;
           return (
             <button
-              key={id}
-              onClick={() => goToTown(id)}
-              className="rounded-xl px-4 py-3 text-left hover:scale-[1.03] active:scale-[0.98]"
+              key={site.id}
+              type="button"
+              className={`district-town-card${hovered === site.id ? " district-town-card--lit" : ""}`}
               style={{
-                background: isActive
-                  ? `linear-gradient(135deg, rgba(${hexToRgb(meta.color)},0.08), var(--card-bg))`
-                  : "var(--card-bg)",
-                borderWidth: "1.5px 1.5px 1.5px 3px",
-                borderStyle: "solid",
-                borderColor: `${isActive ? meta.color : "var(--card-border)"} ${isActive ? meta.color : "var(--card-border)"} ${isActive ? meta.color : "var(--card-border)"} ${meta.color}`,
-                boxShadow: isActive
-                  ? `0 4px 16px rgba(${hexToRgb(meta.color)},0.15)`
-                  : "var(--card-shadow)",
-                transition: "all 250ms cubic-bezier(0.22, 1, 0.36, 1)",
-                animation: "stagger-in 0.5s var(--ease-genshin) backwards",
-                animationDelay: `${600 + idx * 100}ms`,
+                ["--town-accent" as string]: meta.color,
+                animationDelay: `${120 + idx * 80}ms`,
               }}
-              onMouseEnter={() => setHovered(id)}
+              onClick={() => goToTown(site.id)}
+              onMouseEnter={() => setHovered(site.id)}
               onMouseLeave={() => setHovered(null)}
-              onFocus={() => setHovered(id)}
+              onFocus={() => setHovered(site.id)}
               onBlur={() => setHovered(null)}
             >
-              <div className="flex items-center gap-2 mb-1">
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{
-                    background: meta.color,
-                    boxShadow: isActive ? `0 0 8px ${meta.color}` : "none",
-                    transition: "box-shadow 0.3s ease",
-                  }}
-                />
-                <span style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                }}>
-                  {meta.name}
+              <span className="district-town-card-postcard-frame">
+                {postcard ? (
+                  <img className="district-town-card-postcard" src={postcard} width={224} height={144} alt="" loading="lazy" />
+                ) : (
+                  <span className="district-town-card-postcard-fallback">{meta.name.charAt(0)}</span>
+                )}
+              </span>
+              <span className="district-town-card-body">
+                <span className="district-town-card-name">{meta.name}</span>
+                {meta.tagline && <span className="district-town-card-tagline">{meta.tagline}</span>}
+                <span className="district-town-card-meta">
+                  {[residentsLine(site), meta.county ?? ""].filter(Boolean).join(" · ")}
                 </span>
-              </div>
-              {meta.tagline && (
-                <p style={{
-                  fontFamily: "var(--font-body)",
-                  fontSize: "12px",
-                  fontStyle: "italic",
-                  color: "var(--text-secondary)",
-                }}>
-                  {meta.tagline}
-                </p>
-              )}
-              {meta.population && (
-                <p className="mt-1" style={{
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  color: "var(--text-secondary)",
-                }}>
-                  {meta.population}
-                </p>
-              )}
+                <span
+                  className="district-town-card-chip"
+                  style={{
+                    background: withAlpha(chipTone, 0.12),
+                    borderColor: withAlpha(chipTone, 0.35),
+                    color: site.leaderColor ? readableInk(site.leaderColor) : "var(--text-muted)",
+                  }}
+                >
+                  <span className="district-town-card-chip-dot" style={{ background: chipTone }} aria-hidden="true" />
+                  {site.leaderLabel ? `Leading: ${site.leaderLabel}` : `No ${scen.optionNoun()} leading yet`}
+                </span>
+              </span>
             </button>
           );
         })}
       </div>
     </div>
   );
-}
-
-function hexToRgb(hex: string): string {
-  const h = hex.replace("#", "");
-  return `${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)}`;
 }

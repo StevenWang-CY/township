@@ -77,6 +77,10 @@ EXITS = [
     ("s", 17, "TO RT 10"),
 ]
 
+#: District Atlas postcard: top-left tile of the 14x9 crop framing the
+#: set-piece (Dover Station's front, platform, and the NJT tracks).
+POSTCARD = (3, 35)
+
 
 def compose(m: MapCanvas) -> None:
     rng = m.rng
