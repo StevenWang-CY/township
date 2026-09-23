@@ -228,10 +228,12 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   private currentActivity: AgentActivity = "idle";
   private reservedTarget: { x: number; y: number } | null = null;
-  /** Declutter state: "dot" collapses the name into a 4px marker. */
-  private labelMode: "full" | "dot" = "full";
+  /** Label policy (TownScene.updateLabels): names show for the speaker,
+   *  the hovered/selected resident and anyone near the player. */
+  private labelShown = true;
   private labelHover = false;
-  private labelDot?: Phaser.GameObjects.Container;
+  /** Scene time of the last spoken line (labels follow the speaker). */
+  private lastSpeechAt = -Infinity;
   private currentGesture: GestureKind = "none";
   private partnerInfo?: { name: string; tint: number };
   /** Companion body sprite for couple agents — a real second body that
@@ -512,42 +514,25 @@ export class AgentSprite extends Phaser.GameObjects.Container {
    *  camera zooms out so pixel type stays crisp and legible). */
   setLabelScale(scale: number) {
     this.nameLabel.setScale(scale);
-    this.labelDot?.setScale(scale);
   }
 
   /**
-   * Label declutter (TownScene): in a cluster only the nearest-to-camera
-   * resident keeps a readable name; the rest fade to a 4px pixel dot until
-   * hover or player approach re-promotes them.
+   * Label policy (TownScene.updateLabels): a name shows for the speaker,
+   * the hovered or selected resident and anyone the player walks up to;
+   * everyone else stays quiet so a crowd never becomes a wall of type.
    */
-  setLabelMode(mode: "full" | "dot") {
-    if (mode === this.labelMode && (mode === "full" || this.labelDot)) {
-      this.applyLabelMode();
-      return;
-    }
-    this.labelMode = mode;
+  setLabelVisible(on: boolean) {
+    if (this.labelShown === on) return;
+    this.labelShown = on;
     this.applyLabelMode();
   }
 
+  isHovered(): boolean { return this.labelHover; }
+  getLastSpeechAt(): number { return this.lastSpeechAt; }
+
   private applyLabelMode() {
     if (this.ambient) return;
-    const full = this.labelHover || (this.labelMode === "full" && !this.restingIndoors);
-    this.nameLabel.setVisible(full);
-    if (full) {
-      this.labelDot?.setVisible(false);
-      return;
-    }
-    if (!this.labelDot) {
-      // 4px parchment dot with a 1px ink frame — a quiet "someone is here"
-      // marker that never collides with neighboring names.
-      const dot = this.scene.add.container(0, LABEL_Y + 4);
-      const frame = this.scene.add.rectangle(0, 0, 6, 6, 0x2c2416, 0.85);
-      const core = this.scene.add.rectangle(0, 0, 4, 4, 0xf5ead2, 0.95);
-      dot.add([frame, core]);
-      this.add(dot);
-      this.labelDot = dot;
-    }
-    this.labelDot.setVisible(true);
+    this.nameLabel.setVisible(this.labelHover || (this.labelShown && !this.restingIndoors));
   }
 
   /** Gentle position correction from the overlap-resolver (never mid-walk):
@@ -991,6 +976,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
    *  a wider measure so backend dialogue reads at gameplay distance instead
    *  of as a tiny tooltip. */
   showSpeechBubble(text: string, duration?: number, sentiment: BubbleSentiment = "neutral", emphasis = false) {
+    this.lastSpeechAt = this.scene.time.now;
     const t = text.length > 140 ? text.slice(0, 137) + "…" : text;
     const dur = duration ?? Math.min(8000, Math.max(2000, t.length * 50));
 

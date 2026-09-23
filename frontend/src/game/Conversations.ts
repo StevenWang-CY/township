@@ -43,6 +43,9 @@ export interface ChoreoHost {
   /** Walk a resident back to the seat their day gives them (their porch,
    *  their bench, back inside) once an exchange ends. */
   returnToDwell?(agentId: string): void;
+  /** Standing spots for a group of three or more at the meeting place
+   *  (a facing pair plus porch/lawn/bench seats within reach). */
+  chatCluster?(ids: string[], near: Pt, location?: string): Pt[] | null;
   /** Current option id for a resident ("" when unknown). */
   stanceOf(agentId: string): string;
 }
@@ -186,11 +189,20 @@ export class ConversationChoreographer {
         convo.slots.set(r.agentId, right);
       }
     } else {
-      for (const s of sprites) {
-        convo.slots.set(
-          s.agentId,
-          this.host.gatherSlotFor(`convo:${id}`, anchor.x, anchor.y, s, { skipCenter: true }),
-        );
+      const cluster = this.host.chatCluster?.(sprites.map((s) => s.agentId), anchor, spec.location) ?? null;
+      if (cluster && cluster.length === sprites.length) {
+        sprites.forEach((s, i) => convo.slots.set(s.agentId, cluster[i]));
+        convo.anchor = {
+          x: cluster.reduce((sum, p) => sum + p.x, 0) / cluster.length,
+          y: cluster.reduce((sum, p) => sum + p.y, 0) / cluster.length,
+        };
+      } else {
+        for (const s of sprites) {
+          convo.slots.set(
+            s.agentId,
+            this.host.gatherSlotFor(`convo:${id}`, anchor.x, anchor.y, s, { skipCenter: true }),
+          );
+        }
       }
     }
     for (const s of sprites) {

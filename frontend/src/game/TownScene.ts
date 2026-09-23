@@ -45,7 +45,7 @@ import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange, relationshipKind, sharedConcernKey } from "./AmbientLines";
 import { ConversationChoreographer } from "./Conversations";
-import { arrivalFacing, deriveActivity, dwellRoles, shouldBeIndoors } from "./DayPart";
+import { arrivalFacing, deriveActivity, dwellRoles, isRestingHour, shouldBeIndoors } from "./DayPart";
 import { SpotRegistry, spotsFromAnchors, type Placement } from "./Spots";
 import { fnv1a } from "../lib/hash";
 import { landmarksFor } from "../hooks/useTownData";
@@ -90,7 +90,6 @@ async function fetchTownData(townId: TownId): Promise<TownData | null> {
 /** Minimum open ground between a wander/spawn target and any other body —
  *  ~3 tiles, so idle residents hold conversational distance instead of
  *  stacking into one label pile. */
-const WANDER_CLEARANCE = 48;
 
 const IDLE_THOUGHTS = [
   "I should read the full proposal.",
@@ -121,6 +120,12 @@ interface AgentRecord {
   lastEncounterAt?: number;
   /** Landmark the resident last arrived at (drives day-part activities). */
   location?: string;
+  /** Idle life: the next look-around / step / thought beat. */
+  idleTimer?: Phaser.Time.TimerEvent;
+  /** Sim minute the resident settled at the current stop (errands). */
+  arrivedAtMin?: number;
+  /** An errand is in flight (window-shopping, a bench) until this scene time. */
+  errandUntil?: number;
 }
 
 /* ── TownScene ──────────────────────────────────────────────── */
@@ -175,8 +180,26 @@ export class TownScene extends Phaser.Scene {
   /** Ballot procession: residents waiting at the rope, one at the box. */
   private pollQueue: AgentSprite[] = [];
   private boxBusy = false;
-  /** Points passers-by drift toward during a phase (benches, kiosk, queue). */
-  private ambientFocus: Array<{ x: number; y: number }> | null = null;
+  /** Voters on their way to the rope or the box: they finish their ballot
+   *  even when the feed marks them decided meanwhile. */
+  private processionIds = new Set<string>();
+  /** Results arrived mid-procession: celebrate once the last ballot drops. */
+  private pendingCelebration: string | null = null;
+  /** Where passers-by pause during the news phase (the notice board). */
+  private commuterFocus: { x: number; y: number } | null = null;
+  /** Sidewalk points at the map edge where passers-by enter and leave. */
+  private portals: Array<{ x: number; y: number }> = [];
+  private commuterSerial = 0;
+  /** Resident selected in the UI (their name always shows). */
+  private selectedAgentId: string | null = null;
+  /** "all" shows every nameplate (captures); "quiet" is the label policy. */
+  private labelPolicy: "quiet" | "all" = "quiet";
+  /** Scene time of the last ambient encounter anywhere in town. */
+  private lastEncounterTownAt = -Infinity;
+  /** One idle thought bubble at a time, town-wide. */
+  private idleBubbleUntil = 0;
+  /** At most one errand in flight per town. */
+  private errandInFlight = 0;
 
   // Encounter scheduling
   private encounterTimer?: Phaser.Time.TimerEvent;
@@ -412,21 +435,15 @@ export class TownScene extends Phaser.Scene {
       releaseGatherSlot: (id) => this.spots?.release(id, "chat"),
       returnToDwell: (id) => this.returnToDwell(id),
       chatPair: (ids, near, location) => {
-        const reg = this.spots;
-        if (!reg) return null;
-        let landmark = location ? this.resolveLandmarkName(location) : undefined;
-        if (!landmark) {
-          const votes = new Map<string, number>();
-          for (const id of ids) {
-            const loc = this.agentRecords.get(id)?.location;
-            if (loc) votes.set(loc, (votes.get(loc) ?? 0) + 1);
-          }
-          landmark = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-        }
-        landmark ??= this.nearestLandmarkName(near);
-        if (!landmark) return null;
-        const [a, b] = reg.reserveChatPair(landmark, ids, near);
+        const landmark = this.meetingLandmark(ids, near, location);
+        if (!landmark || !this.spots) return null;
+        const [a, b] = this.spots.reserveChatPair(landmark, ids, near);
         return [{ x: a.x, y: a.y }, { x: b.x, y: b.y }];
+      },
+      chatCluster: (ids, near, location) => {
+        const landmark = this.meetingLandmark(ids, near, location);
+        if (!landmark || !this.spots) return null;
+        return this.spots.reserveCluster(landmark, ids, near).map((p) => ({ x: p.x, y: p.y }));
       },
       stanceOf: (id) => this.agentOpinions.get(id) ?? "",
     });
@@ -532,7 +549,7 @@ export class TownScene extends Phaser.Scene {
     // across a backward seek and make the selected playhead nondeterministic.
     if (!DEMO_MODE) {
       this.encounterTimer = this.time.addEvent({
-        delay: 16000,
+        delay: 20000,
         loop: true,
         callback: () => this.tryEncounterConversation(),
       });
@@ -586,12 +603,14 @@ export class TownScene extends Phaser.Scene {
     if (this.worldClock.minute !== prevMin || this.worldClock.hour !== prevHour) {
       this.refreshSkyOverlay();
       this.tickRoutines();
+      this.maybeRunErrand(this.worldClock.hour * 60 + this.worldClock.minute);
       // SceneAmbience owns lamp glow + night tint; refresh at top of each hour.
       if (this.worldClock.hour !== prevHour) {
         this.ambience?.setHour(this.worldClock.hour);
         this.ambience?.setPartOfDay(this.worldClock.partOfDay());
         this.civic?.setPartOfDay(this.worldClock.partOfDay());
         this.refreshDayParts();
+        this.refreshCommuterCount();
       }
     }
 
@@ -643,7 +662,7 @@ export class TownScene extends Phaser.Scene {
     if (this.crowdTickAccum >= 200) {
       this.crowdTickAccum = 0;
       this.resolveBodyOverlaps();
-      this.declutterLabels();
+      this.updateLabels();
     }
     if (this.occupancyAccum >= 1000) {
       this.occupancyAccum = 0;
@@ -748,61 +767,49 @@ export class TownScene extends Phaser.Scene {
   }
 
   /**
-   * Keep name labels legible when residents gather — exactly the moment the
-   * simulation is most interesting. When labels would overlap, only the
-   * nearest-to-camera resident (southernmost — it draws in front) keeps its
-   * name; the rest collapse to 4px pixel dots until hover or the player
-   * walks up. Landmark labels yield to anyone standing on them.
+   * Label policy. A name shows for the speaker (a bubble up, or a line in
+   * the last 4 s), the hovered or selected resident, and anyone within 80 px
+   * of the player; then a greedy pass in that priority hides the loser
+   * whenever two 56×26 label footprints would overlap, so a crowd never
+   * becomes a wall of type. Landmark chips yield to residents standing on
+   * them. `setLabelPolicy("all")` shows everyone (captures, debugging).
    */
-  private declutterLabels() {
+  private updateLabels() {
+    const now = this.time.now;
+    const player = this.playerSprite;
     const residents = [...this.agentSprites.values()]
       .filter((s) => s !== this.playerSprite && s.active && !s.isIndoors());
-    const player = this.playerSprite;
-
-    // Greedy proximity clustering (n is small — a town has < 12 residents).
-    // Thresholds approximate the rendered label footprint (~56x26 px).
-    const assigned = new Array(residents.length).fill(false);
-    const clusters: number[][] = [];
-    for (let i = 0; i < residents.length; i++) {
-      if (assigned[i]) continue;
-      const group = [i];
-      assigned[i] = true;
-      for (let j = i + 1; j < residents.length; j++) {
-        if (assigned[j]) continue;
-        const dx = Math.abs(residents[i].x - residents[j].x);
-        const dy = Math.abs(residents[i].y - residents[j].y);
-        if (dx < 72 && dy < 28) {
-          group.push(j);
-          assigned[j] = true;
-        }
-      }
-      clusters.push(group);
+    type Cand = { s: AgentSprite; pri: number };
+    const wanted: Cand[] = [];
+    for (const s of residents) {
+      let pri = -1;
+      if (this.labelPolicy === "all") pri = 0;
+      if (player && Phaser.Math.Distance.Between(player.x, player.y, s.x, s.y) < 80) pri = Math.max(pri, 0);
+      if (s.isHovered()) pri = Math.max(pri, 1);
+      if (s.getSpeechBubbleCount() > 0 || now - s.getLastSpeechAt() < 4000) pri = Math.max(pri, 2);
+      if (s.agentId === this.selectedAgentId) pri = 3;
+      if (pri >= 0) wanted.push({ s, pri });
     }
-
-    for (const group of clusters) {
-      if (group.length === 1) {
-        residents[group[0]].setLabelMode("full");
-        continue;
-      }
-      // Nearest to camera = southernmost body (it draws in front).
-      let south = group[0];
-      for (const idx of group) {
-        if (residents[idx].y > residents[south].y) south = idx;
-      }
-      for (const idx of group) {
-        const s = residents[idx];
-        const approached = !!player
-          && Phaser.Math.Distance.Between(player.x, player.y, s.x, s.y) < 80;
-        s.setLabelMode(idx === south || approached ? "full" : "dot");
-      }
+    // Higher priority first; ties to the southern body (it draws in front).
+    wanted.sort((a, b) => b.pri - a.pri || b.s.y - a.s.y);
+    const kept: AgentSprite[] = [];
+    const w = 56 * this.labelScale;
+    const h = 26 * this.labelScale;
+    const shown = new Set<string>();
+    for (const { s } of wanted) {
+      const clash = kept.some((k) => Math.abs(k.x - s.x) < w && Math.abs(k.y - s.y) < h);
+      if (clash) continue;
+      kept.push(s);
+      shown.add(s.agentId);
     }
+    for (const s of residents) s.setLabelVisible(shown.has(s.agentId));
 
     // Landmark labels yield to residents standing inside their bounds.
     for (const label of this.landmarkLabelTexts) {
       const lm = label.getData("lm") as LandmarkData | undefined;
       if (!lm) continue;
       let occupied = false;
-      for (const s of this.agentSprites.values()) {
+      for (const s of residents) {
         if (s.x >= lm.x && s.x <= lm.x + lm.width && s.y >= lm.y && s.y <= lm.y + lm.height) {
           occupied = true;
           break;
@@ -810,6 +817,16 @@ export class TownScene extends Phaser.Scene {
       }
       label.setVisible(!occupied);
     }
+  }
+
+  /** The UI's selected resident keeps their nameplate. */
+  setSelectedAgent(agentId: string | null) {
+    this.selectedAgentId = agentId;
+  }
+
+  /** "all" shows every nameplate (capture stills); "quiet" is the default. */
+  setLabelPolicy(policy: "quiet" | "all") {
+    this.labelPolicy = policy;
   }
 
   /* ── Placement: spots, formations, indoors ────────────────
@@ -1051,6 +1068,7 @@ export class TownScene extends Phaser.Scene {
     };
     record.location = location;
     this.agentRecords.set(agent.id, record);
+    this.scheduleIdleBeat(agent.id);
   }
 
   /**
@@ -1293,6 +1311,8 @@ export class TownScene extends Phaser.Scene {
     for (const id of agentIds) {
       const sprite = this.agentSprites.get(id);
       if (!sprite || sprite === this.playerSprite || sprite.isDecided()) continue;
+      // A voter already on the way to the box stamps there, in order.
+      if (mode === "stamp" && this.processionIds.has(id)) continue;
       const stance = sprite.getStance();
       if (mode === "silent" || reducedMotion()) {
         sprite.setDecided(stance.optionId, "silent");
@@ -1307,23 +1327,62 @@ export class TownScene extends Phaser.Scene {
   /** Results are in: the winner's supporters celebrate, everyone else
    *  reflects; all settle back to idle after a few seconds. */
   celebrateResults(winnerId: string) {
+    // The last ballots drop first; the results crowd forms right after.
+    if (this.processionIds.size > 0 || this.boxBusy || this.pollQueue.length > 0) {
+      this.pendingCelebration = winnerId;
+      return;
+    }
+    this.pendingCelebration = null;
+    // Supporters gather on the park lawn nearest the polls (the results
+    // crowd), everyone else takes the news where they stand.
+    const poll = this.civic?.getPollingPlace();
+    const parks = this.landmarks.filter((l) => /park|green|commons|square|plaza/i.test(l.type));
+    let lawn: string | undefined;
+    if (poll && parks.length > 0) {
+      lawn = parks
+        .map((l) => ({ name: l.name, d: Math.hypot(l.x + l.width / 2 - poll.x, l.y + l.height / 2 - poll.y) }))
+        .sort((a, b) => a.d - b.d)[0]?.name;
+    }
+    const gather = Boolean(lawn && this.spots && !reducedMotion());
     let i = 0;
     for (const sprite of this.agentSprites.values()) {
       if (sprite === this.playerSprite || !sprite.active) continue;
       const stance = sprite.getStance();
-      if (this.choreo.inConversation(sprite.agentId) || sprite.isWalking()) continue;
+      if (this.choreo.inConversation(sprite.agentId)) continue;
+      // Walkers (voters heading home from the box) are redirected, not skipped.
+      if (sprite.isWalking() && !gather) continue;
       const supporter = !stance.undecided && stance.optionId === winnerId;
-      this.time.delayedCall(80 * i++, () => {
+      const k = i++;
+      this.time.delayedCall(80 * k, () => {
         if (!sprite.active) return;
-        if (supporter) sprite.setActivity("celebrating", true);
-        else sprite.showEmote("reflecting");
+        if (!supporter) {
+          sprite.showEmote("reflecting");
+          return;
+        }
+        if (!gather || !lawn) {
+          sprite.setActivity("celebrating", true);
+          return;
+        }
+        const seat = this.spots!.reserve(lawn, sprite.agentId, ["lawn", "bench", "table"], { kind: "chat" });
+        sprite.moveToPosition(seat.x, seat.y, () => {
+          if (!sprite.active) return;
+          sprite.setActivity("celebrating", true);
+          this.time.delayedCall(3200, () => {
+            if (!sprite.active) return;
+            if (sprite.getActivity() === "celebrating") sprite.setActivity("idle");
+            this.spots?.release(sprite.agentId, "chat");
+            this.returnToDwell(sprite.agentId);
+          });
+        }, { arriveFacing: "down" });
       });
     }
-    this.time.delayedCall(3200 + 80 * i, () => {
-      for (const sprite of this.agentSprites.values()) {
-        if (sprite.getActivity() === "celebrating") sprite.setActivity("idle");
-      }
-    });
+    if (!gather) {
+      this.time.delayedCall(3200 + 80 * i, () => {
+        for (const sprite of this.agentSprites.values()) {
+          if (sprite.getActivity() === "celebrating") sprite.setActivity("idle");
+        }
+      });
+    }
   }
 
   /* ── The election in the world ────────────────────────────────────── */
@@ -1347,15 +1406,12 @@ export class TownScene extends Phaser.Scene {
       });
     this.lastCivic = { env, residents };
     this.civic?.apply(env, residents, opts);
-    // Passers-by follow the phase: the kiosk for news, the queue on decide.
-    const poll = this.civic?.getPollingPlace();
-    if ((env.phase === "decide" || env.phase === "results") && poll) {
-      this.setAmbientFocus([{ x: poll.x - 40, y: poll.y + 40 }, { x: poll.x + 50, y: poll.y + 30 }]);
-    } else if (env.phase === "news") {
+    // Passers-by pause at the notice board while the news is fresh.
+    if (env.phase === "news") {
       const kiosk = this.mapAnchors.find((a) => a.kind === "noticeboard");
-      this.setAmbientFocus(kiosk ? [{ x: kiosk.x, y: kiosk.y + 24 }] : null);
+      this.commuterFocus = kiosk ? { x: kiosk.x, y: kiosk.y + 24 } : null;
     } else {
-      this.setAmbientFocus(null);
+      this.commuterFocus = null;
     }
   }
 
@@ -1363,9 +1419,6 @@ export class TownScene extends Phaser.Scene {
     return this.civic?.snapshot() ?? null;
   }
 
-  setAmbientFocus(points: Array<{ x: number; y: number }> | null) {
-    this.ambientFocus = points && points.length ? points : null;
-  }
 
   /**
    * Decision day: residents walk to the polling place in `order`, wait at
@@ -1377,18 +1430,26 @@ export class TownScene extends Phaser.Scene {
   startBallotProcession(order: string[]) {
     if (!this.civic?.isPollingOpen() || reducedMotion()) return;
     const box = this.civic.getBallotBoxPoint();
+    const place = this.civic.getPollingPlace();
     if (!box) return;
     const voters = order
       .map((id) => this.agentSprites.get(id))
       .filter((sp): sp is AgentSprite => Boolean(sp) && sp !== this.playerSprite && sp!.active)
       .filter((sp) => !sp.isDecided() && !this.choreo.inConversation(sp.agentId));
-    const slots = this.civic.getBallotQueueSlots(voters.length);
+    // Authored queue spots (head of the line first); the civic layer's rope
+    // slots are the fallback for maps without them.
+    const pollName = place?.name ? (this.resolveLandmarkName(place.name) ?? place.name) : "";
+    const hasQueue = Boolean(pollName && this.spots && this.spots.spotsOf(pollName, "queue").length > 0);
+    const fallback = hasQueue ? [] : this.civic.getBallotQueueSlots(voters.length);
+    for (const sprite of voters) this.processionIds.add(sprite.agentId);
     voters.forEach((sprite, i) => {
-      const slot = slots[i] ?? box;
+      const slot = hasQueue
+        ? this.spots!.reserve(pollName, sprite.agentId, ["queue"], { kind: "queue", apron: box })
+        : (fallback[i] ?? box);
       this.time.delayedCall(450 * i, () => {
-        if (!sprite.active || sprite.isDecided()) return;
+        if (!sprite.active) { this.leaveProcession(sprite.agentId); return; }
         sprite.moveToPosition(slot.x, slot.y, () => {
-          if (!sprite.active || sprite.isDecided()) return;
+          if (!sprite.active) { this.leaveProcession(sprite.agentId); return; }
           this.pollQueue.push(sprite);
           this.pumpBallotBox(box);
         }, { arriveFacing: "up" });
@@ -1396,11 +1457,23 @@ export class TownScene extends Phaser.Scene {
     });
   }
 
+  /** A voter is done (or gone): once the last one is, the deferred results
+   *  crowd forms. */
+  private leaveProcession(agentId: string) {
+    this.processionIds.delete(agentId);
+    this.spots?.release(agentId, "queue");
+    if (this.processionIds.size === 0 && !this.boxBusy && this.pollQueue.length === 0 && this.pendingCelebration) {
+      const winner = this.pendingCelebration;
+      this.pendingCelebration = null;
+      this.time.delayedCall(600, () => this.celebrateResults(winner));
+    }
+  }
+
   private pumpBallotBox(box: { x: number; y: number }) {
     if (this.boxBusy) return;
     const sprite = this.pollQueue.shift();
     if (!sprite) return;
-    if (!sprite.active || sprite.isDecided()) { this.pumpBallotBox(box); return; }
+    if (!sprite.active) { this.leaveProcession(sprite.agentId); this.pumpBallotBox(box); return; }
     this.boxBusy = true;
     const done = () => {
       this.boxBusy = false;
@@ -1420,6 +1493,7 @@ export class TownScene extends Phaser.Scene {
           // so the polling place never piles up.
           done();
           this.returnToDwell(sprite.agentId);
+          this.leaveProcession(sprite.agentId);
         });
       });
     }, { arriveFacing: "up" });
@@ -1438,6 +1512,8 @@ export class TownScene extends Phaser.Scene {
   private resetProcession() {
     this.pollQueue = [];
     this.boxBusy = false;
+    this.processionIds.clear();
+    this.pendingCelebration = null;
   }
 
   showAgentEmote(agentId: string, type: "reflecting" | "opinion_changed") {
@@ -1720,6 +1796,7 @@ export class TownScene extends Phaser.Scene {
       agents: () => [...this.agentSprites.entries()]
         .filter(([, sprite]) => sprite !== this.playerSprite)
         .map(([id]) => id),
+      setLabelPolicy: (policy: "quiet" | "all") => this.setLabelPolicy(policy),
       /** Recent walker routes (probes assert axis-aligned legs, crossings). */
       lastPaths: () => this.recentPaths.map((r) => ({ from: r.from, path: r.path })),
       /** Crowd metrics for probes: walkers, indoor count, closest pair. */
@@ -2184,6 +2261,7 @@ export class TownScene extends Phaser.Scene {
 
   private tickRoutines() {
     if (this.agentRecords.size === 0) return;
+    const nowMin = this.worldClock.hour * 60 + this.worldClock.minute;
     for (const [id, rec] of this.agentRecords) {
       if (!rec.routine) continue;
       const entry = rec.routine.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
@@ -2192,13 +2270,121 @@ export class TownScene extends Phaser.Scene {
       // Mid-conversation residents finish talking first; the slot fires on
       // the next minute tick once they are free.
       if (this.choreo.inConversation(id)) continue;
+      // Departure jitter: a stop fires 0–8 sim minutes after its hour, per
+      // resident, so a 07:00 exodus spreads out instead of marching.
+      const entryMin = Routine.timeToMinutes(entry.time);
+      const jitter = fnv1a(`${id}|${entry.time}`) % 9;
+      if (entryMin <= nowMin && nowMin < entryMin + jitter) continue;
       // Consume the slot only once the location resolves: a persona whose
       // routine named a landmark the map spells differently used to lose
       // that stop forever.
       const location = this.resolveLandmarkName(entry.location);
       if (!location) continue;
       rec.lastRoutineTime = entry.time;
+      rec.arrivedAtMin = nowMin;
       this.moveAgent(id, location);
+    }
+  }
+
+  /* ── Idle life ────────────────────────────────────────────
+   *
+   * Between stops a resident is not a statue: every 6–14 s they look
+   * around, take a small step, or (live towns only) think out loud from
+   * their persona's idle thoughts; now and then someone runs an errand to
+   * a window or a bench nearby and comes back. All of it is quiet and
+   * local — never a walk across town, never a pile.
+   */
+
+  private scheduleIdleBeat(agentId: string) {
+    const rec = this.agentRecords.get(agentId);
+    if (!rec) return;
+    rec.idleTimer?.remove(false);
+    const delay = 6000 + Math.floor(Math.random() * 8000);
+    rec.idleTimer = this.time.delayedCall(delay, () => this.idleBeat(agentId));
+  }
+
+  private idleBeat(agentId: string) {
+    const rec = this.agentRecords.get(agentId);
+    const sprite = rec?.sprite;
+    if (!rec || !sprite || !sprite.active) return;
+    this.scheduleIdleBeat(agentId);
+    if (sprite.isWalking() || sprite.isIndoors() || this.choreo.inConversation(agentId)) return;
+    const act = sprite.getActivity();
+    if (act !== "idle" && act !== "eating" && act !== "working") return;
+    if (reducedMotion()) return;
+    const roll = Math.random();
+    const placement = this.spots?.placementOf(agentId);
+    if (roll < 0.6) {
+      // Look around, then settle back to the spot's facing.
+      const dirs: Direction[] = ["up", "right", "down", "left"];
+      const cur = dirs.indexOf(sprite.currentDirection);
+      const turn = (cur + (Math.random() < 0.5 ? 1 : 3)) % 4;
+      sprite.face(dirs[turn]);
+      this.time.delayedCall(1200, () => {
+        if (!sprite.active || sprite.isWalking() || this.choreo.inConversation(agentId)) return;
+        sprite.face(placement?.facing ?? dirs[cur]);
+      });
+      return;
+    }
+    if (roll < 0.75 && !DEMO_MODE && placement) {
+      // A small step along the free axis, and back on the next beat.
+      const dirs: Array<[number, number]> = [[16, 0], [-16, 0], [0, 14], [0, -14]];
+      const step = dirs[Math.floor(Math.random() * dirs.length)];
+      const tx = sprite.x + step[0];
+      const ty = sprite.y + step[1];
+      if (this.isBlocked(tx, ty, 4) || (this.navGrid?.isRoad(tx, ty) ?? false) || this.isOccupied(tx, ty, 24, sprite)) return;
+      sprite.moveToPosition(tx, ty, () => {
+        this.time.delayedCall(3000 + Math.random() * 3000, () => {
+          if (!sprite.active || sprite.isWalking() || this.choreo.inConversation(agentId)) return;
+          sprite.moveToPosition(placement.x, placement.y, undefined, { arriveFacing: placement.facing });
+        });
+      });
+      return;
+    }
+    if (roll < 0.9 && !DEMO_MODE) {
+      // An idle thought — one at a time in town, on camera, never late.
+      const now = this.time.now;
+      const hour = this.worldClock.fractionalHour();
+      if (now < this.idleBubbleUntil || hour >= 22 || hour < 6.5) return;
+      const view = this.cameras.main.worldView;
+      if (!view.contains(sprite.x, sprite.y)) return;
+      const bank = rec.idleThoughts && rec.idleThoughts.length > 0 ? rec.idleThoughts : IDLE_THOUGHTS;
+      const thought = bank[Math.floor(Math.random() * bank.length)];
+      this.idleBubbleUntil = now + 3200 + 4000;
+      sprite.showSpeechBubble(thought, 3200);
+    }
+  }
+
+  /** Errands: a resident parked at one stop for 90+ sim minutes may walk
+   *  to a window, bench or stall within 260 px and come back (one per town). */
+  private maybeRunErrand(nowMin: number) {
+    if (DEMO_MODE || this.errandInFlight > 0 || !this.spots) return;
+    for (const [id, rec] of this.agentRecords) {
+      const sprite = rec.sprite;
+      if (!sprite.active || sprite.isWalking() || sprite.isIndoors() || sprite.getActivity() !== "idle") continue;
+      if (this.choreo.inConversation(id) || rec.arrivedAtMin === undefined || nowMin - rec.arrivedAtMin < 90) continue;
+      if (Math.random() > 1 / 120) continue;
+      const near = this.landmarks
+        .filter((l) => l.name !== rec.location && l.type !== "road")
+        .map((l) => ({ name: l.name, pos: this.landmarkPositions.get(l.name) }))
+        .filter((l): l is { name: string; pos: { x: number; y: number } } => Boolean(l.pos))
+        .filter((l) => Math.hypot(l.pos.x - sprite.x, l.pos.y - sprite.y) <= 260)
+        .filter((l) => this.spots!.spotsOf(l.name).some((sp) => sp.role === "window" || sp.role === "bench" || sp.role === "stall"));
+      if (near.length === 0) continue;
+      const pick = near[Math.floor(Math.random() * near.length)];
+      const seat = this.spots.reserve(pick.name, id, ["window", "bench", "stall"], { kind: "chat" });
+      this.errandInFlight++;
+      rec.errandUntil = this.time.now + 8000 + Math.random() * 12000;
+      sprite.moveToPosition(seat.x, seat.y, () => {
+        this.time.delayedCall(Math.max(0, (rec.errandUntil ?? 0) - this.time.now), () => {
+          this.errandInFlight = Math.max(0, this.errandInFlight - 1);
+          rec.errandUntil = undefined;
+          this.spots?.release(id, "chat");
+          if (!sprite.active || this.choreo.inConversation(id)) return;
+          this.returnToDwell(id);
+        });
+      }, { arriveFacing: seat.facing });
+      return;
     }
   }
 
@@ -2215,13 +2401,16 @@ export class TownScene extends Phaser.Scene {
   private tryEncounterConversation() {
     if (this.choreo.hasActive("backend")) return;
     const now = this.time.now;
+    if (now - this.lastEncounterTownAt < 30000) return;
+    // Only neighbours sharing a place strike up a chat: outdoors, idle or
+    // eating, and not fresh from another exchange.
     const free = [...this.agentSprites.entries()].filter(([id, sp]) => {
-      if (sp === this.playerSprite || !sp.active || sp.isWalking()) return false;
+      if (sp === this.playerSprite || !sp.active || sp.isWalking() || sp.isIndoors()) return false;
       if (this.choreo.inConversation(id)) return false;
       const act = sp.getActivity();
-      if (act === "home" || act === "sleeping" || act === "praying") return false;
+      if (act !== "idle" && act !== "eating") return false;
       const rec = this.agentRecords.get(id);
-      return !rec?.lastEncounterAt || now - rec.lastEncounterAt > 45000;
+      return Boolean(rec?.location) && (!rec?.lastEncounterAt || now - rec.lastEncounterAt > 60000);
     });
     if (free.length < 2) return;
     Phaser.Utils.Array.Shuffle(free);
@@ -2230,17 +2419,20 @@ export class TownScene extends Phaser.Scene {
       for (let j = i + 1; j < free.length; j++) {
         const [aId, a] = free[i];
         const [bId, b] = free[j];
-        if (Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y) > 100) continue;
         const recA = this.agentRecords.get(aId);
         const recB = this.agentRecords.get(bId);
-        const concern = sharedConcernKey(recA?.topConcerns, recB?.topConcerns);
-        const relationship = relationshipKind(recA?.relationships?.[bId] ?? recB?.relationships?.[aId]);
+        if (!recA?.location || recA.location !== recB?.location) continue;
+        const concern = sharedConcernKey(recA.topConcerns, recB.topConcerns);
+        const relationship = relationshipKind(recA.relationships?.[bId] ?? recB.relationships?.[aId]);
         const candidate = { a, b, concern, relationship };
         if (concern || relationship) { pick = candidate; break; }
         pick ??= candidate;
       }
     }
-    if (pick) this.runEncounter(pick);
+    if (pick) {
+      this.lastEncounterTownAt = now;
+      this.runEncounter(pick);
+    }
   }
 
   private runEncounter(e: { a: AgentSprite; b: AgentSprite; concern?: string; relationship?: string }) {
@@ -2363,73 +2555,145 @@ export class TownScene extends Phaser.Scene {
 
   private ambientSpawned = false;
 
+  /* ── Commuters (passers-by) ───────────────────────────────
+   *
+   * Strangers cross the town the way strangers do: in at a sidewalk edge,
+   * along the pavement to the platform (or the notice board while the
+   * news is fresh), a short wait, and out at another edge. A few by day,
+   * hardly anyone late at night — and never loitering at someone's door.
+   */
+
   private ensureAmbientNPCs() {
-    if (this.ambientSpawned || !this.scene.isActive()) return;
+    if (!this.scene.isActive()) return;
     this.ambientSpawned = true;
-    this.spawnAmbientNPCs();
+    this.refreshCommuterCount();
   }
 
-  private spawnAmbientNPCs() {
+  /** How many passers-by the hour and the population call for. */
+  private commuterTarget(): number {
+    const hour = this.worldClock.fractionalHour();
+    if (isRestingHour(hour)) return this.population > 20000 ? 1 : 0;
+    return Phaser.Math.Clamp(1 + Math.floor(this.population / 12000), 1, 5);
+  }
+
+  private refreshCommuterCount() {
+    if (!this.ambientSpawned || !this.scene.isActive()) return;
+    const want = this.commuterTarget();
+    const live = this.ambientNPCs.filter((n) => n.active && !n.getData("retire"));
+    for (let i = live.length; i < want; i++) this.spawnCommuter();
+    for (let i = want; i < live.length; i++) live[i].setData("retire", true);
+  }
+
+  /** Sidewalk points on the map edge (clustered), else any open edge ground. */
+  private portalPoints(): Array<{ x: number; y: number }> {
+    if (this.portals.length > 0) return this.portals;
+    const grid = this.navGrid;
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
-    // A town of 3,850 gets a couple of passers-by; a town of 40,000 a small
-    // street's worth.
-    const count = Phaser.Math.Clamp(2 + Math.floor(this.population / 15000), 2, 8);
-    // Strangers wear bodies none of this town's residents wear, drawn in a
-    // stable order per town so a reload shows the same faces on the street.
+    const found: Array<{ x: number; y: number }> = [];
+    const consider = (x: number, y: number, kind: "sidewalk" | "any") => {
+      if (!grid?.isWalkable(x, y)) return;
+      const k = grid.kindAt(x, y);
+      if (kind === "sidewalk" ? k !== "sidewalk" : k === "road" || k === "crosswalk") return;
+      if (found.some((p) => Math.hypot(p.x - x, p.y - y) < 24)) return;
+      found.push({ x, y });
+    };
+    for (const kind of ["sidewalk", "any"] as const) {
+      for (let x = WORLD_MARGIN + 4; x <= W - WORLD_MARGIN - 4; x += 8) {
+        consider(x, WORLD_MARGIN + 4, kind);
+        consider(x, H - WORLD_MARGIN - 4, kind);
+      }
+      for (let y = WORLD_MARGIN + 4; y <= H - WORLD_MARGIN - 4; y += 8) {
+        consider(WORLD_MARGIN + 4, y, kind);
+        consider(W - WORLD_MARGIN - 4, y, kind);
+      }
+      if (found.length >= 2) break;
+    }
+    this.portals = found;
+    return found;
+  }
+
+  private spawnCommuter() {
+    const portals = this.portalPoints();
+    if (portals.length === 0) return;
     const residents = [...this.agentSprites.keys()].filter((id) => id !== this.playerSprite?.agentId);
     const pool = passerbyPool(this.scenarioId, residents).filter((k) => this.textures.exists(k));
     if (pool.length === 0) return;
-    const rng = mulberry32(0x5eed ^ [...this.townId].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7));
-    const deck = [...pool].sort(() => rng() - 0.5);
-
-    for (let i = 0; i < count; i++) {
-      const key = deck[i % deck.length];
-      const charName = key.slice(5);
-
-      const spawn = this.findFreeNear(
-        Phaser.Math.Between(80, W - 80),
-        Phaser.Math.Between(120, H - 120),
-      );
-      const sx = spawn.x;
-      const sy = spawn.y;
-
-      const npc = new AgentSprite(this, sx, sy, {
-        id: `ambient-${i}-${charName}`,
-        name: "passerby",
-        initials: "",
-        color: "#aaa",
-        town: this.townId,
-        spriteKey: key,
-        ambient: true,
-      });
-      npc.setPathResolver(this.pathResolver);
-      this.ambientNPCs.push(npc);
-
-      this.scheduleAmbientWander(npc, W, H);
-    }
+    const rng = mulberry32(0x5eed ^ [...this.townId].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) ^ this.commuterSerial);
+    const key = pool[Math.floor(rng() * pool.length)];
+    const i = this.commuterSerial++;
+    const start = portals[Math.floor(Math.random() * portals.length)];
+    const npc = new AgentSprite(this, start.x, start.y, {
+      id: `ambient-${i}-${key.slice(5)}`,
+      name: "passerby",
+      initials: "",
+      color: "#aaa",
+      town: this.townId,
+      spriteKey: key,
+      ambient: true,
+    });
+    npc.setPathResolver(this.pathResolver);
+    this.ambientNPCs.push(npc);
+    this.commuterLeg(npc, start);
   }
 
-  private scheduleAmbientWander(npc: AgentSprite, W: number, H: number) {
-    const delay = Phaser.Math.Between(2000, 9000);
-    this.time.delayedCall(delay, () => {
-      if (!npc.active) return;
-      // Prefer wandering between landmarks when available; during a phase
-      // with a focus (benches, the kiosk, the polling queue) most strolls
-      // drift that way so the crowd reads the moment too.
-      const focus = this.ambientFocus;
-      const target = focus && focus.length > 0 && Math.random() < 0.6
-        ? focus[Math.floor(Math.random() * focus.length)]
-        : this.wanderPoints.length > 0
-          ? this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)]
-          : { x: Phaser.Math.Between(80, W - 80), y: Phaser.Math.Between(120, H - 120) };
-      const t = this.findFreeNear(
-        target.x + Phaser.Math.Between(-40, 40),
-        target.y + Phaser.Math.Between(-30, 30),
-        { clearOf: WANDER_CLEARANCE, exclude: npc },
-      );
-      npc.moveToPosition(t.x, t.y, () => this.scheduleAmbientWander(npc, W, H));
-    });
+  /** Fade in at a portal, cross to the platform (via the notice board in
+   *  the news phase), pause, leave by another portal, fade out, repeat. */
+  private commuterLeg(npc: AgentSprite, from: { x: number; y: number }) {
+    if (!npc.active) return;
+    const portals = this.portalPoints();
+    const others = portals.filter((p) => Math.hypot(p.x - from.x, p.y - from.y) > 120);
+    const exit = others[Math.floor(Math.random() * others.length)] ?? portals[0] ?? from;
+    const fadeIn = () => {
+      npc.setPosition(from.x, from.y);
+      npc.setVisible(true);
+      if (reducedMotion()) { npc.setAlpha(1); return; }
+      npc.setAlpha(0);
+      this.tweens.add({ targets: npc, alpha: 1, duration: 200, ease: "Stepped", easeParams: [3] });
+    };
+    const leave = () => {
+      npc.moveToPosition(exit.x, exit.y, () => {
+        const finish = () => {
+          npc.setVisible(false);
+          npc.setAlpha(1);
+          if (npc.getData("retire")) {
+            npc.destroy();
+            this.ambientNPCs = this.ambientNPCs.filter((n) => n !== npc);
+            return;
+          }
+          const again = portals[Math.floor(Math.random() * portals.length)] ?? exit;
+          this.time.delayedCall(6000 + Math.random() * 14000, () => this.commuterLeg(npc, again));
+        };
+        if (reducedMotion()) { finish(); return; }
+        this.tweens.add({ targets: npc, alpha: 0, duration: 200, ease: "Stepped", easeParams: [3], onComplete: finish });
+      });
+    };
+    const pause = (at: { x: number; y: number; facing?: Direction }, ms: number, then: () => void) => {
+      npc.moveToPosition(at.x, at.y, () => {
+        this.time.delayedCall(ms, then);
+      }, { arriveFacing: at.facing });
+    };
+    fadeIn();
+    // The platform is the natural pause; the notice board during the news.
+    const platform = this.spots
+      ? this.landmarks
+        .filter((l) => this.spots!.spotsOf(l.name, "platform").length > 0)
+        .map((l) => this.spots!.reserve(l.name, npc.agentId, ["platform"], { kind: "dwell", apron: this.landmarkPositions.get(l.name) }))[0]
+      : undefined;
+    const done = () => {
+      this.spots?.release(npc.agentId);
+      leave();
+    };
+    const toPlatform = () => {
+      if (platform && !platform.overflow) {
+        pause(platform, 2000 + Math.random() * 3000, done);
+      } else {
+        this.spots?.release(npc.agentId);
+        leave();
+      }
+    };
+    if (this.commuterFocus) pause(this.commuterFocus, 4000, toPlatform);
+    else toPlatform();
   }
 
   /* ── Tilemap / Landmark layout ─────────────────────────── */
@@ -3203,6 +3467,20 @@ export class TownScene extends Phaser.Scene {
       if (offRoad) return offRoad;
     }
     return grid.nearestWalkable(cx, bottom + 16, 160, { avoidRoad: true }) ?? this.findFreeNear(cx, cy);
+  }
+
+  /** Where a group meets: the stated place, else where most of them dwell,
+   *  else the landmark nearest the meeting point. */
+  private meetingLandmark(ids: string[], near: { x: number; y: number }, location?: string): string | undefined {
+    const stated = location ? this.resolveLandmarkName(location) : undefined;
+    if (stated) return stated;
+    const votes = new Map<string, number>();
+    for (const id of ids) {
+      const loc = this.agentRecords.get(id)?.location;
+      if (loc) votes.set(loc, (votes.get(loc) ?? 0) + 1);
+    }
+    const majority = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    return majority ?? this.nearestLandmarkName(near);
   }
 
   /** The non-road landmark whose apron is nearest to a point. */

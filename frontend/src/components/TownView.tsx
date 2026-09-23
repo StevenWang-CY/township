@@ -320,7 +320,7 @@ export default function TownView({ ws }: TownViewProps) {
         townId: town,
         mapPath: meta.map?.path,
         reducedMotion: Boolean(profile?.reducedMotion),
-        population: Number(meta.population) || undefined,
+        population: Number(String(meta.population ?? "").replace(/[^0-9]/g, "")) || undefined,
         startClock: firstRoundClock(scen.roundPlan),
       });
     } catch {
@@ -445,6 +445,14 @@ export default function TownView({ ws }: TownViewProps) {
       finalizeChatRef.current();
     }
   }, [chatOpen, selectedAgent]);
+
+  /* ── The selected resident keeps their nameplate on the canvas ───── */
+
+  useEffect(() => {
+    const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
+    if (!scene?.scene?.isActive()) return;
+    try { scene.setSelectedAgent(selectedAgentId ?? null); } catch { /* scene mid-boot */ }
+  }, [selectedAgentId, sceneReady]);
 
   /* ── Cleanup transient timers on unmount ─────────────────── */
 
