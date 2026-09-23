@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import BallotBar from "./charts/BallotBar";
 import IssueChips from "./charts/IssueChips";
@@ -8,9 +8,10 @@ import AgentCard from "./AgentCard";
 import PlayerHUD from "./PlayerHUD";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useRelationships } from "../hooks/useRelationships";
-import { useSimulation } from "../hooks/useSimulation";
-import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, SimulationEndedEvent, OpinionChangedEvent, Relationship, NewsReaction } from "../types/messages";
+import { useSimulation, type StartRequest } from "../hooks/useSimulation";
+import type { AgentState, TownId, LeanId, DistrictSummary, SimulationEvent, SimulationEndedEvent, OpinionChangedEvent, Relationship, NewsReaction, SimulationStatus } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
+import { beatLabel, formatDate, formatDay, stoppedReasonText, type CalendarState } from "../lib/calendar";
 import { DEMO_MODE } from "../demo/demoMode";
 import { appUrl } from "../lib/assetUrl";
 import { readableInk } from "../lib/color";
@@ -21,6 +22,154 @@ interface RunRecap {
   headline: string;
   markdown: string | null;
   endedAt?: string | null;
+  /** Campaign facts from the run's summary.json (null on older runs). */
+  preset?: string | null;
+  stoppedReason?: string | null;
+  /** Calendar days the run completed. */
+  days?: number | null;
+}
+
+/* ── The start form: the quick plan or a campaign ──────────── */
+
+interface StartRunFormProps {
+  onStart: (body: StartRequest) => void | Promise<unknown>;
+  loading: boolean;
+  error: string | null;
+  status: SimulationStatus | null;
+  /** A campaign that stopped early and can continue from its day checkpoint. */
+  resumable: RunRecap | null;
+  /** Extra actions beside the start button (replay, visit a town). */
+  extra?: ReactNode;
+}
+
+/** A run id is long ("20260923-004411-nj11-2026-ab12"); keep the ends. */
+function shortRunId(id: string): string {
+  return id.length > 26 ? `${id.slice(0, 15)}…${id.slice(-4)}` : id;
+}
+
+/**
+ * Quick (the scenario's round plan, one day) or campaign (the calendar, N
+ * days to election day) — with the campaign's days, "stop on election
+ * night", a spend cap for paid providers, and "Resume <run>" when the last
+ * campaign stopped at its budget and left day checkpoints behind.
+ */
+function StartRunForm({ onStart, loading, error, status, resumable, extra }: StartRunFormProps) {
+  const scen = useScenario();
+  const campaign = scen.scenario.campaign ?? null;
+  const canCampaign = Boolean(campaign) && (scen.scenario.presets ?? ["quick"]).includes("campaign");
+  // The calendar's day count includes the morning after; the campaign proper
+  // runs up to election day (21 for NJ-11).
+  const defaultDays = campaign ? Math.max(1, campaign.days - 1) : 21;
+  const [preset, setPreset] = useState<"quick" | "campaign">("quick");
+  const [days, setDays] = useState<string>(String(defaultDays));
+  const [untilElection, setUntilElection] = useState(false);
+  const [budget, setBudget] = useState("");
+  const provider = status?.usage?.provider ?? null;
+  // A spend cap only means something to a metered provider.
+  const showBudget = provider !== null && provider !== "mock" && provider !== "claude-cli";
+  const campaignChosen = canCampaign && preset === "campaign";
+  const dayCount = Math.min(120, Math.max(1, Math.round(Number(days)) || defaultDays));
+
+  const submit = (resume?: string) => {
+    if (!campaignChosen) {
+      void onStart({ preset: "quick" });
+      return;
+    }
+    const body: StartRequest = { preset: "campaign", days: dayCount };
+    if (untilElection) body.until_election = true;
+    const cap = Number(budget);
+    if (showBudget && Number.isFinite(cap) && cap > 0) body.budget_usd = cap;
+    if (resume) body.resume = resume;
+    void onStart(body);
+  };
+
+  const electionDay = campaign?.election_date ? formatDate(campaign.election_date, { weekday: true }) : null;
+  const hint = campaignChosen
+    ? `${dayCount} ${dayCount === 1 ? "day" : "days"} of morning, midday and evening beats${untilElection ? ", ending on election night" : ", then election night and the morning after"}${electionDay ? ` — election day is ${electionDay}` : ""}.`
+    : `${scen.totalRounds} rounds in one day: talk, news, opinions, the vote.`;
+
+  return (
+    <form className="run-form" aria-label="Start a simulation" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      {canCampaign && (
+        <div className="run-form-presets" role="radiogroup" aria-label="Run length">
+          {([
+            ["quick", "Quick", `${scen.totalRounds} rounds · one day`],
+            ["campaign", "Campaign", `${defaultDays} days to election day`],
+          ] as const).map(([id, name, note]) => (
+            <label key={id} className={`run-form-preset${preset === id ? " run-form-preset--active" : ""}`}>
+              <input
+                type="radio"
+                name="run-preset"
+                value={id}
+                className="sr-only"
+                checked={preset === id}
+                onChange={() => setPreset(id)}
+              />
+              <strong>{name}</strong>
+              <span>{note}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {campaignChosen && (
+        <div className="run-form-fields">
+          <label className="run-form-field">
+            <span>Days</span>
+            <input type="number" inputMode="numeric" min={1} max={120} value={days} onChange={(e) => setDays(e.target.value)} />
+          </label>
+          <label className="run-form-check">
+            <input type="checkbox" checked={untilElection} onChange={(e) => setUntilElection(e.target.checked)} />
+            <span>Stop on election night</span>
+          </label>
+          {showBudget && (
+            <label className="run-form-field">
+              <span>Budget (USD)</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.5"
+                placeholder="no cap"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+              />
+            </label>
+          )}
+        </div>
+      )}
+
+      <div className="run-form-actions">
+        <button
+          type="submit"
+          className="dashboard-hero-empty-start"
+          disabled={loading}
+          title={campaignChosen ? `Start a ${dayCount}-day campaign` : `Start a fresh ${scen.totalRounds}-round simulation`}
+        >
+          {loading ? "Starting…" : campaignChosen ? "Start the campaign" : "Start Simulation"}
+        </button>
+        {campaignChosen && resumable && (
+          <button
+            type="button"
+            className="run-form-resume"
+            disabled={loading}
+            onClick={() => submit(resumable.runId)}
+            title={`Continue ${resumable.runId} from its last day checkpoint`}
+          >
+            Resume {shortRunId(resumable.runId)}
+            {resumable.days ? <span>· stopped after day {resumable.days}</span> : null}
+          </button>
+        )}
+        {extra}
+        {error && (
+          <span className="dashboard-inline-error text-xs" role="alert">
+            {error}
+          </span>
+        )}
+      </div>
+      <p className="run-form-hint">{hint}</p>
+    </form>
+  );
 }
 
 /** Minimal markdown split: "# Title" first line + prose paragraphs.
@@ -62,6 +211,8 @@ interface DashboardProps {
     eventCursor?: number;
     relationships?: Record<string, Relationship>;
     newsReactions?: NewsReaction[];
+    /** The campaign calendar (null on the quick plan). */
+    calendar?: CalendarState | null;
   };
 }
 
@@ -73,7 +224,14 @@ export default function Dashboard({ ws }: DashboardProps) {
   const [results, setResults] = useState<DistrictSummary | null>(null);
   const { profile } = useUserProfile();
   const { trustFor } = useRelationships(profile?.playerId);
-  const { startSimulation, loading: simStartLoading, error: simStartError } = useSimulation();
+  // Poll the run's status while it runs (day, beat, budget, pauses) and once
+  // more when it stops, so a "stopped at the budget" reason lands here.
+  const {
+    startSimulation,
+    loading: simStartLoading,
+    error: simStartError,
+    status: simStatus,
+  } = useSimulation({ poll: ws.simulationRunning });
   const [replayLoading, setReplayLoading] = useState(false);
 
   // Fetch results — backend now returns a flat DistrictSummary (no envelope).
@@ -121,6 +279,9 @@ export default function Dashboard({ ws }: DashboardProps) {
         headline: newest.headline || "",
         markdown: detail?.recap_markdown ?? null,
         endedAt: newest.ended_at ?? null,
+        preset: typeof detail?.preset === "string" ? detail.preset : null,
+        stoppedReason: typeof detail?.stopped_reason === "string" ? detail.stopped_reason : null,
+        days: typeof detail?.days === "number" ? detail.days : null,
       };
     } catch {
       return null;
@@ -169,10 +330,11 @@ export default function Dashboard({ ws }: DashboardProps) {
     }
   }, [ws.simulationRunning, wasRunning, refetchResults, fetchLatestRun]);
 
-  const handleStart = useCallback(async () => {
+  const handleStart = useCallback(async (body: StartRequest = {}) => {
     if (ws.simulationRunning) return;
-    // No round count: the backend runs the scenario's full round plan.
-    await startSimulation();
+    // No round count: the backend runs the preset's full plan — the quick
+    // round plan, or the campaign calendar trimmed to `days`.
+    await startSimulation(body);
   }, [startSimulation, ws.simulationRunning]);
 
   // After a replay kicks off, point at where it can actually be WATCHED.
@@ -285,6 +447,20 @@ export default function Dashboard({ ws }: DashboardProps) {
   const preRun = !DEMO_MODE && !ws.simulationRunning && !hasLiveAgents && !hasOpinionData;
   const heroTown = scen.scenario.towns[0];
 
+  // Campaign facts for the controls: why the last run stopped early (the
+  // status keeps it until the next run begins), the run that can resume
+  // (a campaign that stopped short has day checkpoints behind it — the
+  // runs list carries no explicit flag, so this is the inference), and the
+  // run's progress by beat rather than by round.
+  const stoppedText = !ws.simulationRunning ? stoppedReasonText(simStatus?.stopped_reason, simStatus?.day) : null;
+  const resumableRun = latestRun && latestRun.preset === "campaign" && latestRun.stoppedReason ? latestRun : null;
+  const runProgressFraction = typeof simStatus?.progress === "number" && ws.simulationRunning
+    ? simStatus.progress
+    : ws.currentRound / (ws.totalRounds || scen.totalRounds || 1);
+  const runProgressLabel = ws.calendar
+    ? `${formatDay(ws.calendar)}${ws.calendar.beat ? ` · ${beatLabel(ws.calendar.beat)}` : ""}${simStatus?.paused ? " · Paused" : ""}`
+    : `Round ${ws.currentRound} of ${ws.totalRounds || scen.totalRounds}`;
+
   return (
     <div
       className="max-w-7xl mx-auto px-6 py-6"
@@ -314,7 +490,7 @@ export default function Dashboard({ ws }: DashboardProps) {
         </svg>
         <p className="text-sm" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
           {`Cross-town comparison — ${scen.title}`}
-          {ws.simulationRunning && ` | Round ${ws.currentRound}`}
+          {ws.simulationRunning && (ws.calendar ? ` | ${formatDay(ws.calendar)}` : ` | Round ${ws.currentRound}`)}
         </p>
       </div>
 
@@ -397,30 +573,24 @@ export default function Dashboard({ ws }: DashboardProps) {
               into {heroTown?.name ?? "a town"} and meet them first.
             </p>
             <div className="dashboard-hero-empty-actions">
-              <button
-                type="button"
-                className="dashboard-hero-empty-start"
-                onClick={handleStart}
-                disabled={simStartLoading}
-                title={`Start a fresh ${scen.totalRounds}-round simulation`}
-              >
-                {simStartLoading ? "Starting…" : "Start Simulation"}
-              </button>
-              {heroTown && (
-                <button
-                  type="button"
-                  className="dashboard-hero-empty-visit"
-                  onClick={() => navigate(`/town/${heroTown.id}`)}
-                >
-                  Visit {heroTown.name} →
-                </button>
-              )}
-              {simStartError && (
-                <span className="dashboard-inline-error text-xs" role="alert">
-                  {simStartError}
-                </span>
-              )}
+              <StartRunForm
+                onStart={handleStart}
+                loading={simStartLoading}
+                error={simStartError}
+                status={simStatus}
+                resumable={resumableRun}
+                extra={heroTown && (
+                  <button
+                    type="button"
+                    className="dashboard-hero-empty-visit"
+                    onClick={() => navigate(`/town/${heroTown.id}`)}
+                  >
+                    Visit {heroTown.name} →
+                  </button>
+                )}
+              />
             </div>
+            {stoppedText && <p className="dashboard-stopped" role="status">{stoppedText}</p>}
           </div>
         </section>
       ) : (
@@ -467,15 +637,11 @@ export default function Dashboard({ ws }: DashboardProps) {
             /* Mid-run: honest progress plus a focal action — go watch it. */
             <div className="dashboard-run-progress" role="status" aria-live="polite">
               <div className="dashboard-run-progress-meter">
-                <span className="dashboard-run-progress-label">
-                  Round {ws.currentRound} of {ws.totalRounds || scen.totalRounds}
-                </span>
+                <span className="dashboard-run-progress-label">{runProgressLabel}</span>
                 <div className="dashboard-run-progress-track" aria-hidden="true">
                   <div
                     className="dashboard-run-progress-fill"
-                    style={{
-                      width: `${Math.min(100, Math.max(6, (ws.currentRound / (ws.totalRounds || scen.totalRounds || 1)) * 100))}%`,
-                    }}
+                    style={{ width: `${Math.min(100, Math.max(6, runProgressFraction * 100))}%` }}
                   />
                 </div>
               </div>
@@ -490,55 +656,45 @@ export default function Dashboard({ ws }: DashboardProps) {
               )}
             </div>
           ) : (
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={handleStart}
-              disabled={simStartLoading}
-              className="px-4 py-2 rounded-lg text-sm disabled:opacity-60"
-              style={{
-                background: "var(--gold-accent)",
-                color: "var(--text-on-gold)",
-                fontFamily: "var(--font-display)",
-                fontWeight: 600,
-                letterSpacing: "0.5px",
-                transition: "all 200ms ease",
-                cursor: "pointer",
-                boxShadow: "0 2px 8px var(--gold-glow)",
-              }}
-              title={`Start a fresh ${scen.totalRounds}-round simulation`}
-            >
-              {simStartLoading ? "Starting…" : "Start Simulation"}
-            </button>
-            <button
-              onClick={handleReplay}
-              disabled={replayLoading}
-              className="px-3 py-2 rounded-lg text-xs disabled:opacity-50"
-              style={{
-                background: "transparent",
-                color: "var(--text-secondary)",
-                border: "1px solid var(--card-border)",
-                fontFamily: "var(--font-body)",
-                transition: "all 200ms ease",
-              }}
-              title="Replay the last cached simulation run — watched in the Town view"
-            >
-              {replayLoading ? "Replaying…" : "Replay last run"}
-            </button>
-            {replayStarted && towns[0] && (
-              <button
-                type="button"
-                className="dashboard-watch-live"
-                onClick={() => navigate(`/town/${towns[0]}`)}
-              >
-                Replay started — watch it in the Town view →
-              </button>
-            )}
-            {simStartError && (
-              <span className="dashboard-inline-error text-xs" role="alert">
-                {simStartError}
-              </span>
-            )}
-          </div>
+          <>
+            <StartRunForm
+              onStart={handleStart}
+              loading={simStartLoading}
+              error={simStartError}
+              status={simStatus}
+              resumable={resumableRun}
+              extra={(
+                <>
+                  <button
+                    type="button"
+                    onClick={handleReplay}
+                    disabled={replayLoading}
+                    className="px-3 py-2 rounded-lg text-xs disabled:opacity-50"
+                    style={{
+                      background: "transparent",
+                      color: "var(--text-secondary)",
+                      border: "1px solid var(--card-border)",
+                      fontFamily: "var(--font-body)",
+                      transition: "all 200ms ease",
+                    }}
+                    title="Replay the last cached simulation run — watched in the Town view"
+                  >
+                    {replayLoading ? "Replaying…" : "Replay last run"}
+                  </button>
+                  {replayStarted && towns[0] && (
+                    <button
+                      type="button"
+                      className="dashboard-watch-live"
+                      onClick={() => navigate(`/town/${towns[0]}`)}
+                    >
+                      Replay started — watch it in the Town view →
+                    </button>
+                  )}
+                </>
+              )}
+            />
+            {stoppedText && <p className="dashboard-stopped" role="status">{stoppedText}</p>}
+          </>
           )}
         </div>
       </div>

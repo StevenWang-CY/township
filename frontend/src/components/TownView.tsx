@@ -44,7 +44,7 @@ import type {
   EmotionalResponse,
   VoteImpact,
 } from "../types/messages";
-import { buildCivicEnv, roundDecides } from "../lib/election";
+import { buildCivicEnv, roundDecides, resultsFromElection } from "../lib/election";
 import { useScenario } from "../hooks/useScenario";
 import { DEMO_MODE } from "../demo/demoMode";
 import { eventsSince, type WsState } from "../hooks/useWebSocket";
@@ -92,11 +92,21 @@ export default function TownView({ ws }: TownViewProps) {
   // clears finalSummary) arms it again for the next time the run ends.
   const [resultsDismissed, setResultsDismissed] = useState(false);
   const isPhone = useIsPhone();
-  useEffect(() => { if (ws.finalSummary === null) setResultsDismissed(false); }, [ws.finalSummary]);
-  const runResults = useMemo(
-    () => (ws.finalSummary ? resultsFromRun(ws.finalSummary, ws.events, scen.undecidedId) : null),
-    [ws.finalSummary, ws.events, scen.undecidedId],
-  );
+  useEffect(() => {
+    if (ws.finalSummary === null && ws.electionResult === null) setResultsDismissed(false);
+  }, [ws.finalSummary, ws.electionResult]);
+  // Election night's district roll-up opens the results moment before the
+  // run ends (the morning after still follows); the final summary, once it
+  // carries the engine's count, takes over with its fuller who-moved list.
+  const runResults = useMemo(() => {
+    if (ws.finalSummary?.election) return resultsFromRun(ws.finalSummary, ws.events, scen.undecidedId);
+    if (ws.electionResult) {
+      const order = scen.scenario.towns.map((t) => t.id);
+      return resultsFromElection(ws.electionResult, ws.events, scen.undecidedId, order);
+    }
+    if (ws.finalSummary) return resultsFromRun(ws.finalSummary, ws.events, scen.undecidedId);
+    return null;
+  }, [ws.finalSummary, ws.electionResult, ws.events, scen.undecidedId, scen.scenario.towns]);
   // The keyboard hint must never mount UNDER the tutorial modal — its 5s
   // auto-dismiss would expire unseen behind the backdrop.
   const [tutorialDone, setTutorialDone] = useState<boolean>(() => {
@@ -121,6 +131,8 @@ export default function TownView({ ws }: TownViewProps) {
   // player's camera (camera contract).
   const [spotlightOffer, setSpotlightOffer] = useState<{ aId: string; bId: string } | null>(null);
   const lastProcessedCursor = useRef(0);
+  // Election night celebrates once; the run's end must not celebrate again.
+  const celebratedRef = useRef(false);
   // Stable ref to requestChat so Phaser event handlers (registered once in
   // the init effect) always call the latest implementation — and therefore
   // capture preChatRef + snapshot opinion for in-canvas clicks just like
@@ -200,8 +212,12 @@ export default function TownView({ ws }: TownViewProps) {
     return labels;
   }, [scen]);
   const townSignals = ws.roundSignals[town];
+  // A campaign run carries its own plan (days and beats); the fixed replay
+  // and the quick plan fall back to the scenario's round plan.
+  const effectivePlan = ws.runPlan.length > 0 ? ws.runPlan : scen.roundPlan;
+  const townResult = ws.townResults[town] ?? null;
   const civicEnv = useMemo(() => buildCivicEnv({
-    plan: scen.roundPlan,
+    plan: effectivePlan,
     townId: town,
     currentRound: ws.currentRound,
     totalRounds: ws.totalRounds || scen.totalRounds,
@@ -211,7 +227,9 @@ export default function TownView({ ws }: TownViewProps) {
     undecidedId: scen.undecidedId,
     finalSummary: ws.finalSummary,
     labels: optionLabels,
-  }), [scen, town, ws.currentRound, ws.totalRounds, townSignals, ws.headlines, townAgents, ws.finalSummary, optionLabels]);
+    townResult,
+    electionResult: ws.electionResult,
+  }), [scen, effectivePlan, town, ws.currentRound, ws.totalRounds, townSignals, ws.headlines, townAgents, ws.finalSummary, optionLabels, townResult, ws.electionResult]);
 
   // Event effects consume an absolute cursor, while discontinuous navigation
   // reconciles against this latest reducer snapshot. Keeping the snapshot in
@@ -220,6 +238,7 @@ export default function TownView({ ws }: TownViewProps) {
     agents: townAgents,
     positions: ws.agentPositions,
     clock: ws.worldClock,
+    calendar: ws.calendar,
     weather: ws.weather,
     env: civicEnv,
   });
@@ -227,6 +246,7 @@ export default function TownView({ ws }: TownViewProps) {
     agents: townAgents,
     positions: ws.agentPositions,
     clock: ws.worldClock,
+    calendar: ws.calendar,
     weather: ws.weather,
     env: civicEnv,
   };
@@ -239,7 +259,7 @@ export default function TownView({ ws }: TownViewProps) {
     scene.syncReplayState(
       snapshot.agents,
       snapshot.positions,
-      snapshot.clock,
+      { ...snapshot.clock, day: snapshot.calendar?.day ?? null, date: snapshot.calendar?.date ?? null },
       snapshot.weather,
     );
     try { scene.applyEnvironmentState(snapshot.env, snapshot.agents, { animate: false }); } catch { /* ignore */ }
@@ -586,16 +606,33 @@ export default function TownView({ ws }: TownViewProps) {
           }
           try {
             scene.markDecided(decidedIds, "stamp");
-            if (winner) {
+            if (winner && !celebratedRef.current) {
               const winnerId = winner;
+              celebratedRef.current = true;
               scene.time.delayedCall(900 + 90 * decidedIds.length, () => scene.celebrateResults(winnerId));
             }
             scene.playSimEndBeat();
           } catch { /* ignore */ }
           break;
         }
+        case "election_result": {
+          // Election night: the district's count lands after every town's
+          // own. The winner's supporters celebrate now — the run itself ends
+          // the morning after, without a second party.
+          if (evt.town != null) break;
+          const winner = evt.district?.winner ?? null;
+          if (!winner || celebratedRef.current) break;
+          celebratedRef.current = true;
+          try { scene.time.delayedCall(600, () => scene.celebrateResults(winner)); } catch { /* ignore */ }
+          break;
+        }
+        case "simulation_started":
+          celebratedRef.current = false;
+          break;
         case "world_clock_tick":
-          try { scene.setWorldTime(evt.hour, evt.minute); } catch { /* ignore */ }
+          try {
+            scene.setWorldTime(evt.hour, evt.minute, { day: evt.day ?? undefined, date: evt.date ?? undefined });
+          } catch { /* ignore */ }
           break;
         case "weather_changed":
           try { scene.setWeather(evt.weather); } catch { /* ignore */ }
@@ -617,7 +654,7 @@ export default function TownView({ ws }: TownViewProps) {
     // Paced playback only: the decide phase sends residents to the polls in
     // confidence order. A seek lands on stickers instead (reconcileScene).
     if (!seeked && prev !== null && prev !== "decide" && civicEnv.phase === "decide"
-      && roundDecides(scen.roundPlan, civicEnv.round)) {
+      && roundDecides(effectivePlan, civicEnv.round)) {
       const order = [...townAgents]
         .sort((a, b) => (b.opinion?.confidence ?? 0) - (a.opinion?.confidence ?? 0) || a.id.localeCompare(b.id))
         .map((a) => a.id);
@@ -921,6 +958,8 @@ export default function TownView({ ws }: TownViewProps) {
             id={`sidebar-tab-${id}`}
             aria-selected={sidebarTab === id}
             aria-controls={`sidebar-panel-${id}`}
+            // The label is hidden below 768px (icon-only tabs); keep the name.
+            aria-label={label}
             className={`sidebar-tab${sidebarTab === id ? " sidebar-tab--active" : ""}`}
             onClick={() => setSidebarTab(id)}
           >
@@ -962,6 +1001,8 @@ export default function TownView({ ws }: TownViewProps) {
         <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-today" aria-labelledby="sidebar-tab-today">
           <TodayStrip
             plan={scen.roundPlan}
+            runPlan={ws.runPlan}
+            calendar={ws.calendar}
             round={civicEnv.round}
             totalRounds={ws.totalRounds || scen.totalRounds}
             phase={civicEnv.phase}
@@ -1044,6 +1085,7 @@ export default function TownView({ ws }: TownViewProps) {
               round={civicEnv.round}
               totalRounds={ws.totalRounds || scen.totalRounds}
               phase={civicEnv.phase}
+              calendar={ws.calendar}
             />
           </div>
 

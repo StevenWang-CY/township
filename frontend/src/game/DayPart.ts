@@ -11,6 +11,10 @@ import type { AgentActivity } from "./AgentSprite";
 import type { RoutineEntry } from "./Routine";
 import type { LandmarkData } from "../types/messages";
 import type { PartOfDay } from "./WorldClock";
+import { normalizeWeekday } from "../lib/calendar";
+
+/** The two fields a landmark needs to be classified. */
+export type PlaceLike = Pick<LandmarkData, "name" | "type">;
 
 // Scenario types name housing explicitly; the name rule is a fallback for
 // untyped packages (a shop "Row" is commercial, so no `row$`).
@@ -103,7 +107,7 @@ const PLAZA_RE = /plaza|square|market|forecourt/i;
 const TRANSPORT_RE = /station|transit|platform|depot|terminal|bus stop|rail/i;
 
 /** Classify a landmark by type first, then by name. */
-export function placeKind(landmark: LandmarkData | undefined): PlaceKind {
+export function placeKind(landmark: PlaceLike | undefined): PlaceKind {
   if (!landmark) return "open";
   const type = landmark.type ?? "";
   const name = landmark.name ?? "";
@@ -142,6 +146,56 @@ export function shouldBeIndoors(
     return true;
   }
   return isRestingHour(hour);
+}
+
+/* ── Weekdays: what a Sunday or a Saturday does to a routine ──────────── */
+
+export function isSunday(weekday: string | null | undefined): boolean {
+  return normalizeWeekday(weekday) === "sunday";
+}
+
+export function isSaturday(weekday: string | null | undefined): boolean {
+  return normalizeWeekday(weekday) === "saturday";
+}
+
+/** A routine that mentions worship anywhere (a mass, a service, a shul). */
+const WORSHIP_ROUTINE_RE = /church|\bmass\b|\bservices?\b|worship|temple|mosque|synagogue|shabbat|parish|chapel|prayer|sermon/i;
+/** A stop that is about the market itself. */
+const MARKET_RE = /\bmarket\b|\bstalls?\b|bazaar|\bfair\b/i;
+
+export interface WeekdayContext {
+  /** Fractional hour on the scene clock. */
+  hour: number;
+  /** Every line of the persona's routine, so Sunday knows who worships. */
+  routine: ReadonlyArray<RoutineEntry>;
+  /** The town's landmarks (names as the map spells them). */
+  landmarks: ReadonlyArray<PlaceLike>;
+}
+
+/**
+ * The weekday's say over a routine stop. On Sunday between 10:00 and noon a
+ * resident whose routine mentions church, mass or a service goes to the
+ * town's worship landmark instead of the weekday stop. On Saturday a stop
+ * about the market prefers the plaza or market landmark. Otherwise the
+ * entry stands as it came (and nothing stays nothing).
+ */
+export function weekdayActivity(
+  entry: RoutineEntry | undefined,
+  weekday: string | null | undefined,
+  ctx: WeekdayContext,
+): RoutineEntry | undefined {
+  if (isSunday(weekday) && ctx.hour >= 10 && ctx.hour < 12) {
+    const worships = ctx.routine.some((e) => WORSHIP_ROUTINE_RE.test(e.activity) || WORSHIP_ROUTINE_RE.test(e.location));
+    if (worships) {
+      const church = ctx.landmarks.find((l) => placeKind(l) === "worship");
+      if (church) return { time: "10:00", location: church.name, activity: "Sunday service" };
+    }
+  }
+  if (isSaturday(weekday) && entry && MARKET_RE.test(entry.activity)) {
+    const plaza = ctx.landmarks.find((l) => placeKind(l) === "plaza");
+    if (plaza && plaza.name !== entry.location) return { ...entry, location: plaza.name };
+  }
+  return entry;
 }
 
 /** Standing-spot roles, in priority order, for someone outdoors at a place. */

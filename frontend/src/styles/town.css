@@ -272,6 +272,34 @@
   font-weight: 600;
 }
 
+/* The campaign reading: "Day 12 of 21 · Wed Apr 8 · Morning · Debate night".
+   Long enough to need a clamp beside the switcher on narrow canvases. */
+.player-hud-chip {
+  max-width: 100%;
+}
+
+.player-hud-calendar {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (width < 768px) {
+  /* The topbar stops 150px short of the right edge (the minimap); the HUD
+     must wrap inside that width rather than grow to its widest chip. */
+  .town-topbar .player-hud {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .player-hud-calendar {
+    max-width: min(calc(100vw - 180px), 320px);
+  }
+}
+
 
 .town-minimap-wrapper {
   position: absolute;
@@ -1352,6 +1380,55 @@
   color: var(--color-ink-2);
 }
 
+/* The campaign day under the heading: "Wednesday, April 8 · Morning". */
+.today-date {
+  margin: -8px 0 0;
+  font: 500 var(--text-xs) / 1.35 var(--font-body);
+  color: var(--color-ink-2);
+}
+
+.today-date-note {
+  color: var(--color-accent-ink);
+  font-weight: 600;
+}
+
+/* Distance to election day: a small parchment pill; civic blue on the day. */
+.today-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-wash);
+  color: var(--color-accent-ink);
+  font: 700 var(--text-2xs) / 1 var(--font-body);
+  letter-spacing: 0.04em;
+}
+
+.today-countdown--today {
+  background: var(--color-civic);
+  color: var(--color-on-accent);
+}
+
+/* What the plan has on today: "Events today · Debate night in Montclair". */
+.today-events {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--color-accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-surface-2);
+}
+
+.today-events-list {
+  font: 500 var(--text-xs) / 1.35 var(--font-body);
+  color: var(--color-ink);
+}
+
 .today-beats {
   list-style: none;
   margin: 0;
@@ -1654,6 +1731,11 @@
   color: var(--color-ink-2);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.results-town-turnout {
+  color: var(--color-ink-3);
+  font-weight: 500;
 }
 
 .results-swing {

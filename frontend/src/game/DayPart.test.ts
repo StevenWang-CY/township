@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveActivity, dwellRoles, placeKind, shouldBeIndoors } from "./DayPart";
+import { deriveActivity, dwellRoles, isSaturday, isSunday, placeKind, shouldBeIndoors, weekdayActivity } from "./DayPart";
 import type { LandmarkData } from "../types/messages";
 
 const lm = (name: string, type: string): LandmarkData => ({ name, type, x: 0, y: 0, width: 100, height: 80, color: "#000" });
@@ -74,5 +74,45 @@ describe("places", () => {
     expect(dwellRoles(STATION, "idle")[0]).toBe("platform");
     expect(dwellRoles(LA_FINCA, "eating")[0]).toBe("table");
     expect(dwellRoles(FACTORY, "idle")[0]).toBe("porch");
+  });
+});
+
+describe("weekdays", () => {
+  const PLAZA = lm("Town Plaza", "plaza");
+  const landmarks = [FACTORY, CHURCH, PARK, LA_FINCA, PLAZA];
+  const faithful = [
+    entry("08:30", "St. Mary's Church", "Daily mass — front row, left side"),
+    entry("10:00", "Factory", "Reports to Morris Hills Care Center — bed baths, vitals, charting"),
+  ];
+  const secular = [entry("07:30", "Factory", "Drywall on a warehouse renovation, no questions asked")];
+
+  it("knows the weekend in any spelling", () => {
+    expect(isSunday("sunday")).toBe(true);
+    expect(isSunday("Sun")).toBe(true);
+    expect(isSunday("monday")).toBe(false);
+    expect(isSaturday("saturday")).toBe(true);
+    expect(isSaturday(null)).toBe(false);
+  });
+
+  it("sends the faithful to the worship landmark on Sunday morning", () => {
+    const stop = faithful[1];
+    expect(weekdayActivity(stop, "sunday", { hour: 10.5, routine: faithful, landmarks }))
+      .toEqual({ time: "10:00", location: "St. Mary's Church", activity: "Sunday service" });
+    // Only the late-morning window, only on Sunday, only for those who worship.
+    expect(weekdayActivity(stop, "sunday", { hour: 13, routine: faithful, landmarks })).toBe(stop);
+    expect(weekdayActivity(stop, "monday", { hour: 10.5, routine: faithful, landmarks })).toBe(stop);
+    expect(weekdayActivity(secular[0], "sunday", { hour: 10.5, routine: secular, landmarks })).toBe(secular[0]);
+    // A town without a church leaves the routine alone.
+    expect(weekdayActivity(stop, "sunday", { hour: 10.5, routine: faithful, landmarks: [FACTORY, PARK] })).toBe(stop);
+  });
+
+  it("prefers the plaza for market-day lines on Saturday", () => {
+    const market = entry("09:00", "Bodega Row", "Saturday market run — plantains and gossip");
+    expect(weekdayActivity(market, "saturday", { hour: 9, routine: [market], landmarks }))
+      .toEqual({ ...market, location: "Town Plaza" });
+    expect(weekdayActivity(market, "friday", { hour: 9, routine: [market], landmarks })).toBe(market);
+    const shift = entry("09:00", "Factory", "Weekend shift, double pay");
+    expect(weekdayActivity(shift, "saturday", { hour: 9, routine: [shift], landmarks })).toBe(shift);
+    expect(weekdayActivity(undefined, "saturday", { hour: 9, routine: [], landmarks })).toBeUndefined();
   });
 });

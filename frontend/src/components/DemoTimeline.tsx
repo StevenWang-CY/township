@@ -16,6 +16,7 @@ import { useScenario } from "../hooks/useScenario";
 import { DEMO_SPEEDS } from "../demo/pacing";
 import type { DemoChapter } from "../hooks/useDemoFeed";
 import { REPO_URL } from "../demo/demoMode";
+import { chapterTitle, formatDate, formatDay, isWeekend, weekdayInitial } from "../lib/calendar";
 
 /** Events to jump per arrow-key press — a couple of beats of content. */
 const ARROW_SEEK_EVENTS = 15;
@@ -158,6 +159,9 @@ export default function DemoTimeline() {
   const roundLabel = ws.totalRounds > 0 ? String(round) : "–";
   const clock = fmtClock(ws.worldClock.hour, ws.worldClock.minute);
   const atStart = player.position === 0 && !player.playing;
+  // A recorded campaign counts in days; the fixed replay keeps its rounds.
+  const dayLabel = ws.calendar ? formatDay(ws.calendar) : null;
+  const electionDate = scen.scenario.campaign?.election_date ?? scen.scenario.dates?.decision_day ?? null;
 
   return (
     <div className="demo-timeline pixel-frame" role="group" aria-label="Replay timeline">
@@ -195,7 +199,7 @@ export default function DemoTimeline() {
           aria-valuemin={0}
           aria-valuemax={player.duration}
           aria-valuenow={player.position}
-          aria-valuetext={`Event ${player.position} of ${player.duration}${ws.totalRounds > 0 ? `, round ${round}` : ""}`}
+          aria-valuetext={`Event ${player.position} of ${player.duration}${dayLabel ? `, ${dayLabel.toLowerCase()}` : ws.totalRounds > 0 ? `, round ${round}` : ""}`}
           tabIndex={0}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -213,7 +217,7 @@ export default function DemoTimeline() {
           <div className="demo-timeline-fill" style={{ width: `${pct}%` }} />
           <div className="demo-timeline-playhead" style={{ left: `${pct}%` }} aria-hidden="true" />
         </div>
-        {/* Round-chapter ticks */}
+        {/* Chapter ticks: a day of the campaign (weekday initial) or a round */}
         {player.chapters.map((ch, chapterIndex) => {
           const left = player.duration > 0 ? (ch.index / player.duration) * 100 : 0;
           // Preserve a full 24 px hit target even when early/late chapter
@@ -221,12 +225,24 @@ export default function DemoTimeline() {
           const minimumLeft = 12 + chapterIndex * 24;
           const minimumRight = 12 + (player.chapters.length - 1 - chapterIndex) * 24;
           const chClock = fmtClock(ch.hour, ch.minute);
+          const isDay = ch.kind === "day" && ch.day != null;
+          const dayDate = isDay ? formatDate(ch.date, { weekday: true, comma: false }) : null;
+          const ariaLabel = isDay
+            ? `Skip to day ${ch.dayIndex ?? ch.day}${dayDate ? ` (${dayDate}${ch.label ? ` — ${ch.label}` : ""})` : ""}`
+            : `Skip to round ${ch.round}${chClock ? ` (${chClock})` : ""}`;
+          const electionTick = isDay && !!electionDate && ch.date === electionDate;
+          const className = [
+            "demo-timeline-tick",
+            isDay ? "demo-timeline-tick--day" : "",
+            isDay && isWeekend(ch.weekday) ? "demo-timeline-tick--weekend" : "",
+            electionTick ? "demo-timeline-tick--election" : "",
+          ].filter(Boolean).join(" ");
           return (
             <button
-              key={ch.round}
-              className="demo-timeline-tick"
+              key={isDay ? `day-${ch.day}` : `round-${ch.round}`}
+              className={className}
               style={{ left: `clamp(${minimumLeft}px, ${left}%, calc(100% - ${minimumRight}px))` }}
-              aria-label={`Skip to round ${ch.round}${chClock ? ` (${chClock})` : ""}`}
+              aria-label={ariaLabel}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -236,20 +252,23 @@ export default function DemoTimeline() {
               onMouseLeave={() => setHoverChapter((c) => (c === ch ? null : c))}
               onFocus={() => setHoverChapter(ch)}
               onBlur={() => setHoverChapter((c) => (c === ch ? null : c))}
-            />
+            >
+              {isDay && <span className="demo-timeline-tick-day" aria-hidden="true">{weekdayInitial(ch.weekday)}</span>}
+            </button>
           );
         })}
-        {/* Chapter tooltip */}
+        {/* Chapter tooltip: "Day 6 · Sat Apr 11 · Saturday market in Dover" / "Round 3 — 4:00 PM" */}
         {hoverChapter && player.duration > 0 && (
           <div
             className="demo-timeline-tooltip"
             style={{ left: `${(hoverChapter.index / player.duration) * 100}%` }}
             role="tooltip"
           >
-            Round {hoverChapter.round}
-            {fmtClock(hoverChapter.hour, hoverChapter.minute)
-              ? ` — ${fmtClock(hoverChapter.hour, hoverChapter.minute)}`
-              : ""}
+            {hoverChapter.kind === "day" && hoverChapter.day != null
+              ? chapterTitle(hoverChapter)
+              : `Round ${hoverChapter.round}${fmtClock(hoverChapter.hour, hoverChapter.minute)
+                ? ` — ${fmtClock(hoverChapter.hour, hoverChapter.minute)}`
+                : ""}`}
           </div>
         )}
       </div>
@@ -260,7 +279,9 @@ export default function DemoTimeline() {
           ? "The town has decided"
           : atStart
             ? "Ready"
-            : `Round ${roundLabel}/${totalRounds || "–"}${clock ? ` · ${clock}` : ""}`}
+            : dayLabel
+              ? `${dayLabel}${clock ? ` · ${clock}` : ""}`
+              : `Round ${roundLabel}/${totalRounds || "–"}${clock ? ` · ${clock}` : ""}`}
       </div>
 
       {/* Speed toggle */}

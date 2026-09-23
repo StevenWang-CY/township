@@ -43,6 +43,8 @@ def test_reducer_handles_the_user_visible_events():
         "conversation_started", "conversation_ended",
         "world_clock_tick", "weather_changed", "relationship_update",
         "news_reaction",  # the previously-dropped structured reaction stream
+        "ballot_cast",  # the ballot map behind the results moment
+        "election_result",  # election night: per-town counts + the district roll-up
     ]
     missing = [e for e in required if f'case "{e}"' not in reducer_src]
     assert not missing, f"useWebSocket reducer missing cases: {missing}"
@@ -63,4 +65,8 @@ def test_additive_event_fields_are_declared_on_the_frontend():
     the TypeScript types so a rename on either side is caught here."""
     msg_src = open(MESSAGES_TS, encoding="utf-8").read()
     for field in ("sentiment", "decided_agent_ids", "emotional_response", "impact_on_vote"):
+        assert field in msg_src, f"messages.ts no longer declares {field!r}"
+    # The campaign calendar (Calendar I): round_started/world_clock_tick days,
+    # the run plan on simulation_started, and the election-night count.
+    for field in ("weekday", "beat", "resumed_from_day", "per_town", "news_id"):
         assert field in msg_src, f"messages.ts no longer declares {field!r}"

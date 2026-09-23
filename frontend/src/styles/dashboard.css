@@ -502,6 +502,175 @@
   background: rgba(196, 163, 90, 0.1);
 }
 
+/* ── Dashboard: the start form (quick plan or campaign) ──────── */
+
+.run-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.run-form-presets {
+  display: inline-flex;
+  gap: 2px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+
+.run-form-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 150px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-2);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--ease-out-soft), color var(--duration-base) var(--ease-out-soft);
+}
+
+.run-form-preset strong {
+  font: 600 var(--text-sm) / 1.2 var(--font-display);
+  letter-spacing: 0.2px;
+  color: inherit;
+}
+
+.run-form-preset span {
+  font: 500 var(--text-2xs) / 1.3 var(--font-body);
+}
+
+.run-form-preset:hover {
+  color: var(--color-ink);
+}
+
+.run-form-preset--active {
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  box-shadow: 0 1px 2px var(--color-line-warm), inset 0 0 0 1px var(--color-line);
+}
+
+.run-form-preset:has(input:focus-visible) {
+  outline: 2px solid var(--color-civic);
+  outline-offset: 1px;
+}
+
+.run-form-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+}
+
+.run-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font: 600 var(--text-2xs) / 1 var(--font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+}
+
+.run-form-field input {
+  width: 104px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  font: 500 var(--text-base) / 1.2 var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.run-form-field input:focus-visible {
+  outline: none;
+  border-color: var(--color-civic);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-civic) 18%, transparent);
+}
+
+.run-form-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  font: 500 var(--text-sm) / 1.2 var(--font-body);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.run-form-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-civic);
+}
+
+.run-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.run-form-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px dashed var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-wash);
+  color: var(--color-accent-ink);
+  font: 600 var(--text-xs) / 1 var(--font-body);
+  cursor: pointer;
+}
+
+.run-form-resume:hover:not(:disabled) {
+  border-style: solid;
+}
+
+.run-form-resume span {
+  color: var(--color-ink-2);
+  font-weight: 500;
+}
+
+.run-form-hint {
+  margin: 0;
+  max-width: 62ch;
+  font: 400 var(--text-xs) / 1.45 var(--font-body);
+  color: var(--color-ink-3);
+}
+
+/* Why the last run stopped early: "Stopped at the budget after day 12". */
+.dashboard-stopped {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface-card));
+  color: var(--color-warning);
+  font: 600 var(--text-xs) / 1.3 var(--font-body);
+}
+
+@media (width < 480px) {
+  .run-form-presets {
+    flex-direction: column;
+    align-self: stretch;
+  }
+
+  .run-form-preset {
+    min-width: 0;
+  }
+}
+
 /* ── Dashboard: run progress (mid-run focal module) ────────── */
 
 .dashboard-run-progress {

@@ -254,6 +254,10 @@ export interface NewsInjectedEvent {
   headline: string;
   description: string;
   round: number;
+  /** Additive (campaign runs): the scenario news id and the towns whose
+   *  residents reacted (empty = district-wide). */
+  news_id?: string | null;
+  towns?: TownId[];
 }
 
 export interface NewsReactionEvent {
@@ -261,12 +265,29 @@ export interface NewsReactionEvent {
   reaction: NewsReaction;
 }
 
+/** Days of the campaign week as the backend calendar names them. */
+export type Weekday = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+
+/** A campaign beat of the day ("early"/"night" appear on election day). */
+export type CampaignBeat = "morning" | "midday" | "afternoon" | "evening" | "early" | "night" | (string & {});
+
+export type RunPreset = "quick" | "campaign" | (string & {});
+
 export interface RoundStartedEvent {
   type: "round_started";
   round: number;
   /** The town this round belongs to (towns run their rounds independently). */
   town?: TownId;
   total_rounds: number;
+  /** Campaign calendar (additive; the quick plan and older recordings omit
+   *  every one of these). `day` is 1-based, `date` is "YYYY-MM-DD". */
+  day?: number | null;
+  date?: string | null;
+  weekday?: Weekday | null;
+  beat?: CampaignBeat | null;
+  /** A named beat, e.g. "Debate night in Montclair" or "Election day". */
+  label?: string | null;
+  preset?: RunPreset | null;
 }
 
 export interface RoundEndedEvent {
@@ -279,10 +300,25 @@ export interface RoundEndedEvent {
   decided_agent_ids?: string[];
 }
 
+/** One round of the run's own plan (the campaign calendar expanded, or the
+ *  quick plan) as `simulation_started.plan` carries it. */
+export interface RunPlanEntry extends ScenarioRoundPlanEntry {
+  day?: number | null;
+  date?: string | null;
+  weekday?: Weekday | null;
+  beat?: CampaignBeat | null;
+  label?: string | null;
+}
+
 export interface SimulationStartedEvent {
   type: "simulation_started";
   agents: AgentState[];
   towns: TownId[];
+  /** Additive (campaign runs). */
+  preset?: RunPreset | null;
+  plan?: RunPlanEntry[];
+  /** Set when the run resumed from a day checkpoint. */
+  resumed_from_day?: number | null;
 }
 
 export interface SimulationEndedEvent {
@@ -315,6 +351,9 @@ export interface WorldClockTickEvent {
   hour: number;
   minute: number;
   town?: TownId;
+  /** Campaign calendar (additive). */
+  day?: number | null;
+  date?: string | null;
 }
 
 export type WeatherKind = "clear" | "cloudy" | "rain" | "snow" | "fog";
@@ -350,6 +389,22 @@ export interface GodViewInjectionEvent {
   description: string;
 }
 
+/** The district roll-up's tally: turnout and margins, no straw-poll fields. */
+export type DistrictTally = Omit<ElectionTally, "mode" | "undecided">;
+
+/** The count: one event per town on the results beat, then the district
+ *  roll-up (`town` null) once every town has reported. */
+export interface ElectionResultEvent {
+  type: "election_result";
+  /** The town that just counted, or null for the district roll-up. */
+  town: TownId | null;
+  per_town: Record<TownId, ElectionTally>;
+  district: DistrictTally | null;
+  round: number;
+  day?: number | null;
+  date?: string | null;
+}
+
 export type SimulationEvent =
   | AgentMovedEvent
   | ConversationStartedEvent
@@ -369,6 +424,7 @@ export type SimulationEvent =
   | CrossTownGossipEvent
   | GodViewInjectionEvent
   | BallotCastEvent
+  | ElectionResultEvent
 ;
 
 /* ── Relationships (player ↔ agent) ────────────────────────── */
@@ -455,7 +511,36 @@ export interface SimulationStatus {
     cache_write_tokens?: number;
     cost_usd?: number;
     cache_hit_rate?: number;
+    /** The provider serving this run ("mock", "claude-cli", "anthropic", …). */
+    provider?: string;
+    total_cost?: number;
   };
+  /** Campaign calendar + transport (additive; merged from the orchestrator). */
+  preset?: RunPreset | null;
+  run_id?: string | null;
+  day?: number | null;
+  date?: string | null;
+  weekday?: Weekday | null;
+  beat?: CampaignBeat | null;
+  label?: string | null;
+  total_days?: number | null;
+  /** 0..1 of the run's rounds. */
+  progress?: number | null;
+  paused?: boolean;
+  /** "paused" for a user pause; a provider's own words when it paused the run. */
+  paused_reason?: string | null;
+  speed?: number;
+  budget?: SimulationBudget | null;
+  /** Why the run ended early ("budget", …), or null. */
+  stopped_reason?: string | null;
+  stopped_at?: string | null;
+}
+
+export interface SimulationBudget {
+  spent: number;
+  limit: number | null;
+  estimate_per_beat: number;
+  calls: number;
 }
 
 /* ── Chat response (POST /api/chat/{id}) ───────────────────── */
@@ -540,10 +625,23 @@ export interface ScenarioData {
   round_plan?: ScenarioRoundPlanEntry[];
   dates: { decision_day: string; prose: string };
   responsible_use: ScenarioResponsibleUse;
+  /** The campaign calendar's facts when the package declares one. */
+  campaign?: ScenarioCampaign | null;
+  /** Start presets the backend accepts ("quick", and "campaign" when declared). */
+  presets?: string[];
 }
 
 export interface ScenarioRoundPlanEntry {
   round: number;
   phases: string[];
   clock?: string;
+}
+
+export interface ScenarioCampaign {
+  start_date: string;
+  election_date: string;
+  /** Calendar days in the full campaign, the morning after included. */
+  days: number;
+  total_rounds: number;
+  beats_per_day: number;
 }

@@ -558,6 +558,146 @@ test("seeking beyond the live window and backward reconciles rendered replay sta
   await assertRenderedAt(replayedPosition);
 });
 
+test("the flagship replay keeps round chapters, a round HUD chip and a round Today strip", async ({ page }) => {
+  // The shipped NJ-11 recording predates the campaign calendar: no day on
+  // any round_started, so nothing may read in days.
+  await page.goto("/#/town/dover");
+  await waitForTownScene(page);
+  await pauseReplay(page);
+
+  const ticks = page.locator(".demo-timeline-tick");
+  await expect(ticks.first()).toBeVisible();
+  expect(await ticks.count()).toBeGreaterThan(1);
+  await expect(page.locator(".demo-timeline-tick--day")).toHaveCount(0);
+  const tickLabels = await ticks.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label") ?? ""));
+  for (const label of tickLabels) expect(label).toMatch(/^Skip to round \d+/);
+
+  const firstTick = ticks.first();
+  await firstTick.focus();
+  await expect(page.getByRole("tooltip")).toHaveText(/^Round \d+/);
+  await firstTick.click();
+
+  const chip = page.locator(".player-hud-chip--recorded strong");
+  await expect(chip).toHaveText(/^Round \d+\/\d+/);
+  await expect(chip).not.toContainText("Day");
+  await expect(page.locator(".demo-timeline-elapsed")).toHaveText(/^Round \d+\/\d+/);
+
+  await page.getByRole("tab", { name: "Today" }).click();
+  const strip = page.locator(".today-strip");
+  await expect(strip).toBeVisible();
+  await expect(strip.locator(".today-round")).toHaveText(/^Round \d+ of \d+$/);
+  await expect(strip.locator(".today-beat").first()).toBeVisible();
+  await expect(strip.locator(".today-date")).toHaveCount(0);
+  await expect(strip.locator(".today-countdown")).toHaveCount(0);
+});
+
+test("a recorded campaign reads in days: day chapters, the HUD chip and the Today strip", async ({ page }) => {
+  const scenario = {
+    id: "calendar-fixture",
+    title: "The Calendar Fixture",
+    question: "Does the calendar render?",
+    decision_kind: "vote",
+    options: [
+      { id: "yes", name: "Yes", label: "Yes", color: "#397C78" },
+      { id: "no", name: "No", label: "No", color: "#9B6741" },
+    ],
+    undecided: { id: "undecided", label: "Undecided", color: "#C9C2B4" },
+    towns: [{ id: "harbor", name: "Harbor Point", tagline: "Fixture town", color: "#397C78" }],
+    total_rounds: 4,
+    round_plan: [{ round: 0, phases: ["seed"], clock: "08:00" }],
+    campaign: { start_date: "2026-04-11", election_date: "2026-04-12", days: 2, total_rounds: 4, beats_per_day: 2 },
+    presets: ["quick", "campaign"],
+    dates: { decision_day: "2026-04-12", prose: "A fixture vote." },
+    responsible_use: {
+      core_notice: "Township is a simulation, not a poll. Its outputs do not measure real public opinion and must never be presented as if they do.",
+      residents_notice: "All residents are fictional composites.",
+      subjects_notice: "This scenario is fictional.",
+      outputs_notice: "Every output is an LLM artifact.",
+    },
+  };
+  const town = {
+    name: "Harbor Point",
+    tagline: "Fixture town",
+    accent_color: "#397C78",
+    landmarks: [
+      { name: "Harbor Hall", x: 500, y: 220, width: 170, height: 120, type: "building", color: "#C7A774" },
+      { name: "Marsh Green", x: 220, y: 500, width: 240, height: 150, type: "park", color: "#759B68" },
+      { name: "Causeway", x: 100, y: 390, width: 1000, height: 34, type: "road", color: "#A58A69" },
+    ],
+  };
+  const plan = [
+    { round: 0, phases: ["seed", "converse"], clock: "09:00", day: 1, date: "2026-04-11", weekday: "saturday", beat: "morning", label: "Market day" },
+    { round: 1, phases: ["converse", "opinion"], clock: "18:00", day: 1, date: "2026-04-11", weekday: "saturday", beat: "evening", label: null },
+    { round: 2, phases: ["vote"], clock: "07:00", day: 2, date: "2026-04-12", weekday: "sunday", beat: "early", label: "Election day" },
+    { round: 3, phases: ["results"], clock: "21:00", day: 2, date: "2026-04-12", weekday: "sunday", beat: "night", label: "Election day" },
+  ];
+  const agent = {
+    id: "mara-lee",
+    name: "Mara Lee",
+    town: "harbor",
+    occupation: "Harbormaster",
+    opinion: { candidate: "undecided", confidence: 40, reasoning: "Listening first.", top_issues: ["flooding"] },
+    location: "Harbor Hall",
+    current_activity: "idle",
+    initials: "ML",
+    color: "#397C78",
+  };
+  const roundStarted = (p: typeof plan[number]) => ({
+    type: "round_started", round: p.round, town: "harbor", total_rounds: 4,
+    day: p.day, date: p.date, weekday: p.weekday, beat: p.beat, label: p.label, preset: "campaign",
+  });
+  const clockTick = (p: typeof plan[number]) => ({
+    type: "world_clock_tick", hour: Number(p.clock.slice(0, 2)), minute: 0, town: "harbor", day: p.day, date: p.date,
+  });
+  const feed = {
+    events: [
+      { type: "simulation_started", towns: ["harbor"], agents: [agent], preset: "campaign", plan },
+      roundStarted(plan[0]), clockTick(plan[0]),
+      { type: "agent_speech", agent_id: "mara-lee", agent_name: "Mara Lee", town: "harbor", text: "Morning, all.", location: "Harbor Hall" },
+      roundStarted(plan[1]), clockTick(plan[1]),
+      roundStarted(plan[2]), clockTick(plan[2]),
+      roundStarted(plan[3]), clockTick(plan[3]),
+    ],
+  };
+
+  await page.route("**/demo/manifest.json", (route) => route.fulfill({ json: { default: scenario.id, scenarios: [scenario.id] } }));
+  await page.route(`**/demo/${scenario.id}-scenario.json`, (route) => route.fulfill({ json: scenario }));
+  await page.route(`**/demo/${scenario.id}-towns.json`, (route) => route.fulfill({ json: { towns: { harbor: town } } }));
+  await page.route(`**/demo/${scenario.id}.json`, (route) => route.fulfill({ json: feed }));
+
+  await page.goto(`/?scenario=${scenario.id}#/town/harbor`);
+  await waitForTownScene(page);
+  await pauseReplay(page);
+
+  // Two day ticks (not four round ticks), with weekday initials and day tooltips.
+  const dayTicks = page.locator(".demo-timeline-tick--day");
+  await expect(dayTicks).toHaveCount(2);
+  await expect(page.locator(".demo-timeline-tick")).toHaveCount(2);
+  await expect(dayTicks.first()).toHaveAttribute("aria-label", "Skip to day 1 (Sat Apr 11 — Market day)");
+  await expect(dayTicks.first().locator(".demo-timeline-tick-day")).toHaveText("S");
+  await dayTicks.first().focus();
+  await expect(page.getByRole("tooltip")).toHaveText("Day 1 · Sat Apr 11 · Market day");
+
+  // Day 1, morning beat: the HUD chip, the transport label and the Today strip speak the calendar.
+  await dayTicks.first().click();
+  await expect(page.locator(".player-hud-chip--recorded strong")).toHaveText("Day 1 of 2 · Sat Apr 11 · Morning · Market day");
+  await expect(page.locator(".demo-timeline-elapsed")).toHaveText(/^Day 1 of 2/);
+  await page.getByRole("tab", { name: "Today" }).click();
+  const strip = page.locator(".today-strip");
+  await expect(strip.locator(".today-round")).toHaveText("Day 1 of 2");
+  await expect(strip.locator(".today-date")).toHaveText("Saturday, April 11 · Morning");
+  await expect(strip.locator(".today-countdown")).toHaveText("Decision day tomorrow");
+  await expect(strip.locator(".today-beat-label")).toHaveText(["Morning", "Talk"]);
+  await expect(strip.locator(".today-events-list")).toHaveText("Market day");
+
+  // Day 2: election day's early beat.
+  await dayTicks.last().click();
+  await expect(page.locator(".player-hud-chip--recorded strong")).toHaveText("Day 2 of 2 · Sun Apr 12 · Early voting · Election day");
+  await expect(strip.locator(".today-countdown")).toHaveText("Decision day");
+  await expect(strip.locator(".today-countdown")).toHaveClass(/today-countdown--today/);
+  await expect(strip.locator(".today-beat-label")).toHaveText(["Vote"]);
+});
+
 test("the map surface passes automated WCAG A/AA checks", async ({ page }) => {
   await openMap(page);
   await expectAxeClean(page, "district map");

@@ -8,7 +8,11 @@ import type {
   WeatherKind,
   Relationship,
   NewsReaction,
+  ElectionResultEvent,
+  ElectionTally,
+  RunPlanEntry,
 } from "../types/messages";
+import { dayOrdinal, normalizeWeekday, totalDaysOf, type CalendarState } from "../lib/calendar";
 
 /** Raw per-town phase signals for the current round. The scene decides what
  *  they mean against the scenario's round plan (see TownView.resolvePhase);
@@ -88,6 +92,15 @@ export interface WsState {
   finalSummary: DistrictSummary | null;
   /** Ballots cast this run, by resident (option null = abstained). */
   ballots: Record<string, { option: string | null; confidence: number; reason: string; round: number }>;
+  /** Where the campaign calendar stands (null for the quick plan and for
+   *  recordings made before the calendar existed). */
+  calendar: CalendarState | null;
+  /** The run's own plan from simulation_started (empty for old recordings). */
+  runPlan: RunPlanEntry[];
+  /** The district roll-up once the count is in (election night). */
+  electionResult: ElectionResultEvent | null;
+  /** Each town's count as it reports, keyed by town id. */
+  townResults: Record<string, ElectionTally>;
 }
 
 export const initialState: WsState = {
@@ -111,6 +124,10 @@ export const initialState: WsState = {
   headlines: [],
   finalSummary: null,
   ballots: {},
+  calendar: null,
+  runPlan: [],
+  electionResult: null,
+  townResults: {},
 };
 
 /* ── Reducer ────────────────────────────────────────────────── */
@@ -172,7 +189,13 @@ function reduceWithEventLimit(
             roundSignals: {},
             headlines: [],
             finalSummary: null,
-  ballots: {},
+            ballots: {},
+            // The calendar starts blank; the first round_started fills it.
+            // A run that carries no plan (older recordings) keeps none.
+            calendar: null,
+            runPlan: Array.isArray(evt.plan) ? evt.plan : [],
+            electionResult: null,
+            townResults: {},
           };
         }
 
@@ -184,11 +207,26 @@ function reduceWithEventLimit(
           return { ...base, agents, simulationRunning: false, finalSummary: evt.summary ?? null };
         }
 
-        case "round_started":
+        case "round_started": {
+          // The campaign calendar rides on round_started; a round without a
+          // day (the quick plan, every older recording) leaves it untouched.
+          const calendar: CalendarState | null = typeof evt.day === "number"
+            ? {
+              day: evt.day,
+              dayIndex: dayOrdinal(state.runPlan, evt.day),
+              date: evt.date ?? state.calendar?.date ?? null,
+              weekday: normalizeWeekday(evt.weekday) ?? state.calendar?.weekday ?? null,
+              beat: evt.beat ?? null,
+              label: evt.label ?? null,
+              totalDays: totalDaysOf(state.runPlan) ?? state.calendar?.totalDays ?? null,
+              preset: evt.preset ?? state.calendar?.preset ?? null,
+            }
+            : state.calendar;
           return {
             ...base,
             currentRound: evt.round,
             totalRounds: evt.total_rounds,
+            calendar,
             roundSignals: evt.town
               ? {
                 ...state.roundSignals,
@@ -196,6 +234,7 @@ function reduceWithEventLimit(
               }
               : state.roundSignals,
           };
+        }
 
         case "round_ended": {
           const summaries = { ...state.townSummaries };
@@ -301,11 +340,23 @@ function reduceWithEventLimit(
           return { ...base, conversations: convs, agents };
         }
 
-        case "world_clock_tick":
+        case "world_clock_tick": {
+          // A tick may carry the day it belongs to; it never creates a
+          // calendar on its own (round_started owns that).
+          const calendar = state.calendar && (typeof evt.day === "number" || typeof evt.date === "string")
+            ? {
+              ...state.calendar,
+              day: typeof evt.day === "number" ? evt.day : state.calendar.day,
+              dayIndex: typeof evt.day === "number" ? dayOrdinal(state.runPlan, evt.day) : state.calendar.dayIndex,
+              date: typeof evt.date === "string" ? evt.date : state.calendar.date,
+            }
+            : state.calendar;
           return {
             ...base,
             worldClock: { hour: evt.hour, minute: evt.minute },
+            calendar,
           };
+        }
 
         case "weather_changed":
           return { ...base, weather: evt.weather };
@@ -337,13 +388,29 @@ function reduceWithEventLimit(
 
         case "ballot_cast": {
           return {
-            ...state,
+            ...base,
             ballots: {
               ...state.ballots,
               [evt.agent_id]: { option: evt.option, confidence: evt.confidence, reason: evt.reason, round: evt.round },
             },
           };
         }
+
+        case "election_result": {
+          // Each town reports its count on the results beat; the district
+          // roll-up (town null) arrives once, after them all. Both carry
+          // per_town, so the map is complete whichever lands first.
+          const townResults = { ...state.townResults };
+          for (const [town, tally] of Object.entries(evt.per_town ?? {})) {
+            if (tally && typeof tally === "object") townResults[town] = tally;
+          }
+          return {
+            ...base,
+            townResults,
+            electionResult: evt.town == null ? evt : state.electionResult,
+          };
+        }
+
         case "cross_town_gossip":
           // Just record into the events stream — consumers handle UI side-effects.
           return base;

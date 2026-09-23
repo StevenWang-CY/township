@@ -3,8 +3,19 @@
  *
  * Runs ~60x real time by default (1 real second = 1 in-game minute), but the
  * speed is configurable. Drives the sky overlay tint and is also synced from
- * backend `world_clock_tick` events when the simulation is live.
+ * backend `world_clock_tick` events when the simulation is live. A campaign
+ * run also stamps the clock with its calendar (day, date, weekday) so the
+ * scene can tell a Sunday from a Tuesday and a new day from a beat.
  */
+import { normalizeWeekday, weekdayForDate } from "../lib/calendar";
+import type { Weekday } from "../types/messages";
+
+/** The campaign calendar a clock tick may carry. */
+export interface WorldClockDate {
+  day?: number | null;
+  date?: string | null;
+  weekday?: Weekday | string | null;
+}
 
 export type PartOfDay =
   | "night"
@@ -76,6 +87,11 @@ const LUT: Array<{ h: number; color: number; alpha: number }> = [
 export class WorldClock {
   public hour: number;
   public minute: number;
+  /** Campaign calendar — null until a run carries one (the quick plan and
+   *  older recordings never set these). */
+  public day: number | null = null;
+  public date: string | null = null;
+  public weekday: Weekday | null = null;
   private accumulatorMs = 0;
   private minutesPerSecond: number;
 
@@ -85,10 +101,28 @@ export class WorldClock {
     this.minutesPerSecond = opts.minutesPerSecond ?? 1;
   }
 
-  setTime(h: number, m: number) {
+  setTime(h: number, m: number, calendar?: WorldClockDate | null) {
     this.hour = Math.max(0, Math.min(23, Math.floor(h)));
     this.minute = Math.max(0, Math.min(59, Math.floor(m)));
     this.accumulatorMs = 0;
+    if (calendar) this.setDate(calendar);
+  }
+
+  /** Record the campaign day; the weekday follows the date when not given. */
+  setDate(calendar: WorldClockDate) {
+    if (typeof calendar.day === "number") this.day = calendar.day;
+    if (typeof calendar.date === "string" && calendar.date) {
+      this.date = calendar.date;
+      this.weekday = normalizeWeekday(calendar.weekday) ?? weekdayForDate(calendar.date);
+    } else if (calendar.weekday) {
+      this.weekday = normalizeWeekday(calendar.weekday);
+    }
+  }
+
+  /** Month of the calendar date (1–12), or null without a date. */
+  month(): number | null {
+    const m = Number(String(this.date ?? "").slice(5, 7));
+    return Number.isFinite(m) && m >= 1 && m <= 12 ? m : null;
   }
 
   /** Advance the clock. `deltaMs` is real-time elapsed since last tick. */

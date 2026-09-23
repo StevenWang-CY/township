@@ -45,7 +45,7 @@ import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange, relationshipKind, sharedConcernKey } from "./AmbientLines";
 import { ConversationChoreographer } from "./Conversations";
-import { arrivalFacing, deriveActivity, dwellRoles, isRestingHour, shouldBeIndoors } from "./DayPart";
+import { arrivalFacing, deriveActivity, dwellRoles, isRestingHour, shouldBeIndoors, weekdayActivity } from "./DayPart";
 import { SpotRegistry, spotsFromAnchors, type Placement } from "./Spots";
 import { TrafficLayer, type LaneDir, type SignalAnchor, type StopLine, type TrafficLane } from "./TrafficLayer";
 import { applySeasonPalette, seasonForDate, type Season } from "./seasonPalette";
@@ -108,6 +108,20 @@ const IDLE_THOUGHTS = [
 ];
 
 /* ── Internal agent record ─────────────────────────────────── */
+
+/** What a clock jump may carry besides the hour (see TownScene.setWorldTime). */
+export interface SetWorldTimeOptions {
+  /** Campaign day / ISO date from the tick (a new day plays the night sweep). */
+  day?: number | null;
+  date?: string | null;
+  /** Re-run routines for the new hour (default true; replay seeks pass false). */
+  applyRoutines?: boolean;
+  /** Land instantly — no night sweep (replay seeks and reconciles). */
+  silent?: boolean;
+}
+
+/** Length of the dusk→dawn sweep played when a beat crosses into a new day. */
+const NIGHT_SWEEP_MS = 2000;
 
 interface AgentRecord {
   sprite: AgentSprite;
@@ -179,6 +193,9 @@ export class TownScene extends Phaser.Scene {
   // World clock + sky overlay
   private worldClock = new WorldClock({ startHour: 8, minutesPerSecond: 1 });
   private skyOverlay?: Phaser.GameObjects.Rectangle;
+  /** Hour the sky is showing while a night sweep plays (null otherwise). */
+  private sweepHour: number | null = null;
+  private sweepTween?: Phaser.Tweens.Tween;
   private currentWeather: WeatherKind = "clear";
 
   // Night-time lamp glow + sky tint are owned by SceneAmbience + the sky overlay.
@@ -862,7 +879,7 @@ export class TownScene extends Phaser.Scene {
    *  their stated location, else their first routine stop. */
   private initialLocationFor(location: string, routine?: Routine): string | undefined {
     const resolved = (name?: string) => (name ? this.resolveLandmarkName(name) : undefined);
-    const stop = resolved(routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute)?.location);
+    const stop = resolved(this.currentEntry(routine)?.location);
     const stated = resolved(location);
     const statedLm = stated ? this.landmarks.find((l) => l.name === stated) : undefined;
     // A road-type "location" (the wire's default street) is not a place to
@@ -886,7 +903,7 @@ export class TownScene extends Phaser.Scene {
     const rec = this.agentRecords.get(agentId);
     const name = location ? (this.resolveLandmarkName(location) ?? location) : "";
     const landmark = this.landmarks.find((l) => l.name === name);
-    const entry = rec?.routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+    const entry = this.currentEntry(rec?.routine);
     const derived = deriveActivity(
       entry && entry.location === name ? entry : undefined,
       landmark,
@@ -1097,7 +1114,7 @@ export class TownScene extends Phaser.Scene {
   syncReplayState(
     agents: AgentState[],
     positions: Record<string, { location: string; x?: number; y?: number }>,
-    clock: { hour: number; minute: number } | null,
+    clock: { hour: number; minute: number; day?: number | null; date?: string | null } | null,
     weather: WeatherKind,
   ) {
     const wanted = new Set(agents.map((agent) => agent.id));
@@ -1114,8 +1131,16 @@ export class TownScene extends Phaser.Scene {
     this.clearConversationSpotlight(true);
     this.choreo.clearAll();
     // The clock first: what people do where depends on the hour. A null
-    // clock (live bootstrap) leaves the free-running clock alone.
-    if (clock) this.setWorldTime(clock.hour, clock.minute, false);
+    // clock (live bootstrap) leaves the free-running clock alone. A seek
+    // lands on the hour silently — no night sweep for a scrub.
+    if (clock) {
+      this.setWorldTime(clock.hour, clock.minute, {
+        applyRoutines: false,
+        silent: true,
+        day: clock.day,
+        date: clock.date,
+      });
+    }
     this.setWeather(weather);
     // Re-seat everyone from scratch in reducer order — the same feed always
     // yields the same spots (Spots.ts), so repeated seeks never reshuffle.
@@ -1186,7 +1211,7 @@ export class TownScene extends Phaser.Scene {
       if (current !== "idle" && !TownScene.DERIVED_ACTIVITIES.has(current)) continue;
       if (this.choreo.inConversation(id)) continue;
       const landmark = this.landmarks.find((l) => l.name === rec.location);
-      const entry = rec.routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+      const entry = this.currentEntry(rec.routine);
       const act = deriveActivity(
         entry && entry.location === rec.location ? entry : undefined,
         landmark,
@@ -1219,7 +1244,7 @@ export class TownScene extends Phaser.Scene {
     if (!rec || !sprite || !sprite.active) return;
     if (sprite.getActivity() === "talking" || this.choreo.inConversation(agentId)) return;
     const landmark = this.landmarks.find((l) => l.name === location);
-    const entry = rec.routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+    const entry = this.currentEntry(rec.routine);
     const act = deriveActivity(
       entry && entry.location === location ? entry : undefined,
       landmark,
@@ -1718,15 +1743,83 @@ export class TownScene extends Phaser.Scene {
     this.agentSprites.get(agentId)?.setActivity(activity);
   }
 
-  /** Force the clock; called from WS world_clock_tick. */
-  setWorldTime(h: number, m = 0, applyRoutines = true) {
-    this.worldClock.setTime(h, m);
-    this.refreshSkyOverlay();
-    if (applyRoutines && !DEMO_MODE) this.tickRoutines();
+  /**
+   * Force the clock; called from WS world_clock_tick. A campaign tick also
+   * carries its day: crossing into a new day — or being sent back to an
+   * earlier hour of the same one — plays the night sweep (dusk, dark, dawn
+   * over two seconds), and a new month re-dresses the season. Replay seeks
+   * pass `silent` and land instantly. The legacy boolean is `applyRoutines`.
+   */
+  setWorldTime(h: number, m = 0, opts: boolean | SetWorldTimeOptions = {}) {
+    const o: SetWorldTimeOptions = typeof opts === "boolean" ? { applyRoutines: opts } : opts;
+    const prevHour = this.worldClock.fractionalHour();
+    const prevDay = this.worldClock.day;
+    const prevMonth = this.worldClock.month();
+    this.worldClock.setTime(h, m, { day: o.day, date: o.date });
+    const nextHour = this.worldClock.fractionalHour();
+    const day = this.worldClock.day;
+    const newDay = typeof day === "number" && typeof prevDay === "number" && day > prevDay;
+    const rewound = (day === prevDay || day === null || prevDay === null) && nextHour < prevHour - 1;
+    if ((newDay || rewound) && !o.silent) this.playNightSweep(prevHour, nextHour);
+    else this.stopNightSweep();
+    const month = this.worldClock.month();
+    if (month !== null && month !== prevMonth) {
+      try { this.setSeason(seasonForDate(this.worldClock.date)); } catch { /* the sheets may still be loading */ }
+    }
+    if ((o.applyRoutines ?? true) && !DEMO_MODE) this.tickRoutines();
     this.ambience?.setHour(this.worldClock.hour);
     this.ambience?.setPartOfDay(this.worldClock.partOfDay());
     this.civic?.setPartOfDay(this.worldClock.partOfDay());
     this.refreshDayParts();
+  }
+
+  /** Ease the sky from `from` forward through the night to `to`: the town
+   *  visibly sleeps between beats. Reduced motion (and capture) just lands. */
+  private playNightSweep(from: number, to: number) {
+    if (!this.tweens || reducedMotion() || this.reducedMotionRequested || this.captureMode) {
+      this.stopNightSweep();
+      return;
+    }
+    // Always forward: 18:30 → 07:30 next day runs through midnight (13 h),
+    // and a same-day rewind (11:00 → 07:30) takes the long way round too.
+    const span = to - from + 24;
+    this.sweepTween?.stop();
+    const state = { t: 0 };
+    this.sweepHour = from;
+    this.sweepTween = this.tweens.add({
+      targets: state,
+      t: 1,
+      duration: NIGHT_SWEEP_MS,
+      ease: "Sine.easeInOut",
+      onUpdate: () => {
+        this.sweepHour = (from + span * state.t) % 24;
+        this.refreshSkyOverlay();
+      },
+      onComplete: () => {
+        this.sweepHour = null;
+        this.sweepTween = undefined;
+        this.refreshSkyOverlay();
+      },
+    });
+  }
+
+  private stopNightSweep() {
+    this.sweepTween?.stop();
+    this.sweepTween = undefined;
+    this.sweepHour = null;
+    this.refreshSkyOverlay();
+  }
+
+  /** The routine stop for the scene clock, with the weekday's say (Sunday
+   *  service, Saturday market) once a campaign calendar names the day. */
+  private currentEntry(routine: Routine | undefined): RoutineEntry | undefined {
+    const base = routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+    if (!routine || !this.worldClock.weekday) return base;
+    return weekdayActivity(base, this.worldClock.weekday, {
+      hour: this.worldClock.fractionalHour(),
+      routine: routine.entries,
+      landmarks: this.landmarks,
+    });
   }
 
   /** Forward weather to the WeatherScene. */
@@ -1741,6 +1834,12 @@ export class TownScene extends Phaser.Scene {
   getReplaySnapshot() {
     return {
       clock: { hour: this.worldClock.hour, minute: this.worldClock.minute },
+      calendar: {
+        day: this.worldClock.day,
+        date: this.worldClock.date,
+        weekday: this.worldClock.weekday,
+        sweeping: this.sweepHour !== null,
+      },
       weather: this.currentWeather,
       agents: Object.fromEntries(
         [...this.agentSprites.entries()]
@@ -1769,7 +1868,7 @@ export class TownScene extends Phaser.Scene {
    *  capture pipeline (scripts/capture). See the doc block at the top. */
   private installCaptureApi() {
     const api = {
-      setWorldTime: (h: number, m = 0) => this.setWorldTime(h, m),
+      setWorldTime: (h: number, m = 0, opts?: SetWorldTimeOptions) => this.setWorldTime(h, m, opts ?? {}),
       setWeather: (kind: WeatherKind) => this.setWeather(kind),
       panTo: (x: number, y: number) => {
         const cam = this.cameras.main;
@@ -2292,7 +2391,7 @@ export class TownScene extends Phaser.Scene {
     const nowMin = this.worldClock.hour * 60 + this.worldClock.minute;
     for (const [id, rec] of this.agentRecords) {
       if (!rec.routine) continue;
-      const entry = rec.routine.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+      const entry = this.currentEntry(rec.routine);
       if (!entry) continue;
       if (rec.lastRoutineTime === entry.time) continue;
       // Mid-conversation residents finish talking first; the slot fires on
@@ -3814,7 +3913,8 @@ export class TownScene extends Phaser.Scene {
 
   private refreshSkyOverlay() {
     if (!this.skyOverlay) return;
-    const h = this.worldClock.fractionalHour();
+    // A night sweep shows its own hour until it lands.
+    const h = this.sweepHour ?? this.worldClock.fractionalHour();
     const tint = WorldClock.computeDayNightTint(h);
     this.skyOverlay.setFillStyle(tint.color, tint.alpha);
 

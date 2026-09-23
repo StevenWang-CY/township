@@ -1,5 +1,6 @@
 import { useUserProfile } from "../context/UserProfileContext";
 import { PHASE_LABEL } from "../lib/election";
+import { calendarHeadline, electionRelative, type CalendarState } from "../lib/calendar";
 import type { ElectionPhase } from "../game/CivicLayer";
 import { useScenario } from "../hooks/useScenario";
 import WeatherWidget from "./WeatherWidget";
@@ -19,6 +20,9 @@ interface PlayerHUDProps {
   totalRounds?: number;
   /** Phase of the current round (talk / news / opinion / vote / results). */
   phase?: ElectionPhase;
+  /** Where the campaign calendar stands (null on the quick plan and on
+   *  recordings without one — the chip then reads "Round X/N · Phase"). */
+  calendar?: CalendarState | null;
 }
 
 function formatTime(h: number, m: number): string {
@@ -78,6 +82,7 @@ export default function PlayerHUD({
   round,
   totalRounds,
   phase,
+  calendar = null,
 }: PlayerHUDProps) {
   const { profile } = useUserProfile();
   const scen = useScenario();
@@ -97,26 +102,43 @@ export default function PlayerHUD({
   const phaseLabel = phase ? PHASE_LABEL[phase] : null;
   const clockLabel = worldClock ? formatTime(worldClock.hour, worldClock.minute) : null;
 
+  // A campaign run speaks in days: "Day 12 of 21 · Wed Apr 8 · Morning". The
+  // quick plan (and every recording made before the calendar) keeps the
+  // round + phase reading.
+  const electionDate = scen.scenario.campaign?.election_date ?? scen.scenario.dates?.decision_day ?? null;
+  const calendarText = calendar ? calendarHeadline(calendar, electionDate) : null;
+  const roundText = roundKnown ? (
+    <>
+      Round {round ?? 0}/{totalRounds}
+      {phaseLabel && <span className="player-hud-phase"> · {phaseLabel}</span>}
+    </>
+  ) : null;
+  const electionRelativeText = calendar ? electionRelative(calendar, electionDate) : null;
+
   return (
     <div className={`player-hud ${compact ? "player-hud--compact" : ""}`}>
-      {/* Replay provenance chip — the recorded round + the sim's own clock. */}
+      {/* Replay provenance chip — the recorded round (or campaign day) + the sim's own clock. */}
       {DEMO_MODE && (
         <div className="player-hud-chip player-hud-chip--recorded" title="A recorded simulation, replayed in your browser">
           <span className="player-hud-recorded-dot" aria-hidden="true" />
           <span>Recorded</span>
-          {roundKnown && (
-            <strong>
-              Round {round ?? 0}/{totalRounds}
-              {phaseLabel && <span className="player-hud-phase"> · {phaseLabel}</span>}
+          {(calendarText || roundKnown) && (
+            <strong className={calendarText ? "player-hud-calendar" : undefined}>
+              {calendarText ?? roundText}
             </strong>
           )}
           {!compact && clockLabel && <span className="player-hud-chip-quiet">{clockLabel}</span>}
         </div>
       )}
 
-      {!DEMO_MODE && roundKnown && phaseLabel && (
-        <div className="player-hud-chip player-hud-chip--phase" title="Round and phase of the live simulation">
-          <strong>Round {round ?? 0}/{totalRounds}<span className="player-hud-phase"> · {phaseLabel}</span></strong>
+      {!DEMO_MODE && (calendarText || (roundKnown && phaseLabel)) && (
+        <div
+          className="player-hud-chip player-hud-chip--phase"
+          title={calendarText
+            ? `Day and beat of the campaign${phaseLabel ? ` · ${phaseLabel} phase` : ""}`
+            : "Round and phase of the live simulation"}
+        >
+          <strong className={calendarText ? "player-hud-calendar" : undefined}>{calendarText ?? roundText}</strong>
         </div>
       )}
 
@@ -152,7 +174,8 @@ export default function PlayerHUD({
       {!DEMO_MODE && !compact && decisionDate && (
         <div className="player-hud-chip player-hud-chip--countdown" title={scen.scenario.dates?.prose || decisionLabel}>
           <span>{decisionLabel}</span>
-          <strong>{decisionDate}</strong>
+          {/* On the calendar the date becomes a distance: "in 4 days", "today". */}
+          <strong>{electionRelativeText ?? decisionDate}</strong>
         </div>
       )}
     </div>

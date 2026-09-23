@@ -51,7 +51,14 @@ export default function ResultsOverlay({ results, townId, onDismiss }: ResultsOv
           {headline}
         </h2>
         <p className="results-sub">
-          {results.district.total} residents · {results.district.undecided} still undecided
+          {results.source === "election" && results.district.turnout != null ? (
+            <>
+              {results.district.eligible ?? results.district.total} residents · turnout {Math.round(results.district.turnout * 100)}%
+              {(results.district.abstained ?? 0) > 0 && ` · ${results.district.abstained} abstained`}
+            </>
+          ) : (
+            <>{results.district.total} residents · {results.district.undecided} still undecided</>
+          )}
           {!tie && results.district.margin > 0 && ` · margin ${results.district.margin} (${Math.round(results.district.marginPct * 100)}%)`}
         </p>
         <BallotBar counts={results.district.counts} />
@@ -69,6 +76,9 @@ export default function ResultsOverlay({ results, townId, onDismiss }: ResultsOv
                   <BallotBar counts={t.counts} compact />
                   <span className="results-town-margin">
                     {t.winner ? `${scen.optionLabel(t.winner)} +${t.margin}` : "tied"}
+                    {t.turnout != null && t.mode === "ballots" && (
+                      <span className="results-town-turnout"> · {Math.round(t.turnout * 100)}% voted</span>
+                    )}
                   </span>
                 </li>
               );

@@ -4,7 +4,15 @@
  * environment the scene dresses itself with. Scenario-agnostic — phase
  * names come from the plan, option ids from the roster.
  */
-import type { AgentState, DistrictSummary, ScenarioRoundPlanEntry, SimulationEvent } from "../types/messages";
+import type {
+  AgentState,
+  DistrictSummary,
+  DistrictTally,
+  ElectionResultEvent,
+  ElectionTally,
+  ScenarioRoundPlanEntry,
+  SimulationEvent,
+} from "../types/messages";
 import type { RoundSignals } from "../hooks/useWebSocket";
 import type { CivicEnv, ElectionPhase } from "../game/CivicLayer";
 
@@ -19,8 +27,32 @@ export const PHASE_LABEL: Record<ElectionPhase, string> = {
 
 const PHASES: ReadonlySet<string> = new Set(["seed", "converse", "news", "opinion", "decide"]);
 
+/**
+ * The campaign calendar names a few beats the quick plan never had. They
+ * dress the town like the phase they resemble: ballots are the decide
+ * phase, a reflection digest is an opinion pass, and the morning after —
+ * residents reacting to the result as a headline — is a news beat.
+ */
+const PHASE_ALIASES: Record<string, ElectionPhase> = {
+  vote: "decide",
+  ballot: "decide",
+  reflect: "opinion",
+  reflection: "opinion",
+  aftermath: "news",
+  results: "results",
+};
+
+/** A plan phase in the town's own vocabulary (unknown names pass through). */
+export function normalizePhase(value: string): string {
+  return PHASE_ALIASES[value] ?? value;
+}
+
 function isPhase(value: string): value is ElectionPhase {
   return PHASES.has(value);
+}
+
+function planPhases(entry: ScenarioRoundPlanEntry | undefined): string[] {
+  return (entry?.phases ?? []).map(normalizePhase);
 }
 
 /**
@@ -36,7 +68,7 @@ export function resolvePhase(
 ): ElectionPhase {
   if (ended) return "results";
   const entry = plan.find((r) => r.round === round);
-  const phases = (entry?.phases ?? ["converse"]).filter(isPhase);
+  const phases = (entry ? planPhases(entry) : ["converse"]).filter(isPhase);
   let current: ElectionPhase = phases[0] ?? "converse";
   if (!signals || signals.round !== round) return current;
   for (const ph of phases) {
@@ -53,13 +85,14 @@ export function resolvePhase(
 
 /** First plan round that includes `phase`, or null when the plan never does. */
 export function firstRoundWith(plan: ScenarioRoundPlanEntry[], phase: string): number | null {
-  const rounds = plan.filter((r) => r.phases.includes(phase)).map((r) => r.round);
+  const wanted = normalizePhase(phase);
+  const rounds = plan.filter((r) => planPhases(r).includes(wanted)).map((r) => r.round);
   return rounds.length ? Math.min(...rounds) : null;
 }
 
-/** Whether the plan puts a decide phase in `round`. */
+/** Whether the plan puts a decide phase (a ballot beat) in `round`. */
 export function roundDecides(plan: ScenarioRoundPlanEntry[], round: number): boolean {
-  return plan.some((r) => r.round === round && r.phases.includes("decide"));
+  return plan.some((r) => r.round === round && planPhases(r).includes("decide"));
 }
 
 export function townTally(agents: AgentState[], undecidedId: string): Record<string, number> {
@@ -95,24 +128,33 @@ export interface CivicEnvInput {
   undecidedId: string;
   finalSummary: DistrictSummary | null;
   labels: Record<string, string>;
+  /** This town's count once it reported on election night (campaign runs). */
+  townResult?: ElectionTally | null;
+  /** The district roll-up once every town reported. */
+  electionResult?: ElectionResultEvent | null;
 }
 
 export function buildCivicEnv(input: CivicEnvInput): CivicEnv {
   const round = input.signals?.round ?? input.currentRound;
-  const ended = input.finalSummary !== null;
+  // The town is "decided" once the run ended — or, on election night, once
+  // its own count (or the district's) is in: the bunting goes up that
+  // evening and stays through the morning after.
+  const ended = input.finalSummary !== null || input.townResult != null || input.electionResult != null;
   const phase = resolvePhase(input.plan, round, input.signals, ended);
   const firstOpinion = firstRoundWith(input.plan, "opinion");
   const opinionRevealed = ended || (firstOpinion === null ? round >= 1 : round >= firstOpinion);
   const tally = townTally(input.agents, input.undecidedId);
   let result: CivicEnv["result"] = null;
   if (ended) {
+    const counted = input.townResult ?? input.electionResult?.per_town?.[input.townId] ?? null;
     const town = input.finalSummary?.town_summaries?.find((t) => t.town === input.townId);
     const finalTally: Record<string, number> = {};
-    for (const [id, n] of Object.entries(town?.opinions ?? {})) {
+    const source = counted?.tally ?? town?.opinions ?? {};
+    for (const [id, n] of Object.entries(source)) {
       if (id !== input.undecidedId && n > 0) finalTally[id] = n;
     }
     const useTally = Object.keys(finalTally).length ? finalTally : tally;
-    result = { winner: leaderOf(useTally), tally: useTally };
+    result = { winner: counted ? counted.winner : leaderOf(useTally), tally: useTally };
   }
   return {
     phase,
@@ -139,6 +181,11 @@ export interface TownResult {
   /** Lead of the first option over the second, in residents and as a share of decided. */
   margin: number;
   marginPct: number;
+  /** Ballot facts when the count came from real ballots (campaign runs). */
+  turnout?: number | null;
+  eligible?: number | null;
+  abstained?: number | null;
+  mode?: "ballots" | "straw_poll";
 }
 
 export interface SwingResident {
@@ -156,6 +203,8 @@ export interface RunResults {
   district: Omit<TownResult, "town">;
   towns: TownResult[];
   swing: SwingResident[];
+  /** Where the numbers came from: the engine's count, or a stance tally. */
+  source: "election" | "opinions";
 }
 
 function tallyResult(counts: Record<string, number>, undecidedId: string): Omit<TownResult, "town"> {
@@ -178,24 +227,98 @@ function tallyResult(counts: Record<string, number>, undecidedId: string): Omit<
   };
 }
 
+/** A town's engine count → the results row (undecided kept for straw polls). */
+function tallyFromCount(tally: ElectionTally | DistrictTally, undecidedId: string): Omit<TownResult, "town"> {
+  const counts: Record<string, number> = {};
+  for (const [id, n] of Object.entries(tally.tally ?? {})) if (id !== undecidedId) counts[id] = n;
+  const undecided = "undecided" in tally && typeof tally.undecided === "number" ? tally.undecided : 0;
+  if (undecided > 0) counts[undecidedId] = undecided;
+  const base = tallyResult(counts, undecidedId);
+  return {
+    ...base,
+    // The engine already broke ties and measured the margin; keep its word.
+    winner: tally.winner ?? null,
+    margin: tally.margin ?? base.margin,
+    marginPct: typeof tally.margin_pct === "number" ? tally.margin_pct : base.marginPct,
+    turnout: typeof tally.turnout === "number" ? tally.turnout : null,
+    eligible: typeof tally.eligible === "number" ? tally.eligible : null,
+    abstained: typeof tally.abstained === "number" ? tally.abstained : null,
+    mode: "mode" in tally ? tally.mode : "ballots",
+  };
+}
+
+/** Sum of per-town counts when the district roll-up itself is missing. */
+function districtFromTowns(towns: TownResult[], undecidedId: string): Omit<TownResult, "town"> {
+  const counts: Record<string, number> = {};
+  for (const t of towns) for (const [id, n] of Object.entries(t.counts)) counts[id] = (counts[id] ?? 0) + n;
+  return tallyResult(counts, undecidedId);
+}
+
 /**
  * Everything the results moment needs, from the final district summary
  * and the run's events: the winner, district and per-town tallies, and
  * the residents who moved — switched between options, or came off the
  * fence — with the round it happened in. Pure and scenario-agnostic.
+ *
+ * A summary that carries the engine's own `election` block (campaign runs
+ * with real ballots) is preferred: its per-town tallies, the district
+ * turnout, and its list of who moved. Older summaries fall back to the
+ * stance counts and the events.
  */
 export function resultsFromRun(
   summary: DistrictSummary,
   events: SimulationEvent[],
   undecidedId: string,
 ): RunResults {
+  const election = summary.election;
+  if (election && election.per_town && Object.keys(election.per_town).length > 0) {
+    const order = summary.town_summaries.map((t) => t.town);
+    const townIds = [...order, ...Object.keys(election.per_town).filter((t) => !order.includes(t))]
+      .filter((t) => election.per_town[t]);
+    const towns = townIds.map((town) => ({ town, ...tallyFromCount(election.per_town[town], undecidedId) }));
+    const district = election.district
+      ? tallyFromCount(election.district, undecidedId)
+      : districtFromTowns(towns, undecidedId);
+    const swing = Array.isArray(election.swing_residents) && election.swing_residents.length > 0
+      ? election.swing_residents
+        .filter((s) => s.to !== undecidedId)
+        .map((s) => ({ agentId: s.agent_id, name: s.name, town: s.town, from: s.from, to: s.to, round: s.round, kind: s.kind }))
+      : swingFromEvents(events, undecidedId);
+    return { winner: district.winner, district, towns, swing, source: "election" };
+  }
+
   const towns = summary.town_summaries.map((t) => ({ town: t.town, ...tallyResult(t.opinions ?? {}, undecidedId) }));
   const districtCounts: Record<string, number> = { ...(summary.overall_opinions ?? {}) };
   if (Object.keys(districtCounts).length === 0) {
     for (const t of towns) for (const [id, n] of Object.entries(t.counts)) districtCounts[id] = (districtCounts[id] ?? 0) + n;
   }
   const district = tallyResult(districtCounts, undecidedId);
+  return { winner: district.winner, district, towns, swing: swingFromEvents(events, undecidedId), source: "opinions" };
+}
 
+/**
+ * The results moment from election night's district roll-up, before the
+ * run has ended (the morning after still follows). Per-town rows come from
+ * the event's counts; who moved comes from the events so far.
+ */
+export function resultsFromElection(
+  result: ElectionResultEvent,
+  events: SimulationEvent[],
+  undecidedId: string,
+  townOrder: string[] = [],
+): RunResults {
+  const perTown = result.per_town ?? {};
+  const townIds = [...townOrder, ...Object.keys(perTown).filter((t) => !townOrder.includes(t))]
+    .filter((t) => perTown[t]);
+  const towns = townIds.map((town) => ({ town, ...tallyFromCount(perTown[town], undecidedId) }));
+  const district = result.district
+    ? tallyFromCount(result.district, undecidedId)
+    : districtFromTowns(towns, undecidedId);
+  return { winner: district.winner, district, towns, swing: swingFromEvents(events, undecidedId), source: "election" };
+}
+
+/** Residents who switched options or came off the fence, from the events. */
+export function swingFromEvents(events: SimulationEvent[], undecidedId: string): SwingResident[] {
   // First stance per resident (the seed) and the last change that moved them.
   const first = new Map<string, string>();
   const last = new Map<string, SwingResident>();
@@ -221,10 +344,9 @@ export function resultsFromRun(
       kind: from === undecidedId ? "decided" : "switched",
     });
   }
-  const swing = [...last.values()]
+  return [...last.values()]
     .filter((s) => s.to !== undecidedId)
     .sort((a, b) => (a.kind === b.kind ? b.round - a.round : a.kind === "switched" ? -1 : 1));
-  return { winner: district.winner, district, towns, swing };
 }
 
 /** Per-round district (or one town's) tallies from the run's round_ended events. */

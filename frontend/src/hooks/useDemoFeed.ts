@@ -22,6 +22,7 @@ import type { WsState } from "./useWebSocket";
 import { DEFAULT_EVENT_DELAY, EVENT_DELAYS, eventDelayMs } from "../demo/pacing";
 import type { DemoSpeed } from "../demo/pacing";
 import { demoUrl } from "../demo/demoMode";
+import { chaptersByDay, type DayChapter } from "../lib/calendar";
 
 /* ── Cold-open curation ──────────────────────────────────────
  * A raw feed opens on round-0 arrivals: 30-60s of walking with no dialogue.
@@ -50,15 +51,9 @@ function curatedStartIndex(events: SimulationEvent[], talkIndex: number): number
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-/** A round boundary in the feed — one tick on the timeline scrubber. */
-export interface DemoChapter {
-  round: number;
-  /** Index of the round_started event in the feed. */
-  index: number;
-  /** In-world clock at that round (from the first world_clock_tick after it). */
-  hour: number | null;
-  minute: number | null;
-}
+/** One tick on the timeline scrubber: a campaign day when the recording
+ *  carries days, else a round boundary (see lib/calendar chaptersByDay). */
+export type DemoChapter = DayChapter;
 
 export interface DemoPlayer {
   /** Feed fetched and parsed; playback is possible. */
@@ -100,31 +95,14 @@ export interface DemoFeed {
 
 /* ── Helpers ────────────────────────────────────────────────── */
 
-function buildChapters(events: SimulationEvent[]): DemoChapter[] {
-  const out: DemoChapter[] = [];
-  const seen = new Set<number>();
-  for (let i = 0; i < events.length; i++) {
-    const evt = events[i];
-    if (evt.type !== "round_started") continue;
-    // Multi-town runs emit round_started once per town — chapter = the FIRST
-    // occurrence of each round number.
-    if (seen.has(evt.round)) continue;
-    seen.add(evt.round);
-    // Find the in-world clock for this round: first tick before the next round.
-    let hour: number | null = null;
-    let minute: number | null = null;
-    for (let j = i + 1; j < events.length; j++) {
-      const e = events[j];
-      if (e.type === "round_started") break;
-      if (e.type === "world_clock_tick") {
-        hour = e.hour;
-        minute = e.minute;
-        break;
-      }
-    }
-    out.push({ round: evt.round, index: i, hour, minute });
-  }
-  return out;
+/**
+ * Chapters of the feed: one per campaign day when round_started carries a
+ * day (a 22-day campaign is 22 ticks, not 66), else one per round — the
+ * FIRST occurrence of each, since multi-town runs emit round_started once
+ * per town. The fixed replay has no days and keeps its "Round N" chapters.
+ */
+export function buildChapters(events: SimulationEvent[]): DemoChapter[] {
+  return chaptersByDay(events);
 }
 
 /* ── Hook ───────────────────────────────────────────────────── */
