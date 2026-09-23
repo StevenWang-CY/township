@@ -25,8 +25,10 @@ import { fileURLToPath } from "node:url";
 import {
   captureDayInReview,
   captureNeighbors,
+  dayRoundIndex,
   heroCampaignBeats,
   openFeedRoute,
+  seekPlayer,
 } from "./campaign.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -383,22 +385,53 @@ try {
     join(MEDIA, "scene", "atlas-millbrook.png"),
   );
 
+  // Every town's stills start from the same campaign moment — a weekday
+  // morning in the second week, once yard signs have taken colour — with
+  // nothing modal over the map: the player keeps its position across town
+  // switches, so after Dover's results shots the others would otherwise
+  // open at the end, under the results overlay.
+  const millbrookFeed = JSON.parse(
+    readFileSync(join(DEMO_DIST, "demo", "millbrook-budget--campaign.json"), "utf8"),
+  );
   const townSets = [
-    { scenario: null, id: "dover", residents: 6 },
-    { scenario: null, id: "montclair", residents: 6 },
-    { scenario: null, id: "parsippany", residents: 6 },
-    { scenario: null, id: "randolph", residents: 6 },
-    { scenario: "millbrook-budget", id: "millbrook-village", residents: 4 },
-    { scenario: "millbrook-budget", id: "harlow-crossing", residents: 4 },
+    { scenario: null, id: "dover", residents: 6, feed: defaultFeed, day: 8 },
+    { scenario: null, id: "montclair", residents: 6, feed: defaultFeed, day: 8 },
+    { scenario: null, id: "parsippany", residents: 6, feed: defaultFeed, day: 8 },
+    { scenario: null, id: "randolph", residents: 6, feed: defaultFeed, day: 8 },
+    { scenario: "millbrook-budget", id: "millbrook-village", residents: 4, feed: millbrookFeed, day: 4 },
+    { scenario: "millbrook-budget", id: "harlow-crossing", residents: 4, feed: millbrookFeed, day: 4 },
   ];
+  // The chip beside the map reads the replay's own clock, so each still
+  // seeks to the beat whose hour matches the light it is shot in: midday
+  // for the day still, evening for the night one — just past the beat's
+  // clock tick, so the chip does not still show the previous beat's hour.
+  async function seekStillMoment(page, town, beat) {
+    await page
+      .waitForFunction(() => Boolean(window.__demoPlayer?.ready), null, { timeout: 15_000 })
+      .catch(() => undefined);
+    const start = dayRoundIndex(town.feed, town.id, town.day, beat);
+    if (start >= 0) {
+      const tick = town.feed.events.findIndex(
+        (e, i) => i > start && e.type === "world_clock_tick" && e.town === town.id,
+      );
+      await seekPlayer(page, (tick >= 0 && tick - start < 12 ? tick : start) + 1, 900);
+    }
+    // Nothing modal over the map: the results dialog closes on Escape, the
+    // day-in-review card on its own control.
+    await page.keyboard.press("Escape").catch(() => undefined);
+    const dayCard = page.locator(".day-summary-close").first();
+    if (await dayCard.isVisible().catch(() => false)) await dayCard.click().catch(() => undefined);
+    await page.waitForTimeout(200);
+  }
 
   let socialBackdrop = null;
   for (const town of townSets) {
     await openRoute(page, `/town/${town.id}`, town.scenario);
     await waitForTown(page, town.residents);
+    await seekStillMoment(page, town, "midday");
     await page.evaluate(() => window.__town?.setOverviewMode(true));
     await settleTownStill(page);
-    await setTownMoment(page, 16, 30);
+    await setTownMoment(page, 12, 30);
     const dayPath = join(MEDIA, "scene", `${town.id}-day.png`);
     const dayBuffer = await shot(page, dayPath);
 
@@ -416,19 +449,33 @@ try {
       // move the camera onto them FIRST, and re-show the replay's own line
       // for the speaker as the readable spotlight bubble.
       await resumeReplay(page);
+      // Wait for a speaker the camera can centre on: at least 340 px from
+      // the map's sides and 220 px from its top and bottom, or the framed
+      // pair sits against the edge and their bubble clips. Any speaker will
+      // do after 30 s.
       await page
-        .waitForFunction(() => {
+        .waitForFunction((strict) => {
           const scene = window.__townshipScene;
           if (!scene?.agentSprites) return false;
           // Cross-town conversations only mark the remote side, so a local
           // speech bubble counts as a speaker too, not just "talking".
-          return [...scene.agentSprites.values()].some(
+          const talkers = [...scene.agentSprites.values()].filter(
             (sprite) =>
               sprite.getActivity?.() === "talking" ||
               (sprite.getSpeechBubbleCount?.() || 0) > 0,
           );
-        }, null, { timeout: 15_000 })
-        .catch(() => undefined);
+          if (!strict) return talkers.length > 0;
+          return talkers.some((s) => s.x >= 340 && s.x <= 1200 - 340 && s.y >= 220 && s.y <= 800 - 220);
+        }, true, { timeout: 30_000 })
+        .catch(() => page.waitForFunction((strict) => {
+          const scene = window.__townshipScene;
+          if (!scene?.agentSprites) return false;
+          return [...scene.agentSprites.values()].some(
+            (sprite) =>
+              sprite.getActivity?.() === "talking" ||
+              (sprite.getSpeechBubbleCount?.() || 0) > 0,
+          ) || !strict;
+        }, false, { timeout: 15_000 }).catch(() => undefined));
       await pauseReplay(page);
       const talkerId = await page.evaluate(() => {
         const scene = window.__townshipScene;
@@ -441,8 +488,12 @@ try {
             (s.getSpeechBubbleCount?.() || 0) > 0,
         );
         if (talkers.length === 0) return null;
+        // The best-placed speaker first: the one farthest from the map's edges.
+        const margin = ([, s]) => Math.min(s.x, 1200 - s.x, s.y, 800 - s.y);
+        talkers.sort((p, q) => margin(q) - margin(p));
         const [aId, a] = talkers[0];
-        const b = talkers[1]?.[1] ?? a;
+        const near = talkers.slice(1).find(([, s]) => Math.hypot(s.x - a.x, s.y - a.y) < 96);
+        const b = near?.[1] ?? a;
         const cam = scene.cameras.main;
         cam.setZoom(1.45);
         cam.centerOn((a.x + b.x) / 2, (a.y + b.y) / 2 + 24);
@@ -522,6 +573,10 @@ try {
       }
     }
 
+    // The evening beat for the night still (Dover has just been to the end
+    // for its results shots).
+    await seekStillMoment(page, town, "evening");
+    await page.evaluate(() => window.__town?.setOverviewMode(true));
     await settleTownStill(page);
     await setTownMoment(page, 21, 30);
     await shot(page, join(MEDIA, "scene", `${town.id}-night.png`));
