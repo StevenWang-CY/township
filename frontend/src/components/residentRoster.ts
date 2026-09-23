@@ -12,6 +12,33 @@ interface RosterAgentWire {
   occupation?: unknown;
   initial_lean?: unknown;
   top_concerns?: unknown;
+  /** Persona routine, relationships and idle thoughts — the same fields the
+   *  WebSocket roster carries, so a live town runs its schedules before any
+   *  simulation event arrives. */
+  routine?: unknown;
+  relationships?: unknown;
+  idle_thoughts?: unknown;
+  /** Where the resident starts (their routine stop at the start clock). */
+  location?: unknown;
+}
+
+function routineFrom(raw: unknown): Array<{ time: string; location: string; activity: string }> | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.filter((e): e is { time: string; location: string; activity: string } =>
+    !!e && typeof e === "object"
+    && typeof (e as { time?: unknown }).time === "string"
+    && typeof (e as { location?: unknown }).location === "string"
+    && typeof (e as { activity?: unknown }).activity === "string");
+  return out.length > 0 ? out : undefined;
+}
+
+function relationshipsFrom(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function initialsFor(name: string): string {
@@ -44,8 +71,12 @@ export function rosterAgentsFromPayload(
       const id = typeof record.agent_id === "string" ? record.agent_id : "";
       const name = typeof record.name === "string" ? record.name : id;
       if (!id || !name) return;
-      const concerns = Array.isArray(record.top_concerns)
-        ? record.top_concerns.filter((v): v is string => typeof v === "string").slice(0, 2)
+      const allConcerns = Array.isArray(record.top_concerns)
+        ? record.top_concerns.filter((v): v is string => typeof v === "string")
+        : [];
+      const concerns = allConcerns.slice(0, 2);
+      const idleThoughts = Array.isArray(record.idle_thoughts)
+        ? record.idle_thoughts.filter((v): v is string => typeof v === "string")
         : [];
       result.push({
         id,
@@ -58,10 +89,14 @@ export function rosterAgentsFromPayload(
           reasoning: "",
           top_issues: concerns,
         },
-        location: "",
+        location: typeof record.location === "string" ? record.location : "",
         current_activity: "Going about the day",
         initials: initialsFor(name),
         color: ROSTER_COLORS[index % ROSTER_COLORS.length],
+        routine: routineFrom(record.routine),
+        relationships: relationshipsFrom(record.relationships),
+        idle_thoughts: idleThoughts.length > 0 ? idleThoughts : undefined,
+        top_concerns: allConcerns.length > 0 ? allConcerns : undefined,
       });
     });
   }

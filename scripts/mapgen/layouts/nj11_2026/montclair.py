@@ -33,6 +33,7 @@ from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
     awning_strip,
+    bench,
     church,
     cottage,
     facade_wall,
@@ -40,6 +41,8 @@ from mapgen.build_maps import (
     noticeboard,
     pad_stamp,
     path,
+    patio,
+    platform,
     storefront,
 )
 
@@ -53,10 +56,12 @@ def tudor_shop(
     sign: int | None = None,
     awning: bool = False,
     door: str = "red",
+    landmark: str | None = None,
 ) -> None:
     """Tudor boutique: cedar shingle roof (3) + timber band (2) + light
     cream shopfront (2). Footprint w x 7 — a red door pops against the
-    cream, and every free bay gets a bright display window."""
+    cream, and every free bay gets a bright display window. ``landmark``
+    registers the front for the spot pass."""
     m.reserve(x, y - 1, w, 8)
     m.stamp("buildings-top", M.shingle_stamp("cedar", w, 3), x, y)
     m.stamp("buildings-base", pad_stamp(R.WALL_TIMBER_BAND, w, 2), x, y + 3)
@@ -85,6 +90,7 @@ def tudor_shop(
         # punching a grass-colored hole through the facade
         m.stamp("buildings-top", R.SIGNS_WALL[sign % len(R.SIGNS_WALL)], sx, y + 4)
     m.collide(x, y, w, 7)
+    m.register_front(landmark, x, y, w, 7, x + dd, y + 6, y + 3)
 
 
 def compose(m: MapCanvas) -> None:
@@ -125,13 +131,13 @@ def compose(m: MapCanvas) -> None:
 
     # ================= buildings (reserve before paint_roads) =============
     # -- Montclair Art Museum: grand stone facade with banners
-    grand(m, 10, 9, 10, 8, facade="stone_large", roof="stone", windows=True)
+    grand(m, 10, 9, 10, 8, facade="stone_large", roof="stone", windows=True, landmark="Art Museum")
     m.stamp("buildings-base", R.BANNER_RED_A, 13, 12)
     m.stamp("buildings-base", R.BANNER_RED_B, 16, 12)
     # -- Boutique Row: two generous tudor shopfronts — cedar shingles,
     #    red doors, display windows between the timber bays
-    tudor_shop(m, 21, 13, 7, awning=True)
-    tudor_shop(m, 28, 13, 7, sign=4)  # bakery pretzel
+    tudor_shop(m, 21, 13, 7, awning=True, landmark="Boutique Row")
+    tudor_shop(m, 28, 13, 7, sign=4, landmark="Boutique Row")  # bakery pretzel
     m.pave(23, 20, 2, 2)  # stoop paths across the front gardens
     m.pave(30, 20, 2, 2)
     # -- Town Hall: brick arch, civic banners, paved forecourt
@@ -144,8 +150,8 @@ def compose(m: MapCanvas) -> None:
     cottage(m, 66, 13, 6, 8, roof="deck_dark", landmark="Anderson Park")
     m.pave(57, 21, 15, 1)
     # -- Watchung Plaza: cafe + tudor bookshop over a shared plaza
-    storefront(m, 31, 28, 6, 7, facade="cream", awning=True)  # cafe
-    tudor_shop(m, 38, 28, 6, door_dx=3, sign=0)  # bookshop
+    storefront(m, 31, 28, 6, 7, facade="cream", awning=True, landmark="Watchung Plaza")  # cafe
+    tudor_shop(m, 38, 28, 6, door_dx=3, sign=0, landmark="Watchung Plaza")  # bookshop
     m.pave(30, 35, 11, 5)
     # -- Public Library
     grand(
@@ -153,9 +159,20 @@ def compose(m: MapCanvas) -> None:
     )
     m.pave(20, 35, 7, 2)
     # -- St. Paul Baptist Church
-    church(m, 8, 32, 8, 8, variant="clapboard")
+    church(m, 8, 32, 8, 8, variant="clapboard", landmark="St. Paul Baptist")
     # -- Bay Street Station
-    grand(m, 55, 30, 9, 7, facade="stone_large", roof="stone", door="metal", windows=True)
+    grand(
+        m,
+        55,
+        30,
+        9,
+        7,
+        facade="stone_large",
+        roof="stone",
+        door="metal",
+        windows=True,
+        landmark="Bay Street Station",
+    )
     m.pave(54, 37, 12, 2)
 
     # ================= paint the road network =================
@@ -219,10 +236,8 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.POST_WOOD_B, 51, 13)
     m.collide(47, 14, 1, 1)
     m.collide(51, 14, 1, 1)
-    m.set("deco-below", 48, 15, M.mg("bench_h"))
-    m.set("deco-below", 50, 15, M.mg("bench_h"))
-    m.collide(48, 15, 1, 1)
-    m.collide(50, 15, 1, 1)
+    bench(m, 48, 15, landmark="Anderson Park")
+    bench(m, 50, 15, landmark="Anderson Park")
     # pond with foam shimmer
     m.stamp("deco-below", R.POND_GRASS, 53, 11)
     m.collide(53, 11, 6, 5)
@@ -246,17 +261,24 @@ def compose(m: MapCanvas) -> None:
     m.lamp(52, 18)
 
     # ================= Watchung Plaza dressing =================
-    m.stamp("deco-below", R.STOOL, 31, 36)
-    m.stamp("deco-below", R.STOOL, 33, 37)
-    m.collide(31, 36, 3, 2)
+    patio(
+        m,
+        31,
+        36,
+        3,
+        2,
+        stools=((0, 0), (2, 1)),
+        landmark="Watchung Plaza",
+        floor=False,
+        blocks=((0, 0, 3, 2),),
+    )
     m.stamp("deco-below", R.MENU_BOARD, 31, 38)
     m.collide(31, 38, 2, 2)
     m.stamp("deco-below", R.SIGNS_STANDING[2], 35, 36)  # cafe mug sign
     m.collide(35, 37, 2, 1)
     m.stamp("deco-below", R.PLANTER_PURPLE, 39, 38)
     m.collide(39, 38, 2, 2)
-    m.set("deco-below", 37, 37, M.mg("bench_h"))
-    m.collide(37, 37, 1, 1)
+    bench(m, 37, 37, landmark="Watchung Plaza")
     m.lamp(30, 39)
     m.flowers(42, 36, n=5, spread=2)
     m.tree(43, 39, stamp="tree_round_small")
@@ -264,8 +286,7 @@ def compose(m: MapCanvas) -> None:
     # ================= library frontage =================
     noticeboard(m, 19, 36, landmark="Public Library")
     m.collide(19.2, 36.3, 0.6, 0.7)
-    m.set("deco-below", 24, 36, M.mg("bench_h"))
-    m.collide(24, 36, 1, 1)
+    bench(m, 24, 36, landmark="Public Library")
     m.stamp("deco-below", R.PLANTER_YELLOW, 19, 37)
     m.collide(19, 37, 2, 2)
     m.flowers(23, 38, n=4, spread=2)
@@ -298,7 +319,7 @@ def compose(m: MapCanvas) -> None:
     m.flowers(15, 30, n=4, spread=1)
 
     # ================= Bay Street Station =================
-    m.stamp("ground-detail", pad_stamp(R.DECK_LIGHT, 16, 3), 51, 39)
+    platform(m, 51, 39, 16, 3, landmark="Bay Street Station")
     m.collide(51, 41.6, 16, 0.4)
     # metal railings cap both platform ends so the deck reads as a
     # platform, not a floating wall
@@ -308,8 +329,7 @@ def compose(m: MapCanvas) -> None:
     m.collide(66, 39, 1, 2)
     m.lamp(52, 39)
     m.lamp(64, 39)
-    m.set("deco-below", 58, 40, M.mg("bench_h"))
-    m.collide(58, 40, 1, 1)
+    bench(m, 58, 40, landmark="Bay Street Station")
     m.set("deco-below", 61, 40, M.mg("trash_bin"))
     m.collide(61.2, 40.3, 0.6, 0.7)
     m.stamp("deco-below", M.BUS_SIGN, 56, 26)  # bus stop on the avenue
@@ -368,8 +388,7 @@ def compose(m: MapCanvas) -> None:
         m.tree(x, y, stamp=rng.choice(("tree_light", "tree_dark", "tree_fruit_a")))
     m.flowers(39, 43, n=5, spread=2)
     m.stamp("deco-below", R.FLOWER_PATCH, 34, 42)
-    m.set("deco-below", 38, 44, M.mg("bench_h"))
-    m.collide(38, 44, 1, 1)
+    bench(m, 38, 44, landmark="Watchung Plaza")  # nearest landmark to the pocket green
     m.stamp("deco-below", R.BUSH_ROUND, 44, 48)
     m.stamp("deco-below", R.BUSH_ROUND, 58, 48)
     m.stamp("deco-below", R.BUSH_ROUND, 68, 48)

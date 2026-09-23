@@ -14,7 +14,8 @@
     "postdemo:build": "node scripts/demo-404.mjs",
     "demo:preview": "vite preview --outDir dist-demo",
     "test:scripts": "node --test scripts/*.test.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:unit": "vitest run"
   },
   "keywords": [
     "generative-agents",
@@ -43,6 +44,7 @@
     "playwright": "^1.61.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "vite": "^8.1.5"
+    "vite": "^8.1.5",
+    "vitest": "^3.2.4"
   }
 }

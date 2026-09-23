@@ -32,12 +32,14 @@ from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
     apron,
+    bench,
     church,
     cottage,
     diner,
     grand,
     noticeboard,
     path,
+    patio,
     storefront,
 )
 
@@ -127,12 +129,14 @@ def compose(m: MapCanvas) -> None:
     # "fort" recomposed as a hall with a door, flags stay)
     storefront(m, 14, 15, 8, 8, facade="brick", roof="terracotta", sign=None)
     # -- shops
-    storefront(m, 28, 17, 6, 6, facade="brick", roof="slate", sign=0)  # finance
-    storefront(m, 37, 17, 5, 6, facade="cream", awning=True)  # boutique
+    storefront(
+        m, 28, 17, 6, 6, facade="brick", roof="slate", sign=0, landmark="Commercial Strip"
+    )  # finance
+    storefront(m, 37, 17, 5, 6, facade="cream", awning=True, landmark="Commercial Strip")
     # -- civic north tier
     grand(m, 31, 8, 9, 8, facade="stone_large", windows=True, landmark="Town Hall")
-    grand(m, 47, 10, 10, 9, facade="stone_large", windows=True)  # High School
-    church(m, 58, 16, 8, 7, variant="clapboard")  # church
+    grand(m, 47, 10, 10, 9, facade="stone_large", windows=True, landmark="High School")
+    church(m, 58, 16, 8, 7, variant="clapboard", landmark="Church")
     # -- housing: cream colonials, slate-blue shingles, shutters
     cottage(m, 69, 15, 6, 8, roof="slate", landmark="Residential Cul-de-sacs")  # colonial E
     cottage(m, 36, 29, 6, 7, roof="slate", landmark="Residential Cul-de-sacs")  # cul-de-sac W
@@ -159,21 +163,16 @@ def compose(m: MapCanvas) -> None:
 
     # ================= diner set-piece dressing =================
     m.anchor("smoke", 3, 18)  # griddle chimney
-    m.fill("ground-detail", 9, 18, 4, 5, R.STONE_FLOOR_FILL)  # terrace
+    patio(m, 9, 18, 4, 5, stools=((0, 1), (2, 3)), landmark="Randolph Diner")  # terrace
     m.stamp("deco-below", R.MENU_BOARD, 9, 16)
     m.collide(9, 16, 2, 2)
     m.stamp("deco-below", R.SIGNS_STANDING[1], 11, 16)  # utensils sign
     m.collide(11, 17, 2, 1)
-    m.stamp("deco-below", R.STOOL, 9, 19)
-    m.stamp("deco-below", R.STOOL, 11, 21)
-    m.collide(9, 19, 2, 1)
-    m.collide(11, 21, 2, 1)
 
     # ================= VFW memorial =================
     m.stamp("deco-below", R.STATUE, 24, 19)
     m.collide(24, 20, 2, 2)
-    m.set("deco-below", 26, 21, M.mg("bench_h"))
-    m.collide(26, 21, 1, 1)
+    bench(m, 26, 21, landmark="Commercial Strip")
     # flag banners flanking the hall door
     for bx in (13, 22):
         m.stamp("deco-below", R.POST_WOOD_A, bx, 22)
@@ -207,10 +206,8 @@ def compose(m: MapCanvas) -> None:
     # stripe the bays along the north kerb)
     for px in (50, 52, 54):
         m.set("ground-detail", px, 3, M.mg("parking_stall"))
-    m.set("deco-below", 50, 8, M.mg("bench_h"))
-    m.set("deco-below", 53, 8, M.mg("bench_h"))
-    m.collide(50, 8, 1, 1)
-    m.collide(53, 8, 1, 1)
+    bench(m, 50, 8, landmark="High School")
+    bench(m, 53, 8, landmark="High School")
     m.stamp("deco-below", R.PLANTER_PURPLE, 57, 4)
     m.collide(57, 4, 2, 2)
     m.lamp(48, 2)
@@ -256,10 +253,8 @@ def compose(m: MapCanvas) -> None:
                 m.set("ground-detail", 21 + dx, 38 + dy, rng.choice(R.PATH_TAN.fill))
     for bx, by in ((21, 35), (18, 38), (24, 38), (21, 41)):
         m.set("ground-detail", bx, by, chalk)
-    m.set("deco-below", 20, 42, M.mg("bench_h"))
-    m.set("deco-below", 24, 42, M.mg("bench_h"))
-    m.collide(20, 42, 1, 1)
-    m.collide(24, 42, 1, 1)
+    bench(m, 20, 42, landmark="Sports Fields")
+    bench(m, 24, 42, landmark="Sports Fields")
     m.stamp("deco-below", R.CRATE, 12, 43)
     m.stamp("deco-below", R.BUCKET, 14, 43)
     m.collide(12, 43, 4, 2)
@@ -310,8 +305,7 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.FERN, 48, 42)
     m.collide(49, 44, 2, 2)
     m.collide(53, 45, 2, 2)
-    m.set("deco-below", 51, 43, M.mg("bench_h"))
-    m.collide(51, 43, 1, 1)
+    bench(m, 51, 43, landmark="Hedden Park")
     m.anchor("flower", 50, 47)
     m.flowers(52, 47, n=5, spread=2)
     m.lamp(60, 27)

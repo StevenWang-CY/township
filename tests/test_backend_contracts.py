@@ -10,16 +10,18 @@ Every test here asserts a fix that was NOT true before this audit pass:
   - transcribe / tts degrade to 503 when their credential is absent
   - simulation start (already running) -> 409, replay (no cache) -> 404
 """
+
 import asyncio
 
 from conftest import FakeClient, load_nj11_scenario
 from starlette.testclient import TestClient
 
 from backend.core.event_bus import EventBus
-from backend.core.types import DistrictSummary, TownSummary
+from backend.core.types import AgentDefinition, DistrictSummary, TownSummary
 from backend.core.wire import (
     agent_state_to_wire,
     district_summary_to_wire,
+    initial_location,
     opinion_to_wire,
     town_summary_to_wire,
 )
@@ -42,10 +44,10 @@ _PLAYER_HEADERS = {PLAYER_CAPABILITY_HEADER: "A" * 43}
 
 # ── Route behaviour ────────────────────────────────────────────
 
+
 def test_unknown_agent_returns_404():
     with TestClient(app) as c:
-        r = c.post("/api/chat/this-agent-does-not-exist",
-                   json={"message": "hello", "user_id": "t"})
+        r = c.post("/api/chat/this-agent-does-not-exist", json={"message": "hello", "user_id": "t"})
     assert r.status_code == 404
     assert r.json().get("error") == "agent_not_found"
 
@@ -58,9 +60,11 @@ def test_chat_llm_error_returns_503():
     app.state.orchestrator.client = fake
     try:
         with TestClient(app) as c:
-            r = c.post(f"/api/chat/{agent_id}",
-                       json={"message": "How's business?", "user_id": "t"},
-                       headers=_PLAYER_HEADERS)
+            r = c.post(
+                f"/api/chat/{agent_id}",
+                json={"message": "How's business?", "user_id": "t"},
+                headers=_PLAYER_HEADERS,
+            )
         assert r.status_code == 503
         assert r.json().get("error") == "llm_unavailable"
     finally:
@@ -83,8 +87,11 @@ def test_chat_success_returns_trust_without_mutating_public_opinion():
                 json={
                     "message": "How's business?",
                     "user_id": "t",
-                    "user_profile": {"name": "Sam", "town": "dover",
-                                     "top_concerns": ["healthcare"]},
+                    "user_profile": {
+                        "name": "Sam",
+                        "town": "dover",
+                        "top_concerns": ["healthcare"],
+                    },
                 },
                 headers=_PLAYER_HEADERS,
             )
@@ -144,16 +151,16 @@ def test_simulation_start_conflict_409():
 def test_replay_missing_cache_404():
     # The default cache path resolves under <repo>/data and is not present.
     with TestClient(app) as c:
-        r = c.post("/api/simulation/replay",
-                   json={"cache_path": "data/does_not_exist_cache.json"})
+        r = c.post("/api/simulation/replay", json={"cache_path": "data/does_not_exist_cache.json"})
     assert r.status_code == 404
 
 
 def test_transcribe_without_key_returns_503(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with TestClient(app) as c:
-        r = c.post("/api/transcribe",
-                   files={"audio": ("clip.webm", b"\x00\x01\x02\x03", "audio/webm")})
+        r = c.post(
+            "/api/transcribe", files={"audio": ("clip.webm", b"\x00\x01\x02\x03", "audio/webm")}
+        )
     assert r.status_code == 503
     assert r.json().get("error") == "transcription_unavailable"
 
@@ -166,6 +173,7 @@ def test_tts_without_key_returns_503(monkeypatch):
 
 
 # ── Wire-shape contracts ───────────────────────────────────────
+
 
 def test_agent_wire_includes_living_world_fields():
     agent = app.state.orchestrator.get_agent_state(_first_agent_id())
@@ -180,6 +188,85 @@ def test_agent_wire_includes_living_world_fields():
     # reach the wire (this is the fix that revives the living-world feature).
     assert len(wire["idle_thoughts"]) > 0
     assert len(wire["routine"]) > 0
+
+
+def _persona(routine: list[dict]) -> AgentDefinition:
+    return AgentDefinition(
+        name="Test Resident",
+        town="dover",
+        description="d",
+        age=40,
+        occupation="o",
+        household="h",
+        income_bracket="i",
+        language="en",
+        political_registration="unaffiliated",
+        initial_lean="undecided",
+        top_concerns=["taxes"],
+        tools=["Discuss"],
+        system_prompt="p",
+        routine=routine,
+    )
+
+
+def test_initial_location_follows_the_routine_clock():
+    routine = [
+        {"time": "06:30", "location": "Public Housing", "activity": "wakes"},
+        {"time": "08:00", "location": "La Finca Restaurant", "activity": "opens"},
+        {"time": "14:30", "location": "Bodega Row", "activity": "coffee"},
+        {"time": "21:00", "location": "Public Housing", "activity": "home"},
+    ]
+    defn = _persona(routine)
+    assert initial_location(defn, (8, 0)) == "La Finca Restaurant"  # exactly on a stop
+    assert initial_location(defn, (10, 15)) == "La Finca Restaurant"  # between stops
+    assert initial_location(defn, (14, 30)) == "Bodega Row"
+    # before the first stop the day wraps: still where last night ended
+    assert initial_location(defn, (5, 0)) == "Public Housing"
+    assert initial_location(defn, (23, 59)) == "Public Housing"
+    assert initial_location(_persona([]), (8, 0)) == ""
+    # the persona loader rejects malformed times, but a hand-built state
+    # (model_construct skips validation) must degrade to "" rather than crash
+    unvalidated = AgentDefinition.model_construct(routine=[{"time": "noon", "location": "x"}])
+    assert initial_location(unvalidated, (8, 0)) == ""
+
+
+def test_agent_wire_uses_routine_location_before_the_agent_has_moved():
+    agent = app.state.orchestrator.get_agent_state("carlos-restrepo")
+    assert agent is not None and agent.current_opinion is None
+    assert agent_state_to_wire(agent)["location"] == agent.current_location
+    assert agent_state_to_wire(agent, clock=(8, 0))["location"] == "La Finca Restaurant"
+    assert agent_state_to_wire(agent, clock=(14, 30))["location"] == "Bodega Row"
+
+
+def test_agents_roster_ships_routine_and_initial_location():
+    """`/api/simulation/agents` records carry the living-world fields and a
+    routine-resolved start location (Carlos opens La Finca at 08:00, the
+    scenario's first round clock)."""
+    with TestClient(app) as c:
+        r = c.get("/api/simulation/agents", params={"town": "dover"})
+    assert r.status_code == 200
+    dover = r.json()["agents"]["dover"]
+    carlos = next(a for a in dover if a["agent_id"] == "carlos-restrepo")
+    assert carlos["id"] == "carlos-restrepo"
+    assert carlos["location"] == "La Finca Restaurant"
+    assert isinstance(carlos["routine"], list) and carlos["routine"]
+    assert isinstance(carlos["relationships"], dict)
+    assert carlos["relationships"].get("tom-kowalski") == "friend"
+    assert isinstance(carlos["idle_thoughts"], list) and carlos["idle_thoughts"]
+    assert isinstance(carlos["top_concerns"], list) and carlos["top_concerns"]
+    for key in (
+        "description",
+        "age",
+        "political_registration",
+        "initial_lean",
+        "language",
+        "name",
+        "occupation",
+    ):
+        assert key in carlos, f"roster record lost {key}"
+    # every Dover resident's routine starts before 08:00, so nobody is
+    # reported at the orchestrator's placeholder landmark
+    assert all(a["location"] for a in dover)
 
 
 def test_trust_band_boundaries_match_frontend_contract():
@@ -219,12 +306,14 @@ def test_summaries_expose_failed_agents():
 
 # ── God's View actually re-forms opinion (Phase-3 finding N1) ───
 
+
 def test_god_view_reaction_appends_a_new_opinion():
     """A fresh orchestrator + fake client: an impactful injection must append a
     second Opinion (so gods_view.py opinion_shifts can ever be non-empty)."""
     fake = FakeClient(mode="normal")
     orch = SimulationOrchestrator(
-        anthropic_client=fake, event_bus=EventBus(),
+        anthropic_client=fake,
+        event_bus=EventBus(),
         scenario=load_nj11_scenario(),
     )
     agent = None

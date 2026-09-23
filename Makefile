@@ -48,6 +48,7 @@ dev-frontend: ## Frontend only: Vite dev server on :5173 (proxies /api + /ws)
 test: ## Run backend tests (no API keys needed) + frontend type-check
 	$(PYTHON) -m pytest -q
 	cd frontend && npm run test:scripts
+	cd frontend && npm run test:unit
 	cd frontend && npx tsc --noEmit
 
 test-e2e: ## Run the zero-backend Chromium, mobile, and WCAG browser suite

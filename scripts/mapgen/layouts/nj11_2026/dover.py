@@ -31,14 +31,17 @@ from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
     apron,
+    bench,
     church,
     cottage,
     facade_wall,
     grand,
+    market_stall,
     noticeboard,
-    pad_stamp,
     path,
     path_rect,
+    patio,
+    platform,
     storefront,
 )
 
@@ -92,13 +95,27 @@ def compose(m: MapCanvas) -> None:
         awning=True,
         landmark="La Finca Restaurant",
     )
-    storefront(m, 31, 16, 4, 6, facade="cream", roof="terracotta", awning=True)  # bodega
-    storefront(m, 35, 16, 4, 6, facade="brick", roof="terracotta", sign=4, window=False)  # taqueria
+    # Bodega Row (the landmark rect spans the bodega and the taqueria)
+    storefront(
+        m, 31, 16, 4, 6, facade="cream", roof="terracotta", awning=True, landmark="Bodega Row"
+    )
+    storefront(
+        m,
+        35,
+        16,
+        4,
+        6,
+        facade="brick",
+        roof="terracotta",
+        sign=4,
+        window=False,
+        landmark="Bodega Row",
+    )
     storefront(m, 39, 16, 4, 6, facade="cream", roof="terracotta", awning=True)  # barber
     # -- St. Mary's Church
     church(m, 48, 10, 8, 7, variant="stone", landmark="St. Mary's Church")
     # -- Factory & warehouse district
-    grand(m, 58, 14, 9, 8, facade="stone_large", windows=True)
+    grand(m, 58, 14, 9, 8, facade="stone_large", windows=True, landmark="Factory")
     # brick smokestack rising above the roofline + rooftop vent
     m.stamp("buildings-top", facade_wall("stone_small", 2, rows=[0, 1, 1, 2]), 64, 11)
     m.anchor("smoke", 64.5, 10)
@@ -125,17 +142,15 @@ def compose(m: MapCanvas) -> None:
             m.set("ground-detail", x, y, M.mg("rail_x") if x in crossing else M.mg("rail_h"))
 
     # ================= station platform (abuts the ballast) ===============
-    m.stamp("ground-detail", pad_stamp(R.DECK_LIGHT, 14, 4), 3, 38)
+    platform(m, 3, 38, 14, 4, landmark="Dover Station")
     m.lamp(4, 38)
     m.lamp(15, 38)
-    m.set("deco-below", 14, 39, M.mg("bench_h"))
-    m.collide(14, 39, 1, 1)
+    bench(m, 14, 39, landmark="Dover Station")
     m.stamp("deco-below", M.BUS_SIGN, 20, 36)  # bus stop at the forecourt
     m.collide(20.3, 37.3, 0.4, 0.7)
 
     # ================= plaza dressing =================
-    m.stamp("deco-below", R.MARKET_STALL, 22, 29)
-    m.collide(22, 30, 6, 2)
+    market_stall(m, 22, 29, landmark="Town Park")
     m.stamp("deco-below", R.MENU_BOARD, 28, 30)
     m.collide(28, 30, 2, 2)
     m.stamp("deco-below", R.CRATE, 21, 33)
@@ -151,11 +166,17 @@ def compose(m: MapCanvas) -> None:
     m.lamp(29, 27)
 
     # ================= La Finca outdoor seating =================
-    m.fill("ground-detail", 28, 19, 3, 3, R.STONE_FLOOR_FILL)
-    m.stamp("deco-below", R.STOOL, 28, 19)
-    m.stamp("deco-below", R.STOOL, 29, 20)
+    patio(
+        m,
+        28,
+        19,
+        3,
+        3,
+        stools=((0, 0), (1, 1)),
+        landmark="La Finca Restaurant",
+        blocks=((0, 0, 3, 2),),
+    )
     m.stamp("deco-below", R.PLANTER_PURPLE, 30, 18)
-    m.collide(28, 19, 3, 2)
     m.stamp("deco-below", R.SIGNS_STANDING[1], 28, 21)
 
     # ================= church garden =================
@@ -236,10 +257,8 @@ def compose(m: MapCanvas) -> None:
     m.tree(27, 36, stamp="tree_round_small")
     m.tree(35, 36, stamp="tree_round_small")
     m.tree(24, 40, stamp="tree_fruit_a")
-    m.set("deco-below", 28, 38, M.mg("bench_h"))
-    m.set("deco-below", 34, 38, M.mg("bench_h"))
-    m.collide(28, 38, 1, 1)
-    m.collide(34, 38, 1, 1)
+    bench(m, 28, 38, landmark="Town Park")
+    bench(m, 34, 38, landmark="Town Park")
     m.flowers(28, 41, n=6, spread=2)
     m.flowers(34, 36, n=5, spread=1)
     m.anchor("flower", 25, 38)

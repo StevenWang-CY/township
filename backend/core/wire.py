@@ -16,6 +16,7 @@ from collections import Counter
 
 from .scenario import validate_stance
 from .types import (
+    AgentDefinition,
     AgentState,
     DistrictSummary,
     NewsReaction,
@@ -61,14 +62,55 @@ def opinion_to_wire(o: Opinion | None) -> dict | None:
     }
 
 
-def agent_state_to_wire(s: AgentState, scenario=None) -> dict:
+def _routine_minutes(entry: object) -> int | None:
+    """Minutes since midnight of a routine entry's "HH:MM" time, or None
+    when the entry is malformed (routines are free-form persona data)."""
+    if not isinstance(entry, dict) or not entry.get("location"):
+        return None
+    raw = str(entry.get("time", "")).strip()
+    hour, sep, minute = raw.partition(":")
+    if not sep or not hour.isdigit() or not minute.isdigit():
+        return None
+    return int(hour) * 60 + int(minute)
+
+
+def initial_location(defn: AgentDefinition, clock: tuple[int, int]) -> str:
+    """Where a persona's routine puts them at `clock` (hour, minute): the
+    latest routine stop whose time is at or before the clock. Before the
+    first stop the day wraps — they are still where the previous evening
+    left them (the last stop). "" when the persona has no usable routine.
+    """
+    stops = [
+        (t, entry["location"])
+        for entry in defn.routine
+        if (t := _routine_minutes(entry)) is not None
+    ]
+    if not stops:
+        return ""
+    stops.sort(key=lambda stop: stop[0])
+    now = clock[0] * 60 + clock[1]
+    current = [location for t, location in stops if t <= now]
+    return current[-1] if current else stops[-1][1]
+
+
+def agent_state_to_wire(
+    s: AgentState, scenario=None, *, clock: tuple[int, int] | None = None
+) -> dict:
     """Map a backend AgentState to the frontend AgentState shape.
 
     `scenario` supplies the town accent color (town JSON `accent_color`);
-    without it the color falls back to a neutral gray.
+    without it the color falls back to a neutral gray. `clock` (hour,
+    minute) is the in-game time a pre-simulation roster is drawn for: an
+    agent who has not moved yet (no location, or no opinion formed) is
+    reported at their routine's stop for that hour instead of the
+    orchestrator's placeholder, so the roster and the map agree on where
+    everyone starts the day.
     """
     last_op = s.current_opinion
     town = s.definition.town
+    location = s.current_location
+    if clock is not None and (not location or last_op is None):
+        location = initial_location(s.definition, clock) or location
     if last_op is not None:
         opinion_payload = opinion_to_wire(last_op)
     else:
@@ -99,7 +141,7 @@ def agent_state_to_wire(s: AgentState, scenario=None) -> dict:
         "town": town,
         "occupation": s.definition.occupation,
         "opinion": opinion_payload,
-        "location": s.current_location,
+        "location": location,
         "current_activity": "idle",
         "initials": _initials(s.definition.name),
         "color": _color_for_town(town, scenario),

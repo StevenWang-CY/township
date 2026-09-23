@@ -5,6 +5,16 @@ import { TownScene, hasAuthoredTownMap } from "../game/TownScene";
 import { GAME_CONFIG } from "../game/config";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useTownData } from "../hooks/useTownData";
+import type { ScenarioRoundPlanEntry } from "../types/messages";
+
+/** The scenario's opening clock ("08:00" → {8, 0}); undefined without a plan. */
+function firstRoundClock(plan: ScenarioRoundPlanEntry[]): { hour: number; minute: number } | undefined {
+  const clock = plan?.[0]?.clock;
+  if (typeof clock !== "string") return undefined;
+  const [h, m] = clock.split(":").map((v) => Number.parseInt(v, 10));
+  if (!Number.isFinite(h)) return undefined;
+  return { hour: h, minute: Number.isFinite(m) ? m : 0 };
+}
 import { useRelationships } from "../hooks/useRelationships";
 import { CanvasOverlay } from "./CanvasOverlay";
 import ChatPanel from "./ChatPanel";
@@ -88,7 +98,7 @@ export default function TownView({ ws }: TownViewProps) {
   const town = (townId as TownId) || scen.scenario.towns[0].id;
   const meta = scen.townMeta(town);
   const { profile, isOnboarded, markAgentMet, markAgentPersuaded } = useUserProfile();
-  const { data: townData } = useTownData();
+  const { data: townData, loading: townDataLoading } = useTownData();
   const { trustFor } = useRelationships(profile?.playerId);
 
   const gameContainerRef = useRef<HTMLDivElement>(null);
@@ -311,6 +321,7 @@ export default function TownView({ ws }: TownViewProps) {
         mapPath: meta.map?.path,
         reducedMotion: Boolean(profile?.reducedMotion),
         population: Number(meta.population) || undefined,
+        startClock: firstRoundClock(scen.roundPlan),
       });
     } catch {
       sceneRef.current = null;
@@ -450,19 +461,25 @@ export default function TownView({ ws }: TownViewProps) {
   useEffect(() => {
     const scene = gameRef.current?.scene.getScene("TownScene") as TownScene | undefined;
     if (!scene?.scene?.isActive()) return;
+    // Seats are chosen against the landmark set, so wait for the
+    // authoritative one: the generic warm-up village would seat everyone
+    // at the wrong doors and re-seat them a moment later.
+    if (townDataLoading) return;
 
-    // Landmark lookup drives initial resident placement. Apply authoritative
-    // staged/API town data first whenever it is already available; if it
-    // arrives after scene boot, this effect runs again and rebases positions
-    // once against the canonical landmark set.
     const activeTownData = townData?.[town];
     if (activeTownData) scene.setTownData(activeTownData);
-    reconcileScene(scene);
+    if (!DEMO_MODE && ws.eventCursor === 0) {
+      // A live town before any simulation event: residents keep their
+      // schedules from the roster; the free-running clock is left alone.
+      scene.bootstrapResidents(townAgents);
+    } else {
+      reconcileScene(scene);
+    }
     lastProcessedCursor.current = ws.eventCursor;
     // eventCursor is sampled only when the scene/roster bootstrap changes; it
     // must not make this effect consume normal incremental events.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [townAgents.length, sceneReady, town, townData, reconcileScene]);
+  }, [townAgents.length, sceneReady, town, townData, townDataLoading, reconcileScene]);
 
   /* ── Process new events ──────────────────────────────────── */
 

@@ -77,8 +77,14 @@ export type BubbleSentiment = "positive" | "negative" | "neutral";
 export type EmotionalResponse = "angry" | "hopeful" | "anxious" | "indifferent" | "confused";
 export type VoteImpact = "strengthens_current" | "weakens_current" | "changes_mind" | "no_effect";
 
-/** Route a walk through the town's nav grid; null → straight line. */
-export type PathResolver = (from: Pt, to: Pt) => Pt[] | null;
+/** Route a walk through the town's nav grid. `avoid` marks temporary
+ *  obstacles (a body standing on the route). null → no route: the walker
+ *  stays put (never a straight line through walls). */
+export type PathResolver = (
+  from: Pt,
+  to: Pt,
+  opts?: { avoid?: Array<{ x: number; y: number; r: number }> },
+) => Pt[] | null;
 
 export interface MoveOptions {
   /** Facing to settle into on arrival (default: the last leg's direction). */
@@ -175,6 +181,20 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   private restingIndoors = false;
   /** Speaker lean (px) applied to the lead layers while a line is spoken. */
   private leanDx = 0;
+  /** Inside a building: every layer hidden, container parked on the door. */
+  private indoors = false;
+  private indoorsTween?: Phaser.Tweens.Tween;
+  /** Activity requested mid-walk; applied on arrival (see setActivity). */
+  private pendingActivity: AgentActivity | null = null;
+  /** Target + options of the walk in flight (detours re-path to it). */
+  private walkTarget: Pt | null = null;
+  private walkOpts?: MoveOptions;
+  /** The tween leg currently running (for the crowd tick's heading). */
+  private currentSeg: WalkSegment | null = null;
+  /** Yielding to an oncoming walker: tween + stride paused for a beat. */
+  private walkHeld = false;
+  private holdTimer?: Phaser.Time.TimerEvent;
+  private lastDetourAt = -Infinity;
 
   // Proximity highlight layers
   private proxGlow?: Phaser.GameObjects.Graphics;
@@ -583,8 +603,16 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       } catch {
         path = null;
       }
+      // No route (walled off, budget exhausted): stay where we are rather
+      // than sliding through a wall. The arrival callback still fires so
+      // schedules keep advancing.
+      if (!path || path.length === 0) {
+        onComplete?.();
+        return;
+      }
+    } else {
+      path = [{ x: tx, y: ty }];
     }
-    if (!path || path.length === 0) path = [{ x: tx, y: ty }];
     this.walkPath(path, onComplete, opts);
   }
 
@@ -604,22 +632,43 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.clearLean();
     this.nudgeTween?.stop();
     this.nudgeTween = undefined;
+    // Leaving a building: reappear at the door as the first step is taken.
+    if (this.indoors) this.setIndoors(false);
 
     const speed = Math.max(20, (opts?.speed ?? WALK_SPEED) * this.gaitJitter);
+    // Legs first, so a short hop (the ≤12 px step from a cell centre onto
+    // the exact spot) can inherit its neighbour's facing instead of
+    // flashing a sideways frame.
+    const legs: Array<{ x: number; y: number; dx: number; dy: number; len: number; dir: Direction }> = [];
+    {
+      let lx = this.x;
+      let ly = this.y;
+      for (const p of path) {
+        const dx = p.x - lx;
+        const dy = p.y - ly;
+        const len = Math.hypot(dx, dy);
+        if (len < 0.5) continue;
+        const dir: Direction = Math.abs(dx) > Math.abs(dy)
+          ? (dx > 0 ? "right" : "left")
+          : (dy > 0 ? "down" : "up");
+        legs.push({ x: p.x, y: p.y, dx, dy, len, dir });
+        lx = p.x;
+        ly = p.y;
+      }
+      for (let i = 0; i < legs.length; i++) {
+        if (legs[i].len >= 12) continue;
+        const neighbour = legs[i - 1] ?? legs[i + 1];
+        if (neighbour) legs[i].dir = neighbour.dir;
+      }
+    }
     const segments: WalkSegment[] = [];
     let px = this.x;
     let py = this.y;
-    for (let i = 0; i < path.length; i++) {
-      const p = path[i];
-      const dx = p.x - px;
-      const dy = p.y - py;
-      const len = Math.hypot(dx, dy);
-      if (len < 0.5) continue;
-      const dir: Direction = Math.abs(dx) > Math.abs(dy)
-        ? (dx > 0 ? "right" : "left")
-        : (dy > 0 ? "down" : "up");
+    for (let i = 0; i < legs.length; i++) {
+      const p = legs[i];
+      const { dx, dy, len, dir } = p;
       const first = segments.length === 0;
-      const last = i === path.length - 1;
+      const last = i === legs.length - 1;
       const capIn = first && len >= (last ? 64 : 40);
       const capOut = last && len >= (first ? 64 : 40);
       const ux = dx / len;
@@ -669,6 +718,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.walkSegments = segments;
     this.walkOnComplete = onComplete;
     this.walkArriveFacing = opts?.arriveFacing;
+    this.walkTarget = { x: dest.x, y: dest.y };
+    this.walkOpts = opts;
     this.walkDir = undefined;
     this.stopIdleMotion();
 
@@ -704,6 +755,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       this.currentDirection = seg.dir;
       this.playWalk(seg.dir);
     }
+    this.currentSeg = seg;
     this.moveTween = this.scene.tweens.add({
       targets: this,
       x: seg.x,
@@ -724,11 +776,14 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   private finishWalk() {
     const done = this.walkOnComplete;
     const facing = this.walkArriveFacing ?? this.currentDirection;
+    const pending = this.pendingActivity;
+    this.pendingActivity = null;
     this.stopWalk(false);
     this.currentDirection = facing;
     this.playIdle(facing);
     this.currentActivity = "idle";
     this.beginIdle();
+    if (pending && pending !== "walking" && pending !== "idle") this.setActivity(pending);
     done?.();
   }
 
@@ -742,6 +797,12 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.walkOnComplete = undefined;
     this.walkArriveFacing = undefined;
     this.walkDir = undefined;
+    this.walkTarget = null;
+    this.walkOpts = undefined;
+    this.currentSeg = null;
+    this.walkHeld = false;
+    this.holdTimer?.remove(false);
+    this.holdTimer = undefined;
     this.isMoving = false;
     this.reservedTarget = null;
     this.shadowTween?.stop();
@@ -755,6 +816,142 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       this.currentActivity = "idle";
       this.beginIdle();
     }
+  }
+
+  /* ── Crowd: yielding and detours ─────────────────────────── */
+
+  /** Unit heading of the leg in flight (null when standing). */
+  getWalkVector(): Pt | null {
+    const seg = this.currentSeg;
+    if (!this.isMoving || !seg) return null;
+    const dx = seg.x - this.x;
+    const dy = seg.y - this.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.5) return null;
+    return { x: dx / len, y: dy / len };
+  }
+
+  isHeld(): boolean { return this.walkHeld; }
+
+  /** Freeze the walk where it stands for `ms` — the courtesy step aside
+   *  when two walkers meet head-on. The tween and stride resume together. */
+  holdWalk(ms: number) {
+    if (!this.isMoving || this.walkHeld) return;
+    this.walkHeld = true;
+    this.moveTween?.pause();
+    for (const layer of this.animLayers()) layer.anims?.pause();
+    this.shadowTween?.pause();
+    this.holdTimer?.remove(false);
+    this.holdTimer = this.scene.time.delayedCall(ms, () => this.resumeWalk());
+  }
+
+  private resumeWalk() {
+    if (!this.walkHeld) return;
+    this.walkHeld = false;
+    this.holdTimer = undefined;
+    if (!this.isMoving) return;
+    this.moveTween?.resume();
+    for (const layer of this.animLayers()) layer.anims?.resume();
+    this.shadowTween?.resume();
+  }
+
+  /**
+   * Re-path around bodies standing on the route (at most once per 1.5 s).
+   * Keeps the destination, arrival callback and options of the walk in
+   * flight. Returns false when there is nothing to detour around.
+   */
+  detour(avoid: Array<{ x: number; y: number; r: number }>, now: number): boolean {
+    if (!this.isMoving || !this.walkTarget || !this.pathResolver || avoid.length === 0) return false;
+    if (now - this.lastDetourAt < 1500) return false;
+    this.lastDetourAt = now;
+    let path: Pt[] | null = null;
+    try {
+      path = this.pathResolver({ x: this.x, y: this.y }, this.walkTarget, { avoid });
+    } catch {
+      path = null;
+    }
+    if (!path || path.length === 0) return false;
+    const done = this.walkOnComplete;
+    const opts = this.walkOpts;
+    const pending = this.pendingActivity;
+    this.walkPath(path, done, opts);
+    this.pendingActivity = pending;
+    return true;
+  }
+
+  /** Turn to face a direction while standing (no walk). */
+  face(dir: Direction) {
+    this.currentDirection = dir;
+    if (!this.isMoving) this.playIdle(dir);
+  }
+
+  /* ── Indoors ─────────────────────────────────────────────── */
+
+  isIndoors(): boolean { return this.indoors; }
+
+  /**
+   * Step inside the building whose door this container is parked on: body,
+   * ring, shadow, badge and name fade out over three steps and stop drawing.
+   * The container stays put, so the minimap, the roster, proximity and the
+   * camera still know where the resident is. `silent` applies instantly
+   * (replay seeks, bootstrap).
+   */
+  setIndoors(on: boolean, opts: { silent?: boolean } = {}) {
+    if (this.indoors === on) return;
+    if (this.ambient || this.isPlayer) return;
+    this.indoors = on;
+    this.indoorsTween?.stop();
+    this.indoorsTween = undefined;
+    this.hideHoverChip();
+    if (on) {
+      this.clearSpeechBubbles();
+      this.clearLean();
+      this.stopIdleMotion();
+      const finish = () => {
+        this.setVisible(false);
+        this.setAlpha(1);
+      };
+      if (opts.silent || reducedMotion()) {
+        finish();
+        return;
+      }
+      this.indoorsTween = this.scene.tweens.add({
+        targets: this,
+        alpha: 0,
+        duration: 180,
+        ease: "Stepped",
+        easeParams: [3],
+        onComplete: finish,
+      });
+      return;
+    }
+    this.setVisible(true);
+    if (opts.silent || reducedMotion()) {
+      this.setAlpha(1);
+      if (!this.isMoving) this.beginIdle();
+      return;
+    }
+    this.setAlpha(0);
+    this.indoorsTween = this.scene.tweens.add({
+      targets: this,
+      alpha: 1,
+      duration: 180,
+      ease: "Stepped",
+      easeParams: [3],
+      onComplete: () => {
+        if (!this.isMoving) this.beginIdle();
+      },
+    });
+  }
+
+  /** Come out to the door (a visitor knocked, a conversation is forming). */
+  stepOut(onDone?: () => void) {
+    if (!this.indoors) {
+      onDone?.();
+      return;
+    }
+    this.setIndoors(false);
+    if (onDone) this.scene.time.delayedCall(reducedMotion() ? 0 : 200, onDone);
   }
 
   /** Every animated sprite layer whose walk cycle must share one stride. */
@@ -1164,9 +1361,10 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     y: number,
     stance: StanceState,
     activity: AgentActivity,
-    extras?: { decided?: boolean },
+    extras?: { decided?: boolean; indoors?: boolean },
   ) {
     this.stopWalk(false);
+    this.pendingActivity = null;
     this.clearLean();
     this.nudgeTween?.stop();
     this.nudgeTween = undefined;
@@ -1192,6 +1390,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     this.setStance(stance, "silent");
     this.setDecided(extras?.decided ? stance.optionId : null, "silent");
     this.setActivity(activity, true);
+    this.setIndoors(Boolean(extras?.indoors), { silent: true });
   }
 
   getOpinionColor(): string { return this.stance.color; }
@@ -1284,9 +1483,15 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   setActivity(activity: AgentActivity, force = false) {
     if (!force && activity === this.currentActivity) return;
-    // A non-walking activity always wins over an in-flight walk; leaving
-    // isMoving stuck true used to disable overlap nudges for good.
+    // A walk finishes first: a pose requested mid-stride (the diner fills at
+    // noon while someone is still crossing the street) is applied on
+    // arrival instead of freezing the body between two tiles.
+    if (activity !== "walking" && this.isMoving && !force) {
+      this.pendingActivity = activity;
+      return;
+    }
     if (activity !== "walking" && this.isMoving) this.stopWalk(false);
+    this.pendingActivity = null;
     this.clearActivityFx();
     this.stopIdleMotion();
     this.currentActivity = activity;

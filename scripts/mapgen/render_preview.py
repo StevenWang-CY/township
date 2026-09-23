@@ -189,7 +189,8 @@ def render(town_id: str, scenario: str = "nj11-2026", labels: bool = False) -> P
         elif kind == "banner":
             draw_stamp(canvas, M.BANNER_PLAIN, obj["x"], obj["y"])
         # noticeboard / pollplace / bunting / brazier: the kiosk and brazier
-        # are tiles already; the polling dressing only exists on decision day
+        # are tiles already; the polling dressing only exists on decision day.
+        # spot: standing places for residents — nothing to draw
 
     if "buildings-top" in layers:
         draw_layer(canvas, layers["buildings-top"])

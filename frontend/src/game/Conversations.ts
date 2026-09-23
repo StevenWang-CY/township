@@ -36,6 +36,13 @@ export interface ChoreoHost {
   findFreeNear(x: number, y: number, opts?: { clearOf?: number; exclude?: AgentSprite }): Pt;
   gatherSlotFor(key: string, cx: number, cy: number, sprite: AgentSprite, opts?: { skipCenter?: boolean }): Pt;
   releaseGatherSlot(agentId: string): void;
+  /** A facing chat pair (32 px apart) at the meeting place — the spec's
+   *  location, else where the participants dwell, else the nearest
+   *  landmark to `near`. Null when the town has no spot registry. */
+  chatPair?(ids: [string, string], near: Pt, location?: string): [Pt, Pt] | null;
+  /** Walk a resident back to the seat their day gives them (their porch,
+   *  their bench, back inside) once an exchange ends. */
+  returnToDwell?(agentId: string): void;
   /** Current option id for a resident ("" when unknown). */
   stanceOf(agentId: string): string;
 }
@@ -63,7 +70,7 @@ interface Plate {
 
 /** Half of the face-to-face gap for a pair (26 px reads as conversational
  *  distance for ~26 px-wide bodies without merging silhouettes). */
-const PAIR_HALF_GAP = 13;
+const PAIR_HALF_GAP = 16;
 /** Participants further than this from the centroid walk to the backend's
  *  named landmark instead of meeting in the middle of nowhere. */
 const FAR_PARTICIPANT_PX = 160;
@@ -162,8 +169,22 @@ export class ConversationChoreographer {
       // The resident already on the left takes the left slot: short walks,
       // no crossing paths, and a horizontal flank so both faces stay visible.
       const [l, r] = sprites[0].x <= sprites[1].x ? [sprites[0], sprites[1]] : [sprites[1], sprites[0]];
-      convo.slots.set(l.agentId, this.host.findFreeNear(anchor.x - PAIR_HALF_GAP, anchor.y));
-      convo.slots.set(r.agentId, this.host.findFreeNear(anchor.x + PAIR_HALF_GAP, anchor.y));
+      const pair = this.host.chatPair?.([l.agentId, r.agentId], anchor, spec.location) ?? null;
+      if (pair) {
+        // Authored chat spots: a porch step, a park path — never asphalt,
+        // never the same tile twice.
+        convo.slots.set(l.agentId, pair[0]);
+        convo.slots.set(r.agentId, pair[1]);
+        convo.anchor = { x: (pair[0].x + pair[1].x) / 2, y: (pair[0].y + pair[1].y) / 2 };
+      } else {
+        const left = this.host.findFreeNear(anchor.x - PAIR_HALF_GAP, anchor.y, { clearOf: 24 });
+        let right = this.host.findFreeNear(anchor.x + PAIR_HALF_GAP, anchor.y, { clearOf: 24 });
+        if (Phaser.Math.Distance.Between(left.x, left.y, right.x, right.y) < 24) {
+          right = this.host.findFreeNear(anchor.x + PAIR_HALF_GAP * 2, anchor.y + 12, { clearOf: 24 });
+        }
+        convo.slots.set(l.agentId, left);
+        convo.slots.set(r.agentId, right);
+      }
     } else {
       for (const s of sprites) {
         convo.slots.set(
@@ -269,13 +290,18 @@ export class ConversationChoreographer {
       const release = () => {
         if (!s.active || this.agentConvo.has(pid)) return; // re-engaged already
         s.setActivity("idle");
-        if (!farewell) return;
+        const home = this.host.returnToDwell;
+        if (!farewell) {
+          if (home) home(pid);
+          return;
+        }
         const dx = s.x - convo.anchor.x;
         const dy = s.y - convo.anchor.y;
         const len = Math.hypot(dx, dy) || 1;
         const ux = dx / len;
         const uy = dy / len;
-        // Half-step back, then turn away, then wander a couple of tiles off.
+        // Half-step back, then turn away, then go back to the day (or, with
+        // no seat registry, wander a couple of tiles off).
         s.nudgeTo(s.x + ux * FAREWELL_STEP_PX, s.y + uy * FAREWELL_STEP_PX);
         this.looseTimers.push(this.host.scene.time.delayedCall(180, () => {
           if (!s.active || this.agentConvo.has(pid) || s.isWalking()) return;
@@ -283,6 +309,10 @@ export class ConversationChoreographer {
         }));
         this.looseTimers.push(this.host.scene.time.delayedCall(420, () => {
           if (!s.active || this.agentConvo.has(pid) || s.isWalking()) return;
+          if (home) {
+            home(pid);
+            return;
+          }
           const goal = this.host.findFreeNear(
             convo.anchor.x + ux * DISPERSE_PX,
             convo.anchor.y + uy * DISPERSE_PX,

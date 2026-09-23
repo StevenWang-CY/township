@@ -40,12 +40,14 @@ from mapgen import moderntiles as M
 from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
+    bench,
     church,
     facade_wall,
     grand,
     noticeboard,
     path,
     path_rect,
+    patio,
     storefront,
 )
 
@@ -143,16 +145,19 @@ def compose(m: MapCanvas) -> None:
 
     # ================= buildings (reserve before paint_roads) =============
     # -- plaza strip: pharmacy / bank / barber / laundromat
-    storefront(m, 9, 13, 5, 6, facade="brick", sign=0)  # pharmacy
-    storefront(m, 14, 13, 4, 6, facade="stone_small", roof="stone", window=False, sign=None)  # bank
-    storefront(m, 18, 13, 4, 6, facade="cream", awning=True)  # barber
-    storefront(m, 22, 13, 5, 6, facade="cream", roof="stone", sign=None)  # laundromat
+    plaza = "Harlow Plaza"
+    storefront(m, 9, 13, 5, 6, facade="brick", sign=0, landmark=plaza)  # pharmacy
+    storefront(
+        m, 14, 13, 4, 6, facade="stone_small", roof="stone", window=False, sign=None, landmark=plaza
+    )  # bank
+    storefront(m, 18, 13, 4, 6, facade="cream", awning=True, landmark=plaza)  # barber
+    storefront(m, 22, 13, 5, 6, facade="cream", roof="stone", sign=None, landmark=plaza)
     # -- Rocco's Slice House
-    storefront(m, 29, 15, 6, 6, facade="brick", awning=True)
+    storefront(m, 29, 15, 6, 6, facade="brick", awning=True, landmark="Rocco's Slice House")
     # -- Harlow Elementary School (1968 brick, arch entry)
     grand(m, 41, 9, 11, 8, facade="brick", windows=True, landmark="Harlow Elementary School")
     # -- Harlow Congregational Church (1841, whitewashed)
-    church(m, 56, 15, 7, 8, variant="clapboard")
+    church(m, 56, 15, 7, 8, variant="clapboard", landmark="Harlow Congregational Church")
     # -- Harlow Firehouse (hand-composed: twin metal bays + red bunting),
     #    on the crossing's SE shoulder, fronting Crossing Road's sidewalk
     m.reserve(39, 28, 8, 8)
@@ -163,6 +168,9 @@ def compose(m: MapCanvas) -> None:
     m.stamp("buildings-base", R.BANNER_RED_A, 42, 33)
     m.stamp("buildings-base", R.BANNER_RED_B, 43, 33)
     m.collide(39, 29, 8, 7)
+    # both bay doors are fronts, so the apron spots spread across the slab
+    for bay in (40, 44):
+        m.register_front("Harlow Firehouse", 39, 29, 8, 7, bay, 35, 33)
     # -- Fairview homes: flat deck roofs over plain brick/cream fronts with
     #    a real door + window each, matching the town's building language
     storefront(
@@ -249,8 +257,17 @@ def compose(m: MapCanvas) -> None:
     # ================= Rocco's frontage =================
     m.stamp("deco-below", R.SIGNS_STANDING[1], 33, 21)  # utensils board
     m.collide(33, 22.6, 2, 0.4)
-    m.stamp("deco-below", R.STOOL, 29, 21)
-    m.collide(29, 21, 1, 1)
+    patio(
+        m,
+        29,
+        21,
+        2,
+        2,
+        stools=((0, 0),),
+        landmark="Rocco's Slice House",
+        floor=False,
+        blocks=((0, 0, 1, 1),),
+    )
     # on-street stalls out front (the washboard curb)
     m.set("ground-detail", 30, 24, M.mg("parking_stall"))
     m.set("ground-detail", 32, 24, M.mg("parking_stall"))
@@ -260,8 +277,7 @@ def compose(m: MapCanvas) -> None:
     # ================= school zone =================
     m.stamp("deco-below", M.BUS_SIGN, 41, 17)  # bus loop stop
     m.collide(41.3, 18.3, 0.4, 0.7)
-    m.set("deco-below", 51, 18, M.mg("bench_h"))
-    m.collide(51, 18, 1, 1)
+    bench(m, 51, 18, landmark="Harlow Elementary School")
     m.set("deco-below", 49, 17, M.mg("planter_box"))
     m.collide(49.1, 17.3, 0.8, 0.7)
     m.lamp(40, 17)
@@ -273,8 +289,7 @@ def compose(m: MapCanvas) -> None:
     path(m, {(55, 9), (56, 9), (57, 9), (55, 10), (56, 10), (57, 10)})  # sand pit
     m.stamp("deco-below", R.FENCE_METAL["rail_h"], 53, 9)  # climbing bar
     m.collide(53, 9.4, 2, 0.6)
-    m.set("deco-below", 57, 12, M.mg("bench_h"))
-    m.collide(57, 12, 1, 1)
+    bench(m, 57, 12, landmark="Harlow Elementary School")
     m.stamp("deco-below", R.FLOWER_PATCH, 53, 11)
     m.flowers(54, 12, n=3, spread=1)
     path(m, {(54, 14), (55, 14), (54, 15), (55, 15), (54, 16), (55, 16)})
@@ -389,8 +404,7 @@ def compose(m: MapCanvas) -> None:
     # walk from the firehouse apron + spectator benches
     path(m, {(x, y) for x in range(48, 54) for y in (36, 37)})
     for by in (35, 39):
-        m.set("deco-below", 52, by, M.mg("bench_h"))
-        m.collide(52, by, 1, 1)
+        bench(m, 52, by, landmark="Community Fields")
     m.lamp(49, 34)
     m.stamp("deco-below", R.SIGNS_STANDING[3], 48, 32)  # rec-league board
     m.collide(48, 33.6, 2, 0.4)

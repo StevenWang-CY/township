@@ -42,12 +42,13 @@ from mapgen import moderntiles as M
 from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
+    bench,
     cottage,
     grand,
     noticeboard,
-    pad_stamp,
     path,
     path_rect,
+    platform,
     storefront,
 )
 
@@ -106,8 +107,9 @@ LAKE_BLOB = R.Blob(
 def _lake(m: MapCanvas) -> None:
     cells = {(x, y) for y, (x0, x1) in LAKE_SPANS.items() for x in range(x0, x1 + 1)}
     m.blob("ground-detail", cells, LAKE_BLOB, holes=False)
-    # swimming dock jutting into the south lobe, base row on the shore
-    m.stamp("ground-detail", pad_stamp(R.DECK_LIGHT, 2, 4), 18, 16)
+    # swimming dock jutting into the south lobe, base row on the shore;
+    # its tip is a standing spot looking out over the water
+    platform(m, 18, 16, 2, 4, landmark="Lake Parsippany", edge="n")
     # stone bridge over the narrows: row 10 is the walkable deck; water
     # fill (not grass-backed rim) meets both parapets at rows 9 and 12
     m.stamp("deco-below", R.BRIDGE_STONE, 14, 9)
@@ -208,16 +210,28 @@ def compose(m: MapCanvas) -> None:
     # ================= buildings (reserve before paint_roads) =============
     # -- strip mall on Route 46
     storefront(m, 25, 13, 4, 6, facade="cream", roof="stone", sign=1)  # deli
-    storefront(m, 29, 13, 6, 6, facade="brick", roof="cedar", awning=True)  # grocery
+    storefront(
+        m, 29, 13, 6, 6, facade="brick", roof="cedar", awning=True, landmark="Indian Grocery"
+    )
     # -- Hindu temple (cream, banners; garden composed below). The cream
     # facade's arch-adjacent tiles have transparent notches; backfill the
     # upper wall rows with its plain interior tile so no grass pokes
     # through the silhouette.
     cream_wall = R.FACADE_CREAM.gids[3][5]
     m.fill("deco-below", 36, 9, 8, 3, (cream_wall,))
-    grand(m, 36, 7, 8, 7, facade="cream", banners=True)
+    grand(m, 36, 7, 8, 7, facade="cream", banners=True, landmark="Hindu Temple")
     # -- corporate campus: biggest block in town, glass row added below
-    grand(m, 51, 7, 12, 9, facade="stone_large", windows=True, door="metal")
+    grand(
+        m,
+        51,
+        7,
+        12,
+        9,
+        facade="stone_large",
+        windows=True,
+        door="metal",
+        landmark="Corporate Park",
+    )
     # -- public library
     grand(m, 23, 31, 9, 6, facade="stone_large", windows=True, landmark="Public Library")
     # -- residential cottages
@@ -225,10 +239,24 @@ def compose(m: MapCanvas) -> None:
     cottage(m, 16, 31, 6, 8, landmark="Residential Area")
     # -- NJ Transit shelter: striped awning over a brick waiting room,
     # door opening south onto the platform
-    storefront(m, 41, 26, 6, 6, facade="brick", roof="cedar", awning=True)
-    # -- community center + school on the shared esplanade
-    storefront(m, 55, 26, 8, 7, facade="stone_small", roof="deck_light", sign=1)
+    storefront(
+        m, 41, 26, 6, 6, facade="brick", roof="cedar", awning=True, landmark="NJ Transit Stop"
+    )
+    # -- community center + school on the shared esplanade. The hall is
+    #    registered first so it stays the polling front; the school sits
+    #    inside the Community Center landmark rect and shares its spots.
     grand(m, 64, 26, 8, 7, facade="brick", landmark="Community Center")
+    storefront(
+        m,
+        55,
+        26,
+        8,
+        7,
+        facade="stone_small",
+        roof="deck_light",
+        sign=1,
+        landmark="Community Center",
+    )
 
     # ================= paint the road network =================
     m.paint_roads()
@@ -267,8 +295,7 @@ def compose(m: MapCanvas) -> None:
     m.stamp("ground-detail", R.POND_GRASS, 41, 14)
     m.collide(42, 15, 4, 4)
     m.anchor("water-foam", 43, 16)
-    m.set("deco-below", 47, 17, M.mg("bench_h"))
-    m.collide(47, 17, 1, 1)
+    bench(m, 47, 17, landmark="Hindu Temple")
     m.stamp("deco-below", R.PLANTER_YELLOW, 35, 17)
     m.collide(35, 17, 2, 2)
     m.flowers(36, 18, n=5, spread=1)
@@ -295,10 +322,8 @@ def compose(m: MapCanvas) -> None:
     # ================= lakeside dressing =================
     m.stamp("deco-below", R.SIGNS_STANDING[3], 15, 19)  # swim-dock board
     m.collide(15, 20, 2, 1)
-    m.set("deco-below", 25, 15, M.mg("bench_h"))
-    m.collide(25, 15, 1, 1)
-    m.set("deco-below", 9, 12, M.mg("bench_h"))  # overlook bench
-    m.collide(9, 12, 1, 1)
+    bench(m, 25, 15, landmark="Lake Parsippany")
+    bench(m, 9, 12, landmark="Lake Parsippany")  # overlook bench
     m.lamp(22, 12)
     m.stamp("deco-below", R.ROCK_MED, 25, 7)
     m.stamp("deco-below", R.FERN, 26, 9)
@@ -322,8 +347,7 @@ def compose(m: MapCanvas) -> None:
     # ================= library plaza =================
     noticeboard(m, 24, 37, landmark="Public Library")
     m.collide(24.2, 37.3, 0.6, 0.7)
-    m.set("deco-below", 30, 37, M.mg("bench_h"))
-    m.collide(30, 37, 1, 1)
+    bench(m, 30, 37, landmark="Public Library")
     m.lamp(31, 37)
 
     # ================= residential lane =================
@@ -353,8 +377,7 @@ def compose(m: MapCanvas) -> None:
     # continuous with the road, and the pole sign marks the bay head.
     m.stamp("deco-below", M.BUS_SIGN, 46, 32)
     m.collide(46.3, 33.3, 0.4, 0.7)
-    m.set("deco-below", 42, 33, M.mg("bench_h"))
-    m.collide(42, 33, 1, 1)
+    bench(m, 42, 33, landmark="NJ Transit Stop")
     m.set("deco-below", 45, 33, M.mg("trash_bin"))
     m.collide(45.2, 33.3, 0.6, 0.7)
     for y in (35, 37):
@@ -368,8 +391,7 @@ def compose(m: MapCanvas) -> None:
     m.stamp("deco-below", R.BUSH_ROUND, 39, 38)
 
     # ================= community center + school =================
-    m.set("deco-below", 53, 33, M.mg("bench_h"))
-    m.collide(53, 33, 1, 1)
+    bench(m, 53, 33, landmark="Community Center")
     m.set("deco-below", 63, 33, M.mg("trash_bin"))
     m.collide(63.2, 33.3, 0.6, 0.7)
     m.stamp("deco-below", R.PLANTER_YELLOW, 63, 30)
@@ -388,8 +410,7 @@ def compose(m: MapCanvas) -> None:
         m.stamp("deco-below", R.POST_WOOD_B, gx, 42)
         m.collide(gx, 39, 1, 1)
         m.collide(gx, 42, 1, 1)
-    m.set("deco-below", 52, 38, M.mg("bench_h"))
-    m.collide(52, 38, 1, 1)
+    bench(m, 52, 38, landmark="Community Center")
 
     # ================= street furniture along Route 46 ====================
     for x in (5, 21, 45, 63, 72):

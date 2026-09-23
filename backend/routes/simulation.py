@@ -13,7 +13,7 @@ from ..core.artifacts import (
 )
 from ..core.storage import PROJECT_ROOT as APPLICATION_ROOT
 from ..core.storage import load_json, runs_root
-from ..core.wire import district_summary_to_wire, opinion_to_wire
+from ..core.wire import agent_state_to_wire, district_summary_to_wire, opinion_to_wire
 from .runs import RUN_ID_RE, resolve_run_dir
 
 logger = logging.getLogger(__name__)
@@ -344,11 +344,7 @@ async def replay_available(request: Request):
     root = runs_root()
     if root.is_dir():
         for run_dir in sorted(root.iterdir(), reverse=True):
-            if (
-                run_dir.is_symlink()
-                or not run_dir.is_dir()
-                or not RUN_ID_RE.match(run_dir.name)
-            ):
+            if run_dir.is_symlink() or not run_dir.is_dir() or not RUN_ID_RE.match(run_dir.name):
                 continue
             if not (run_dir / "events.json").is_file():
                 continue
@@ -389,11 +385,7 @@ async def latest_recap(request: Request):
     root = runs_root()
     if root.is_dir():
         for run_dir in sorted(root.iterdir(), reverse=True):
-            if (
-                run_dir.is_symlink()
-                or not run_dir.is_dir()
-                or not RUN_ID_RE.match(run_dir.name)
-            ):
+            if run_dir.is_symlink() or not run_dir.is_dir() or not RUN_ID_RE.match(run_dir.name):
                 continue
             recap_path = run_dir / "recap.md"
             summary = load_json(run_dir / "summary.json", {}) or {}
@@ -413,8 +405,19 @@ async def latest_recap(request: Request):
 
 @router.get("/agents")
 async def list_agents(request: Request, town: str | None = None):
-    """List all agents or agents for a specific town."""
+    """List all agents or agents for a specific town.
+
+    Each record is the full roster wire shape (routine, relationships,
+    idle thoughts, a `location` resolved from the routine at the scenario's
+    opening clock for agents that have not moved yet) plus the persona
+    facts the roster cards show. `agent_id` is kept alongside the wire
+    `id` because the frontend roster reader keys on it.
+    """
     orchestrator = request.app.state.orchestrator
+    scenario = request.app.state.scenario
+    # The first round's clock: before a run starts, "where is everyone?"
+    # means "where does their routine put them when the day opens".
+    start_clock = scenario.config.round_plan[0].clock_tuple()
 
     result = {}
     for t, agents in orchestrator.agent_states.items():
@@ -422,14 +425,12 @@ async def list_agents(request: Request, town: str | None = None):
             continue
         result[t] = [
             {
+                **agent_state_to_wire(a, scenario, clock=start_clock),
                 "agent_id": a.agent_id,
-                "name": a.definition.name,
                 "description": a.definition.description,
-                "occupation": a.definition.occupation,
                 "age": a.definition.age,
                 "political_registration": a.definition.political_registration,
                 "initial_lean": a.definition.initial_lean,
-                "top_concerns": a.definition.top_concerns,
                 "language": a.definition.language,
             }
             for a in agents

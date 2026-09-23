@@ -65,6 +65,15 @@ Object layers:
     without a mode (factory stacks) smoke all day
   - `seat` / `home` (yardsign): a stable seat index and the dwelling's landmark
   - `mount` (banner), `span` (bunting): where the runtime hangs civic cloth
+  - `spot` anchors (one per standing place, `name` = landmark): `role`
+    (`door | porch | window | chat | bench | table | stall | platform | lawn
+    | queue`), `facing` (`up | down | left | right | face`), `cap`, `order`
+    (unique per landmark; a queue's order is its rank from the door) and,
+    for chat pairs, `pair` + `side`. Emitted by `emit_spot_anchors()` from
+    the registered building fronts and the `bench()` / `patio()` /
+    `market_stall()` / `platform()` layout helpers; the runtime's spot
+    registry (`frontend/src/game/Spots.ts`) seats residents on them so a
+    crowd never piles on one door.
 
 ### Civic anchors (the election made visible)
 

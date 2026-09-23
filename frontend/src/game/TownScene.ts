@@ -19,6 +19,7 @@
 import Phaser from "phaser";
 import { appUrl } from "../lib/assetUrl";
 import {
+  type Direction,
   AgentSprite,
   type AgentActivity,
   type BubbleSentiment,
@@ -44,7 +45,9 @@ import { WorldClock } from "./WorldClock";
 import { Routine, type RoutineEntry } from "./Routine";
 import { pickExchange, relationshipKind, sharedConcernKey } from "./AmbientLines";
 import { ConversationChoreographer } from "./Conversations";
-import { arrivalFacing, deriveActivity } from "./DayPart";
+import { arrivalFacing, deriveActivity, dwellRoles, shouldBeIndoors } from "./DayPart";
+import { SpotRegistry, spotsFromAnchors, type Placement } from "./Spots";
+import { fnv1a } from "../lib/hash";
 import { landmarksFor } from "../hooks/useTownData";
 import { WeatherScene } from "./WeatherScene";
 import {
@@ -133,7 +136,12 @@ export class TownScene extends Phaser.Scene {
   private landmarks: LandmarkData[] = [];
   private landmarkPositions: Map<string, { x: number; y: number }> = new Map();
   private characterKeys: Set<string> = new Set();
+  /** Stroll targets for passers-by (landmark aprons). */
   private wanderPoints: Array<{ x: number; y: number }> = [];
+  /** Authored standing spots per landmark + who holds which (Spots.ts). */
+  private spots?: SpotRegistry;
+  /** Buildings with someone inside right now (day glow, chip pips). */
+  private occupiedLandmarks = new Set<string>();
   private collisionGroup?: Phaser.Physics.Arcade.StaticGroup;
   /** Blocked rectangles from the tilemap's "collision" object layer (px). */
   private collisionRects: Array<{ x: number; y: number; w: number; h: number }> = [];
@@ -178,7 +186,13 @@ export class TownScene extends Phaser.Scene {
   private proximityAgentId: string | null = null;
 
   // Night window glow quads (pane + halo per lit window stamp).
-  private windowGlows: Array<{ obj: Phaser.GameObjects.GameObject & { setAlpha(a: number): unknown }; max: number }> = [];
+  private windowGlows: Array<{
+    obj: Phaser.GameObjects.GameObject & { setAlpha(a: number): unknown };
+    max: number;
+    /** Building this pane belongs to (occupied buildings glow by day). */
+    landmark?: string;
+    pane?: boolean;
+  }> = [];
 
   // Conversation spotlight state
   private convoVignette?: Phaser.GameObjects.Image;
@@ -217,8 +231,29 @@ export class TownScene extends Phaser.Scene {
   /** Walkability grid + A* over the collision layer (rebuilt with the map). */
   private navGrid?: NavGrid;
   /** Installed on every body so walks route around buildings and water. */
-  private readonly pathResolver = (from: Pt, to: Pt): Pt[] | null =>
-    this.navGrid?.findPath(from, to) ?? null;
+  private readonly pathResolver = (
+    from: Pt,
+    to: Pt,
+    opts?: { avoid?: Array<{ x: number; y: number; r: number }> },
+  ): Pt[] | null => {
+    const grid = this.navGrid;
+    if (!grid) return null;
+    const direct = grid.findPath(from, to, opts);
+    if (direct) return this.recordPath(from, direct);
+    // Walled off (or the goal sits in scenery): go as near as the grid
+    // allows instead of sliding through the wall.
+    const near = grid.nearestReachable(from, to);
+    if (!near || Math.hypot(near.x - from.x, near.y - from.y) < 6) return null;
+    const partial = grid.findPath(from, near, opts);
+    return partial ? this.recordPath(from, partial) : null;
+  };
+  /** The last 50 routes handed to walkers (probes assert their shape). */
+  private recentPaths: Array<{ from: Pt; path: Pt[] }> = [];
+  private recordPath(from: Pt, path: Pt[]): Pt[] {
+    this.recentPaths.push({ from: { x: from.x, y: from.y }, path: path.map((p) => ({ x: p.x, y: p.y })) });
+    if (this.recentPaths.length > 50) this.recentPaths.shift();
+    return path;
+  }
   // Scenario towns do not have to ship a Tiled map. This procedural layer is
   // rebuilt from their authoritative landmark rectangles when no map exists.
   private fallbackWorld?: Phaser.GameObjects.Container;
@@ -236,6 +271,8 @@ export class TownScene extends Phaser.Scene {
     overview?: boolean;
     /** Town population (scenario data) — scales ambient life. */
     population?: number;
+    /** The scenario's first round clock (live towns open on it). */
+    startClock?: { hour: number; minute: number };
   }) {
     this.scenarioId = data.scenarioId;
     this.townId = data.townId;
@@ -243,6 +280,13 @@ export class TownScene extends Phaser.Scene {
     this.population = Number.isFinite(data.population) ? Number(data.population) : 0;
     this.reducedMotionRequested = Boolean(data.reducedMotion);
     this.overviewRequested = data.overview ?? true;
+    if (data.startClock) {
+      this.worldClock = new WorldClock({
+        startHour: data.startClock.hour,
+        startMinute: data.startClock.minute,
+        minutesPerSecond: 1,
+      });
+    }
     // Inline fallback until the scenario town payload resolves.
     this.landmarks = landmarksFor(this.townId).slice();
 
@@ -364,8 +408,26 @@ export class TownScene extends Phaser.Scene {
       landmarkEntrance: (name) => this.landmarkPositions.get(this.resolveLandmarkName(name) ?? name),
       nearestWalkable: (pt) => this.navGrid?.nearestWalkable(pt.x, pt.y, 96, { avoidRoad: true }) ?? pt,
       findFreeNear: (x, y, opts) => this.findFreeNear(x, y, opts),
-      gatherSlotFor: (key, cx, cy, sprite, opts) => this.gatherSlotFor(key, cx, cy, sprite, opts),
-      releaseGatherSlot: (id) => this.releaseGatherSlot(id),
+      gatherSlotFor: (key, cx, cy, sprite, opts) => this.formationSlot(key, cx, cy, sprite, opts),
+      releaseGatherSlot: (id) => this.spots?.release(id, "chat"),
+      returnToDwell: (id) => this.returnToDwell(id),
+      chatPair: (ids, near, location) => {
+        const reg = this.spots;
+        if (!reg) return null;
+        let landmark = location ? this.resolveLandmarkName(location) : undefined;
+        if (!landmark) {
+          const votes = new Map<string, number>();
+          for (const id of ids) {
+            const loc = this.agentRecords.get(id)?.location;
+            if (loc) votes.set(loc, (votes.get(loc) ?? 0) + 1);
+          }
+          landmark = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+        }
+        landmark ??= this.nearestLandmarkName(near);
+        if (!landmark) return null;
+        const [a, b] = reg.reserveChatPair(landmark, ids, near);
+        return [{ x: a.x, y: a.y }, { x: b.x, y: b.y }];
+      },
       stanceOf: (id) => this.agentOpinions.get(id) ?? "",
     });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.choreo.destroy());
@@ -572,16 +634,68 @@ export class TownScene extends Phaser.Scene {
     // still ended up overlapping, then declutter name labels (pair lanes,
     // crowd badges, landmark-label occupancy).
     this.crowdTickAccum += delta;
+    this.walkTickAccum += delta;
+    this.occupancyAccum += delta;
+    if (this.walkTickAccum >= 100) {
+      this.walkTickAccum = 0;
+      this.crowdWalkersTick();
+    }
     if (this.crowdTickAccum >= 200) {
       this.crowdTickAccum = 0;
       this.resolveBodyOverlaps();
       this.declutterLabels();
     }
+    if (this.occupancyAccum >= 1000) {
+      this.occupancyAccum = 0;
+      this.refreshOccupancy();
+    }
   }
 
-  /* ── Crowd hygiene: separation + label declutter ────────── */
+  /* ── Crowd hygiene: yielding, separation, label declutter ── */
 
   private crowdTickAccum = 0;
+  private walkTickAccum = 0;
+  private occupancyAccum = 0;
+
+  /**
+   * Walkers yield to each other (10 Hz): a body standing on the route is
+   * detoured around; two walkers meeting head-on settle it by id hash —
+   * the lower one pauses for a beat while the other passes. The player
+   * never yields and only counts as an obstacle.
+   */
+  private crowdWalkersTick() {
+    const now = this.time.now;
+    const bodies = this.allBodies().filter((b) => b.active && !b.isIndoors());
+    for (const w of bodies) {
+      if (!w.isWalking() || w.isHeld()) continue;
+      const v = w.getWalkVector();
+      if (!v) continue;
+      const avoid: Array<{ x: number; y: number; r: number }> = [];
+      for (const o of bodies) {
+        if (o === w) continue;
+        const rx = o.x - w.x;
+        const ry = o.y - w.y;
+        const along = rx * v.x + ry * v.y;
+        if (along < 4 || along > 40) continue;
+        const across = Math.abs(rx * v.y - ry * v.x);
+        if (across > 22) continue;
+        const ov = o.isWalking() ? o.getWalkVector() : null;
+        if (ov) {
+          // Same way or crossing: nothing to do. Head-on: someone yields.
+          if (ov.x * v.x + ov.y * v.y >= -0.5) continue;
+          const yielder = w === this.playerSprite ? o
+            : o === this.playerSprite ? w
+              : fnv1a(w.agentId) < fnv1a(o.agentId) ? w : o;
+          if (yielder !== this.playerSprite && !yielder.isHeld()) {
+            yielder.holdWalk(300 + (fnv1a(yielder.agentId) % 300));
+          }
+          continue;
+        }
+        avoid.push({ x: o.x, y: o.y, r: 14 });
+      }
+      if (avoid.length > 0 && w !== this.playerSprite) w.detour(avoid, now);
+    }
+  }
 
   /**
    * Gently push apart bodies that overlap on the ground plane. Walk targets
@@ -591,12 +705,14 @@ export class TownScene extends Phaser.Scene {
    */
   private resolveBodyOverlaps() {
     const MIN_DIST = 30;
-    const bodies = this.allBodies().filter((b) => b.active);
-    // Walkers land on occupancy-resolved targets, the player owns their own
-    // ground, and a conversation formation is deliberately tighter than
-    // MIN_DIST — none of them get pushed.
+    const bodies = this.allBodies().filter((b) => b.active && !b.isIndoors());
+    // Walkers land on reserved spots, the player owns their own ground, a
+    // facing chat pair is deliberately close, and a body standing on an
+    // authored spot (porch, bench, stool — 32 px apart by design) is where
+    // it belongs — none of them get pushed.
+    const onSpot = (s: AgentSprite) => Boolean(this.spots?.placementOf(s.agentId)?.spot);
     const pushable = (s: AgentSprite) =>
-      s !== this.playerSprite && !s.isWalking() && s.getActivity() !== "talking";
+      s !== this.playerSprite && !s.isWalking() && s.getActivity() !== "talking" && !onSpot(s);
     for (let i = 0; i < bodies.length; i++) {
       for (let j = i + 1; j < bodies.length; j++) {
         const a = bodies[i];
@@ -640,7 +756,7 @@ export class TownScene extends Phaser.Scene {
    */
   private declutterLabels() {
     const residents = [...this.agentSprites.values()]
-      .filter((s) => s !== this.playerSprite && s.active);
+      .filter((s) => s !== this.playerSprite && s.active && !s.isIndoors());
     const player = this.playerSprite;
 
     // Greedy proximity clustering (n is small — a town has < 12 residents).
@@ -655,7 +771,7 @@ export class TownScene extends Phaser.Scene {
         if (assigned[j]) continue;
         const dx = Math.abs(residents[i].x - residents[j].x);
         const dy = Math.abs(residents[i].y - residents[j].y);
-        if (dx < 56 && dy < 28) {
+        if (dx < 72 && dy < 28) {
           group.push(j);
           assigned[j] = true;
         }
@@ -696,163 +812,184 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  /* ── Gathering formations ─────────────────────────────────
+  /* ── Placement: spots, formations, indoors ────────────────
    *
-   * When N residents converge on one target (routine arrivals, news
-   * convergence, conversations, replay snapshots) they are assigned stable
-   * slots on elliptical rings around the meeting point instead of racing
-   * findFreeNear onto the same few tiles. Slot 0 is the centre itself;
-   * rings are wider than tall because y-sorted ~51px sprites need more
-   * horizontal than vertical clearance to keep distinct silhouettes.
-   * A resident keeps its slot until it leaves the gathering, so later
-   * arrivals never reshuffle the crowd; freed inner slots are simply
-   * reused by the next arrival.
+   * Residents stand on authored spots (Spots.ts) — the door apron, porch
+   * steps, benches, patio stools, the platform edge, park lawn — chosen
+   * deterministically per (resident, landmark) so a seek re-derives the
+   * same town. A full landmark overflows into blue-noise points around its
+   * apron; nobody ever shares a tile. Work, meals, prayer and rest happen
+   * indoors: the body steps in at the door and the window carries the life.
    */
 
-  /** Ring plan: arc spacing stays ~30-34px on every ring. */
-  private static readonly GATHER_RINGS = [
-    { cap: 6, rx: 38, ry: 27 },
-    { cap: 11, rx: 70, ry: 48 },
-    { cap: 15, rx: 100, ry: 66 },
-  ];
+  /** Replay seats stay inside the recorded coordinate's neighbourhood
+   *  (e2e asserts ±174/140 px of the recorded landmark corner). */
+  private static readonly SEAT_ENVELOPE = { dx: 170, dy: 136 };
 
-  private gatherings = new Map<string, {
-    cx: number;
-    cy: number;
-    /** Doorway gatherings fan out along the sidewalk (east/west first)
-     *  instead of stacking straight below the door. */
-    sideways: boolean;
-    /** agentId → claimed slot indices (couples shadow-claim a neighbour). */
-    slots: Map<string, number[]>;
-    used: Set<number>;
-  }>();
-
-  /** agentId → gathering key it currently occupies. */
-  private agentGatherKey = new Map<string, string>();
-
-  /** Slot index → point around (cx, cy). Fills outward from the south
-   *  point, alternating right/left, so small groups read as an arc that
-   *  opens toward the camera. Returns null past total capacity. */
-  private gatherSlotPoint(cx: number, cy: number, idx: number, sideways = false): { x: number; y: number } | null {
-    if (idx === 0) return { x: cx, y: cy };
-    let base = 1;
-    for (const ring of TownScene.GATHER_RINGS) {
-      if (idx < base + ring.cap) {
-        const j = idx - base;
-        const k = j % 2 === 0 ? j / 2 : -((j + 1) / 2);
-        const a = (sideways ? 0 : Math.PI / 2) + k * ((Math.PI * 2) / ring.cap);
-        return { x: cx + Math.cos(a) * ring.rx, y: cy + Math.sin(a) * ring.ry };
-      }
-      base += ring.cap;
-    }
-    return null;
-  }
-
-  /** Free the agent's gathering slot (called when it walks away). */
-  private releaseGatherSlot(agentId: string) {
-    const key = this.agentGatherKey.get(agentId);
-    if (!key) return;
-    this.agentGatherKey.delete(agentId);
-    const g = this.gatherings.get(key);
-    if (!g) return;
-    for (const idx of g.slots.get(agentId) ?? []) g.used.delete(idx);
-    g.slots.delete(agentId);
-    if (g.slots.size === 0) this.gatherings.delete(key);
-  }
-
-  /** Drop every formation (used on landmark rebuilds and replay seeks). */
-  private clearGatherings() {
-    this.gatherings.clear();
-    this.agentGatherKey.clear();
-  }
-
-  /**
-   * Claim (or reuse) a formation slot around (cx, cy) for this sprite.
-   * `skipCenter` keeps slot 0 free when the centre is occupied by a prop
-   * (the dropped newspaper) or when a pair should flank the midpoint.
-   */
-  private gatherSlotFor(
+  /** Slot for a conversation formation (the choreographer's key is the
+   *  conversation id): a reserved overflow point ≥30 px from every body. */
+  private formationSlot(
     key: string,
     cx: number,
     cy: number,
     sprite: AgentSprite,
-    opts?: { skipCenter?: boolean },
+    _opts?: { skipCenter?: boolean },
   ): { x: number; y: number } {
-    const prev = this.agentGatherKey.get(sprite.agentId);
-    if (prev && prev !== key) this.releaseGatherSlot(sprite.agentId);
-
-    let g = this.gatherings.get(key);
-    if (!g) {
-      g = { cx, cy, sideways: key.startsWith("lm:"), slots: new Map(), used: new Set() };
-      this.gatherings.set(key, g);
-    }
-    this.agentGatherKey.set(sprite.agentId, key);
-
-    // Stable per agent: an existing claim is always reused verbatim.
-    const claimed = g.slots.get(sprite.agentId);
-    if (claimed && claimed.length > 0) {
-      const p = this.gatherSlotPoint(g.cx, g.cy, claimed[0], g.sideways);
-      if (p) return p;
-    }
-
-    const total = 1 + TownScene.GATHER_RINGS.reduce((n, r) => n + r.cap, 0);
-    for (let idx = opts?.skipCenter ? 1 : 0; idx < total; idx++) {
-      if (g.used.has(idx)) continue;
-      const p = this.gatherSlotPoint(g.cx, g.cy, idx, g.sideways);
-      if (!p) break;
-      if (this.isBlocked(p.x, p.y, 4)) continue;
-      // Nobody lingers in the street, and a gathering at a door stays on
-      // its own side of it: slots on asphalt or across the road are skipped
-      // unless the gathering itself is on the road (a crossing, a bus stop).
-      if (this.navGrid && !this.navGrid.isRoad(g.cx, g.cy)) {
-        if (this.navGrid.isRoad(p.x, p.y) || this.navGrid.crossesRoad({ x: g.cx, y: g.cy }, p)) continue;
-      }
-      // Bodies outside this gathering (wanderers, another formation a few
-      // tiles over) also make a slot unusable.
-      if (this.isOccupied(p.x, p.y, 24, sprite)) continue;
-      const claim = [idx];
-      // A couple is two bodies wide. The trailing partner settles ~22px to
-      // the side the pair's facing dictates (see AgentSprite rest offsets):
-      // that flank must be open ground, and the nearest neighbouring slot
-      // gets shadow-claimed so later arrivals never share the partner's
-      // ground.
-      if (sprite.hasCouple()) {
-        const fdx = g.cx - p.x;
-        const fdy = g.cy - p.y;
-        const dir = Math.abs(fdx) > Math.abs(fdy)
-          ? (fdx > 0 ? "right" : "left")
-          : (fdy > 0 ? "down" : "up");
-        const flank = dir === "left" || dir === "down" ? 22 : -22;
-        if (this.isBlocked(p.x + flank, p.y, 2) || this.isOccupied(p.x + flank, p.y, 22, sprite)) {
-          continue;
-        }
-        let bestIdx = -1;
-        let bestDist = Infinity;
-        for (let n = 1; n < total; n++) {
-          if (n === idx || g.used.has(n)) continue;
-          const q = this.gatherSlotPoint(g.cx, g.cy, n, g.sideways);
-          if (!q) break;
-          const d = Phaser.Math.Distance.Between(p.x + flank, p.y, q.x, q.y);
-          if (d < 26 && d < bestDist) { bestDist = d; bestIdx = n; }
-        }
-        if (bestIdx >= 0) claim.push(bestIdx);
-      }
-      for (const c of claim) g.used.add(c);
-      g.slots.set(sprite.agentId, claim);
-      return p;
-    }
-    // Formation full or fully blocked — fall back to open-ground search.
-    return this.findFreeNear(cx, cy, { clearOf: 30, exclude: sprite });
+    const reg = this.spots;
+    if (!reg) return this.findFreeNear(cx, cy, { clearOf: 30, exclude: sprite });
+    const existing = reg.placementOf(sprite.agentId, "chat");
+    if (existing && existing.landmark === key) return { x: existing.x, y: existing.y };
+    const pt = reg.sampleApron(key, sprite.agentId, { x: cx, y: cy }, { minDist: 30, box: 80 });
+    reg.reserveAt(key, sprite.agentId, pt, "chat");
+    return pt;
   }
 
-  /** Face the gathering centroid on arrival (only meaningful in company). */
-  private faceGatherCenter(sprite: AgentSprite) {
-    const key = this.agentGatherKey.get(sprite.agentId);
-    const g = key ? this.gatherings.get(key) : undefined;
-    if (!g || g.slots.size < 2) return;
-    const claimed = g.slots.get(sprite.agentId);
-    if (claimed && claimed[0] === 0) return; // centre occupant keeps facing
-    sprite.faceToward(g.cx, g.cy);
+  /** The routine stop a resident should be at for the scene clock, else
+   *  their stated location, else their first routine stop. */
+  private initialLocationFor(location: string, routine?: Routine): string | undefined {
+    const resolved = (name?: string) => (name ? this.resolveLandmarkName(name) : undefined);
+    const stop = resolved(routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute)?.location);
+    const stated = resolved(location);
+    const statedLm = stated ? this.landmarks.find((l) => l.name === stated) : undefined;
+    // A road-type "location" (the wire's default street) is not a place to
+    // stand; the routine knows better.
+    if (stated && statedLm && statedLm.type !== "road" && !stop) return stated;
+    return stop ?? stated ?? resolved(routine?.entries[0]?.location);
+  }
+
+  /**
+   * Decide where a resident stands at `location` and what they do there:
+   * the derived activity (work, a meal, prayer, rest — or idle), whether
+   * that happens indoors, and the reserved spot. Recorded coordinates
+   * (replay) only constrain which spot is chosen.
+   */
+  private seatResident(
+    agentId: string,
+    location: string | undefined,
+    recorded: { x: number; y: number } | undefined,
+    requested?: AgentActivity,
+  ): { x: number; y: number; facing?: Direction; activity: AgentActivity; indoors: boolean; landmark: string } {
+    const rec = this.agentRecords.get(agentId);
+    const name = location ? (this.resolveLandmarkName(location) ?? location) : "";
+    const landmark = this.landmarks.find((l) => l.name === name);
+    const entry = rec?.routine?.currentEntryAt(this.worldClock.hour, this.worldClock.minute);
+    const derived = deriveActivity(
+      entry && entry.location === name ? entry : undefined,
+      landmark,
+      this.worldClock.partOfDay(),
+      this.worldClock.fractionalHour(),
+    );
+    const activity: AgentActivity = requested && requested !== "idle" && requested !== "walking" && requested !== "talking"
+      ? requested
+      : derived;
+    const wantsIndoors = shouldBeIndoors(
+      landmark,
+      activity,
+      this.worldClock.fractionalHour(),
+      entry && entry.location === name ? entry.activity : undefined,
+    );
+    if (rec) rec.location = name || undefined;
+    const p = this.reserveDwell(agentId, name, landmark, activity, wantsIndoors, recorded);
+    const indoors = wantsIndoors && p.spot?.role === "door";
+    const facing = p.facing ?? arrivalFacing(landmark);
+    return { x: p.x, y: p.y, facing, activity, indoors, landmark: name };
+  }
+
+  private reserveDwell(
+    agentId: string,
+    name: string,
+    landmark: LandmarkData | undefined,
+    activity: AgentActivity,
+    indoors: boolean,
+    recorded: { x: number; y: number } | undefined,
+  ): Placement {
+    const reg = this.spots;
+    const grid = this.navGrid;
+    const apron = this.landmarkPositions.get(name)
+      ?? (recorded ? (grid?.nearestWalkable(recorded.x, recorded.y, 100, { avoidRoad: true }) ?? recorded) : undefined)
+      ?? { x: 600, y: 400 };
+    const envelope = recorded ? { near: recorded, envelope: TownScene.SEAT_ENVELOPE } : {};
+    if (!reg) {
+      const pt = this.findFreeNear(apron.x, apron.y, { clearOf: 30 });
+      return { agentId, kind: "dwell", landmark: name, x: pt.x, y: pt.y, facing: undefined, spot: null, overflow: true };
+    }
+    if (indoors && reg.doorOf(name)) {
+      const door = reg.reserve(name, agentId, ["door"], { shared: true, apron, ...envelope });
+      if (door.spot) return door;
+      reg.release(agentId, "dwell");
+    }
+    return reg.reserve(name, agentId, dwellRoles(landmark, activity), { apron, ...envelope });
+  }
+
+  /** Two warm pixel quads at a door as someone steps in or out. */
+  private doorFlash(pt: { x: number; y: number }) {
+    if (reducedMotion()) return;
+    const quads = [-4, 4].map((dx) => this.add.image(pt.x + dx, pt.y - 14, "__WHITE")
+      .setTint(0xffc873)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDisplaySize(6, 10)
+      .setDepth(100 + pt.y + 1)
+      .setAlpha(0.7));
+    this.tweens.add({
+      targets: quads,
+      alpha: 0,
+      duration: 240,
+      ease: "Stepped",
+      easeParams: [3],
+      onComplete: () => quads.forEach((q) => q.destroy()),
+    });
+  }
+
+  /**
+   * Once a second: which buildings have someone inside — their window
+   * panes stay warm by day and the landmark chip shows a pip per resident.
+   */
+  private refreshOccupancy() {
+    const next = new Set<string>();
+    const counts = new Map<string, number>();
+    for (const rec of this.agentRecords.values()) {
+      if (!rec.sprite.active || !rec.sprite.isIndoors() || !rec.location) continue;
+      next.add(rec.location);
+      counts.set(rec.location, (counts.get(rec.location) ?? 0) + 1);
+    }
+    let changed = next.size !== this.occupiedLandmarks.size;
+    if (!changed) {
+      for (const n of next) {
+        if (!this.occupiedLandmarks.has(n)) { changed = true; break; }
+      }
+    }
+    this.occupiedLandmarks = next;
+    if (changed) this.refreshSkyOverlay();
+    for (const chip of this.landmarkLabelTexts) {
+      const lm = chip.getData("lm") as LandmarkData | undefined;
+      if (lm) this.setChipPips(chip, counts.get(lm.name) ?? 0);
+    }
+  }
+
+  /** Up to six 3×3 parchment pips under a chip — one per resident inside. */
+  private setChipPips(chip: Phaser.GameObjects.Container, n: number) {
+    const shown = Math.min(6, n);
+    let pips = chip.getData("pips") as Phaser.GameObjects.Container | undefined;
+    if (!pips) {
+      if (shown === 0) return;
+      pips = this.add.container(0, 0);
+      chip.add(pips);
+      chip.setData("pips", pips);
+    }
+    if ((chip.getData("pipCount") as number | undefined) === shown) return;
+    chip.setData("pipCount", shown);
+    pips.removeAll(true);
+    // 5×5 parchment squares in a 1 px ink frame, 4 px apart, centred under
+    // the plate — the same materials as the chip, readable at label scale 1.
+    const h = chip.getData("h") as number;
+    const pitch = 9;
+    const total = shown * 7 + Math.max(0, shown - 1) * 2;
+    const y = Math.round(h / 2 + 5);
+    for (let i = 0; i < shown; i++) {
+      const x = Math.round(-total / 2 + i * pitch + 3.5);
+      pips.add(this.add.image(x, y, "__WHITE").setTint(0x1c1810).setAlpha(0.92).setDisplaySize(7, 7));
+      pips.add(this.add.image(x, y, "__WHITE").setTint(0xf5ead2).setAlpha(0.96).setDisplaySize(5, 5));
+    }
   }
 
   /* ── Agent Management (called from React / TownView) ──── */
@@ -872,28 +1009,15 @@ export class TownScene extends Phaser.Scene {
 
     const routine = agent.routine ? new Routine(agent.routine) : undefined;
 
-    // Crowd choreography: spawn each resident at their FIRST routine
-    // location so round 0 opens on a town already going about its morning.
-    // Residents without a resolvable routine stop fall back to their stated
-    // location, then to distinct landmarks round-robin — never one pile.
-    const firstStop = routine?.entries[0]?.location;
-    let base =
-      (firstStop ? this.landmarkPositions.get(firstStop) : undefined) ??
-      this.landmarkPositions.get(agent.location);
-    if (!base) {
-      const spots = [...this.landmarkPositions.values()];
-      base = spots.length > 0
-        ? spots[this.spawnCursor++ % spots.length]
-        : this.wanderPoints[0] ?? { x: 400, y: 400 };
-    }
-
-    const spawn = this.findFreeNear(
-      base.x + Phaser.Math.Between(-40, 40),
-      base.y + Phaser.Math.Between(-26, 26),
-      { clearOf: WANDER_CLEARANCE },
-    );
-    const sx = spawn.x;
-    const sy = spawn.y;
+    // Residents are seated by seatResident once their record exists (the
+    // bootstrap, a replay sync, a move); the sprite is born on the apron of
+    // the place they belong at so nothing flashes elsewhere first.
+    const location = this.initialLocationFor(agent.location, routine);
+    const base = (location ? this.landmarkPositions.get(location) : undefined)
+      ?? [...this.landmarkPositions.values()][this.spawnCursor++ % Math.max(1, this.landmarkPositions.size)]
+      ?? { x: 600, y: 400 };
+    const sx = base.x;
+    const sy = base.y;
 
     const custom = resolveAgentSprite(agent.id, this.scenarioId);
 
@@ -925,14 +1049,31 @@ export class TownScene extends Phaser.Scene {
       idleThoughts: agent.idle_thoughts ?? undefined,
       relationships: agent.relationships ?? undefined,
     };
+    record.location = location;
     this.agentRecords.set(agent.id, record);
+  }
 
-    // If a routine is supplied, the clock tick drives motion. Otherwise we
-    // fall back to randomized wandering.
-    if (!record.routine && !DEMO_MODE) {
-      const initDelay = Phaser.Math.Between(1500, 6000);
-      this.time.delayedCall(initDelay, () => this.scheduleWander(agent.id));
+  /**
+   * Live bootstrap (no replay events yet): add any resident missing from
+   * the scene and seat them at their routine stop for the scene clock —
+   * never re-posing residents already placed, never touching the clock.
+   */
+  bootstrapResidents(agents: Array<AgentState & { routine?: RoutineEntry[] }>) {
+    let added = false;
+    for (const agent of agents) {
+      if (this.agentSprites.has(agent.id)) continue;
+      this.addAgent(agent);
+      const rec = this.agentRecords.get(agent.id);
+      if (!rec) continue;
+      const seat = this.seatResident(agent.id, rec.location, undefined);
+      rec.sprite.syncReplayState(seat.x, seat.y, rec.sprite.getStance(), seat.activity, {
+        decided: Boolean(agent.decided),
+        indoors: seat.indoors,
+      });
+      if (seat.facing) rec.sprite.face(seat.facing);
+      added = true;
     }
+    if (added) this.ensureAmbientNPCs();
   }
 
   /** Reconcile the visible town to a reducer snapshot after a replay seek or
@@ -941,7 +1082,7 @@ export class TownScene extends Phaser.Scene {
   syncReplayState(
     agents: AgentState[],
     positions: Record<string, { location: string; x?: number; y?: number }>,
-    clock: { hour: number; minute: number },
+    clock: { hour: number; minute: number } | null,
     weather: WeatherKind,
   ) {
     const wanted = new Set(agents.map((agent) => agent.id));
@@ -952,100 +1093,65 @@ export class TownScene extends Phaser.Scene {
       this.agentSprites.delete(id);
       this.agentRecords.delete(id);
       this.agentOpinions.delete(id);
+      this.spots?.release(id);
     }
 
     this.clearConversationSpotlight(true);
     this.choreo.clearAll();
-    // Rebuild formations from scratch: the agents array order is stable per
-    // feed, so repeated seeks assign identical slots (no reshuffling).
-    this.clearGatherings();
+    // The clock first: what people do where depends on the hour. A null
+    // clock (live bootstrap) leaves the free-running clock alone.
+    if (clock) this.setWorldTime(clock.hour, clock.minute, false);
+    this.setWeather(weather);
+    // Re-seat everyone from scratch in reducer order — the same feed always
+    // yields the same spots (Spots.ts), so repeated seeks never reshuffle.
+    this.spots?.clear();
     for (const agent of agents) {
       this.addAgent(agent);
       const sprite = this.agentSprites.get(agent.id);
       if (!sprite) continue;
-
       const recorded = positions[agent.id];
       const precise = Number.isFinite(recorded?.x) && Number.isFinite(recorded?.y);
-      const landmark = this.landmarkPositions.get(recorded?.location ?? agent.location)
-        ?? this.wanderPoints[0]
-        ?? { x: 400, y: 400 };
-
-      // Even authoritative recorded coordinates go through the gathering
-      // formation: old event logs routinely stacked a whole meeting on one
-      // tile, which is the single worst craft signal a replay can show. A
-      // lone resident still lands exactly on its recorded spot (slot 0).
-      const key = precise
-        ? `pt:${Math.round(recorded.x! / 72)}:${Math.round(recorded.y! / 72)}`
-        : `lm:${recorded?.location ?? agent.location}`;
-      const slot = this.gatherSlotFor(
-        key,
-        precise ? recorded.x! : landmark.x,
-        precise ? recorded.y! : landmark.y,
-        sprite,
+      const location = recorded?.location ?? agent.location;
+      const requested = agent.activity && agent.activity !== "walking" ? agent.activity : "idle";
+      const seat = this.seatResident(
+        agent.id,
+        location,
+        precise ? { x: recorded.x as number, y: recorded.y as number } : undefined,
+        requested,
       );
-      const activity = agent.activity && agent.activity !== "walking"
-        ? agent.activity
-        : "idle";
-
       sprite.syncReplayState(
-        slot.x,
-        slot.y,
+        seat.x,
+        seat.y,
         this.stanceFor(agent.opinion?.candidate, agent.opinion?.confidence),
-        activity,
-        { decided: Boolean(agent.decided) },
+        seat.activity,
+        { decided: Boolean(agent.decided), indoors: seat.indoors },
       );
+      if (seat.facing) sprite.face(seat.facing);
       this.agentOpinions.set(agent.id, agent.opinion?.candidate ?? "");
     }
     if (agents.length > 0) this.ensureAmbientNPCs();
-    // Everyone faces their gathering's centroid once all slots are settled
-    // (mid-loop the group sizes are still growing).
-    for (const sprite of this.agentSprites.values()) {
-      if (sprite !== this.playerSprite) this.faceGatherCenter(sprite);
-    }
-
-    this.setWorldTime(clock.hour, clock.minute, false);
-    this.setWeather(weather);
-    // With the clock landed, idle residents pick up what the place and hour
-    // imply (eating, working, resting) so a seek lands on a living town.
-    for (const agent of agents) {
-      const sprite = this.agentSprites.get(agent.id);
-      const rec = this.agentRecords.get(agent.id);
-      const location = positions[agent.id]?.location ?? agent.location;
-      if (rec) rec.location = location;
-      if (sprite && sprite.getActivity() === "idle") this.applyDayPart(agent.id, location);
-    }
+    this.refreshOccupancy();
   }
 
   moveAgent(agentId: string, toLocation: string, x?: number, y?: number) {
     const sprite = this.agentSprites.get(agentId);
-    if (!sprite) return;
-    // Both routine arrivals (landmark) and event moves (precise coords) go
-    // through the gathering formation: a lone walker lands on its exact
-    // target (slot 0), while N residents converging on the same spot fan
-    // out over stable ring slots and face the centroid on arrival. Precise
-    // coordinates are grouped by ~72px cell so a replayed meeting whose
-    // events all point at one tile forms a ring instead of a pile.
-    let key: string;
-    let cx: number;
-    let cy: number;
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      key = `pt:${Math.round((x as number) / 72)}:${Math.round((y as number) / 72)}`;
-      cx = x as number;
-      cy = y as number;
-    } else {
-      const base = this.landmarkPositions.get(toLocation) ?? this.wanderPoints[0] ?? { x: 400, y: 400 };
-      key = `lm:${toLocation}`;
-      cx = base.x;
-      cy = base.y;
-    }
-    const t = this.gatherSlotFor(key, cx, cy, sprite);
-    const landmark = this.landmarks.find((l) => l.name === toLocation);
     const rec = this.agentRecords.get(agentId);
-    if (rec) rec.location = toLocation;
-    sprite.moveToPosition(t.x, t.y, () => {
-      this.faceGatherCenter(sprite);
-      this.applyDayPart(agentId, toLocation);
-    }, { arriveFacing: arrivalFacing(landmark) });
+    if (!sprite || !rec) return;
+    const recorded = Number.isFinite(x) && Number.isFinite(y) ? { x: x as number, y: y as number } : undefined;
+    // Leaving frees the old spot before the new one is chosen.
+    this.spots?.release(agentId, "dwell");
+    const seat = this.seatResident(agentId, toLocation, recorded);
+    sprite.moveToPosition(seat.x, seat.y, () => {
+      if (!sprite.active) return;
+      if (this.choreo.inConversation(agentId) || sprite.getActivity() === "talking") return;
+      if (seat.indoors) {
+        if (seat.activity !== "idle") sprite.setActivity(seat.activity);
+        this.doorFlash({ x: seat.x, y: seat.y });
+        sprite.setIndoors(true);
+        return;
+      }
+      this.applyDayPart(agentId, seat.landmark);
+    }, { arriveFacing: seat.facing });
   }
 
   /** Activities the place + hour derive (as opposed to talking/walking). */
@@ -1072,6 +1178,17 @@ export class TownScene extends Phaser.Scene {
         this.worldClock.partOfDay(),
         this.worldClock.fractionalHour(),
       );
+      const indoors = shouldBeIndoors(
+        landmark,
+        act,
+        this.worldClock.fractionalHour(),
+        entry && entry.location === rec.location ? entry.activity : undefined,
+      ) && Boolean(this.spots?.doorOf(rec.location));
+      if (indoors !== sprite.isIndoors()) {
+        // Step in for the night, or out for the day: through the door.
+        this.moveAgent(id, rec.location);
+        continue;
+      }
       if (act !== current) sprite.setActivity(act);
     }
   }
@@ -1100,6 +1217,8 @@ export class TownScene extends Phaser.Scene {
   showAgentSpeech(agentId: string, text: string, duration?: number, sentiment: BubbleSentiment = "neutral") {
     const sprite = this.agentSprites.get(agentId);
     if (!sprite) return;
+    // Someone inside speaks from the doorway: the bubble hangs at the door
+    // (the container stays there) and nobody steps onto a shared apron.
     // Choreography (speaker lean, listener nods) runs even when the bubble
     // itself is suppressed off-camera.
     this.choreo.onSpeech(agentId, sentiment);
@@ -1296,21 +1415,24 @@ export class TownScene extends Phaser.Scene {
         this.time.delayedCall(260, () => {
           if (!sprite.active) { done(); return; }
           sprite.setActivity("idle");
-          const n = this.agentSprites.size;
-          const k = [...this.agentSprites.values()].filter((s) => s.isDecided()).length;
-          // Step aside to the right of the box, in rows, leaving the
-          // door and the lane clear for the next voter.
-          const aside = this.findFreeNear(
-            box.x + 30 + (k % 3) * 20,
-            box.y + 8 + Math.floor(k / 3) * 20 + (n % 2) * 4,
-            { clearOf: 22, exclude: sprite },
-          );
-          // The box frees as soon as the voter turns away.
+          // The box frees as soon as the voter turns away; they go back to
+          // wherever their day had them (their own porch, bench or job),
+          // so the polling place never piles up.
           done();
-          sprite.moveToPosition(aside.x, aside.y, () => sprite.faceToward(box.x, box.y - 20), { arriveFacing: "up" });
+          this.returnToDwell(sprite.agentId);
         });
       });
     }, { arriveFacing: "up" });
+  }
+
+  /** Walk a resident back to the seat their day gives them right now. */
+  private returnToDwell(agentId: string) {
+    const rec = this.agentRecords.get(agentId);
+    const sprite = rec?.sprite;
+    if (!rec || !sprite || !sprite.active) return;
+    const location = rec.location ?? this.initialLocationFor("", rec.routine);
+    if (!location) return;
+    this.moveAgent(agentId, location);
   }
 
   private resetProcession() {
@@ -1561,6 +1683,8 @@ export class TownScene extends Phaser.Scene {
             confidence: sprite.getStance().confidence,
             decided: sprite.isDecided(),
             mood: sprite.getMood(),
+            indoors: sprite.isIndoors(),
+            spot: this.spots?.placementOf(id)?.spot?.id ?? null,
           }]),
       ),
       conversationSpotlight: Boolean(this.convoVignette),
@@ -1596,6 +1720,37 @@ export class TownScene extends Phaser.Scene {
       agents: () => [...this.agentSprites.entries()]
         .filter(([, sprite]) => sprite !== this.playerSprite)
         .map(([id]) => id),
+      /** Recent walker routes (probes assert axis-aligned legs, crossings). */
+      lastPaths: () => this.recentPaths.map((r) => ({ from: r.from, path: r.path })),
+      /** Crowd metrics for probes: walkers, indoor count, closest pair. */
+      crowdStats: () => {
+        const bodies = [...this.agentSprites.values()]
+          .filter((s) => s !== this.playerSprite && s.active);
+        const outdoors = bodies.filter((s) => !s.isIndoors());
+        // Spacing is judged between standing bodies; walkers may cross.
+        const standing = outdoors.filter((s) => !s.isWalking());
+        let minPair = Infinity;
+        let closest: [string, string] | null = null;
+        for (let i = 0; i < standing.length; i++) {
+          for (let j = i + 1; j < standing.length; j++) {
+            const d = Math.hypot(standing[i].x - standing[j].x, standing[i].y - standing[j].y);
+            if (d < minPair) { minPair = d; closest = [standing[i].agentId, standing[j].agentId]; }
+          }
+        }
+        return {
+          residents: bodies.length,
+          walking: bodies.filter((s) => s.isWalking()).length,
+          indoors: bodies.length - outdoors.length,
+          held: bodies.filter((s) => s.isHeld()).length,
+          minPairDistance: Number.isFinite(minPair) ? Math.round(minPair) : null,
+          closestPair: closest,
+          /** Residents standing on asphalt (crosswalks excluded). */
+          onRoad: outdoors.filter((s) => !s.isWalking() && this.navGrid?.kindAt(s.x, s.y) === "road").map((s) => s.agentId),
+          /** Walkers currently over asphalt that is not a crossing. */
+          jaywalking: outdoors.filter((s) => s.isWalking() && this.navGrid?.kindAt(s.x, s.y) === "road").map((s) => s.agentId),
+          positions: Object.fromEntries(bodies.map((s) => [s.agentId, { x: Math.round(s.x), y: Math.round(s.y), indoors: s.isIndoors() }])),
+        };
+      },
     };
     (window as unknown as { __town?: typeof api }).__town = api;
   }
@@ -1668,7 +1823,7 @@ export class TownScene extends Phaser.Scene {
         const d = Phaser.Math.Distance.Between(s.x, s.y, land.x, land.y);
         if (d > 190 || d < 30) return;
         converged++;
-        const t = this.gatherSlotFor(newsKey, land.x, land.y + 4, s, { skipCenter: true });
+        const t = this.formationSlot(newsKey, land.x, land.y + 4, s, { skipCenter: true });
         s.showEmote("surprise");
         if (motionOk) {
           this.time.delayedCall(220 + converged * 160, () =>
@@ -1784,7 +1939,7 @@ export class TownScene extends Phaser.Scene {
     this.agentSprites.clear();
     this.agentRecords.clear();
     this.agentOpinions.clear();
-    this.clearGatherings();
+    this.spots?.clear();
   }
 
   /* ── Player Management ──────────────────────────────────── */
@@ -1932,12 +2087,13 @@ export class TownScene extends Phaser.Scene {
   getResidentsAtLandmark(name: string): string[] {
     const lm = this.landmarks.find((l) => l.name === name);
     const door = this.landmarkPositions.get(name);
+    const seated = new Set(this.spots?.agentsAt(name) ?? []);
     const out: string[] = [];
     for (const [id, sp] of this.agentSprites) {
       if (sp === this.playerSprite || !sp.active) continue;
       const inside = !!lm && sp.x >= lm.x && sp.x <= lm.x + lm.width && sp.y >= lm.y && sp.y <= lm.y + lm.height;
       const near = !!door && Phaser.Math.Distance.Between(sp.x, sp.y, door.x, door.y) <= 72;
-      if (inside || near) out.push(id);
+      if (inside || near || seated.has(id)) out.push(id);
     }
     return out;
   }
@@ -2046,67 +2202,6 @@ export class TownScene extends Phaser.Scene {
     }
   }
 
-  /* ── Autonomous Wandering (fallback when no routine) ───── */
-
-  private scheduleWander(agentId: string) {
-    const sprite = this.agentSprites.get(agentId);
-    if (!sprite || !this.scene?.isActive?.()) return;
-
-    const idleDelay = Phaser.Math.Between(4000, 13000);
-    this.time.delayedCall(idleDelay, () => {
-      const sp = this.agentSprites.get(agentId);
-      if (!sp) return;
-
-      // Wandering off means leaving whatever gathering the agent was in.
-      this.releaseGatherSlot(agentId);
-      const target = this.pickWanderTarget(sp);
-      sp.moveToPosition(target.x, target.y, () => {
-        // Occasionally show an idle thought after arriving.
-        // Prefer the agent's own bank (from agent.idle_thoughts) over generic.
-        const visibleBubbles = [...this.agentSprites.values()]
-          .reduce((total, agent) => total + agent.getSpeechBubbleCount(), 0);
-        if (Math.random() < 0.28 && visibleBubbles < 2) {
-          const rec = this.agentRecords.get(agentId);
-          const bank = rec?.idleThoughts && rec.idleThoughts.length > 0
-            ? rec.idleThoughts
-            : IDLE_THOUGHTS;
-          const thought = bank[Math.floor(Math.random() * bank.length)];
-          this.time.delayedCall(600, () => sp.showSpeechBubble(thought, 3200));
-        }
-        // Re-schedule next wander
-        this.scheduleWander(agentId);
-      });
-    });
-  }
-
-  private pickWanderTarget(exclude?: AgentSprite): { x: number; y: number } {
-    if (this.wanderPoints.length === 0) return this.findFreeNear(400, 400, { clearOf: WANDER_CLEARANCE, exclude });
-    // Rejection-sample so NPCs stop walking into (through) buildings — or
-    // into each other (occupancy keeps wander targets a body-width apart).
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
-      const x = Phaser.Math.Clamp(pt.x + Phaser.Math.Between(-70, 70), WORLD_MARGIN, WORLD_W - WORLD_MARGIN);
-      const y = Phaser.Math.Clamp(pt.y + Phaser.Math.Between(-45, 45), WORLD_MARGIN, WORLD_H - WORLD_MARGIN);
-      if (this.navGrid?.isRoad(x, y)) continue;
-      if (!this.isBlocked(x, y) && !this.isOccupied(x, y, WANDER_CLEARANCE, exclude)) return { x, y };
-    }
-    const pt = this.wanderPoints[Math.floor(Math.random() * this.wanderPoints.length)];
-    return this.findFreeNear(pt.x, pt.y, { clearOf: WANDER_CLEARANCE, exclude });
-  }
-
-  private addScatteredWaypoints(W: number, H: number) {
-    const cols = 5, rows = 4;
-    for (let c = 0; c < cols; c++) {
-      for (let r = 0; r < rows; r++) {
-        const x = 120 + (c / (cols - 1)) * (W - 240);
-        const y = 140 + (r / (rows - 1)) * (H - 280);
-        // Skip grid points buried inside buildings — findFreeNear would pile
-        // several waypoints onto the same door apron otherwise.
-        if (this.isBlocked(x, y, 10)) continue;
-        this.wanderPoints.push({ x, y });
-      }
-    }
-  }
 
   /* ── Encounter conversations ───────────────────────────── */
 
@@ -2423,6 +2518,7 @@ export class TownScene extends Phaser.Scene {
 
     this.builtMap = map;
     this.buildNavGrid();
+    this.buildSpotRegistry();
   }
 
   /**
@@ -2564,6 +2660,7 @@ export class TownScene extends Phaser.Scene {
     seal.strokeCircle(W / 2, H / 2, 36);
     this.fallbackWorld.add(seal);
     this.buildNavGrid();
+    this.buildSpotRegistry();
   }
 
   /**
@@ -2594,6 +2691,8 @@ export class TownScene extends Phaser.Scene {
           const hpx = q.h * tileSize;
           const x = tile.pixelX;
           const y = tile.pixelY;
+          const owner = this.landmarks.find((l) =>
+            x >= l.x && x < l.x + l.width && y >= l.y && y < l.y + l.height)?.name;
           // The generated metadata traces the actual glass silhouette. This
           // matters because the modern sash has tall panes while the teal
           // facade stamp has two tiny clerestory panes above a dark opening.
@@ -2609,7 +2708,7 @@ export class TownScene extends Phaser.Scene {
               .setBlendMode(Phaser.BlendModes.ADD)
               .setDepth(6001)
               .setAlpha(0);
-            this.windowGlows.push({ obj: pane, max: paneMax });
+            this.windowGlows.push({ obj: pane, max: paneMax, landmark: owner, pane: true });
           }
           // Soft spill halo around it.
           const halo = this.add.image(x + wpx / 2, y + hpx / 2, glowKey)
@@ -2617,7 +2716,7 @@ export class TownScene extends Phaser.Scene {
             .setBlendMode(Phaser.BlendModes.ADD)
             .setDepth(6001)
             .setAlpha(0);
-          this.windowGlows.push({ obj: halo, max: haloMax });
+          this.windowGlows.push({ obj: halo, max: haloMax, landmark: owner, pane: false });
         });
       }
     };
@@ -2889,12 +2988,24 @@ export class TownScene extends Phaser.Scene {
   private rebuildLandmarks() {
     this.landmarkPositions.clear();
     this.wanderPoints = [];
-    // Gathering centres were derived from the old landmark positions.
-    this.clearGatherings();
     if (!this.builtMap) {
       this.buildFallbackTown(Number(this.game.config.width), Number(this.game.config.height));
     }
     this.layoutLandmarksAndDecor();
+    // Seats were derived from the old landmark set: re-seat silently.
+    if (this.spots && this.agentRecords.size > 0) {
+      this.spots.clear();
+      for (const [id, rec] of this.agentRecords) {
+        const sprite = rec.sprite;
+        if (sprite === this.playerSprite || !sprite.active) continue;
+        const seat = this.seatResident(id, rec.location ?? this.initialLocationFor("", rec.routine), undefined);
+        sprite.syncReplayState(seat.x, seat.y, sprite.getStance(), seat.activity, {
+          decided: sprite.isDecided(),
+          indoors: seat.indoors,
+        });
+        if (seat.facing) sprite.face(seat.facing);
+      }
+    }
   }
 
   private layoutLandmarksAndDecor() {
@@ -2902,15 +3013,15 @@ export class TownScene extends Phaser.Scene {
     const H = Number(this.game.config.height);
 
     for (const lm of this.landmarks) {
-      // Buildings resolve to their door apron, open landmarks to walkable
-      // interior ground — never a geometric centre inside a wall.
-      const pos = this.deriveEntrance(lm);
+      // The authored door apron when the map has one; otherwise buildings
+      // resolve to the first walkable row below their footprint and open
+      // landmarks to walkable interior ground — never a centre in a wall.
+      const pos = this.spots?.doorOf(lm.name) ?? this.deriveEntrance(lm);
       this.landmarkPositions.set(lm.name, pos);
       if (lm.type !== "road") this.wanderPoints.push(pos);
     }
-
-    // Add a grid of "street corner" waypoints for richer wandering.
-    this.addScatteredWaypoints(W, H);
+    void W;
+    void H;
 
     this.buildLandmarkLabels();
   }
@@ -3003,6 +3114,16 @@ export class TownScene extends Phaser.Scene {
    * rail ballast 2.6, so walkers favour sidewalks and level crossings
    * without ever being forced onto them.
    */
+  /** Authored standing spots from the map's `spot` anchors (Spots.ts). A
+   *  procedural town has none: every seat is a blue-noise apron point. */
+  private buildSpotRegistry() {
+    this.spots = new SpotRegistry(spotsFromAnchors(this.mapAnchors), (x, y) =>
+      x >= WORLD_MARGIN && x <= WORLD_W - WORLD_MARGIN
+      && y >= WORLD_MARGIN && y <= WORLD_H - WORLD_MARGIN
+      && !this.isBlocked(x, y, 2)
+      && !(this.navGrid?.isRoad(x, y) ?? false));
+  }
+
   private buildNavGrid() {
     const sidewalk = new Set<number>(roadGids.sidewalk);
     const road = new Set<number>(roadGids.road);
@@ -3047,7 +3168,11 @@ export class TownScene extends Phaser.Scene {
     const grid = this.navGrid;
     if (!grid) return this.findFreeNear(cx, cy);
     const type = lm.type.toLowerCase();
-    if (/park|water|road|green|garden|field|lake|river|plaza|square|commons/.test(type)) {
+    // A street is not a place to stand: its apron is the sidewalk beside it.
+    if (/road|street/.test(type)) {
+      return grid.nearestWalkable(cx, cy, 96, { avoidRoad: true }) ?? this.findFreeNear(cx, cy);
+    }
+    if (/park|water|green|garden|field|lake|river|plaza|square|commons/.test(type)) {
       // The roomiest spot near the centre — never the well, a bench, or
       // the strip of grass between a prop and the rail ballast.
       return grid.openestNear(cx, cy, Math.min(80, Math.max(lm.width, lm.height) / 2))
@@ -3078,6 +3203,20 @@ export class TownScene extends Phaser.Scene {
       if (offRoad) return offRoad;
     }
     return grid.nearestWalkable(cx, bottom + 16, 160, { avoidRoad: true }) ?? this.findFreeNear(cx, cy);
+  }
+
+  /** The non-road landmark whose apron is nearest to a point. */
+  private nearestLandmarkName(pt: { x: number; y: number }): string | undefined {
+    let best: string | undefined;
+    let bestD = Infinity;
+    for (const lm of this.landmarks) {
+      if (lm.type === "road") continue;
+      const pos = this.landmarkPositions.get(lm.name);
+      if (!pos) continue;
+      const d = Math.hypot(pos.x - pt.x, pos.y - pt.y);
+      if (d < bestD) { bestD = d; best = lm.name; }
+    }
+    return best;
   }
 
   /** Exact landmark name, else a case-insensitive match, else undefined. */
@@ -3113,7 +3252,7 @@ export class TownScene extends Phaser.Scene {
    *  its in-flight walk target. */
   private isOccupied(x: number, y: number, clearance: number, exclude?: AgentSprite): boolean {
     for (const body of this.allBodies()) {
-      if (body === exclude || !body.active) continue;
+      if (body === exclude || !body.active || body.isIndoors()) continue;
       if (Phaser.Math.Distance.Between(x, y, body.x, body.y) < clearance) return true;
       const target = body.getReservedTarget();
       if (target && Phaser.Math.Distance.Between(x, y, target.x, target.y) < clearance) return true;
@@ -3151,8 +3290,9 @@ export class TownScene extends Phaser.Scene {
       // Sub-tile slots first (18 px) so a crowd fans out around its meeting
       // point, then widening rings until open ground is found.
       for (const radius of [18, 32, 48, 72, 96, 120, 144, 168]) {
-        // Try straight down first (doors face roads below buildings), then ring.
-        const candidates: Array<{ x: number; y: number }> = [{ x: cx, y: cy + radius }];
+        // Ring order starts east/west so overflow fans along the apron
+        // instead of stacking straight below the door.
+        const candidates: Array<{ x: number; y: number }> = [];
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2;
           candidates.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
@@ -3182,7 +3322,11 @@ export class TownScene extends Phaser.Scene {
     if (h >= 17 && h < 19.5) g = (h - 17) / 2.5;
     else if (h >= 19.5 || h < 5) g = 1;
     else if (h >= 5 && h < 7) g = 1 - (h - 5) / 2;
-    for (const w of this.windowGlows) w.obj.setAlpha(w.max * g);
+    for (const w of this.windowGlows) {
+      // Someone inside keeps the panes faintly warm even at noon.
+      const lived = w.pane && w.landmark && this.occupiedLandmarks.has(w.landmark) ? 0.22 : 0;
+      w.obj.setAlpha(Math.max(w.max * g, lived));
+    }
   }
 
   private buildTitleBanner(_W: number) {

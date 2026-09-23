@@ -3,15 +3,17 @@
 
 ``TownScene`` builds an A* navigation grid over each town's collision layer.
 Residents are not forced onto roads, but the grid weights sidewalks, tan
-paths and plazas cheapest, asphalt a touch dearer (so walkers keep to the
-sidewalk yet cross freely at any point), grass dearer still, and rail
-ballast dearest — so people use level crossings instead of cutting across
-the tracks. Formation slots and wander targets also avoid standing in the
-road.
+paths and plazas cheapest, crosswalks (zebra stripes and the rails' level
+crossings) nearly as cheap, asphalt very high — so walkers keep to the
+sidewalk and cross a street only at a crosswalk instead of jaywalking
+wherever the straight line happens to fall — grass dearer than pavement,
+and rail ballast dearest, so people use the level crossings instead of
+cutting across the tracks. Formation slots and wander targets also avoid
+standing in the road.
 
 The registry constants in ``tiles.py`` / ``moderntiles.py`` are the single
-source of truth — this script serializes which GIDs are *sidewalk*, *road*
-and *rough* so the frontend never hardcodes a GID.
+source of truth — this script serializes which GIDs are *sidewalk*,
+*crosswalk*, *road* and *rough* so the frontend never hardcodes a GID.
 
 Output: ``frontend/src/game/roadGids.json``
 
@@ -52,17 +54,14 @@ def main() -> None:
     sidewalk.update(R.COBBLE_FILL)
     sidewalk.update(R.PLAZA_COBBLE_FILL)
 
+    # The sanctioned places to step onto asphalt: zebra stripes at junctions
+    # and the rails' level crossings. These are deliberately NOT in ``road``
+    # so the nav grid can price them like pavement while asphalt stays dear.
+    crosswalk: set[int] = {M.mg(name) for name in ("crosswalk_h", "crosswalk_v", "rail_x")}
+
     road: set[int] = blob_gids(M.ASPHALT)
     # Road markings and street furniture baked onto asphalt tiles.
-    for name in (
-        "crosswalk_h",
-        "crosswalk_v",
-        "dash_h",
-        "dash_v",
-        "parking_stall",
-        "storm_drain",
-        "rail_x",
-    ):
+    for name in ("dash_h", "dash_v", "parking_stall", "storm_drain"):
         road.add(M.mg(name))
 
     rough: set[int] = blob_gids(R.GRAVEL)
@@ -72,16 +71,19 @@ def main() -> None:
         "_generated": "scripts/mapgen/export_road_gids.py — do not edit",
         "tileSize": R.TILE_SIZE,
         # Walkable kinds the nav grid distinguishes: sidewalk/path (preferred),
-        # road (crossed freely, but residents do not linger on it), rough
-        # (rail ballast; discouraged). Everything else is grass.
+        # crosswalk (the cheap way across a street or the tracks), road
+        # (priced high so residents cross only at crosswalks and never linger
+        # on it), rough (rail ballast; discouraged). Everything else is grass.
         "sidewalk": sorted(sidewalk),
-        "road": sorted(road - sidewalk),
-        "rough": sorted(rough - sidewalk - road),
+        "crosswalk": sorted(crosswalk - sidewalk),
+        "road": sorted(road - sidewalk - crosswalk),
+        "rough": sorted(rough - sidewalk - crosswalk - road),
     }
     OUT.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     print(
         f"wrote {OUT.relative_to(REPO_ROOT)}: {len(payload['sidewalk'])} sidewalk, "
-        f"{len(payload['road'])} road, {len(payload['rough'])} rough gids"
+        f"{len(payload['crosswalk'])} crosswalk, {len(payload['road'])} road, "
+        f"{len(payload['rough'])} rough gids"
     )
 
 

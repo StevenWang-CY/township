@@ -16,6 +16,11 @@ binds to:
 Anchor sprites are placed by TownScene; the preview renderer approximates
 them with registry stamps so previews look complete.
 
+Every landmark also gets authored standing ``spot`` anchors (door, porch,
+window, chat pair, bench seat, table, stall, platform, lawn, queue) so the
+runtime can spread a crowd over a landmark instead of piling residents on
+one door — see ``emit_spot_anchors`` for the contract.
+
 A town may ship a hand-tuned layout module under
 ``scripts/mapgen/layouts/<scenario>/<town>.py`` (hyphens become underscores),
 exporting ``compose(m: MapCanvas)``. Without one, a generic interpreter
@@ -32,6 +37,7 @@ import argparse
 import hashlib
 import importlib
 import json
+import math
 import random
 import re
 import sys
@@ -222,9 +228,16 @@ class MapCanvas:
         #: Dwellings (cottages, row houses): each gets yard-sign anchors on
         #: its lawn so residents' stances can show on their own front yard.
         self.homes: list[dict] = []
-        #: Landmark name → building front geometry (door + wall row), so the
-        #: civic post-pass can dress a polling place without re-deriving it.
-        self.fronts: dict[str, dict] = {}
+        #: Landmark name → building fronts (door + wall row), in registration
+        #: order, so the civic post-pass can dress a polling place and the
+        #: spot pass can place doorstep spots without re-deriving geometry.
+        #: A landmark may own several fronts (a housing block's cottages).
+        self.fronts: dict[str, list[dict]] = {}
+        #: Standing spots authored by layout helpers (bench seats, patio
+        #: tables, stall counters, platform edges). They are only validated
+        #: and emitted by ``emit_spot_anchors`` once every prop is placed,
+        #: so a seat stamped early never ends up under a later planter.
+        self.spot_requests: list[dict] = []
         self.landmarks: dict[str, Landmark] = {}
         for lm in town.get("landmarks", []):
             self.landmarks[lm["name"]] = Landmark(
@@ -384,6 +397,45 @@ class MapCanvas:
         p = {"kind": kind, **props}
         self.anchors.append({"name": name, "x": (x + 0.5) * T, "y": (y + 1.0) * T, "props": p})
 
+    def collided(self, px: float, py: float) -> bool:
+        """True when a collision rect covers the pixel (px, py)."""
+        return any(rx <= px < rx + rw and ry <= py < ry + rh for rx, ry, rw, rh in self.collision)
+
+    def on_street(self, x: int, y: int) -> bool:
+        """True when tile (x, y) lies on a street (a road segment). The rest
+        of ``road_mask`` — parking lots, bus bays, a cul-de-sac bulb — is
+        off-street asphalt an office or a shop row genuinely fronts onto."""
+        for seg in self.road_segs:
+            along, across = (x, y) if seg.orient == "h" else (y, x)
+            if seg.a0 <= along <= seg.a1 and seg.c <= across < seg.c + seg.width:
+                return True
+        return False
+
+    def cell_free(self, x: int, y: int) -> bool:
+        """Can a resident stand on tile (x, y)? In bounds, not on a street,
+        not a reserved (building / rail / river) cell, no collision rect
+        over the cell's centre pixel, and no prop or building tile on it.
+        Painted ground-detail (sidewalk, path, deck, stone floor, even a
+        parking lot's asphalt) is fine — it is the street itself, where a
+        crowd would block traffic, that is off limits."""
+        if not self.inb(x, y) or (x, y) in self.reserved or self.on_street(x, y):
+            return False
+        if self.collided((x + 0.5) * T, (y + 0.5) * T):
+            return False
+        return not (
+            self.get("deco-below", x, y)
+            or self.get("buildings-base", x, y)
+            or self.get("buildings-top", x, y)
+        )
+
+    def spot(self, role: str, x: float, y: float, facing: str, landmark: str = "", **props) -> None:
+        """Queue a standing spot for ``emit_spot_anchors`` (validated then).
+        (x, y) tile coords of the resident's feet cell, fractions allowed;
+        an empty ``landmark`` resolves to the nearest landmark at emission."""
+        self.spot_requests.append(
+            {"role": role, "x": x, "y": y, "facing": facing, "landmark": landmark, **props}
+        )
+
     def tree(self, x: int, y: int, stamp: str = "tree_light", collide: bool = True) -> None:
         self.anchor("tree", x, y, stamp=stamp)
         if collide:
@@ -403,20 +455,27 @@ class MapCanvas:
         door_x: int,
         door_y: int,
         wall_row: int,
+        door_w: int = 2,
     ) -> None:
         """Remember a building's front so ``emit_civic_anchors`` can place
-        banners beside its door and a polling station on its apron."""
+        banners beside its door and a polling station on its apron, and
+        ``emit_spot_anchors`` can seat residents on its doorstep. A landmark
+        that spans several buildings registers each of them; ``door_w`` is
+        the door stamp's width (the diner's glass door is a single tile)."""
         if not landmark:
             return
-        self.fronts[landmark] = {
-            "x": x,
-            "y": y,
-            "w": w,
-            "h": h,
-            "door_x": door_x,
-            "door_y": door_y,
-            "wall_row": wall_row,
-        }
+        self.fronts.setdefault(landmark, []).append(
+            {
+                "x": x,
+                "y": y,
+                "w": w,
+                "h": h,
+                "door_x": door_x,
+                "door_y": door_y,
+                "door_w": door_w,
+                "wall_row": wall_row,
+            }
+        )
 
     def chimney(self, x: int, y: int, mode: str = "hearth") -> None:
         """A chimney stack in the row above a shingle ridge plus a smoke
@@ -783,7 +842,7 @@ def diner(
     dd = door_dx if door_dx is not None else (w - 1) // 2
     m.stamp("buildings-base", M.DINER_DOOR, x + dd, y + h - 2)
     m.collide(x, y, w, h)
-    m.register_front(landmark, x, y, w, h, x + dd, y + h - 1, y + 3)
+    m.register_front(landmark, x, y, w, h, x + dd, y + h - 1, y + 3, door_w=1)
 
 
 def apron(m: MapCanvas, x: int, y: int, w: int = 2, h: int = 1, material: str = "sidewalk") -> None:
@@ -808,6 +867,78 @@ def noticeboard(m: MapCanvas, x: int, y: int, landmark: str = "") -> None:
     m.anchor("noticeboard", x + 0.5, y + 1, name=landmark)
 
 
+def bench(m: MapCanvas, x: int, y: int, landmark: str = "") -> None:
+    """A park bench (1x1 ``bench_h`` on deco-below at x, y) with a seat spot
+    on either side; the seats face south like the bench art. A seat whose
+    cell turns out blocked is dropped at emission rather than moved."""
+    m.set("deco-below", x, y, M.mg("bench_h"))
+    m.collide(x, y, 1, 1)
+    for sx in (x - 1, x + 1):
+        m.spot("bench", sx, y, "down", landmark, exact=True)
+
+
+def patio(
+    m: MapCanvas,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    stools: tuple[tuple[int, int], ...],
+    landmark: str = "",
+    floor: bool = True,
+    blocks: tuple[tuple[float, float, float, float], ...] | None = None,
+) -> None:
+    """Outdoor seating: an optional stone-floor pad ``w x h`` at (x, y), 2x2
+    stools at the given offsets from (x, y), collision blocks (offsets;
+    default: the top row of each stool, which is how the sites were laid
+    out) and a ``table`` spot per stool on its open side — south of it
+    facing up, else east of it facing left."""
+    if floor:
+        m.fill("ground-detail", x, y, w, h, R.STONE_FLOOR_FILL)
+    for sx, sy in stools:
+        m.stamp("deco-below", R.STOOL, x + sx, y + sy)
+    for bx, by, bw, bh in blocks if blocks is not None else [(sx, sy, 2, 1) for sx, sy in stools]:
+        m.collide(x + bx, y + by, bw, bh)
+    for sx, sy in stools:
+        ax, ay = x + sx, y + sy
+        m.spot(
+            "table",
+            ax,
+            ay + 2,
+            "up",
+            landmark,
+            alternatives=((ax + 1, ay + 2, "up"), (ax + 2, ay, "left"), (ax + 2, ay + 1, "left")),
+        )
+
+
+def market_stall(m: MapCanvas, x: int, y: int, landmark: str = "") -> None:
+    """The 6x3 striped market stall (top-left at x, y): the counter rows
+    block movement and two customer spots stand at the counter facing it."""
+    m.stamp("deco-below", R.MARKET_STALL, x, y)
+    m.collide(x, y + 1, 6, 2)
+    m.spot("stall", x + 1.5, y + 3, "up", landmark)
+    m.spot("stall", x + 3.5, y + 3, "up", landmark)
+
+
+def platform(
+    m: MapCanvas, x: int, y: int, w: int, h: int, landmark: str = "", edge: str = "s"
+) -> None:
+    """A light-deck platform pad ``w x h`` (station platform, swimming dock)
+    with waiting spots on every second cell of the row (or column) along
+    ``edge`` — the side that meets the tracks or the water — facing out
+    over it. Cells taken by lamps, benches or railings are skipped."""
+    m.stamp("ground-detail", pad_stamp(R.DECK_LIGHT, w, h), x, y)
+    if edge in ("n", "s"):
+        row = y if edge == "n" else y + h - 1
+        cells = [(cx, row) for cx in range(x, x + w, 2)]
+    else:
+        col = x if edge == "w" else x + w - 1
+        cells = [(col, cy) for cy in range(y, y + h, 2)]
+    facing = {"n": "up", "s": "down", "w": "left", "e": "right"}[edge]
+    for cx, cy in cells:
+        m.spot("platform", cx, cy, facing, landmark, exact=True)
+
+
 def _grass_gids() -> set[int]:
     out: set[int] = set(R.GRASS_LIGHT.fill)
     for value in R.GRASS_LIGHT.edge_tiles().values():
@@ -817,6 +948,36 @@ def _grass_gids() -> set[int]:
         else:
             out.update(g for g in value if g)
     return out
+
+
+def cell_is_lawn(m: MapCanvas, cx: int, cy: int, lawn: set[int]) -> bool:
+    """Open grass: not road or plaza, no prop or building tile, and the
+    ground-detail either bare or one of the light-meadow ``lawn`` gids.
+    (Collision is not checked here — pair with ``MapCanvas.cell_free``.)"""
+    if not m.inb(cx, cy) or (cx, cy) in m.road_mask or (cx, cy) in m.paved:
+        return False
+    if m.get("deco-below", cx, cy) or m.get("buildings-base", cx, cy):
+        return False
+    if m.get("buildings-top", cx, cy):
+        return False
+    detail = m.get("ground-detail", cx, cy)
+    return detail == 0 or detail in lawn
+
+
+def polling_landmarks(m: MapCanvas) -> list[Landmark]:
+    """Landmarks that host the election: those the town JSON marks with
+    ``"role": "polling_place"``, falling back to ``civic``-typed ones, then
+    to names matching "town hall" / "municipal"."""
+    polling = [
+        lm for lm in m.landmarks.values() if str(lm.raw.get("role", "")).lower() == "polling_place"
+    ]
+    if not polling:
+        polling = [lm for lm in m.landmarks.values() if lm.type == "civic"]
+    if not polling:
+        polling = [
+            lm for lm in m.landmarks.values() if re.search(r"town hall|municipal", lm.name, re.I)
+        ]
+    return polling
 
 
 def emit_civic_anchors(m: MapCanvas) -> None:
@@ -835,14 +996,7 @@ def emit_civic_anchors(m: MapCanvas) -> None:
     lawn = _grass_gids()
 
     def free_lawn(cx: int, cy: int) -> bool:
-        if not m.inb(cx, cy) or (cx, cy) in m.road_mask or (cx, cy) in m.paved:
-            return False
-        if m.get("deco-below", cx, cy) or m.get("buildings-base", cx, cy):
-            return False
-        if m.get("buildings-top", cx, cy):
-            return False
-        detail = m.get("ground-detail", cx, cy)
-        return detail == 0 or detail in lawn
+        return cell_is_lawn(m, cx, cy, lawn)
 
     seat = 0
     for home in m.homes:
@@ -869,20 +1023,12 @@ def emit_civic_anchors(m: MapCanvas) -> None:
             seat += 1
             placed += 1
 
-    polling = [
-        lm for lm in m.landmarks.values() if str(lm.raw.get("role", "")).lower() == "polling_place"
-    ]
-    if not polling:
-        polling = [lm for lm in m.landmarks.values() if lm.type == "civic"]
-    if not polling:
-        polling = [
-            lm for lm in m.landmarks.values() if re.search(r"town hall|municipal", lm.name, re.I)
-        ]
-    for lm in polling[:1]:
-        front = m.fronts.get(lm.name)
-        if not front:
+    for lm in polling_landmarks(m)[:1]:
+        fronts = m.fronts.get(lm.name)
+        if not fronts:
             print(f"  ! polling place {lm.name!r} has no registered building front; skipped")
             continue
+        front = fronts[0]
         dx, dy, wall = front["door_x"], front["door_y"], front["wall_row"]
         m.anchor("pollplace", dx + 0.5, dy + 1, name=lm.name)
         for bx in (dx - 1, dx + 2):
@@ -905,6 +1051,306 @@ def emit_civic_anchors(m: MapCanvas) -> None:
                 m.collide(cx + ox + 0.25, cy + oy + 0.4, 0.5, 0.5)
                 m.anchor("brazier", cx + ox, cy + oy, name=lm.name)
                 break
+
+
+# ---------------------------------------------------------------------------
+# standing spots (the crowd's authored places to be)
+# ---------------------------------------------------------------------------
+
+#: Column shifts tried when a spot's cell is blocked: the cell itself, then
+#: one column either side, then two — after that the spot is dropped.
+_SPOT_SHIFTS = (0, 1, -1, 2, -2)
+#: Anchor kinds that put a prop sprite on their cell (some, like flowers,
+#: without a collision rect) — nobody should stand inside them.
+_PROP_ANCHOR_KINDS = {"tree", "lamp", "flower", "windmill", "noticeboard", "brazier", "yardsign"}
+#: Top-left gids of the facade windows residents can loiter under.
+_WINDOW_TL = {M.WINDOW.gids[0][0], M.SHUTTER_WINDOW.gids[0][0], M.SMALL_WINDOW.gids[0][0]}
+#: Landmark types whose open ground gets scattered lawn spots.
+_LAWN_TYPES = ("park", "plaza", "green")
+#: Poisson-disc parameters for lawn spots: minimum separation (tiles), how
+#: many a park gets at most, and the floor below which the search ring
+#: grows past the landmark rect (a lake's rect is mostly water).
+_LAWN_SEPARATION = 2.0
+_LAWN_MAX = 8
+_LAWN_MIN = 4
+#: Cells in a polling queue, at a two-tile pitch.
+_QUEUE_LEN = 5
+#: A street landmark at least this long (tiles) gets a chat pair per quarter.
+_LONG_STREET = 30
+
+
+def _spot_cells(x: float, y: float) -> list[tuple[int, int]]:
+    """Tiles under a resident standing at (x, y): a half-tile x (a spot
+    centred under a two-tile door) straddles two cells."""
+    cy = math.floor(y)
+    return sorted({(math.floor(x), cy), (math.floor(x + 0.5), cy)})
+
+
+def nearest_landmark(m: MapCanvas, cx: int, cy: int) -> str:
+    """Name of the non-road landmark whose rect is closest to tile (cx, cy)
+    (Manhattan distance to the rect; zero inside it)."""
+    best, best_d = "", None
+    for lm in m.landmarks.values():
+        if lm.type == "road":
+            continue
+        d = max(0, lm.x - cx, cx - (lm.x + lm.w - 1)) + max(0, lm.y - cy, cy - (lm.y + lm.h - 1))
+        if best_d is None or d < best_d:
+            best, best_d = lm.name, d
+    return best
+
+
+def _window_columns(m: MapCanvas, front: dict) -> list[int]:
+    """Columns of every facade window on a registered front (left column
+    of each window stamp), found from the buildings-base gids so a recipe
+    change never desynchronises the spots from the art."""
+    cols: list[int] = []
+    for r in range(front["y"], front["y"] + front["h"]):
+        for c in range(front["x"], front["x"] + front["w"]):
+            if m.get("buildings-base", c, r) in _WINDOW_TL and c not in cols:
+                cols.append(c)
+    return sorted(cols)
+
+
+class _SpotPlacer:
+    """Validates candidate spots against the finished canvas and records the
+    ones that fit, in emission order, so ``order`` is stable per landmark.
+    Everyday spots never share a cell; polling-queue cells are ``shared``
+    because the line only forms on decision day."""
+
+    def __init__(self, m: MapCanvas) -> None:
+        self.m = m
+        self.taken: set[tuple[int, int]] = set()
+        self.props: set[tuple[int, int]] = {
+            (int(a["x"] // T), int(round(a["y"] / T)) - 1)
+            for a in m.anchors
+            if a["props"].get("kind") in _PROP_ANCHOR_KINDS
+        }
+        self.placed: list[dict] = []
+
+    def free(self, x: float, y: float, shared: bool = False) -> bool:
+        return all(
+            self.m.cell_free(*c) and c not in self.props and (shared or c not in self.taken)
+            for c in _spot_cells(x, y)
+        )
+
+    def emit(self, landmark: str, role: str, x: float, y: float, facing: str, **props) -> None:
+        self.taken.update(_spot_cells(x, y))
+        self.placed.append(
+            {"landmark": landmark, "role": role, "x": x, "y": y, "facing": facing, **props}
+        )
+
+    def put(
+        self,
+        landmark: str,
+        role: str,
+        x: float,
+        y: float,
+        facing: str,
+        shifts: tuple[int, ...] = _SPOT_SHIFTS,
+        **props,
+    ) -> bool:
+        """Place one spot, sliding along the row when its cell is blocked."""
+        for dx in shifts:
+            if self.free(x + dx, y):
+                self.emit(landmark, role, x + dx, y, facing, **props)
+                return True
+        return False
+
+    def pair(
+        self, landmark: str, pair_id: str, x: int, y: int, shifts: tuple[int, ...] = _SPOT_SHIFTS
+    ) -> bool:
+        """A chat pair: two residents at (x-1, y) and (x+1, y) — 32 px apart,
+        turned to face each other — with the cell between them kept clear."""
+        for dx in shifts:
+            cx = x + dx
+            if self.free(cx - 1, y) and self.free(cx + 1, y) and self.free(cx, y):
+                self.emit(landmark, "chat", cx - 1, y, "face", pair=pair_id, side="a")
+                self.emit(landmark, "chat", cx + 1, y, "face", pair=pair_id, side="b")
+                self.taken.add((cx, y))
+                return True
+        return False
+
+    def pair_near(self, landmark: str, pair_id: str, x: int, y: int, radius: int = 6) -> bool:
+        """Ring search outward from (x, y) for the first cell that fits a
+        chat pair (top-to-bottom, left-to-right within each ring)."""
+        for r in range(radius + 1):
+            for oy in range(-r, r + 1):
+                for ox in range(-r, r + 1):
+                    if max(abs(ox), abs(oy)) != r:
+                        continue
+                    if self.pair(landmark, pair_id, x + ox, y + oy, shifts=(0,)):
+                        return True
+        return False
+
+    def queue_run(self, start: tuple[int, int], step: tuple[int, int]) -> list[tuple[int, int]]:
+        """Up to ``_QUEUE_LEN`` cells from ``start`` at a two-tile pitch. A
+        blocked cell slides along its row like any spot; the run stops at a
+        street or the tracks (a line never snakes across asphalt) and keeps
+        every member at least two tiles from the previous one."""
+        cells: list[tuple[int, int]] = []
+        for i in range(_QUEUE_LEN):
+            cx, cy = start[0] + step[0] * i, start[1] + step[1] * i
+            if not self.m.inb(cx, cy) or self.m.on_street(cx, cy) or (cx, cy) in self.m.reserved:
+                break
+            for dx in _SPOT_SHIFTS:
+                c = (cx + dx, cy)
+                if c in cells or not self.free(*c, shared=True):
+                    continue
+                if cells and abs(c[0] - cells[-1][0]) + abs(c[1] - cells[-1][1]) < 2:
+                    continue
+                cells.append(c)
+                break
+        return cells
+
+
+def _lawn_spots(m: MapCanvas, placer: _SpotPlacer, lm: Landmark, lawn: set[int]) -> None:
+    """Poisson-disc (dart-throwing) sample of open grass inside a park's
+    rect, seeded by the landmark name so rebuilds keep the same spots.
+    When the rect itself offers too few cells — Lake Parsippany's rect is
+    the water — the search grows one ring at a time onto the shore."""
+    rng = random.Random(_stable_seed(lm.name))
+    accepted: list[tuple[int, int]] = []
+    x0, y0, x1, y1 = lm.x, lm.y, lm.x + lm.w - 1, lm.y + lm.h - 1
+    for margin in range(4):
+        ring = [
+            (cx, cy)
+            for cy in range(y0 - margin, y1 + margin + 1)
+            for cx in range(x0 - margin, x1 + margin + 1)
+            if (
+                margin == 0
+                or not (x0 - margin < cx < x1 + margin and y0 - margin < cy < y1 + margin)
+            )
+            and cell_is_lawn(m, cx, cy, lawn)
+            and placer.free(cx, cy)
+        ]
+        rng.shuffle(ring)
+        for cell in ring:
+            if len(accepted) >= _LAWN_MAX:
+                break
+            if all(math.dist(cell, a) >= _LAWN_SEPARATION for a in accepted):
+                accepted.append(cell)
+                placer.emit(lm.name, "lawn", cell[0], cell[1], "down")
+        if len(accepted) >= _LAWN_MIN:
+            break
+
+
+def emit_spot_anchors(m: MapCanvas) -> None:
+    """Post-pass after the civic furniture: every landmark's authored
+    standing spots, emitted as ``spot`` anchors so the runtime never piles
+    a crowd on one door. Properties (all strings): ``role``, ``facing``
+    (up/down/left/right, or ``face`` for a chat pair), ``cap`` (residents
+    per spot), ``order`` (stable, unique per landmark; a queue's order is
+    its rank from the door) and, for chat pairs, ``pair`` + ``side``.
+
+    * ``bench`` / ``table`` / ``stall`` / ``platform`` — requested by the
+      layout helpers of the same name, validated here once every prop is
+      down (precise cells first, before anything with a fallback).
+    * ``door`` (centred on the door, facing it), ``porch`` (either side of
+      the door, facing out), ``window`` (under each facade window) and a
+      ``chat`` pair two rows out — for every registered building front.
+    * ``chat`` pairs near the centre-bottom of landmarks that have no
+      front (parks, water, a bridge, a street — its pairs land on the
+      sidewalk, one per quarter of a long street, because routines do
+      send residents to "the corner"), searched outward until a clear
+      pair of cells is found.
+    * ``lawn`` — Poisson-disc scattered over a park's open grass.
+    * ``queue`` — the polling place's decision-day line: a two-tile-pitch
+      run beside the door, along whichever of left / right / down-the-walk
+      fits the most residents; ``order`` 0 is the head of the line.
+
+    A blocked cell slides up to two columns either way, then the spot is
+    dropped; a landmark without a front keeps its chat pair and parks keep
+    lawn spots, so every routine destination has somewhere to stand.
+    """
+    placer = _SpotPlacer(m)
+    lawn = _grass_gids()
+
+    for req in m.spot_requests:
+        landmark = req["landmark"] or nearest_landmark(
+            m, math.floor(req["x"]), math.floor(req["y"])
+        )
+        candidates = [(req["x"], req["y"], req["facing"]), *req.get("alternatives", ())]
+        shifts = (0,) if req.get("exact") or req.get("alternatives") else _SPOT_SHIFTS
+        for x, y, facing in candidates:
+            if placer.put(landmark, req["role"], x, y, facing, shifts=shifts):
+                break
+
+    # Doorstep roles, one role at a time across every front rather than one
+    # front at a time: in an attached row of narrow shops a porch that slid
+    # sideways would otherwise take the next shop's door cell, and a door
+    # matters more than a neighbour's porch.
+    fronts = [
+        (name, i, front) for name, fronts in m.fronts.items() for i, front in enumerate(fronts)
+    ]
+    for name, _, front in fronts:
+        dx, dy, dw = front["door_x"], front["door_y"], front["door_w"]
+        placer.put(name, "door", dx + dw / 2 - 0.5, dy + 1, "up")
+    for name, _, front in fronts:
+        dx, dy, dw = front["door_x"], front["door_y"], front["door_w"]
+        placer.put(name, "porch", dx - 1.5, dy + 1, "down")
+        placer.put(name, "porch", dx + dw + 0.5, dy + 1, "down")
+    for name, _, front in fronts:
+        for wx in _window_columns(m, front):
+            placer.put(name, "window", wx, front["door_y"] + 1, "up", shifts=(0,))
+    for name, i, front in fronts:
+        dx, dy = front["door_x"], front["door_y"]
+        pair_id = f"{name}#{i}"
+        if not placer.pair(name, pair_id, dx, dy + 2):
+            placer.pair_near(name, pair_id, dx, dy + 2)
+
+    for lm in m.landmarks.values():
+        if lm.name in m.fronts:
+            continue
+        cx, cy = lm.x + lm.w // 2, lm.y + lm.h // 2 + 1
+        centres = [(cx, cy)]
+        if lm.type == "road" and max(lm.w, lm.h) >= _LONG_STREET:
+            if lm.w >= lm.h:
+                centres = [(lm.x + lm.w * k // 4, cy) for k in (1, 2, 3)]
+            else:
+                centres = [(cx, lm.y + lm.h * k // 4 + 1) for k in (1, 2, 3)]
+        for i, (px, py) in enumerate(centres):
+            placer.pair_near(lm.name, f"{lm.name}#{i}", px, py)
+
+    for lm in m.landmarks.values():
+        if lm.type in _LAWN_TYPES:
+            _lawn_spots(m, placer, lm, lawn)
+
+    for lm in polling_landmarks(m)[:1]:
+        fronts = m.fronts.get(lm.name)
+        if not fronts:
+            continue
+        dx, dy, dw = fronts[0]["door_x"], fronts[0]["door_y"], fronts[0]["door_w"]
+        runs = (
+            placer.queue_run((dx, dy + 2), (0, 2)),  # down the walk
+            placer.queue_run((dx - 1, dy + 1), (-2, 0)),  # left along the apron
+            placer.queue_run((dx + dw, dy + 1), (2, 0)),  # right along the apron
+        )
+        for cx, cy in max(runs, key=len):
+            placer.emit(lm.name, "queue", cx, cy, "up")
+
+    # Number spots per landmark. The queue is ranked first so its order
+    # reads 0.. from the door; everything else follows in emission order.
+    counts: dict[str, int] = {}
+    ranked = [s for s in placer.placed if s["role"] == "queue"] + [
+        s for s in placer.placed if s["role"] != "queue"
+    ]
+    for s in ranked:
+        s["order"] = counts.get(s["landmark"], 0)
+        counts[s["landmark"]] = s["order"] + 1
+    for s in placer.placed:
+        props = {
+            "role": s["role"],
+            "facing": s["facing"],
+            "cap": "1",
+            "order": str(s["order"]),
+        }
+        if "pair" in s:
+            props["pair"] = s["pair"]
+            props["side"] = s["side"]
+        # Feet 0.85 of the way down the cell, not on its bottom edge: an
+        # anchor on the boundary samples the NEXT tile row (the street in
+        # front of an apron) when the runtime classifies the ground.
+        m.anchor("spot", s["x"], s["y"] - 0.15, name=s["landmark"], **props)
 
 
 # ---------------------------------------------------------------------------
@@ -1107,6 +1553,7 @@ def build_town(scenario: str, town_id: str, out_dir: Path = MAPS_DIR) -> Path:
     else:
         interpret_landmarks(m)
     emit_civic_anchors(m)
+    emit_spot_anchors(m)
     out = _map_output_path(out_dir, scenario, town_id)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(to_tmj(m), separators=(",", ":")))

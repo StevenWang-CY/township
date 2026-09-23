@@ -41,10 +41,13 @@ from mapgen import tiles as R
 from mapgen.build_maps import (
     MapCanvas,
     apron,
+    bench,
     grand,
+    market_stall,
     noticeboard,
     path,
     path_rect,
+    patio,
     storefront,
 )
 from mapgen.tiles import TileStamp
@@ -117,13 +120,23 @@ def compose(m: MapCanvas) -> None:
         landmark="Millbrook Town Hall",
     )
     # -- The Wheelhouse Diner, corner of Mill & Main
-    storefront(m, 16, 17, 7, 6, facade="brick", awning=True)
+    storefront(m, 16, 17, 7, 6, facade="brick", awning=True, landmark="The Wheelhouse Diner")
     # -- Corbin's Hardware
-    storefront(m, 21, 30, 7, 5, facade="brick", sign=0)
+    storefront(m, 21, 30, 7, 5, facade="brick", sign=0, landmark="Corbin's Hardware")
     # -- small general store beside it
     storefront(m, 29, 30, 5, 5, facade="cream", roof="deck_light", awning=True)
     # -- Millbrook Free Library (Carnegie-style brick)
-    grand(m, 40, 30, 8, 7, facade="brick", roof="stone", windows=True)
+    grand(
+        m,
+        40,
+        30,
+        8,
+        7,
+        facade="brick",
+        roof="stone",
+        windows=True,
+        landmark="Millbrook Free Library",
+    )
     # -- Chestnut Row: three attached mill row houses
     storefront(
         m,
@@ -210,6 +223,8 @@ def compose(m: MapCanvas) -> None:
     m.building_stamp(tall, 52, 11, top_rows=1)
     m.stamp("buildings-base", R.DOORWAY_DARK, 53, 14)  # gaping doorway
     m.collide(52, 11, 3, 6)
+    # the doorway is the ruin's "front": residents linger at its threshold
+    m.register_front("Harrow Mill Ruins", 52, 11, 3, 6, 53, 16, 14)
     mid = TileStamp("ruin_mid", tuple((br[r][5], br[r][6], br[r][7]) for r in (3, 4, 5)))
     m.stamp("buildings-base", mid, 55, 14)
     m.collide(55, 14, 3, 3)
@@ -274,13 +289,11 @@ def compose(m: MapCanvas) -> None:
     for x in range(38, 47):
         greenway.add((x, 9))
     path(m, greenway)
-    m.set("deco-below", 45, 9, M.mg("bench_h"))  # bench facing the water
-    m.collide(45, 9, 1, 1)
+    bench(m, 45, 9, landmark="Stillwater River")  # bench facing the water
     m.flowers(48, 11, n=5, spread=2)
 
     # ================= farmers market green =================
-    m.stamp("deco-below", R.MARKET_STALL, 13, 12)
-    m.collide(13, 13, 6, 2)
+    market_stall(m, 13, 12, landmark="Millbrook Farmers Market")
     m.stamp("deco-below", R.SIGNS_STALL[2], 11, 14)  # cider stand
     m.collide(11, 15, 2, 1)
     m.stamp("deco-below", R.SIGNS_STALL[4], 19, 14)  # jam table
@@ -303,10 +316,8 @@ def compose(m: MapCanvas) -> None:
     m.collide(39.1, 24.3, 0.8, 0.7)
     m.stamp("deco-below", R.STATUE, 28, 17)  # war memorial
     m.collide(28, 18, 2, 2)
-    m.set("deco-below", 28, 20, M.mg("bench_h"))
-    m.set("deco-below", 30, 20, M.mg("bench_h"))
-    m.collide(28, 20, 1, 1)
-    m.collide(30, 20, 1, 1)
+    bench(m, 28, 20, landmark="Millbrook Town Hall")
+    bench(m, 30, 20, landmark="Millbrook Town Hall")
     path_rect(m, 29, 21, 2, 3)  # green down to the sidewalk
     m.flowers(28, 22, n=6, spread=2)
     m.flowers(31, 18, n=4, spread=1)
@@ -319,10 +330,16 @@ def compose(m: MapCanvas) -> None:
     noticeboard(m, 23, 15, landmark="Millbrook Farmers Market")
     m.collide(23.2, 16.3, 0.6, 0.7)
     # side patio: two stools under the west window
-    m.fill("ground-detail", 13, 19, 3, 3, R.STONE_FLOOR_FILL)
-    m.stamp("deco-below", R.STOOL, 13, 19)
-    m.stamp("deco-below", R.STOOL, 14, 20)
-    m.collide(13, 19, 3, 2)
+    patio(
+        m,
+        13,
+        19,
+        3,
+        3,
+        stools=((0, 0), (1, 1)),
+        landmark="The Wheelhouse Diner",
+        blocks=((0, 0, 3, 2),),
+    )
     m.stamp("deco-below", R.PLANTER_PURPLE, 13, 17)
     m.collide(13, 17, 2, 2)
 
