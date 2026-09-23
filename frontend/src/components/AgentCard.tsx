@@ -16,6 +16,8 @@ function withAlpha(hex: string, alphaHex: string): string {
 interface AgentCardProps {
   agent: AgentState;
   compact?: boolean;
+  /** Replaces the occupation line (compact): "At work in Parsippany". */
+  note?: string;
   onClick?: () => void;
   /** Show the "✓ met" check icon. */
   met?: boolean;
@@ -25,7 +27,7 @@ interface AgentCardProps {
   trust?: number;
 }
 
-export default function AgentCard({ agent, compact = false, onClick, met, persuaded, trust }: AgentCardProps) {
+export default function AgentCard({ agent, compact = false, onClick, met, persuaded, trust, note }: AgentCardProps) {
   const navigate = useNavigate();
   const { townMeta, optionColor, optionLabel, undecidedId } = useScenario();
   const meta = townMeta(agent.town);
@@ -133,7 +135,7 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
             fontSize: "11px",
             color: "var(--text-muted)",
           }}>
-            {agent.occupation}
+            {note ?? agent.occupation}
           </p>
         </div>
         {trust !== undefined && (

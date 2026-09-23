@@ -580,26 +580,14 @@
     ],
     "events": [
       {
-        "day": 6,
+        "day": 2,
         "beat": "morning",
         "kind": "market",
         "label": "Saturday market in Dover",
         "host_town": "dover"
       },
       {
-        "day": 9,
-        "beat": "evening",
-        "kind": "debate",
-        "label": "Debate night in Montclair",
-        "host_town": "montclair",
-        "news_id": "debate-night",
-        "effect": {
-          "kind": "confidence",
-          "delta": 6
-        }
-      },
-      {
-        "day": 13,
+        "day": 10,
         "beat": "morning",
         "kind": "canvass",
         "label": "Canvass weekend in Dover",
@@ -610,6 +598,18 @@
           "towns": [
             "dover"
           ]
+        }
+      },
+      {
+        "day": 12,
+        "beat": "evening",
+        "kind": "debate",
+        "label": "Debate night in Montclair",
+        "host_town": "montclair",
+        "news_id": "debate-night",
+        "effect": {
+          "kind": "confidence",
+          "delta": 6
         }
       },
       {

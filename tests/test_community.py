@@ -206,3 +206,31 @@ def test_visitor_prompt_says_where_they_are(world):
     assert "Today you are in" in prompt and "Parsippany" in prompt
     visitor.current_town = None
     assert "Today you are in" not in probe._build_agent_system_prompt(visitor, round_num=1)
+
+
+def test_presence_transitions_emit_moves_out_and_back(world):
+    """A commuter's change of town is a world event: one agent_moved to the
+    host (home_town set) when they leave, one back when the beat brings them
+    home — even if they never say a word in either place."""
+    scenario, orch, probe, bus = world
+    agent, home, host, clock = _commuter(orch)
+    hhmm = f"{clock[0]:02d}:{clock[1]:02d}"
+
+    async def run():
+        orch._presence(_spec(1, hhmm, ["converse"], day=1), probe)
+        await orch._publish_presence_moves()
+        orch._presence(_spec(2, "18:30", ["opinion"], day=1), probe)
+        await orch._publish_presence_moves()
+
+    asyncio.run(run())
+    moves = [
+        e for e in bus.get_event_log() if e.type == "agent_moved" and e.agent_id == agent.agent_id
+    ]
+    assert [m.town for m in moves] == [host, home]
+    assert all(m.home_town == home for m in moves)
+    host_names = {lm["name"] for lm in scenario.towns[host]["landmarks"]}
+    home_names = {lm["name"] for lm in scenario.towns[home]["landmarks"]}
+    assert moves[0].to_location in host_names and moves[1].to_location in home_names
+    assert agent.current_town == home and agent.current_location == moves[1].to_location
+    # nothing queued twice
+    assert orch._presence_moves == []

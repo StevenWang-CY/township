@@ -73,7 +73,10 @@ export interface WsState {
   eventHistoryStart: number;
   /** Last precise coordinates supplied for each resident by agent_moved.
    *  This is reducer-owned playback state, not an addition to the wire DTO. */
-  agentPositions: Record<string, { location: string; x?: number; y?: number }>;
+  agentPositions: Record<string, { location: string; x?: number; y?: number; town?: string }>;
+  /** Additive (Community II): the town each resident is in right now — home
+   *  until an agent_moved says otherwise (commuters, event visitors). */
+  agentTowns: Record<string, string>;
   /** Keyed lazily by town id as round_ended events stream in — no scenario
    *  town roster is assumed here. */
   townSummaries: Record<string, TownSummary>;
@@ -112,6 +115,7 @@ export const initialState: WsState = {
   eventCursor: 0,
   eventHistoryStart: 0,
   agentPositions: {},
+  agentTowns: {},
   townSummaries: {},
   currentRound: 0,
   totalRounds: 0,
@@ -171,6 +175,8 @@ function reduceWithEventLimit(
         case "simulation_started": {
           const agentsMap: Record<string, AgentState> = {};
           for (const a of evt.agents) agentsMap[a.id] = a;
+          const agentTowns: Record<string, string> = {};
+          for (const a of evt.agents) agentTowns[a.id] = a.town;
           return {
             ...base,
             agents: agentsMap,
@@ -179,6 +185,7 @@ function reduceWithEventLimit(
             events: [evt],
             eventHistoryStart: eventCursor - 1,
             agentPositions: {},
+            agentTowns,
             townSummaries: {},
             currentRound: 0,
             totalRounds: 0,
@@ -249,31 +256,33 @@ function reduceWithEventLimit(
           return { ...base, townSummaries: summaries, agents, roundSignals: signalRound(state, evt.town, "ended") };
         }
 
-        case "agent_moved":
-          if (state.agents[evt.agent_id]) {
-            return {
-              ...base,
-              agents: {
-                ...state.agents,
-                [evt.agent_id]: {
-                  ...state.agents[evt.agent_id],
-                  location: evt.to_location,
-                  activity: "walking",
-                },
+        case "agent_moved": {
+          // `town` is where the move happens — a commuter's host town for the
+          // beat — so the presence table follows it; positions remember it
+          // too, so a scene never seats someone on another town's coordinates.
+          const position = {
+            location: evt.to_location,
+            x: evt.x ?? undefined,
+            y: evt.y ?? undefined,
+            town: evt.town,
+          };
+          const agentTowns = { ...state.agentTowns, [evt.agent_id]: evt.town };
+          const agentPositions = { ...state.agentPositions, [evt.agent_id]: position };
+          if (!state.agents[evt.agent_id]) return { ...base, agentPositions, agentTowns };
+          return {
+            ...base,
+            agents: {
+              ...state.agents,
+              [evt.agent_id]: {
+                ...state.agents[evt.agent_id],
+                location: evt.to_location,
+                activity: "walking",
               },
-              agentPositions: {
-                ...state.agentPositions,
-                [evt.agent_id]: {
-                  location: evt.to_location,
-                  ...(Number.isFinite(evt.x) && Number.isFinite(evt.y)
-                    ? { x: evt.x as number, y: evt.y as number }
-                    : {}),
-                },
-              },
-            };
-          }
-          return base;
-
+            },
+            agentPositions,
+            agentTowns,
+          };
+        }
         case "opinion_changed":
           if (state.agents[evt.agent_id]) {
             return {

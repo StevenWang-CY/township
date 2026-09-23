@@ -18,6 +18,7 @@ from ..core.scenario import CANONICAL_CORE_NOTICE, RoundSpec, Scenario, validate
 from ..core.storage import PROJECT_ROOT as APPLICATION_ROOT
 from ..core.storage import runs_root, save_json_atomic
 from ..core.types import (
+    AgentMovedEvent,
     AgentState,
     CivicAgentState,
     DistrictSummary,
@@ -123,6 +124,7 @@ class SimulationOrchestrator:
         self.control = RunControl()
         self.preset: str = "quick"
         self.plan: list[RoundSpec] = []
+        self._presence_moves: list[tuple[AgentState, str, str | None]] = []
         self.calendar: dict = {}
         self.budget: BudgetGuard | None = None
         self.stopped_reason: str | None = None
@@ -269,7 +271,10 @@ class SimulationOrchestrator:
         town hall, fair, rally) draws two voices and three neighbors from every
         other town; a market keeps everyone home. Only beats with talk or news
         travel — seeds, opinions and ballots happen at home. Every agent lands
-        in exactly one town and `agent.current_town` records it."""
+        in exactly one town and `agent.current_town` records it; the moves a
+        change of town implies are queued on `self._presence_moves` for
+        `_publish_presence_moves` (the scene sees commuters leave and return
+        even on beats where they never say a word)."""
         clock = spec.clock_tuple()
         present: dict[str, list[AgentState]] = {town: [] for town in self.agent_states}
         travel = bool(set(spec.phases) & self.PRESENCE_PHASES) and "seed" not in spec.phases
@@ -289,18 +294,53 @@ class SimulationOrchestrator:
                 travellers |= set(rng.sample(neighbors, min(self.EVENT_NEIGHBORS, len(neighbors))))
             for agent in states:
                 host = town
+                landmark: str | None = None
                 if travel:
+                    split = probe._routine_stop_split(agent, clock)
                     if agent.agent_id in travellers:
                         host = str(host_event)
-                    else:
-                        split = probe._routine_stop_split(agent, clock)
-                        if split and split[0] in present:
-                            host = split[0]
+                    elif split and split[0] in present:
+                        host = split[0]
+                    if split and split[0] == host:
+                        landmark = split[1]
+                previous = agent.current_town or town
+                if host != previous:
+                    self._presence_moves.append((agent, host, landmark))
                 agent.current_town = host
                 present[host].append(agent)
         for bucket in present.values():
             bucket.sort(key=lambda a: a.agent_id)
         return present
+
+    async def _publish_presence_moves(self) -> None:
+        """One `agent_moved` per change of town: to the routine stop when the
+        commute names it, else the host's transit stop or first landmark
+        (visitors to an event), always with `home_town` set."""
+        moves, self._presence_moves = self._presence_moves, []
+        for agent, host, landmark in moves:
+            landmarks = list((self.scenario.towns.get(host) or {}).get("landmarks") or [])
+            target = next((lm for lm in landmarks if lm.get("name") == landmark), None)
+            if target is None:
+                target = next(
+                    (lm for lm in landmarks if str(lm.get("type", "")).lower() == "transport"),
+                    landmarks[0] if landmarks else None,
+                )
+            if target is None:
+                continue
+            from_location = agent.current_location
+            agent.current_location = str(target["name"])
+            await self.event_bus.publish(
+                AgentMovedEvent(
+                    agent_id=agent.agent_id,
+                    agent_name=agent.definition.name,
+                    town=host,
+                    home_town=agent.definition.town,
+                    from_location=from_location,
+                    to_location=str(target["name"]),
+                    x=target.get("x", 400),
+                    y=target.get("y", 300),
+                )
+            )
 
     def _total_days(self) -> int | None:
         days = {r.day for r in self.plan if r.day is not None}
@@ -577,6 +617,7 @@ class SimulationOrchestrator:
 
             active_towns = [town for town in towns if town not in failed]
             presence = self._presence(spec, next(iter(managers.values())))
+            await self._publish_presence_moves()
             results = await asyncio.gather(
                 *[
                     managers[town].run_town_round(

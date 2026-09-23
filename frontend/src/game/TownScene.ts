@@ -1035,7 +1035,10 @@ export class TownScene extends Phaser.Scene {
     if (this.scene?.isActive?.()) this.rebuildLandmarks();
   }
 
-  addAgent(agent: AgentState & { routine?: RoutineEntry[] }) {
+  addAgent(
+    agent: AgentState & { routine?: RoutineEntry[] },
+    opts: { spawnAt?: { x: number; y: number } } = {},
+  ) {
     if (this.agentSprites.has(agent.id)) return;
 
     const routine = agent.routine ? new Routine(agent.routine) : undefined;
@@ -1047,10 +1050,11 @@ export class TownScene extends Phaser.Scene {
     const base = (location ? this.landmarkPositions.get(location) : undefined)
       ?? [...this.landmarkPositions.values()][this.spawnCursor++ % Math.max(1, this.landmarkPositions.size)]
       ?? { x: 600, y: 400 };
-    const sx = base.x;
-    const sy = base.y;
+    const sx = opts.spawnAt?.x ?? base.x;
+    const sy = opts.spawnAt?.y ?? base.y;
 
     const custom = resolveAgentSprite(agent.id, this.scenarioId);
+    const homeTown = agent.home_town ?? agent.town;
 
     const sprite = new AgentSprite(this, sx, sy, {
       id: agent.id,
@@ -1067,6 +1071,8 @@ export class TownScene extends Phaser.Scene {
       // Couples render as a REAL second body (own spritesheet) that trails
       // the lead with a delayed follow — see AgentSprite.updateCompanion.
       partner: custom.partner,
+      tier: agent.tier === "neighbor" ? "neighbor" : "voice",
+      visitorOf: homeTown !== this.townId ? { town: homeTown, color: townAccent(homeTown) } : undefined,
     });
 
     sprite.setPathResolver(this.pathResolver);
@@ -1090,6 +1096,97 @@ export class TownScene extends Phaser.Scene {
    * the scene and seat them at their routine stop for the scene clock —
    * never re-posing residents already placed, never touching the clock.
    */
+  hasAgent(agentId: string): boolean {
+    return this.agentSprites.has(agentId);
+  }
+
+  private nearestPortal(x: number, y: number): { x: number; y: number } {
+    const portals = this.portalPoints();
+    let best = portals[0];
+    let bestD = Infinity;
+    for (const p of portals) {
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < bestD) { best = p; bestD = d; }
+    }
+    return best ?? { x, y };
+  }
+
+  private removeResident(agentId: string) {
+    const sprite = this.agentSprites.get(agentId);
+    if (sprite) sprite.destroy();
+    this.agentSprites.delete(agentId);
+    this.agentRecords.delete(agentId);
+    this.agentOpinions.delete(agentId);
+    this.spots?.release(agentId);
+  }
+
+  /**
+   * A resident leaves for another town (Community II): out of the building
+   * if need be, along the streets to the nearest edge portal, a stepped fade,
+   * gone. Seeks and reduced motion remove them at once.
+   */
+  departResident(agentId: string) {
+    const sprite = this.agentSprites.get(agentId);
+    if (!sprite || sprite === this.playerSprite) return;
+    if (reducedMotion() || this.choreo.inConversation(agentId)) {
+      this.removeResident(agentId);
+      return;
+    }
+    this.spots?.release(agentId, "dwell");
+    const portal = this.nearestPortal(sprite.x, sprite.y);
+    const leave = () => {
+      if (!sprite.active) return;
+      sprite.moveToPosition(portal.x, portal.y, () => {
+        if (!sprite.active) return;
+        this.tweens.add({
+          targets: sprite,
+          alpha: 0,
+          duration: 240,
+          ease: "Stepped",
+          easeParams: [3],
+          onComplete: () => this.removeResident(agentId),
+        });
+      });
+    };
+    if (sprite.isIndoors()) sprite.stepOut(leave);
+    else leave();
+  }
+
+  /**
+   * Someone from another town arrives for the beat: born at the edge portal
+   * nearest their destination, a stepped fade in, then the walk to where the
+   * move says they are going.
+   */
+  arriveResident(
+    agent: AgentState & { routine?: RoutineEntry[] },
+    toLocation: string,
+    x?: number,
+    y?: number,
+  ) {
+    if (this.agentSprites.has(agent.id)) {
+      this.moveAgent(agent.id, toLocation, x, y);
+      return;
+    }
+    const target = this.landmarkPositions.get(toLocation)
+      ?? (Number.isFinite(x) && Number.isFinite(y) ? { x: x as number, y: y as number } : undefined)
+      ?? { x: 600, y: 400 };
+    const portal = this.nearestPortal(target.x, target.y);
+    this.addAgent(agent, { spawnAt: portal });
+    const sprite = this.agentSprites.get(agent.id);
+    if (!sprite) return;
+    const go = () => this.moveAgent(agent.id, toLocation, x, y);
+    if (reducedMotion()) { go(); return; }
+    sprite.setAlpha(0);
+    this.tweens.add({
+      targets: sprite,
+      alpha: 1,
+      duration: 200,
+      ease: "Stepped",
+      easeParams: [3],
+      onComplete: go,
+    });
+  }
+
   bootstrapResidents(agents: Array<AgentState & { routine?: RoutineEntry[] }>) {
     let added = false;
     for (const agent of agents) {

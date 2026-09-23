@@ -20,6 +20,7 @@ if REPO_ROOT not in sys.path:
 # package's dotenv loader and prevent accidental billable calls.
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["MOCK_DELAY_S"] = "0"
+os.environ["TOWNSHIP_BEAT_PAUSE_S"] = "0"
 # A test that clears LLM_PROVIDER must never auto-detect the claude CLI on a
 # contributor's machine: that would spawn a real, subscription-billed call.
 os.environ.setdefault("TOWNSHIP_NO_CLI_AUTODETECT", "1")

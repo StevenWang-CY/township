@@ -235,6 +235,10 @@ orchestrator = SimulationOrchestrator(
     event_bus=event_bus,
     scenario=scenario,
 )
+# A live viewer follows the run over the socket, so beats are paced (seconds
+# at 1×, divided by the transport's speed). Headless runs (the CLI, tests)
+# leave TOWNSHIP_BEAT_PAUSE_S at 0.
+orchestrator.beat_pause_s = float(os.environ.get("TOWNSHIP_BEAT_PAUSE_S", "6") or 0)
 
 # Store globals on app.state for access in route handlers.
 # `anthropic_client` is a legacy alias for the same provider object.

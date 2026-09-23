@@ -88,6 +88,7 @@ export default function TownView({ ws }: TownViewProps) {
   const [sceneError, setSceneError] = useState<string | null>(null);
   const [sceneBootAttempt, setSceneBootAttempt] = useState(0);
   const [sidebarTab, setSidebarTab] = useState<"residents" | "today" | "activity">("residents");
+  const [neighborsOpen, setNeighborsOpen] = useState(false);
   // The results moment shows once per finished run; a backward seek (which
   // clears finalSummary) arms it again for the next time the run ends.
   const [resultsDismissed, setResultsDismissed] = useState(false);
@@ -175,13 +176,38 @@ export default function TownView({ ws }: TownViewProps) {
 
   // Applied agent state wins; before the first event, use the transport roster
   // (finite replay) or API roster (live). No scenario identity is special.
+  // The town's residents (home town), voices before neighbors: the cast
+  // reads first in the roster and seats first on the yard signs.
   const townAgents: AgentState[] = (() => {
     const fromWs = Object.values(ws.agents).filter((a) => a.town === town);
-    if (fromWs.length > 0) return fromWs;
     const fromTransport = Object.values(ws.agentRoster).filter((a) => a.town === town);
-    if (fromTransport.length > 0) return fromTransport;
-    return rosterAgents.filter((a) => a.town === town);
+    const list = fromWs.length > 0 ? fromWs : fromTransport.length > 0 ? fromTransport : rosterAgents.filter((a) => a.town === town);
+    const voices = list.filter((a) => a.tier !== "neighbor");
+    const neighbors = list.filter((a) => a.tier === "neighbor");
+    return neighbors.length > 0 ? [...voices, ...neighbors] : list;
   })();
+  const voiceAgents = townAgents.filter((a) => a.tier !== "neighbor");
+  const neighborAgents = townAgents.filter((a) => a.tier === "neighbor");
+  // Who is physically here this beat (Community II): residents minus the
+  // ones at work elsewhere, plus visitors whose last move was in this town.
+  const presentAgents: AgentState[] = (() => {
+    const here = townAgents.filter((a) => (ws.agentTowns[a.id] ?? a.town) === town);
+    const visitors = Object.values(ws.agents).filter((a) => a.town !== town && ws.agentTowns[a.id] === town);
+    return visitors.length > 0 ? [...here, ...visitors] : here;
+  })();
+  // Positions recorded in another town never seat anyone here.
+  const positionsHere = (() => {
+    const out: typeof ws.agentPositions = {};
+    for (const [id, pos] of Object.entries(ws.agentPositions)) {
+      if (!pos.town || pos.town === town) out[id] = pos;
+    }
+    return out;
+  })();
+  const townNameOf = (id: string) => scen.scenario.towns.find((t) => t.id === id)?.name ?? id;
+  const awayNoteFor = (agent: AgentState): string | undefined => {
+    const here = ws.agentTowns[agent.id] ?? agent.town;
+    return here !== town ? `Away in ${townNameOf(here)}` : undefined;
+  };
   const streamedTotalAgents =
     Object.keys(ws.agents).length || Object.keys(ws.agentRoster).length || undefined;
 
@@ -236,7 +262,8 @@ export default function TownView({ ws }: TownViewProps) {
   // a ref avoids turning every agent object update into a second scene pass.
   const replayStateRef = useRef({
     agents: townAgents,
-    positions: ws.agentPositions,
+    present: presentAgents,
+    positions: positionsHere,
     clock: ws.worldClock,
     calendar: ws.calendar,
     weather: ws.weather,
@@ -244,7 +271,8 @@ export default function TownView({ ws }: TownViewProps) {
   });
   replayStateRef.current = {
     agents: townAgents,
-    positions: ws.agentPositions,
+    present: presentAgents,
+    positions: positionsHere,
     clock: ws.worldClock,
     calendar: ws.calendar,
     weather: ws.weather,
@@ -257,7 +285,7 @@ export default function TownView({ ws }: TownViewProps) {
   const reconcileScene = useCallback((scene: TownScene) => {
     const snapshot = replayStateRef.current;
     scene.syncReplayState(
-      snapshot.agents,
+      snapshot.present,
       snapshot.positions,
       { ...snapshot.clock, day: snapshot.calendar?.day ?? null, date: snapshot.calendar?.date ?? null },
       snapshot.weather,
@@ -526,6 +554,23 @@ export default function TownView({ ws }: TownViewProps) {
     lastDeltaReconciledRef.current = false;
     let reactionIndex = 0;
     for (const evt of delta.events) {
+      // Presence (Community II): a resident's move in another town means
+      // they have left for the day; a stranger's move here means a visitor
+      // has arrived. Both happen before the per-town filter below.
+      if (evt.type === "agent_moved") {
+        const known = ws.agents[evt.agent_id];
+        const home = known?.home_town ?? known?.town;
+        if (evt.town !== town) {
+          if (home === town && scene.hasAgent(evt.agent_id)) scene.departResident(evt.agent_id);
+          continue;
+        }
+        if (!scene.hasAgent(evt.agent_id)) {
+          if (known && home !== town) {
+            scene.arriveResident(known, evt.to_location, evt.x ?? undefined, evt.y ?? undefined);
+          }
+          continue;
+        }
+      }
       if ("town" in evt && (evt as any).town && (evt as any).town !== town) continue;
 
       switch (evt.type) {
@@ -983,17 +1028,43 @@ export default function TownView({ ws }: TownViewProps) {
               <span className="player-badge">YOU</span>
             </div>
           )}
-          {townAgents.map((agent) => (
+          {voiceAgents.map((agent) => (
             <AgentCard
               key={agent.id}
               agent={agent}
               compact
+              note={awayNoteFor(agent)}
               onClick={() => requestChat(agent.id, "sidebar")}
               met={profile?.metAgents?.includes(agent.id)}
               persuaded={profile?.persuadedAgents?.includes(agent.id)}
               trust={trustFor(agent.id)}
             />
           ))}
+          {neighborAgents.length > 0 && (
+            <details
+              className="roster-group"
+              open={neighborsOpen}
+              onToggle={(e) => setNeighborsOpen((e.currentTarget as HTMLDetailsElement).open)}
+            >
+              <summary className="roster-group-summary">
+                <span className="roster-group-title">Neighbors</span>
+                <span className="roster-group-count">{neighborAgents.length}</span>
+                <span className="roster-group-hint">generated background residents</span>
+              </summary>
+              {neighborAgents.map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  compact
+                  note={awayNoteFor(agent)}
+                  onClick={() => requestChat(agent.id, "sidebar")}
+                  met={profile?.metAgents?.includes(agent.id)}
+                  persuaded={profile?.persuadedAgents?.includes(agent.id)}
+                  trust={trustFor(agent.id)}
+                />
+              ))}
+            </details>
+          )}
         </div>
       )}
 

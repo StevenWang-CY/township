@@ -125,6 +125,12 @@ export interface AgentConfig {
   partner?: { name: string; spriteKey?: string; tint?: number };
   /** Ambient background NPC — no opinion ring, no interaction, no nameplate. */
   ambient?: boolean;
+  /** Community I: neighbors are the generated background population — muted
+   *  clothes, a lighter ring, a smaller nameplate. Voices are the cast. */
+  tier?: "voice" | "neighbor";
+  /** Community II: a resident of another town, here for the beat — a small
+   *  dot in their home town's accent sits by the nameplate. */
+  visitorOf?: { town: string; color: string };
 }
 
 interface BubbleEntry {
@@ -245,6 +251,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   /** Delayed-follow tween moving the companion to its next local offset. */
   private companionTween?: Phaser.Tweens.Tween;
   protected ambient = false;
+  private tier: "voice" | "neighbor" = "voice";
+  private visitorDot?: Phaser.GameObjects.Rectangle;
 
   constructor(scene: Phaser.Scene, x: number, y: number, cfg: AgentConfig) {
     super(scene, x, y);
@@ -262,6 +270,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     };
     this.homeY = y;
     this.ambient = !!cfg.ambient;
+    this.tier = cfg.tier ?? "voice";
     let gaitHash = 2166136261;
     for (const ch of cfg.id) gaitHash = Math.imul(gaitHash ^ ch.charCodeAt(0), 16777619) >>> 0;
     this.gaitJitter = 0.92 + (gaitHash % 17) / 100;
@@ -391,6 +400,20 @@ export class AgentSprite extends Phaser.GameObjects.Container {
     // way screen-space DOM labels did under a zoomed follow-camera. TownScene
     // declutters labels each tick (pair lanes + crowd badges).
     this.nameLabel.setVisible(!this.ambient);
+    if (this.tier === "neighbor") {
+      // The background population reads as background: a touch greyer, a
+      // lighter ring, a smaller name.
+      this.nameLabel.setScale(0.85);
+      this.ringA.setAlpha(0.75);
+      this.ringB.setAlpha(0.75);
+      if (this.bodySprite && !this.bodySprite.isTinted) this.bodySprite.setTint(0xdcdcdc);
+    }
+    if (cfg.visitorOf) {
+      const dotColor = Phaser.Display.Color.HexStringToColor(cfg.visitorOf.color).color;
+      this.visitorDot = scene.add.rectangle(-12, LABEL_Y + 2, 4, 4, dotColor).setOrigin(0.5, 0.5);
+      this.visitorDot.setStrokeStyle(1, 0x1c1a17, 1);
+      this.add(this.visitorDot);
+    }
     this.add(this.nameLabel);
 
     // ── Interaction ──────────────────────────────────────────
@@ -874,6 +897,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   /* ── Indoors ─────────────────────────────────────────────── */
 
   isIndoors(): boolean { return this.indoors; }
+  isNeighbor(): boolean { return this.tier === "neighbor"; }
 
   /**
    * Step inside the building whose door this container is parked on: body,
@@ -1821,6 +1845,9 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   }
 
   protected playIdle(dir: Direction) {
+    // A tween or timer can outlive the sprite (a departure mid-fade, a seek
+    // that rebuilt the town): nothing to animate once destroyed.
+    if (!this.active || !this.scene) return;
     this.updateCompanion(dir, "idle");
     if (!this.usingSpritesheet || !this.bodySprite) return;
     if (reducedMotion()) {
@@ -1871,6 +1898,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
 
   /** Breathing idle: legible scaleY pulse + shadow that breathes with the body. */
   protected beginIdle() {
+    if (!this.active || !this.scene) return;
     this.stopIdleMotion();
     this.playIdle(this.currentDirection);
 
@@ -2085,6 +2113,8 @@ export class AgentSprite extends Phaser.GameObjects.Container {
   }
 
   override destroy(fromScene?: boolean) {
+    // Tweens that target the container must not call back into a corpse.
+    this.scene?.tweens?.killTweensOf(this);
     this.idleTween?.stop();
     this.shadowTween?.stop();
     if (this.moveTween && !this.moveTween.isDestroyed()) this.moveTween.stop();

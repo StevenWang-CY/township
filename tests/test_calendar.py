@@ -61,9 +61,22 @@ def test_news_and_events_land_on_their_days(nj11):
     assert all(("news" in r.phases) == bool(r.news_ids) for r in plan)
     debate = [r for r in plan if r.event and r.event["kind"] == "debate"]
     assert (
-        len(debate) == 1 and debate[0].day == 9 and debate[0].label == "Debate night in Montclair"
+        len(debate) == 1 and debate[0].day == 12 and debate[0].label == "Debate night in Montclair"
     )
     assert "debate-night" in debate[0].news_ids and "news" in debate[0].phases
+
+
+def test_events_land_on_the_weekdays_their_labels_promise(nj11):
+    plan = expand_campaign(nj11.config)
+    by_kind = {}
+    for r in plan:
+        if r.event:
+            by_kind.setdefault(r.event["kind"], r)
+    assert by_kind["market"].weekday == "saturday"
+    assert by_kind["fair"].weekday == "saturday"
+    assert by_kind["canvass"].weekday in {"saturday", "sunday"}
+    assert by_kind["debate"].weekday not in {"saturday", "sunday"}
+    assert by_kind["rally"].day < max(r.day for r in plan if r.day is not None)
 
 
 def test_days_and_until_election_controls(nj11):

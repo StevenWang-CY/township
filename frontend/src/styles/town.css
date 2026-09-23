@@ -1904,3 +1904,54 @@
   .atlas-card { bottom: 104px; }
   .demo-mode .atlas-card { bottom: 104px; }
 }
+
+/* ── Roster groups (Community I): the neighbors tier folds under the voices ── */
+.roster-group {
+  border-top: 1px solid var(--color-line);
+}
+.roster-group-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px 6px;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  user-select: none;
+}
+.roster-group-summary::-webkit-details-marker { display: none; }
+.roster-group-summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  transform: translateY(-1px);
+  transition: transform var(--duration-fast) var(--ease-out, ease);
+}
+.roster-group[open] > .roster-group-summary::before { transform: rotate(90deg) translateX(-1px); }
+.roster-group-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.roster-group-count {
+  font-variant-numeric: tabular-nums;
+  padding: 0 5px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-surface-3);
+  color: var(--text-primary);
+  font-size: 11px;
+}
+.roster-group-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+.roster-group-summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}

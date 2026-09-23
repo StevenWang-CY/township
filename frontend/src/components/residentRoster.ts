@@ -20,6 +20,9 @@ interface RosterAgentWire {
   idle_thoughts?: unknown;
   /** Where the resident starts (their routine stop at the start clock). */
   location?: unknown;
+  /** Community I: "voice" (hand-written persona) or "neighbor" (generated). */
+  tier?: unknown;
+  home_town?: unknown;
 }
 
 function routineFrom(raw: unknown): Array<{ time: string; location: string; activity: string }> | undefined {
@@ -97,6 +100,8 @@ export function rosterAgentsFromPayload(
         relationships: relationshipsFrom(record.relationships),
         idle_thoughts: idleThoughts.length > 0 ? idleThoughts : undefined,
         top_concerns: allConcerns.length > 0 ? allConcerns : undefined,
+        tier: record.tier === "neighbor" ? "neighbor" : "voice",
+        home_town: typeof record.home_town === "string" ? record.home_town : town,
       });
     });
   }
