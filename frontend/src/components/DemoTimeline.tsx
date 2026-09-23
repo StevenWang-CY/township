@@ -211,6 +211,18 @@ export default function DemoTimeline() {
             if (e.key === "ArrowLeft") { e.preventDefault(); player.seekBy(-ARROW_SEEK_EVENTS); }
             if (e.key === "Home") { e.preventDefault(); player.seekTo(0); }
             if (e.key === "End") { e.preventDefault(); player.seekTo(player.duration); }
+            // Page keys jump a chapter (a day of the campaign, a round of the
+            // one-day replay) — the keyboard's way through a dense tick row.
+            if (e.key === "PageUp") {
+              e.preventDefault();
+              const next = player.chapters.find((c) => c.index >= player.position);
+              if (next) player.seekTo(next.index + 1);
+            }
+            if (e.key === "PageDown") {
+              e.preventDefault();
+              const prev = [...player.chapters].reverse().find((c) => c.index + 1 < player.position);
+              player.seekTo(prev ? prev.index + 1 : 0);
+            }
           }}
         >
           <div className="demo-timeline-rail" />
@@ -241,19 +253,44 @@ export default function DemoTimeline() {
             isDay && isWeekend(ch.weekday) ? "demo-timeline-tick--weekend" : "",
             electionTick ? "demo-timeline-tick--election" : "",
           ].filter(Boolean).join(" ");
+          const dense = player.chapters.length > 12;
+          const tickStyle = { left: `clamp(${minimumLeft}px, ${left}%, calc(100% - ${minimumRight}px))` };
+          const hover = {
+            onMouseEnter: () => setHoverChapter(ch),
+            onMouseLeave: () => setHoverChapter((c) => (c === ch ? null : c)),
+          };
+          const jump = (e: React.SyntheticEvent) => {
+            e.stopPropagation();
+            player.skipToRound(ch.round);
+          };
+          // A three-week campaign has too many chapters for 24 px targets in
+          // one row: its ticks are pointer marks (hover for the tooltip) and
+          // the slider's Page keys walk the days; a short replay keeps real
+          // buttons.
+          if (dense) {
+            return (
+              <span
+                key={isDay ? `day-${ch.day}` : `round-${ch.round}`}
+                className={`${className} demo-timeline-tick--mark`}
+                style={tickStyle}
+                aria-hidden="true"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={jump}
+                {...hover}
+              >
+                {isDay && <span className="demo-timeline-tick-day">{weekdayInitial(ch.weekday)}</span>}
+              </span>
+            );
+          }
           return (
             <button
               key={isDay ? `day-${ch.day}` : `round-${ch.round}`}
               className={className}
-              style={{ left: `clamp(${minimumLeft}px, ${left}%, calc(100% - ${minimumRight}px))` }}
+              style={tickStyle}
               aria-label={ariaLabel}
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                player.skipToRound(ch.round);
-              }}
-              onMouseEnter={() => setHoverChapter(ch)}
-              onMouseLeave={() => setHoverChapter((c) => (c === ch ? null : c))}
+              onClick={jump}
+              {...hover}
               onFocus={() => setHoverChapter(ch)}
               onBlur={() => setHoverChapter((c) => (c === ch ? null : c))}
             >

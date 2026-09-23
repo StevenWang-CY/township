@@ -1132,3 +1132,4 @@ button.provenance-chip:focus-visible {
 .demo-timeline-scrubber--dense .demo-timeline-tick:hover .demo-timeline-tick-day,
 .demo-timeline-scrubber--dense .demo-timeline-tick:focus-visible .demo-timeline-tick-day,
 .demo-timeline-scrubber--dense .demo-timeline-tick--election .demo-timeline-tick-day { opacity: 1; }
+.demo-timeline-tick--mark { cursor: pointer; }

@@ -4,12 +4,13 @@
       "id": "one-day",
       "file": "simulation_cache.json",
       "label": "Recorded deliberation, one day (Claude Sonnet)",
-      "flagship": true
+      "flagship": false
     },
     {
       "id": "campaign",
       "file": "campaign_cache.json",
-      "label": "21-day campaign (deterministic engine \u2014 placeholder until the Claude recording lands)"
+      "label": "21-day campaign (Claude Sonnet)",
+      "flagship": true
     }
   ]
 }

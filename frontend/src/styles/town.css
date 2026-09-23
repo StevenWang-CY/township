@@ -1948,8 +1948,8 @@
 .roster-group-hint {
   margin-left: auto;
   font-size: 11px;
-  color: var(--text-muted);
-  opacity: 0.8;
+  /* Secondary ink at full opacity: 5.7:1 on the panel parchment (AA needs 4.5). */
+  color: var(--text-secondary);
 }
 .roster-group-summary:focus-visible {
   outline: 2px solid var(--color-accent);

@@ -417,14 +417,22 @@ test("seeking beyond the live window and backward reconciles rendered replay sta
   // and a resident whose recorded position changes across that chapter. The
   // contract test remains scenario-generic: it never assumes a town, resident,
   // option, round number, or total event count.
+  // Chapters are rounds on the one-day recording and days on a campaign; this
+  // test skips by round, so it pins the one-day recording of the default
+  // scenario (falling back to the flagship where a scenario ships only one).
   const bundle = await page.evaluate(async () => {
     const manifest = await fetch("./demo/manifest.json").then((response) => response.json()) as {
       default: string;
+      feeds?: Record<string, Array<{ id: string; file: string; flagship?: boolean }>>;
     };
-    const feed = await fetch(`./demo/${manifest.default}.json`).then((response) => response.json());
-    return { feed };
+    const feeds = manifest.feeds?.[manifest.default] ?? [];
+    const chosen = feeds.find((f) => f.id === "one-day") ?? feeds.find((f) => f.flagship) ?? feeds[0];
+    const file = chosen ? chosen.file : `${manifest.default}.json`;
+    const feed = await fetch(`./demo/${file}`).then((response) => response.json());
+    return { feed, feedId: chosen?.id ?? null };
   }) as {
     feed: { events: SimulationEvent[] };
+    feedId: string | null;
   };
 
   const starts = bundle.feed.events.find((event) => event.type === "simulation_started");
@@ -468,7 +476,8 @@ test("seeking beyond the live window and backward reconciles rendered replay sta
   const agent = starts.agents.find((candidate) => candidate.id === pair.agentId);
   if (!agent) throw new Error("moved resident is absent from simulation_started");
   const town = pair.moves[0].town;
-  await page.goto(`/#/town/${encodeURIComponent(town)}`);
+  const feedQuery = bundle.feedId ? `?feed=${encodeURIComponent(bundle.feedId)}` : "";
+  await page.goto(`/${feedQuery}#/town/${encodeURIComponent(town)}`);
   await waitForTownScene(page);
   await pauseReplay(page);
   await expect(
@@ -558,10 +567,10 @@ test("seeking beyond the live window and backward reconciles rendered replay sta
   await assertRenderedAt(replayedPosition);
 });
 
-test("the flagship replay keeps round chapters, a round HUD chip and a round Today strip", async ({ page }) => {
-  // The shipped NJ-11 recording predates the campaign calendar: no day on
+test("the one-day recording keeps round chapters, a round HUD chip and a round Today strip", async ({ page }) => {
+  // The one-day NJ-11 recording predates the campaign calendar: no day on
   // any round_started, so nothing may read in days.
-  await page.goto("/#/town/dover");
+  await page.goto("/?feed=one-day#/town/dover");
   await waitForTownScene(page);
   await pauseReplay(page);
 

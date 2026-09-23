@@ -279,27 +279,45 @@ Secrets belong only in environment variables.
 
 | Scenario | Cast | What ships |
 |---|---:|---|
-| **The Millbrook Surplus** | 8 voices + 30 neighbors · 2 towns | A fictional direct-democracy vote over a one-time $12M surplus: a zero-cost one-day replay and a 10-day town-meeting campaign feed. It proves the engine is not election-specific. |
-| **NJ-11 Special Election** | 26 voices + 58 neighbors · 4 towns | A retrospective of the certified April 2026 race: the complete one-day Bedrock/Claude replay with its published error analysis, and a 21-day campaign feed (the deterministic engine's, labelled as a placeholder until the Claude Sonnet recording replaces it). |
+| **The Millbrook Surplus** | 8 voices + 30 neighbors · 2 towns | A fictional direct-democracy vote over a one-time $12M surplus: a 10-day town-meeting campaign recorded with Claude Sonnet (the default recording) and a zero-cost one-day replay. It proves the engine is not election-specific. |
+| **NJ-11 Special Election** | 26 voices + 58 neighbors · 4 towns | A retrospective of the certified April 2026 race: a 21-day campaign recorded with Claude Sonnet (the default recording), and the complete one-day Bedrock/Claude replay with its published error analysis. |
 
 Neighbors are generated composites committed as scenario data
 (`agents/<town>/_neighbors.json`, drawn from `community.json` by
 `township new-neighbors`); they never call a model.
 
-### The shipped NJ run, without spin
+### The shipped NJ runs, without spin
 
-The included NJ-11 replay contains **883 events**, **405 model calls**,
+The default recording is a **21-day campaign** played by Claude Sonnet through
+the Claude Code CLI on a subscription (`LLM_PROVIDER=claude-cli`, no API key):
+**10,868 events** from **3,367 model calls** and **58,369,460 metered token
+units**, which the provider reports as an API-equivalent **$216.64** (the run
+itself cost nothing beyond the subscription). Its 84 residents — 26 written
+voices and 58 generated neighbors — held **1,454 conversations** across **61
+beats**; on election day **64 cast ballots** (46 Mejia, 17 Hathaway, 1 Bond) and
+**20 stayed home**, a 76% turnout. In two beats on the morning of day 13 a
+transient CLI error cost three to six residents per town their turn; the engine
+carried their state forward and no agent failed the run. The event log is
+[committed with the scenario](scenarios/nj11-2026/demo/campaign_cache.json).
+
+The one-day replay it sits beside contains **883 events**, **405 model calls**,
 **1,501,405 metered token units**, and **zero failed agents**. Its provider usage
 after generating the recap was **$7.3298**; the district summary, finalized just
-before that last recap call, records **$7.3192**.
+before that last recap call, records **$7.3192**. Its 26 characters ended at 19
+Mejia, 5 Hathaway, 0 Bond, and 2 undecided.
 
-The 26 fictional characters ended at 19 Mejia, 5 Hathaway, 0 Bond, and 2
-undecided. Those are **character states, not votes, percentages, a sample, or a
+All of those are **character states, not votes, percentages, a sample, or a
 forecast**. The [NJ-11 retrospective](docs/nj11-retrospective.md) compares the
-run with certified results and documents selection bias, consensus drift,
-turnout blindness, and where the simulation failed. The exact event log is
-[committed with the scenario](scenarios/nj11-2026/demo/simulation_cache.json), so
-the claims are reproducible.
+one-day run with certified results and documents selection bias, consensus
+drift, turnout blindness, and where the simulation failed; the campaign's ballot
+count is the same kind of artifact, three weeks longer. Both event logs are
+[committed with the scenario](scenarios/nj11-2026/demo/), so the claims are
+reproducible.
+
+The Millbrook campaign was recorded the same way: **1,770 events**, **447 model
+calls**, **8,025,566 metered token units** (an API-equivalent **$31.04**), 38
+residents, **258 conversations**, and at the town meeting **26 ballots** (17
+roads and bridge, 5 greenway, 4 debt and taxes) with 12 abstaining.
 
 ## Repository map
 
