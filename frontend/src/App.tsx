@@ -9,8 +9,9 @@ import DistrictMap from "./components/DistrictMap";
 import Dashboard from "./components/Dashboard";
 import GodsView from "./components/GodsView";
 import Journal from "./components/Journal";
-import DemoBanner from "./components/DemoBanner";
-import DemoTimeline from "./components/DemoTimeline";
+import MediaBar from "./components/MediaBar";
+import ProvenanceChip from "./components/ProvenanceChip";
+import Icon from "./components/Icon";
 import ResponsibleUseNotice from "./components/ResponsibleUseNotice";
 import { DEMO_MODE } from "./demo/demoMode";
 import { eventsSince } from "./hooks/useWebSocket";
@@ -161,32 +162,10 @@ function AppShell() {
   return (
     <div className={`min-h-screen flex flex-col${DEMO_MODE ? " demo-mode" : ""}${townRoute ? " app-shell--pinned" : ""}`}>
       {/* ── Header ───────────────────────────────────────── */}
-      <header
-        className="flex items-center justify-between px-6 py-3 relative"
-        style={{
-          background: "var(--warm-glass)",
-          backdropFilter: "blur(var(--warm-glass-blur))",
-          WebkitBackdropFilter: "blur(var(--warm-glass-blur))",
-          borderBottom: "1px solid var(--warm-glass-border)",
-          // The blur creates a stacking context; the sticky layer keeps the
-          // header's menus above page content and below drawers and modals.
-          zIndex: "var(--z-sticky)",
-        }}
-      >
-        <Link to="/" className="flex items-center gap-2.5 no-underline">
-          <span
-            className="text-2xl tracking-tight"
-            style={{ fontFamily: "var(--font-display)", color: "var(--text-primary)", fontWeight: 600, letterSpacing: "1px" }}
-          >
-            Township
-          </span>
-          <span
-            className="text-xs font-medium px-2.5 py-0.5 rounded-full"
-            style={{ background: "var(--gold-accent)", color: "var(--text-on-gold)", letterSpacing: "0.06em", fontFamily: "var(--font-body)" }}
-            title={scen.title}
-          >
-            {scen.title}
-          </span>
+      <header className="app-header">
+        <Link to="/" className="app-brand">
+          <span className="app-wordmark">Township</span>
+          <span className="app-scenario-chip" title={scen.title}>{scen.title}</span>
         </Link>
 
         {/* Hamburger button (mobile only) */}
@@ -197,20 +176,7 @@ function AppShell() {
           aria-expanded={menuOpen}
           aria-controls="primary-navigation"
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            {menuOpen ? (
-              <>
-                <path d="M6 6l12 12" />
-                <path d="M18 6L6 18" />
-              </>
-            ) : (
-              <>
-                <path d="M3 6h18" />
-                <path d="M3 12h18" />
-                <path d="M3 18h18" />
-              </>
-            )}
-          </svg>
+          <Icon name={menuOpen ? "close" : "menu"} size={22} />
         </button>
 
         <nav id="primary-navigation" className={`nav-links ${menuOpen ? "nav-links--open" : ""}`}>
@@ -229,23 +195,10 @@ function AppShell() {
                 key={link.to}
                 to={link.to}
                 onClick={() => setMenuOpen(false)}
-                className="relative px-3 py-1.5 text-sm font-medium"
-                style={{
-                  fontFamily: "var(--font-body)",
-                  fontSize: "13px",
-                  color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                  transition: "color 200ms ease",
-                }}
-                onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = "var(--text-primary)"; }}
-                onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = "var(--text-secondary)"; }}
+                className={`nav-link${active ? " nav-link--active" : ""}`}
+                aria-current={active ? "page" : undefined}
               >
                 {link.label}
-                {active && (
-                  <span
-                    className="absolute bottom-0 left-3 right-3 h-[2px] rounded-full"
-                    style={{ background: "var(--gold-accent)" }}
-                  />
-                )}
               </Link>
             );
           })}
@@ -254,12 +207,7 @@ function AppShell() {
             href={appUrl("legal/THIRD_PARTY_NOTICES.md")}
             target="_blank"
             rel="noreferrer"
-            className="relative px-3 py-1.5 text-sm font-medium"
-            style={{
-              fontFamily: "var(--font-body)",
-              fontSize: "13px",
-              color: "var(--text-secondary)",
-            }}
+            className="nav-link"
           >
             Credits
           </a>
@@ -275,13 +223,7 @@ function AppShell() {
               aria-expanded={journalOpen}
               aria-controls="journal-panel"
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 3v12a1 1 0 0 0 1 1h11" />
-                <path d="M6 3h9a1 1 0 0 1 1 1v11" />
-                <line x1="9" y1="6" x2="13" y2="6" />
-                <line x1="9" y1="9" x2="13" y2="9" />
-                <line x1="9" y1="12" x2="13" y2="12" />
-              </svg>
+              <Icon name="journal" />
             </button>
           )}
 
@@ -297,10 +239,7 @@ function AppShell() {
               aria-controls="header-settings-menu"
               aria-haspopup="dialog"
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="9" r="2.5" />
-                <path d="M9 1.5v2M9 14.5v2M2.5 9H.5M17.5 9h-2M4.4 4.4L3 3M15 15l-1.4-1.4M4.4 13.6L3 15M15 3l-1.4 1.4" />
-              </svg>
+              <Icon name="settings" />
             </button>
             {settingsOpen && (
               <div id="header-settings-menu" className="header-settings-menu" role="dialog" aria-label="Display and audio settings">
@@ -353,26 +292,12 @@ function AppShell() {
             )}
           </div>
 
-          {/* Connection indicator (demo build: it's a replay, say so) */}
-          <div className="ml-3 flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-body)" }}>
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{
-                background: DEMO_MODE
-                  ? (ws.connected ? "var(--gold-accent)" : "var(--color-danger)")
-                  : (ws.connected ? "var(--color-success)" : "var(--color-danger)"),
-                animation: ws.connected ? "pulse-glow 2s ease-in-out infinite" : "none",
-              }}
-            />
-            {DEMO_MODE ? (ws.connected ? "Replay" : "Loading") : (ws.connected ? "Live" : "Offline")}
-          </div>
+          {/* What the viewer is looking at: a recorded replay, or the live link. */}
+          <ProvenanceChip connected={ws.connected} />
         </nav>
       </header>
 
       <ResponsibleUseNotice />
-
-      {/* Demo-mode ribbon: recorded deliberation + star link */}
-      {DEMO_MODE && <DemoBanner />}
 
       {/* ── Content ──────────────────────────────────────── */}
       <main className={`flex-1${demoTimelineVisible ? " demo-timeline-space" : ""}`}>
@@ -390,8 +315,8 @@ function AppShell() {
         </Suspense>
       </main>
 
-      {/* Demo replay media bar — on the town + dashboard surfaces */}
-      {demoTimelineVisible && <DemoTimeline />}
+      {/* Replay transport dock — on the town + dashboard surfaces */}
+      {demoTimelineVisible && <MediaBar variant="transport" />}
 
       {/* Journal panel */}
       <Journal open={journalOpen} onClose={() => setJournalOpen(false)} />

@@ -21,6 +21,12 @@ import { CanvasOverlay } from "./CanvasOverlay";
 import ChatPanel from "./ChatPanel";
 import AgentCard from "./AgentCard";
 import PlayerHUD from "./PlayerHUD";
+import TownSwitcher from "./TownSwitcher";
+import TodayStrip from "./TodayStrip";
+import ActivityFeed from "./ActivityFeed";
+import MediaBar from "./MediaBar";
+import Icon from "./Icon";
+import { activityEntries } from "../lib/activity";
 import MiniMap from "./MiniMap";
 import Tutorial from "./Tutorial";
 import DebugOverlay from "./DebugOverlay";
@@ -55,41 +61,6 @@ type ChatOrigin = "walkup" | "sidebar" | "canvas" | "activity";
 
 /* ── Keyboard Hint Overlay ────────────────────────────────── */
 
-function KeyboardHint({ onDismiss }: { onDismiss: () => void }) {
-  useEffect(() => {
-    const timer = setTimeout(onDismiss, 5000);
-    const onKey = () => { onDismiss(); clearTimeout(timer); };
-    window.addEventListener("keydown", onKey, { once: true });
-    return () => { clearTimeout(timer); window.removeEventListener("keydown", onKey); };
-  }, [onDismiss]);
-
-  return (
-    <div className="keyboard-hint">
-      <div className="keyboard-hint-inner">
-        <div className="keyboard-hint-group">
-          <div className="keyboard-hint-keys">
-            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
-          </div>
-          <span className="keyboard-hint-label">Move</span>
-        </div>
-        <div className="keyboard-hint-divider" />
-        <div className="keyboard-hint-group">
-          <div className="keyboard-hint-keys">
-            <kbd>E</kbd>
-          </div>
-          <span className="keyboard-hint-label">Talk</span>
-        </div>
-        <div className="keyboard-hint-divider" />
-        <div className="keyboard-hint-group">
-          <div className="keyboard-hint-keys">
-            <kbd className="keyboard-hint-click">Click</kbd>
-          </div>
-          <span className="keyboard-hint-label">Chat</span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── TownView Component ───────────────────────────────────── */
 
@@ -115,7 +86,7 @@ export default function TownView({ ws }: TownViewProps) {
   const [sceneReady, setSceneReady] = useState(false);
   const [sceneError, setSceneError] = useState<string | null>(null);
   const [sceneBootAttempt, setSceneBootAttempt] = useState(0);
-  const [showKeyboardHint, setShowKeyboardHint] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState<"residents" | "today" | "activity">("residents");
   // The keyboard hint must never mount UNDER the tutorial modal — its 5s
   // auto-dismiss would expire unseen behind the backdrop.
   const [tutorialDone, setTutorialDone] = useState<boolean>(() => {
@@ -929,43 +900,9 @@ export default function TownView({ ws }: TownViewProps) {
     <div className="town-view-layout">
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Town-tabs strip: hop between towns without leaving the canvas.
-            The heading stays for structure/AT; visually the active tab IS
-            the town's name — no second title bar burying the map. */}
+        {/* The heading stays for structure/AT; visually the active town is
+            the lit segment of the switcher inside the canvas. */}
         <h2 className="sr-only">{meta.name}</h2>
-        <nav className="town-tabs" aria-label="Towns">
-          {scen.scenario.towns.map((t) => {
-            const m = scen.townMeta(t.id);
-            const active = t.id === town;
-            const count = townCounts.counts[t.id] ?? 0;
-            return (
-              <Link
-                key={t.id}
-                to={`/town/${t.id}`}
-                className={`town-tab${active ? " town-tab--active" : ""}`}
-                aria-current={active ? "page" : undefined}
-                title={[m.tagline, m.county].filter(Boolean).join(" — ")}
-              >
-                <span className="town-tab-dot" style={{ background: m.color }} aria-hidden="true" />
-                <span className="town-tab-name">{m.name}</span>
-                {count > 0 && (
-                  <span className="town-tab-count" aria-label={`${count} residents`}>{count}</span>
-                )}
-              </Link>
-            );
-          })}
-          <span className="town-tabs-spacer" aria-hidden="true" />
-          {!DEMO_MODE && ws.simulationRunning && (
-            <span className="town-tabs-round" title="Simulation progress">
-              Round {ws.currentRound} / {ws.totalRounds || scen.totalRounds}
-            </span>
-          )}
-          {!DEMO_MODE && !isOnboarded && (
-            <Link className="town-tabs-cta" to={`/onboarding?town=${town}`}>
-              Create your resident →
-            </Link>
-          )}
-        </nav>
 
         {/* Phaser canvas */}
         <div
@@ -1005,8 +942,9 @@ export default function TownView({ ws }: TownViewProps) {
             getProximityAgentId={getProximityAgentId}
           />
 
-          {/* HUD top-left */}
-          <div className="town-hud-top-left">
+          {/* Top bar: town switcher + the round/clock chips */}
+          <div className="town-topbar">
+            <TownSwitcher current={town} counts={townCounts.counts} />
             <PlayerHUD
               worldClock={ws.worldClock}
               weather={ws.weather}
@@ -1161,9 +1099,7 @@ export default function TownView({ ws }: TownViewProps) {
           {/* Keyboard hint overlay — only when a real player can move HERE,
               and never underneath the tutorial modal (its 5s auto-dismiss
               would expire unseen behind the backdrop). */}
-          {showKeyboardHint && playerInTown && tutorialDone && (
-            <KeyboardHint onDismiss={() => setShowKeyboardHint(false)} />
-          )}
+
 
           {/* The hosted replay is immediately explorable without a player;
               movement onboarding belongs to the interactive local flow. */}
@@ -1180,143 +1116,91 @@ export default function TownView({ ws }: TownViewProps) {
             />
           )}
         </div>
+
+        {/* Live key legend under the canvas (the replay's dock is the app's). */}
+        <MediaBar variant="legend" playerInTown={playerInTown} />
       </div>
 
-      {/* Sidebar: agent list */}
-      <div className="town-view-sidebar">
-        <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(180,160,120,0.12)" }}>
-          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{
-            fontFamily: "var(--font-display)",
-            color: "var(--gold-ink)",
-            letterSpacing: "2.5px",
-            fontSize: "11px",
-          }}>
-            Residents ({townAgents.length + (playerAgentState ? 1 : 0)})
-          </h3>
-          {/* Ornamental separator */}
-          <svg width="120" height="8" viewBox="0 0 120 8" className="mt-2 opacity-60">
-            <defs>
-              <linearGradient id="sidebar-sep" x1="0%" y1="50%" x2="100%" y2="50%">
-                <stop offset="0%" stopColor="var(--gold-accent)" stopOpacity="0" />
-                <stop offset="30%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
-                <stop offset="50%" stopColor="var(--gold-accent)" stopOpacity="0.5" />
-                <stop offset="70%" stopColor="var(--gold-accent)" stopOpacity="0.35" />
-                <stop offset="100%" stopColor="var(--gold-accent)" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            <line x1="0" y1="4" x2="120" y2="4" stroke="url(#sidebar-sep)" strokeWidth="1" />
-            <rect x="55" y="1" width="6" height="6" rx="0.5" transform="rotate(45 58 4)" fill="var(--gold-accent)" opacity="0.4" />
-          </svg>
-        </div>
-        <div className="flex-1 overflow-y-auto px-1.5 py-1.5 flex flex-col gap-0">
-          {/* Player card at top */}
-          {playerAgentState && (
-            <div className="player-sidebar-card">
-              <AgentCard agent={playerAgentState} compact onClick={() => {}} />
-              <span className="player-badge">YOU</span>
-            </div>
-          )}
-          {/* NPC agents */}
-          {townAgents.map((agent) => (
-            <AgentCard
-              key={agent.id}
-              agent={agent}
-              compact
-              onClick={() => requestChat(agent.id, "sidebar")}
-              met={profile?.metAgents?.includes(agent.id)}
-              persuaded={profile?.persuadedAgents?.includes(agent.id)}
-              trust={trustFor(agent.id)}
-            />
+      {/* Sidebar: residents · today · activity */}
+      <aside className="town-view-sidebar" aria-label="Town panel">
+        <div className="sidebar-tabs" role="tablist" aria-label="Town panel sections">
+          {([
+            ["residents", "Residents", "people", townAgents.length + (playerAgentState ? 1 : 0)],
+            ["today", "Today", "clock", null],
+            ["activity", "Activity", "feed", null],
+          ] as const).map(([id, label, icon, count]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`sidebar-tab-${id}`}
+              aria-selected={sidebarTab === id}
+              aria-controls={`sidebar-panel-${id}`}
+              className={`sidebar-tab${sidebarTab === id ? " sidebar-tab--active" : ""}`}
+              onClick={() => setSidebarTab(id)}
+            >
+              <Icon name={icon} size={14} />
+              <span>{label}</span>
+              {count != null && count > 0 && <span className="sidebar-tab-count">{count}</span>}
+            </button>
           ))}
         </div>
 
-        {/* Recent events for this town */}
-        <div className="border-t px-3 py-2" style={{ borderColor: "rgba(180,160,120,0.12)" }}>
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{
-            fontFamily: "var(--font-display)",
-            color: "var(--gold-ink)",
-            letterSpacing: "2px",
-            fontSize: "11px",
-          }}>
-            Recent Activity
-          </h3>
-          <div className="flex flex-col gap-1 max-h-[120px] overflow-y-auto">
-            {(() => {
-              // Stable absolute keys so a freshly-arrived row animates exactly once.
-              const rows: Array<{ key: number; evt: SimulationEvent }> = [];
-              ws.events.forEach((e, i) => {
-                if ("town" in e && (e as any).town === town) {
-                  rows.push({ key: ws.eventHistoryStart + i, evt: e });
-                }
-              });
-              return rows.slice(-5).reverse().map(({ key, evt }) => {
-                // Rows about a specific resident tap through to them —
-                // no dead ends in the activity rail.
-                const rowAgentId = "agent_id" in evt && agentLookup.has((evt as any).agent_id)
-                  ? (evt as any).agent_id as string
-                  : null;
-                const rowProps = rowAgentId
-                  ? {
-                      role: "button" as const,
-                      tabIndex: 0,
-                      title: `Talk to ${agentLookup.get(rowAgentId)?.name ?? "this resident"}`,
-                      onClick: () => requestChat(rowAgentId, "activity"),
-                      onKeyDown: (e: React.KeyboardEvent) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          requestChat(rowAgentId, "activity");
-                        }
-                      },
-                    }
-                  : {};
-                if (evt.type === "opinion_changed") {
-                  const newC = (evt.new_opinion?.candidate as LeanId) || scen.undecidedId;
-                  const stance = scen.optionColor(newC);
-                  return (
-                    <div
-                      key={key}
-                      className={`town-activity-row town-activity-row--shift flex items-center gap-1.5${rowAgentId ? " town-activity-row--link" : ""}`}
-                      {...rowProps}
-                    >
-                      <span
-                        className="town-activity-shift-dot w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{ background: stance }}
-                      />
-                      <p style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
-                        <strong style={{ color: "var(--text-primary)", fontWeight: 600 }}>{evt.agent_name}</strong>
-                        {" shifted → "}
-                        <strong style={{ color: readableInk(stance), fontWeight: 600 }}>
-                          {scen.optionLabel(newC)}
-                        </strong>
-                      </p>
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={key}
-                    className={`town-activity-row flex items-center gap-1.5${rowAgentId ? " town-activity-row--link" : ""}`}
-                    {...rowProps}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
-                    <p style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
-                      {eventLabel(evt, scen.optionLabel)}
-                    </p>
-                  </div>
-                );
-              });
-            })()}
-            {ws.events.filter((e) => "town" in e && (e as any).town === town).length === 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
-                <p className="italic" style={{ fontFamily: "var(--font-body)", fontSize: "11px", color: "var(--text-secondary)" }}>
-                  Waiting for simulation events...
-                </p>
+        {sidebarTab === "residents" && (
+          <div className="sidebar-panel sidebar-panel--list" role="tabpanel" id="sidebar-panel-residents" aria-labelledby="sidebar-tab-residents">
+            {!DEMO_MODE && !isOnboarded && (
+              <Link className="sidebar-cta" to={`/onboarding?town=${town}`}>
+                <Icon name="star" size={13} /> Create your resident
+              </Link>
+            )}
+            {playerAgentState && (
+              <div className="player-sidebar-card">
+                <AgentCard agent={playerAgentState} compact onClick={() => {}} />
+                <span className="player-badge">YOU</span>
               </div>
             )}
+            {townAgents.map((agent) => (
+              <AgentCard
+                key={agent.id}
+                agent={agent}
+                compact
+                onClick={() => requestChat(agent.id, "sidebar")}
+                met={profile?.metAgents?.includes(agent.id)}
+                persuaded={profile?.persuadedAgents?.includes(agent.id)}
+                trust={trustFor(agent.id)}
+              />
+            ))}
           </div>
-        </div>
-      </div>
+        )}
+
+        {sidebarTab === "today" && (
+          <div className="sidebar-panel" role="tabpanel" id="sidebar-panel-today" aria-labelledby="sidebar-tab-today">
+            <TodayStrip
+              plan={scen.roundPlan}
+              round={civicEnv.round}
+              totalRounds={ws.totalRounds || scen.totalRounds}
+              phase={civicEnv.phase}
+              running={ws.simulationRunning}
+              ended={ws.finalSummary !== null}
+              clock={ws.worldClock}
+              weather={ws.weather}
+              headline={ws.headlines.length ? ws.headlines[ws.headlines.length - 1].headline : null}
+              headlineRound={ws.headlines.length ? ws.headlines[ws.headlines.length - 1].round : null}
+            />
+          </div>
+        )}
+
+        {sidebarTab === "activity" && (
+          <div className="sidebar-panel sidebar-panel--list" role="tabpanel" id="sidebar-panel-activity" aria-labelledby="sidebar-tab-activity">
+            <ActivityFeed
+              entries={activityEntries(ws.events, town, { agentName: (id) => agentLookup.get(id)?.name }, { startIndex: ws.eventHistoryStart, limit: 40 })}
+              accent={meta.color}
+              onSelect={(id) => requestChat(id, "activity")}
+              emptyText={DEMO_MODE ? "Press play — the town's day unfolds here." : "Waiting for simulation events…"}
+            />
+          </div>
+        )}
+      </aside>
 
       {/* Chat panel */}
       {chatOpen && (
@@ -1330,22 +1214,4 @@ export default function TownView({ ws }: TownViewProps) {
       )}
     </div>
   );
-}
-
-/* ── Helper ────────────────────────────────────────────────── */
-
-function eventLabel(evt: SimulationEvent, optionLabel: (id: string) => string): string {
-  switch (evt.type) {
-    case "agent_moved":
-      return `${evt.agent_name} moved to ${evt.to_location}`;
-    case "agent_speech":
-      return `${evt.agent_name}: "${evt.text.slice(0, 40)}..."`;
-    case "opinion_changed":
-      // Display label, never the raw option id ("Bond", not "bond").
-      return `${evt.agent_name} shifted to ${optionLabel(evt.new_opinion.candidate)}`;
-    case "conversation_started":
-      return `${evt.conversation.participant_names.join(" & ")} started talking`;
-    default:
-      return evt.type.replace(/_/g, " ");
-  }
 }

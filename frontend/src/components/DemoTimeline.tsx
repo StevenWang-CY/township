@@ -161,14 +161,6 @@ export default function DemoTimeline() {
 
   return (
     <div className="demo-timeline pixel-frame" role="group" aria-label="Replay timeline">
-      {/* RECORDED REPLAY badge — same provenance language as the HUD chip */}
-      <div className="demo-timeline-badge" title={scen.title}>
-        <span className="demo-timeline-badge-dot" aria-hidden="true" />
-        <span className="demo-timeline-badge-text">
-          Recorded replay · <em>{scen.title}</em>
-        </span>
-      </div>
-
       {/* Play / pause / replay-again */}
       <button
         className={`demo-timeline-play ${player.ended ? "demo-timeline-play--replay" : ""}`}
