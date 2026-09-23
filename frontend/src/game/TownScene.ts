@@ -47,6 +47,8 @@ import { pickExchange, relationshipKind, sharedConcernKey } from "./AmbientLines
 import { ConversationChoreographer } from "./Conversations";
 import { arrivalFacing, deriveActivity, dwellRoles, isRestingHour, shouldBeIndoors } from "./DayPart";
 import { SpotRegistry, spotsFromAnchors, type Placement } from "./Spots";
+import { TrafficLayer, type LaneDir, type SignalAnchor, type StopLine, type TrafficLane } from "./TrafficLayer";
+import { applySeasonPalette, seasonForDate, type Season } from "./seasonPalette";
 import { fnv1a } from "../lib/hash";
 import { landmarksFor } from "../hooks/useTownData";
 import { WeatherScene } from "./WeatherScene";
@@ -145,6 +147,13 @@ export class TownScene extends Phaser.Scene {
   private wanderPoints: Array<{ x: number; y: number }> = [];
   /** Authored standing spots per landmark + who holds which (Spots.ts). */
   private spots?: SpotRegistry;
+  /** Lanes and stop lines from the map's `traffic` object layer. */
+  private trafficLanes: TrafficLane[] = [];
+  private trafficStops: StopLine[] = [];
+  /** A car or two on the main road (TrafficLayer.ts). */
+  private traffic?: TrafficLayer;
+  /** Palette season for the tile sheets (seasonPalette.ts). */
+  private season: Season = "summer";
   /** Buildings with someone inside right now (day glow, chip pips). */
   private occupiedLandmarks = new Set<string>();
   private collisionGroup?: Phaser.Physics.Arcade.StaticGroup;
@@ -296,7 +305,11 @@ export class TownScene extends Phaser.Scene {
     population?: number;
     /** The scenario's first round clock (live towns open on it). */
     startClock?: { hour: number; minute: number };
+    /** ISO date the world is drawn for (season palette); or a season outright. */
+    seasonDate?: string;
+    season?: Season;
   }) {
+    this.season = data.season ?? seasonForDate(data.seasonDate);
     this.scenarioId = data.scenarioId;
     this.townId = data.townId;
     this.mapPath = data.mapPath ?? null;
@@ -456,6 +469,8 @@ export class TownScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.DESTROY, () => this.removeCaptureApi());
 
     // Tilemap — the generated pixel world (layers, collision, anchors).
+    // Tile sheets take the campaign's season before any layer samples them.
+    applySeasonPalette(this, this.season);
     this.buildTilemap(W, H);
 
     // Night window glow — warm additive quads over every window stamp
@@ -513,30 +528,11 @@ export class TownScene extends Phaser.Scene {
         repeat: -1,
       });
     }
-    this.ambience = composeTownAmbience(
-      this,
-      this.scenarioId,
-      this.townId,
-      this.mapAnchors,
-      W,
-      H,
-      { population: this.population },
-    );
-    this.ambience.setHour(this.worldClock.hour);
-    this.ambience.setPartOfDay(this.worldClock.partOfDay());
-
-    // Civic dressing reads the same anchors; a late env (React applied it
-    // before the map finished) is replayed silently.
-    this.civic?.destroy();
-    this.civic = new CivicLayer({
-      scene: this,
-      optionColor: (id) => this.opinionColor(id),
-      landmarkEntrance: (name) => this.landmarkPositions.get(this.resolveLandmarkName(name) ?? name),
-      nearestWalkable: (pt) => this.navGrid?.nearestWalkable(pt.x, pt.y, 96, { avoidRoad: true }) ?? pt,
-    }, this.mapAnchors);
-    this.civic.setPartOfDay(this.worldClock.partOfDay());
-    if (this.lastCivic) this.civic.apply(this.lastCivic.env, this.lastCivic.residents, { animate: false });
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.civic?.destroy(); this.civic = undefined; });
+    this.buildWorldDressing(W, H);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.civic?.destroy(); this.civic = undefined;
+      this.traffic?.destroy(); this.traffic = undefined;
+    });
 
     // Register + launch the Weather scene in parallel
     if (!this.scene.get("WeatherScene")) {
@@ -631,6 +627,7 @@ export class TownScene extends Phaser.Scene {
       ) s.clearSpeechBubbles();
     });
     this.playerSprite?.updatePlayer(delta);
+    this.traffic?.update(delta);
     this.choreo.update();
     this.syncLabelScale();
 
@@ -1797,6 +1794,14 @@ export class TownScene extends Phaser.Scene {
         .filter(([, sprite]) => sprite !== this.playerSprite)
         .map(([id]) => id),
       setLabelPolicy: (policy: "quiet" | "all") => this.setLabelPolicy(policy),
+      setSeason: (season: Season) => this.setSeason(season),
+      /** Freeze everything that moves (visual baselines): tweens, anims, cars. */
+      freeze: () => {
+        this.tweens.pauseAll();
+        this.anims.pauseAll();
+        this.time.paused = true;
+        this.traffic?.pause(true);
+      },
       /** Recent walker routes (probes assert axis-aligned legs, crossings). */
       lastPaths: () => this.recentPaths.map((r) => ({ from: r.from, path: r.path })),
       /** Crowd metrics for probes: walkers, indoor count, closest pair. */
@@ -2803,6 +2808,24 @@ export class TownScene extends Phaser.Scene {
       this.mapAnchors.push({ kind, x, y, stamp: props.stamp, name: o.name || undefined, props });
     }
 
+    // ── Traffic: lane polylines + stop lines (TrafficLayer drives cars).
+    this.trafficLanes = [];
+    this.trafficStops = [];
+    const traffic = map.getObjectLayer("traffic");
+    for (const o of traffic?.objects ?? []) {
+      const props: Record<string, string> = {};
+      for (const p of (o.properties as Array<{ name: string; value: string }> | undefined) ?? []) props[p.name] = String(p.value);
+      const ox = (o.x ?? 0) * scale;
+      const oy = (o.y ?? 0) * scale;
+      if (props.kind === "lane" && Array.isArray(o.polyline)) {
+        const points = (o.polyline as Array<{ x: number; y: number }>).map((pt) => ({ x: ox + pt.x * scale, y: oy + pt.y * scale }));
+        const dir = (["e", "w", "n", "s"].includes(props.dir) ? props.dir : "e") as LaneDir;
+        if (points.length >= 2) this.trafficLanes.push({ dir, road: props.road ?? "", points, through: props.through === "1" });
+      } else if (props.kind === "stopline") {
+        this.trafficStops.push({ x: ox, y: oy, axis: props.axis === "v" ? "v" : "h", signal: props.signal === "1" || props.signal === "true" });
+      }
+    }
+
     this.builtMap = map;
     this.buildNavGrid();
     this.buildSpotRegistry();
@@ -3255,6 +3278,67 @@ export class TownScene extends Phaser.Scene {
     return Math.max(STEP, Math.round(z / STEP) * STEP);
   }
 
+  /**
+   * Everything drawn from the anchor layer on top of the tilemap: ambience
+   * (trees, lamps, smoke, water), civic dressing and the traffic layer. Built
+   * once in create() and again when the season changes the sheets.
+   */
+  private buildWorldDressing(W: number, H: number) {
+    this.ambience?.destroy();
+    this.ambience = composeTownAmbience(
+      this,
+      this.scenarioId,
+      this.townId,
+      this.mapAnchors,
+      W,
+      H,
+      { population: this.population },
+    );
+    this.ambience.setHour(this.worldClock.hour);
+    this.ambience.setPartOfDay(this.worldClock.partOfDay());
+
+    // Civic dressing reads the same anchors; a late env (React applied it
+    // before the map finished) is replayed silently.
+    this.civic?.destroy();
+    this.civic = new CivicLayer({
+      scene: this,
+      optionColor: (id) => this.opinionColor(id),
+      landmarkEntrance: (name) => this.landmarkPositions.get(this.resolveLandmarkName(name) ?? name),
+      nearestWalkable: (pt) => this.navGrid?.nearestWalkable(pt.x, pt.y, 96, { avoidRoad: true }) ?? pt,
+    }, this.mapAnchors);
+    this.civic.setPartOfDay(this.worldClock.partOfDay());
+    if (this.lastCivic) this.civic.apply(this.lastCivic.env, this.lastCivic.residents, { animate: false });
+
+    // A car or two on the main road, yielding to crossings and the signal.
+    this.traffic?.destroy();
+    const signals: SignalAnchor[] = this.mapAnchors
+      .filter((a) => a.kind === "signal")
+      .map((a) => ({ x: a.x, y: a.y, axis: a.props?.axis === "v" ? "v" : "h" }));
+    this.traffic = new TrafficLayer(this, this.trafficLanes, this.trafficStops, signals, {
+      population: this.population,
+      bodies: () => this.allBodies().filter((b) => !b.isIndoors()),
+      layers: () => ["deco-below", "buildings-top", "ground-detail"]
+        .map((n) => this.builtMap?.getLayer(n)?.tilemapLayer)
+        .filter((l): l is Phaser.Tilemaps.TilemapLayer => Boolean(l)),
+    });
+  }
+
+  /**
+   * Switch the world's season in place: the sheets are re-registered in the
+   * new palette, every built tileset re-points at them (no map rebuild) and
+   * the anchor-drawn dressing is rebuilt so its blitted stamps re-sample.
+   */
+  setSeason(season: Season) {
+    if (season === this.season) return;
+    this.season = season;
+    const changed = applySeasonPalette(this, season);
+    if (changed.length === 0) return;
+    for (const ts of this.builtMap?.tilesets ?? []) {
+      if (this.textures.exists(ts.name)) ts.setImage(this.textures.get(ts.name));
+    }
+    this.buildWorldDressing(Number(this.game.config.width), Number(this.game.config.height));
+  }
+
   /** Snap a user zoom crisp inside the 0.75-2.0 (CSS) clamp, in device space. */
   private snapZoom(z: number): number {
     return this.snapZoomCrisp(Phaser.Math.Clamp(z, 0.75 * RENDER_DPR, 2.0 * RENDER_DPR));
@@ -3430,6 +3514,26 @@ export class TownScene extends Phaser.Scene {
       chip.setData("w", Math.ceil(txt.width) + 6);
       chip.setData("h", Math.ceil(txt.height) + 2);
       chip.setData("baseY", y);
+      this.landmarkLabelTexts.push(chip);
+    }
+    // Road exits: a small pixel-font plate on the verge where a street
+    // leaves the map ("TO RT 10"), from the layout's roadsign anchors.
+    for (const a of this.mapAnchors) {
+      if (a.kind !== "roadsign") continue;
+      const text = a.props?.text ?? a.name;
+      if (!text) continue;
+      const txt = pixelFont
+        ? this.add.bitmapText(0, 0, PIXEL_FONT_OUTLINED, pixelText(text)).setOrigin(0.5, 0.5)
+        : this.add.text(0, 0, text, { fontFamily: "Inter, sans-serif", fontSize: "9px", color: "#f5ead2" }).setOrigin(0.5, 0.5);
+      const plate = this.add.image(0, 0, "__WHITE")
+        .setTint(0x2f5d3a)
+        .setAlpha(0.92)
+        .setDisplaySize(Math.ceil(txt.width) + 6, Math.ceil(txt.height) + 2);
+      const chip = this.add.container(Math.round(a.x), Math.round(a.y - 22), [plate, txt]).setDepth(5500).setAlpha(0.96);
+      chip.setScale(this.labelScale);
+      chip.setData("w", Math.ceil(txt.width) + 6);
+      chip.setData("h", Math.ceil(txt.height) + 2);
+      chip.setData("baseY", Math.round(a.y - 22));
       this.landmarkLabelTexts.push(chip);
     }
     this.staggerLandmarkChips();

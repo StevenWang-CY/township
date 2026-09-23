@@ -3,17 +3,27 @@
 
 Renders ``frontend/public/assets/tilesets/township-modern.png`` — a 16 px
 tileset that extends the vendored ai-town RPG tileset with the modern
-material it lacks: asphalt, concrete sidewalk, road markings, and a handful
-of small-town street props (hydrant, mailbox, bus sign, ...).
+material it lacks: asphalt, concrete sidewalk, road markings, small-town
+street props (hydrant, mailbox, bus sign, ...), the roof / diner / church /
+civic kits, and — rows 17-29 — building shadows, ground litter, the
+``GRASS_DARK`` and ``WORN`` ground autotiles, vehicles, a hedge kit, the
+street-furniture kit (poles, wires, signals, signs), a suburb kit (steps,
+garage door, shed) and the shelter / backstop / fountain / exit-sign
+set-pieces.
 
 Style contract: every opaque pixel is quantized to the nearest color that
 actually occurs in ``rpg-tileset.png`` (sampled at generation time), and all
 shapes carry the same 1 px darker outline the source tileset uses, so the two
-sheets sit next to each other without a style clash.
+sheets sit next to each other without a style clash. The one exception is
+``GRASS_DARK`` (``NO_QUANTIZE``): its pixels are the sampled ``R.GRASS``
+pixels darkened and cooled, and re-snapping them would collapse the patch
+back onto the plain grass greens.
 
 Grid: 10 columns, 16 px tiles. In Tiled maps this tileset is appended with
 ``firstgid = 10001``; all the ``Blob`` / ``TileStamp`` objects exported here
-already carry absolute GIDs in that range.
+already carry absolute GIDs in that range. Ids 0-169 are frozen: the shipped
+maps reference them and ``tests/test_tilekit.py`` pins their pixels to the
+committed sheet.
 
 Run:
     python3 -m scripts.mapgen.moderntiles      # writes the png + contact sheet
@@ -22,6 +32,7 @@ Run:
 from __future__ import annotations
 
 import hashlib
+import math
 import random
 import sys
 from collections import Counter
@@ -44,7 +55,7 @@ def _stable_seed(label: str) -> int:
 T = 16
 MODERN_FIRSTGID = 10001
 MODERN_COLUMNS = 10
-MODERN_ROWS = 17
+MODERN_ROWS = 30
 MODERN_TILECOUNT = MODERN_COLUMNS * MODERN_ROWS
 MODERN_IMAGE = "frontend/public/assets/tilesets/township-modern.png"
 
@@ -215,6 +226,150 @@ for _j, _n in enumerate(
     IDS[_n] = 150 + _j
 
 
+#: row 17 — building shadows (translucent SHADOW ink, alpha 64: overlay on
+#: deco-below along the south row / east column of a building) and ground
+#: litter (clover clusters + fallen leaves on transparency, opaque mulch).
+for _j, _n in enumerate(
+    (
+        "sh_full",
+        "sh_fade_n",
+        "sh_fade_w",
+        "sh_corner",
+        "clover_a",
+        "clover_b",
+        "litter_a",
+        "litter_b",
+        "mulch_a",
+        "mulch_b",
+    )
+):
+    IDS[_n] = 170 + _j
+
+#: rows 18-19 — GRASS_DARK autotile: a cooler, ~12% darker recolour of the
+#: sampled R.GRASS pixels with 4 px ordered-dither edges back into plain
+#: grass (same piece set as ASPHALT / SIDEWALK, holes included).
+_BLOB_PIECES = ("nw", "n", "ne", "w", "e", "sw", "s", "se")
+for _i in range(4):
+    IDS[f"gd_{_i}"] = 180 + _i
+for _j, _piece in enumerate(_BLOB_PIECES):
+    IDS[f"gd_{_piece}"] = 184 + _j
+for _j, _piece in enumerate(("hole_nw", "hole_ne", "hole_sw", "hole_se")):
+    IDS[f"gd_{_piece}"] = 192 + _j
+
+#: rows 19-20 — WORN autotile: trodden tan dirt under sparse grass tufts,
+#: dithered edges into R.GRASS; fill x4 + edges + convex corners (no holes).
+for _i in range(4):
+    IDS[f"worn_{_i}"] = 196 + _i
+for _j, _piece in enumerate(_BLOB_PIECES):
+    IDS[f"worn_{_piece}"] = 200 + _j
+
+#: rows 21-24 — vehicles (top-down, 1 px K outline, teal glass, 2 px wheel
+#: stubs). ``_h`` cars face east (a = front / east tile, b = rear), ``_v``
+#: cars face south (a = front / south tile). Buses are 3 tiles: a = front,
+#: b = middle, c = rear.
+CAR_COLORS = ("red", "blue", "white", "silver", "green")
+_vid = 210
+for _cw in CAR_COLORS:
+    for _n in (f"car_{_cw}_h_a", f"car_{_cw}_h_b", f"car_{_cw}_v_a", f"car_{_cw}_v_b"):
+        IDS[_n] = _vid
+        _vid += 1
+for _n in (
+    "pickup_h_a",
+    "pickup_h_b",
+    "pickup_v_a",
+    "pickup_v_b",
+    "bus_h_a",
+    "bus_h_b",
+    "bus_h_c",
+    "bus_v_a",
+    "bus_v_b",
+    "bus_v_c",
+    "schoolbus_h_a",
+    "schoolbus_h_b",
+    "schoolbus_h_c",
+):
+    IDS[_n] = _vid
+    _vid += 1
+assert _vid == 243, _vid
+
+#: rows 24-25 — hedge kit: straight runs, end caps and corners of a clipped
+#: hedge (LEAF noise, K outline, SE contact shadow).
+for _j, _n in enumerate(
+    (
+        "hedge_h",
+        "hedge_v",
+        "hedge_end_w",
+        "hedge_end_e",
+        "hedge_end_n",
+        "hedge_end_s",
+        "hedge_nw",
+        "hedge_ne",
+        "hedge_sw",
+        "hedge_se",
+    )
+):
+    IDS[_n] = 243 + _j
+
+#: rows 25-26 — street kit: utility pole (2 tall) + wires, traffic signal
+#: (2 tall), stop sign / street-name blade over a shared sign post.
+for _j, _n in enumerate(
+    (
+        "pole_top",
+        "pole_base",
+        "wire_h",
+        "wire_v",
+        "signal_red",
+        "signal_green",
+        "signal_pole",
+        "stop_top",
+        "sign_post",
+        "blade_top",
+    )
+):
+    IDS[_n] = 253 + _j
+
+#: rows 26-27 — suburb kit: stone steps, house-number plaque and window AC
+#: unit (transparent overlays), a 2x2 panelled garage door (opaque, stone
+#: surround like WINDOW) and a 2x2 clapboard shed with a cedar roof.
+for _j, _n in enumerate(
+    (
+        "steps",
+        "house_num",
+        "ac_window",
+        "garage_door_tl",
+        "garage_door_tr",
+        "garage_door_bl",
+        "garage_door_br",
+        "shed_tl",
+        "shed_tr",
+        "shed_bl",
+        "shed_br",
+    )
+):
+    IDS[_n] = 263 + _j
+
+#: rows 27-29 — set-pieces: glass bus shelter 3x2, chain-link backstop 3x2,
+#: stone fountain 2x2, blank green exit sign 1x2 (the runtime letters it),
+#: then two leaning bicycles and a hoop bike rack (292-294; 295-299 free).
+for _r in range(2):
+    for _c in range(3):
+        IDS[f"shelter_{_r}{_c}"] = 274 + _r * 3 + _c
+        IDS[f"backstop_{_r}{_c}"] = 280 + _r * 3 + _c
+for _j, _n in enumerate(("fountain_tl", "fountain_tr", "fountain_bl", "fountain_br")):
+    IDS[_n] = 286 + _j
+IDS["exit_sign_t"] = 290
+IDS["exit_sign_b"] = 291
+IDS["bike_a"] = 292
+IDS["bike_b"] = 293
+IDS["bike_rack"] = 294
+
+assert len(set(IDS.values())) == len(IDS), "duplicate modern tile id"
+assert all(0 <= _i < MODERN_TILECOUNT for _i in IDS.values()), "modern tile id out of range"
+
+#: Ids whose opaque pixels are NOT snapped to the rpg palette (see module doc).
+NO_QUANTIZE: frozenset[int] = frozenset(v for k, v in IDS.items() if k.startswith("gd_"))
+
+
 def mg(name: str) -> int:
     """Absolute GID of a modern tile."""
     return MODERN_FIRSTGID + IDS[name]
@@ -368,7 +523,149 @@ MODERN_SINGLES: dict[str, int] = {
         "win_small",
         "chimney",
         "brazier",
+        # rows 17-29
+        "sh_full",
+        "sh_fade_n",
+        "sh_fade_w",
+        "sh_corner",
+        "clover_a",
+        "clover_b",
+        "litter_a",
+        "litter_b",
+        "mulch_a",
+        "mulch_b",
+        "hedge_h",
+        "hedge_v",
+        "hedge_end_w",
+        "hedge_end_e",
+        "hedge_end_n",
+        "hedge_end_s",
+        "hedge_nw",
+        "hedge_ne",
+        "hedge_sw",
+        "hedge_se",
+        "wire_h",
+        "wire_v",
+        "steps",
+        "house_num",
+        "ac_window",
+        "bike_a",
+        "bike_b",
+        "bike_rack",
     )
+}
+
+
+def _blob(prefix: str, name: str, holes: bool) -> Blob:
+    """A modern-sheet autotile from ``{prefix}_{piece}`` ids (ASPHALT layout)."""
+    return Blob(
+        name=name,
+        fill=tuple(mg(f"{prefix}_{i}") for i in range(4)),
+        nw=mg(f"{prefix}_nw"),
+        n=(mg(f"{prefix}_n"),),
+        ne=mg(f"{prefix}_ne"),
+        w=(mg(f"{prefix}_w"),),
+        e=(mg(f"{prefix}_e"),),
+        sw=mg(f"{prefix}_sw"),
+        s=(mg(f"{prefix}_s"),),
+        se=mg(f"{prefix}_se"),
+        hole_nw=mg(f"{prefix}_hole_nw") if holes else 0,
+        hole_ne=mg(f"{prefix}_hole_ne") if holes else 0,
+        hole_sw=mg(f"{prefix}_hole_sw") if holes else 0,
+        hole_se=mg(f"{prefix}_hole_se") if holes else 0,
+    )
+
+
+#: Cooler, darker lawn / tree-shade grass; edges dither back into R.GRASS.
+GRASS_DARK = _blob("gd", "grass_dark", holes=True)
+#: Trodden dirt (desire lines, dugouts, the worn strip along a fence).
+WORN = _blob("worn", "worn", holes=False)
+
+#: Vehicles. ``CAR_H[color]`` is 2x1 facing east (rear tile, front tile);
+#: ``CAR_V[color]`` is 1x2 facing south (rear on top). Buses likewise.
+CAR_H = {
+    c: TileStamp(f"car_{c}_h", ((mg(f"car_{c}_h_b"), mg(f"car_{c}_h_a")),)) for c in CAR_COLORS
+}
+CAR_V = {
+    c: TileStamp(f"car_{c}_v", ((mg(f"car_{c}_v_b"),), (mg(f"car_{c}_v_a"),))) for c in CAR_COLORS
+}
+PICKUP_H = TileStamp("pickup_h", ((mg("pickup_h_b"), mg("pickup_h_a")),))
+PICKUP_V = TileStamp("pickup_v", ((mg("pickup_v_b"),), (mg("pickup_v_a"),)))
+BUS_H = TileStamp("bus_h", ((mg("bus_h_c"), mg("bus_h_b"), mg("bus_h_a")),))
+BUS_V = TileStamp("bus_v", ((mg("bus_v_c"),), (mg("bus_v_b"),), (mg("bus_v_a"),)))
+SCHOOLBUS_H = TileStamp(
+    "schoolbus_h", ((mg("schoolbus_h_c"), mg("schoolbus_h_b"), mg("schoolbus_h_a")),)
+)
+BIKE_RACK = TileStamp("bike_rack", ((mg("bike_rack"),),))
+
+#: Hedge line pieces, keyed like R.FENCE_WOOD so a layout can draw a run:
+#: ``h`` / ``v`` straight runs, ``end_*`` caps (the hedge continues AWAY from
+#: the named side: ``end_w`` is the west cap of an eastward run), and outer
+#: ``corner_*`` L-pieces (``corner_nw`` joins a run going east and one going
+#: south). Every piece is a 1x1 stamp.
+HEDGE = {
+    "h": TileStamp("hedge_h", ((mg("hedge_h"),),)),
+    "v": TileStamp("hedge_v", ((mg("hedge_v"),),)),
+    "end_w": TileStamp("hedge_end_w", ((mg("hedge_end_w"),),)),
+    "end_e": TileStamp("hedge_end_e", ((mg("hedge_end_e"),),)),
+    "end_n": TileStamp("hedge_end_n", ((mg("hedge_end_n"),),)),
+    "end_s": TileStamp("hedge_end_s", ((mg("hedge_end_s"),),)),
+    "corner_nw": TileStamp("hedge_nw", ((mg("hedge_nw"),),)),
+    "corner_ne": TileStamp("hedge_ne", ((mg("hedge_ne"),),)),
+    "corner_sw": TileStamp("hedge_sw", ((mg("hedge_sw"),),)),
+    "corner_se": TileStamp("hedge_se", ((mg("hedge_se"),),)),
+}
+
+#: Street kit (all 1x2, post at the bottom).
+POLE = TileStamp("pole", ((mg("pole_top"),), (mg("pole_base"),)))
+SIGNAL = TileStamp("signal", ((mg("signal_red"),), (mg("signal_pole"),)))
+SIGNAL_GREEN = TileStamp("signal_green", ((mg("signal_green"),), (mg("signal_pole"),)))
+STOP_SIGN = TileStamp("stop_sign", ((mg("stop_top"),), (mg("sign_post"),)))
+STREET_BLADE = TileStamp("street_blade", ((mg("blade_top"),), (mg("sign_post"),)))
+
+#: Suburb kit.
+GARAGE_DOOR = TileStamp(
+    "garage_door",
+    ((mg("garage_door_tl"), mg("garage_door_tr")), (mg("garage_door_bl"), mg("garage_door_br"))),
+)
+SHED = TileStamp("shed", ((mg("shed_tl"), mg("shed_tr")), (mg("shed_bl"), mg("shed_br"))))
+
+#: Set-pieces.
+SHELTER = TileStamp(
+    "shelter", tuple(tuple(mg(f"shelter_{r}{c}") for c in range(3)) for r in range(2))
+)
+BACKSTOP = TileStamp(
+    "backstop", tuple(tuple(mg(f"backstop_{r}{c}") for c in range(3)) for r in range(2))
+)
+FOUNTAIN = TileStamp(
+    "fountain",
+    ((mg("fountain_tl"), mg("fountain_tr")), (mg("fountain_bl"), mg("fountain_br"))),
+)
+EXIT_SIGN = TileStamp("exit_sign", ((mg("exit_sign_t"),), (mg("exit_sign_b"),)))
+
+#: Every multi-tile stamp of rows 17-29, by export name (the exporters and
+#: the contact sheet iterate this).
+KIT_STAMPS: dict[str, TileStamp] = {
+    **{f"car_{c}_h": s for c, s in CAR_H.items()},
+    **{f"car_{c}_v": s for c, s in CAR_V.items()},
+    "pickup_h": PICKUP_H,
+    "pickup_v": PICKUP_V,
+    "bus_h": BUS_H,
+    "bus_v": BUS_V,
+    "schoolbus_h": SCHOOLBUS_H,
+    "bike_rack": BIKE_RACK,
+    "pole": POLE,
+    "signal": SIGNAL,
+    "signal_green": SIGNAL_GREEN,
+    "stop_sign": STOP_SIGN,
+    "street_blade": STREET_BLADE,
+    "garage_door": GARAGE_DOOR,
+    "shed": SHED,
+    "shelter": SHELTER,
+    "backstop": BACKSTOP,
+    "fountain": FOUNTAIN,
+    "exit_sign": EXIT_SIGN,
+    **{f"hedge_{k}": s for k, s in HEDGE.items()},
 }
 
 
@@ -431,6 +728,25 @@ B2 = (148, 162, 163)
 B3 = (108, 108, 132)
 BSPECK = (167, 186, 185)
 SHADOW = (30, 26, 22, 70)  # kept semi-transparent, not quantized
+GROUND_SHADOW = (30, 26, 22, 96)  # 2 px dithered contact shadow under props
+SHADOW_TILE = (30, 26, 22, 64)  # the sh_* building-shadow overlay tiles
+WIRE = (45, 39, 34, 210)  # utility wire: 1 px, slightly soft against grass
+
+#: Seeds that reproduce the committed sidewalk edge tiles (see _draw_tiles).
+_SWK_SEEDS = {
+    "swk_n": 2725,
+    "swk_s": 3958,
+    "swk_w": 5532,
+    "swk_e": 4315,
+    "swk_nw": 6282,
+    "swk_ne": 7307,
+    "swk_sw": 4924,
+    "swk_se": 41,
+    "swk_hole_nw": 819,
+    "swk_hole_ne": 1492,
+    "swk_hole_sw": 91,
+    "swk_hole_se": 235,
+}
 
 # shingle colorways: hi (course top-light) / base / dark (stagger speck) /
 # line (course separation). Intent colors sit near real rpg-palette entries
@@ -627,6 +943,16 @@ def _draw_tiles() -> dict[int, object]:
         fn(p)
         tiles_out[IDS[name]] = p.img
 
+    def make_shadowed(name: str, fn) -> None:
+        """A ground prop: draw it, then deepen its flat shadow row into the
+        2 px ordered-dither contact shadow (opaque silhouette untouched)."""
+
+        def f(p):
+            fn(p)
+            _ground_shadow(p)
+
+        make(name, f)
+
     # --- asphalt fills -----------------------------------------------------
     for i in range(4):
         rng = random.Random(100 + i)
@@ -672,18 +998,21 @@ def _draw_tiles() -> dict[int, object]:
         make(f"swk_{i}", lambda p, rng=rng: _sidewalk_base(rng, p))
 
     # --- sidewalk edges: curb look (outline + light curb-top highlight) ----
+    # These tiles were originally seeded with ``hash(name) % 9999``, which
+    # str-hash randomization made different on every run; the seeds below
+    # are the ones that reproduce the committed sheet pixel for pixel.
     swk_edge = {"swk_n": "n", "swk_s": "s", "swk_w": "w", "swk_e": "e"}
     for name, side in swk_edge.items():
 
         def f(p, side=side, name=name):
-            _sidewalk_base(random.Random(hash(name) % 9999), p, joints=False)
+            _sidewalk_base(random.Random(_SWK_SEEDS[name]), p, joints=False)
             _outline_edge(p, side, hi=CURB_HI)
 
         make(name, f)
     for name, corner in (("swk_nw", "nw"), ("swk_ne", "ne"), ("swk_sw", "sw"), ("swk_se", "se")):
 
         def f(p, corner=corner, name=name):
-            _sidewalk_base(random.Random(hash(name) % 9999), p, joints=False)
+            _sidewalk_base(random.Random(_SWK_SEEDS[name]), p, joints=False)
             _outline_edge(p, corner)
             _round_cut(p, corner, r=4)
 
@@ -696,7 +1025,7 @@ def _draw_tiles() -> dict[int, object]:
     ):
 
         def f(p, corner=corner, name=name):
-            _fillet(p, corner, [C1, C2, C3], random.Random(hash(name) % 9999), r=5, hi=CURB_HI)
+            _fillet(p, corner, [C1, C2, C3], random.Random(_SWK_SEEDS[name]), r=5, hi=CURB_HI)
 
         make(name, f)
 
@@ -800,7 +1129,7 @@ def _draw_tiles() -> dict[int, object]:
             {"o": K, "r": RED, "h": RED_HI, "s": SHADOW},
         )
 
-    make("hydrant", hydrant)
+    make_shadowed("hydrant", hydrant)
 
     def mailbox(p):
         p.grid(
@@ -825,7 +1154,7 @@ def _draw_tiles() -> dict[int, object]:
             {"o": K, "b": BLUE, "h": BLUE_HI, "w": WHITE, "s": SHADOW},
         )
 
-    make("mailbox", mailbox)
+    make_shadowed("mailbox", mailbox)
 
     def bus_sign_top(p):
         p.grid(
@@ -900,7 +1229,7 @@ def _draw_tiles() -> dict[int, object]:
             {"o": K, "d": BIN_HI, "b": BIN, "h": BIN_HI, "s": SHADOW},
         )
 
-    make("trash_bin", trash_bin)
+    make_shadowed("trash_bin", trash_bin)
 
     def planter_box(p):
         p.grid(
@@ -925,7 +1254,7 @@ def _draw_tiles() -> dict[int, object]:
             {"o": K, "w": WOOD, "d": WOOD_D, "L": LEAF, "g": LEAF_D, "s": SHADOW},
         )
 
-    make("planter_box", planter_box)
+    make_shadowed("planter_box", planter_box)
 
     def newsbox(p):
         p.grid(
@@ -950,7 +1279,7 @@ def _draw_tiles() -> dict[int, object]:
             {"o": K, "N": ORANGE, "w": WHITE, "b": BLUE, "s": SHADOW},
         )
 
-    make("newsbox", newsbox)
+    make_shadowed("newsbox", newsbox)
 
     def bench_h(p):
         p.grid(
@@ -975,7 +1304,7 @@ def _draw_tiles() -> dict[int, object]:
             {"o": K, "w": WOOD, "d": WOOD_D, "s": SHADOW},
         )
 
-    make("bench_h", bench_h)
+    make_shadowed("bench_h", bench_h)
 
     # --- facade window (2x2) -----------------------------------------------
     # FULLY OPAQUE, edge to edge: a tile layer holds one gid per cell, so a
@@ -1072,7 +1401,7 @@ def _draw_tiles() -> dict[int, object]:
             {"o": K, "g": GRAY, "h": GRAY_HI, "s": SHADOW},
         )
 
-    make("bollard", bollard)
+    make_shadowed("bollard", bollard)
 
     # --- pitched shingle-roof kit (3 colorways x ridge/slope/eave x l/m/r) --
     def _shingle_field(p: Painter, t: dict, y0: int, y1: int, phase: int = 0) -> None:
@@ -1724,12 +2053,19 @@ def _draw_tiles() -> dict[int, object]:
             {"o": K, "g": GRAY, "s": SHADOW},
         )
 
-    make("brazier", brazier)
+    make_shadowed("brazier", brazier)
 
     # --- church kit ----------------------------------------------------------
     for name, img in _church_tiles().items():
         tiles_out[IDS[name]] = img
 
+    # --- rows 17-29: shadows, litter, ground blobs, vehicles, hedge, street /
+    # suburb kits and the set-pieces ------------------------------------------
+    for name, img in _kit_tiles().items():
+        tiles_out[IDS[name]] = img
+
+    missing = sorted(n for n, i in IDS.items() if i not in tiles_out)
+    assert not missing, f"registered but unpainted: {missing}"
     return tiles_out
 
 
@@ -1921,6 +2257,965 @@ def _church_tiles() -> dict[str, object]:
     return out
 
 
+# ===========================================================================
+# Rows 17-29: shadows, litter, ground blobs, vehicles, hedge, street /
+# suburb kits and set-pieces
+# ===========================================================================
+
+BAYER4 = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+
+# kit tones (intents; opaque pixels snap to the rpg palette at save time)
+TYRE = (102, 89, 89)
+HEADLIGHT = (247, 215, 89)
+GLASS_HI = (255, 255, 255)
+#: car body colorways: base / highlight / shade
+CAR_TONES: dict[str, tuple[tuple[int, int, int], ...]] = {
+    "red": ((181, 64, 67), (224, 103, 86), (140, 26, 40)),
+    "blue": ((83, 78, 157), (107, 110, 174), (57, 53, 108)),
+    "white": ((255, 249, 234), (255, 255, 255), (204, 217, 206)),
+    "silver": ((159, 165, 176), (191, 191, 191), (118, 121, 129)),
+    "green": ((69, 138, 79), (127, 173, 110), (50, 74, 48)),
+}
+PICKUP_TONES = ((204, 156, 84), (238, 204, 125), (183, 149, 67))
+BUS_TONES = ((255, 249, 234), (255, 255, 255), (204, 217, 206))
+BUS_BLUE = (83, 78, 157)
+BUS_NAVY = (57, 53, 108)
+ROOF_PANEL = (200, 200, 191)
+SCHOOL_TONES = ((248, 200, 72), (247, 215, 89), (255, 171, 61))
+STEEL = (159, 165, 176)  # galvanized posts, signal heads
+STEEL_D = (118, 121, 129)
+STEEL_HI = (191, 191, 191)
+MESH = (191, 191, 191, 190)  # chain-link lattice (translucent, see-through)
+# Foliage deliberately reuses the rpg canopy greens so the seasons LUT
+# (scripts/mapgen/seasons.py) recolours hedges along with the trees; every
+# other green below is chosen OFF the LUT's key colours so signs, lamps and
+# car paint stay put through the year.
+HEDGE_HI = (140, 189, 74)
+HEDGE_BASE = (86, 141, 68)
+HEDGE_D = (61, 108, 67)
+HEDGE_DD = (54, 74, 76)
+SIGN_GREEN = (39, 96, 85)
+BLADE_GREEN = (55, 128, 60)
+SIGN_WHITE = (255, 249, 234)
+LAMP_RED = (224, 103, 86)
+LAMP_RED_OFF = (143, 87, 70)
+LAMP_AMBER_OFF = (140, 119, 74)
+LAMP_GREEN = (85, 196, 0)
+LAMP_GREEN_OFF = (50, 74, 48)
+SIGNAL_BODY = (102, 89, 89)
+WATER = (76, 150, 190)
+WATER_HI = (126, 215, 255)
+WATER_RIPPLE = (164, 211, 255)
+MULCH = ((98, 53, 28), (98, 53, 28), (98, 53, 28), (117, 80, 45), (117, 80, 45), (75, 43, 19))
+MULCH_CHIP = (154, 111, 55)
+DIRT = (195, 151, 83)
+DIRT_SPECK = (154, 111, 55)
+DIRT_DARK = (117, 80, 45)
+LEAF_TONES = ((231, 124, 61), (204, 156, 84), (193, 85, 71), (227, 198, 84), (210, 92, 53))
+CLOVER = (55, 128, 60)
+CLOVER_HI = (80, 143, 58)
+GRASS_MAIN = (100, 209, 76)  # the R.GRASS fill's dominant blade colour
+GRASS_BLADE_D = (80, 193, 64)
+
+
+def _ordered(x: int, y: int, coverage: float) -> bool:
+    """True where a 4x4 Bayer ordered dither of ``coverage`` (0..1) is on."""
+    return BAYER4[y % 4][x % 4] < coverage * 16
+
+
+def _ground_shadow(p) -> None:
+    """Deepen a prop's flat ``SHADOW`` row into a 2 px ordered-dither contact
+    shadow: the row at the base goes solid-dark, the row beneath it becomes
+    a 50% checker. Only translucent / transparent pixels are touched, so an
+    existing prop keeps its opaque silhouette pixel for pixel."""
+    px = p.img.load()
+    w, h = p.img.size
+    base = [(x, y) for y in range(h) for x in range(w) if px[x, y] == SHADOW]
+    for x, y in base:
+        px[x, y] = GROUND_SHADOW
+    for x, y in base:
+        if y + 1 < h and px[x, y + 1][3] == 0 and (x + y) % 2 == 0:
+            px[x, y + 1] = GROUND_SHADOW
+
+
+def _cool_dark(c: tuple[int, int, int]) -> tuple[int, int, int]:
+    """GRASS_DARK recolour: ~12% darker and cooler than the sampled grass."""
+    r, g, b = c
+    return (min(255, round(r * 0.80)), min(255, round(g * 0.88)), min(255, round(b * 1.05)))
+
+
+class _Big:
+    """A ``tw x th``-tile RGBA composite with the Painter vocabulary; crop
+    it into 16 px tiles with :meth:`tiles`."""
+
+    def __init__(self, tw: int, th: int) -> None:
+        from PIL import Image
+
+        self.img = Image.new("RGBA", (tw * T, th * T), (0, 0, 0, 0))
+        self.pix = self.img.load()
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return self.img.size
+
+    def get(self, x: int, y: int):
+        if 0 <= x < self.img.width and 0 <= y < self.img.height:
+            return self.pix[x, y]
+        return (0, 0, 0, 0)
+
+    def px(self, x: int, y: int, c) -> None:
+        if 0 <= x < self.img.width and 0 <= y < self.img.height:
+            self.pix[x, y] = c if len(c) == 4 else (*c, 255)
+
+    def rect(self, x0, y0, x1, y1, c) -> None:
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                self.px(x, y, c)
+
+    def outline_rect(self, x0, y0, x1, y1, c=K, chamfer: bool = True) -> None:
+        """1 px outline; ``chamfer`` leaves the four corner pixels empty."""
+        for x in range(x0, x1 + 1):
+            self.px(x, y0, c)
+            self.px(x, y1, c)
+        for y in range(y0, y1 + 1):
+            self.px(x0, y, c)
+            self.px(x1, y, c)
+        if chamfer:
+            for x, y in ((x0, y0), (x1, y0), (x0, y1), (x1, y1)):
+                self.px(x, y, (0, 0, 0, 0))
+
+    def grid(self, art: list[str], cmap: dict[str, tuple], ox: int = 0, oy: int = 0) -> None:
+        for y, row in enumerate(art):
+            for x, ch in enumerate(row):
+                if ch in cmap:
+                    self.px(ox + x, oy + y, cmap[ch])
+
+    def noise(self, rng, x0, y0, x1, y1, tones, speck=None, speck_p=0.04) -> None:
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                c = rng.choice(tones)
+                if speck and rng.random() < speck_p:
+                    c = speck
+                self.px(x, y, c)
+
+    def shadow_rows(self, x0: int, x1: int, y: int) -> None:
+        """2 px ordered-dither contact shadow: solid row ``y``, checker below."""
+        for x in range(x0, x1 + 1):
+            if self.get(x, y)[3] == 0:
+                self.px(x, y, GROUND_SHADOW)
+            if (x + y + 1) % 2 == 0 and self.get(x, y + 1)[3] == 0:
+                self.px(x, y + 1, GROUND_SHADOW)
+
+    def tiles(self, names: list[list[str]]) -> dict[str, object]:
+        out: dict[str, object] = {}
+        for r, row in enumerate(names):
+            for c, n in enumerate(row):
+                if n:
+                    out[n] = self.img.crop((c * T, r * T, (c + 1) * T, (r + 1) * T))
+        return out
+
+
+def _rpg_tile(g: int):
+    """The 16x16 RGBA tile at rpg GID ``g`` (cached sheet)."""
+    from PIL import Image
+
+    global _RPG_SHEET
+    try:
+        sheet = _RPG_SHEET
+    except NameError:
+        sheet = _RPG_SHEET = Image.open(RPG_TILESET).convert("RGBA")
+    row, col = (g - 1) // 100, (g - 1) % 100
+    return sheet.crop((col * T, row * T, (col + 1) * T, (row + 1) * T))
+
+
+def _depth(piece: str, x: int, y: int) -> float:
+    """How far (px) a pixel centre sits INSIDE a blob piece's material, for
+    the 4 px dither band: <= 0 is outside, >= 4 is solid. Convex corners
+    are rounded (r=5, like ``_round_cut``); ``hole_*`` fillets mirror
+    ``_fillet``: material only in the named corner."""
+    cx, cy = x + 0.5, y + 0.5
+    if piece == "fill":
+        return 99.0
+    if piece in ("n", "s", "w", "e"):
+        return {"n": cy, "s": 16 - cy, "w": cx, "e": 16 - cx}[piece]
+    if piece.startswith("hole_"):
+        ox, oy = {"nw": (0, 0), "ne": (16, 0), "sw": (0, 16), "se": (16, 16)}[piece[5:]]
+        return 7.0 - math.hypot(cx - ox, cy - oy)
+    # convex corner: distance to the two open edges, rounded near the tip
+    dx = cx if piece[1] == "w" else 16 - cx
+    dy = cy if piece[0] == "n" else 16 - cy
+    r = 5.0
+    if dx < r and dy < r:
+        return r - math.hypot(r - dx, r - dy)
+    return min(dx, dy)
+
+
+_BLOB_KINDS = (
+    "nw",
+    "n",
+    "ne",
+    "w",
+    "e",
+    "sw",
+    "s",
+    "se",
+    "hole_nw",
+    "hole_ne",
+    "hole_sw",
+    "hole_se",
+)
+
+
+def _dither_blob(prefix: str, inside, outside, holes: bool) -> dict[str, object]:
+    """Paint a ground autotile whose edges are 4 px ordered-dither
+    transitions from ``inside(name, x, y)`` (the material) to
+    ``outside(name, x, y)`` (the surrounding R.GRASS pixels)."""
+    from PIL import Image
+
+    out: dict[str, object] = {}
+    kinds = ["fill"] * 4 + list(_BLOB_KINDS if holes else _BLOB_KINDS[:8])
+    for i, kind in enumerate(kinds):
+        name = f"{prefix}_{i}" if kind == "fill" else f"{prefix}_{kind}"
+        rng = random.Random(_stable_seed(name))
+        img = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+        px = img.load()
+        for y in range(T):
+            for x in range(T):
+                d = _depth(kind, x, y) + rng.uniform(-0.45, 0.45)
+                if _ordered(x, y, max(0.0, min(1.0, d / 4.0))):
+                    px[x, y] = (*inside(name, x, y), 255)
+                else:
+                    px[x, y] = (*outside(name, x, y), 255)
+        out[name] = img
+    return out
+
+
+def _ground_blobs() -> dict[str, object]:
+    """GRASS_DARK and WORN, both blended into the real R.GRASS texture."""
+    from mapgen import tiles as R
+
+    grass = {g: _rpg_tile(g).load() for g in R.GRASS.fill}
+
+    def grass_px(name: str, x: int, y: int) -> tuple[int, int, int]:
+        g = R.GRASS.fill[_stable_seed(name) % len(R.GRASS.fill)]
+        return grass[g][x, y][:3]
+
+    def dark_px(name: str, x: int, y: int) -> tuple[int, int, int]:
+        return _cool_dark(grass_px(name, x, y))
+
+    out = _dither_blob("gd", dark_px, grass_px, holes=True)
+
+    # trodden dirt: the DIRT_TAN_SPECKLED mix (4% speck, ~1% dark) plus a
+    # few surviving grass tufts, drawn as 2 px pairs so they read as blades
+    dirt_cache: dict[str, dict] = {}
+
+    def dirt_px(name: str, x: int, y: int) -> tuple[int, int, int]:
+        if name not in dirt_cache:
+            rng = random.Random(_stable_seed(name + "/dirt"))
+            tex = {}
+            for yy in range(T):
+                for xx in range(T):
+                    roll = rng.random()
+                    tex[(xx, yy)] = (
+                        DIRT_DARK if roll < 0.01 else DIRT_SPECK if roll < 0.05 else DIRT
+                    )
+            for _ in range(rng.randrange(3, 6)):
+                tx, ty = rng.randrange(1, T - 1), rng.randrange(1, T - 1)
+                tex[(tx, ty)] = GRASS_MAIN
+                tex[(tx + rng.choice((-1, 1)), ty)] = GRASS_BLADE_D
+            dirt_cache[name] = tex
+        return dirt_cache[name][(x, y)]
+
+    out.update(_dither_blob("worn", dirt_px, grass_px, holes=False))
+    return out
+
+
+def _shadow_and_litter() -> dict[str, object]:
+    out: dict[str, object] = {}
+
+    def make(name: str, fn) -> None:
+        p = Painter()
+        fn(p)
+        out[name] = p.img
+
+    def sh(p, keep) -> None:
+        for y in range(T):
+            for x in range(T):
+                if keep(x, y):
+                    p.px(x, y, SHADOW_TILE)
+
+    make("sh_full", lambda p: sh(p, lambda x, y: True))
+    make("sh_fade_n", lambda p: sh(p, lambda x, y: y >= 2 or (x + y) % 2 == 0))
+    make("sh_fade_w", lambda p: sh(p, lambda x, y: x >= 2 or (x + y) % 2 == 0))
+    make(
+        "sh_corner",
+        lambda p: sh(
+            p, lambda x, y: x >= 8 and y >= 8 and ((x >= 10 and y >= 10) or (x + y) % 2 == 0)
+        ),
+    )
+
+    clover = ["cc.cc", "cCcCc", ".ccc.", ".cCc.", "..cc."]
+    cmap = {"c": CLOVER, "C": CLOVER_HI}
+
+    def clover_a(p):
+        p.grid(clover, cmap, 1, 2)
+        p.grid(clover, cmap, 9, 9)
+
+    def clover_b(p):
+        p.grid(clover, cmap, 8, 1)
+        p.grid(clover, cmap, 2, 8)
+        p.grid(["cc", "cC"], cmap, 12, 12)
+
+    make("clover_a", clover_a)
+    make("clover_b", clover_b)
+
+    def leaves(p, seed: int) -> None:
+        rng = random.Random(seed)
+        spots = set()
+        while len(spots) < 5:
+            x, y = rng.randrange(0, 13), rng.randrange(0, 14)
+            if all(abs(x - sx) > 2 or abs(y - sy) > 1 for sx, sy in spots):
+                spots.add((x, y))
+        for i, (x, y) in enumerate(sorted(spots)):
+            tone = LEAF_TONES[(seed + i) % len(LEAF_TONES)]
+            shape = rng.choice((["oxx", "xxo"], ["xxo", "oxx"], ["xx.", "oxx"], [".xo", "xxo"]))
+            p.grid(shape, {"x": tone, "o": DIRT_DARK}, x, y)
+
+    make("litter_a", lambda p: leaves(p, 174))
+    make("litter_b", lambda p: leaves(p, 175))
+
+    for i, name in enumerate(("mulch_a", "mulch_b")):
+        rng = random.Random(176 + i)
+        make(
+            name,
+            lambda p, rng=rng: p.noise(rng, 0, 0, 15, 15, MULCH, speck=MULCH_CHIP, speck_p=0.06),
+        )
+    return out
+
+
+def _vehicle(kind: str, tones, orient: str, names: list[list[str]]) -> dict[str, object]:
+    """Paint one top-down vehicle. Car space runs along +u (east = front)
+    with v across the body; ``orient`` 'v' transposes it to face south.
+    ``names`` is the tile grid of the composite (rows of ids)."""
+    from PIL import Image
+
+    base, hi, dark = tones
+    if kind in ("car", "pickup"):
+        L, Wd = 28, 10
+    else:
+        L, Wd = 44, 11
+    VO = 2  # stub rows above the body
+    cs = Image.new("RGBA", (L, Wd + 2 * VO), (0, 0, 0, 0))
+    pix = cs.load()
+
+    def put(u, v, c):
+        if 0 <= u < L and 0 <= v + VO < cs.height:
+            pix[u, v + VO] = c if len(c) == 4 else (*c, 255)
+
+    def get(u, v):
+        return pix[u, v + VO][:3] if 0 <= u < L and 0 <= v + VO < cs.height else None
+
+    def prect(u0, v0, u1, v1, c):
+        for v in range(v0, v1 + 1):
+            for u in range(u0, u1 + 1):
+                put(u, v, c)
+
+    def outline(u0, v0, u1, v1):
+        for u in range(u0, u1 + 1):
+            put(u, v0, K)
+            put(u, v1, K)
+        for v in range(v0, v1 + 1):
+            put(u0, v, K)
+            put(u1, v, K)
+        for u, v in ((u0, v0), (u1, v0), (u0, v1), (u1, v1)):
+            put(u, v, (0, 0, 0, 0))
+
+    def glass(u0, v0, u1, v1, sparkle=True):
+        prect(u0, v0, u1, v1, TEAL)
+        prect(u0, v1, u1, v1, TEAL_D)
+        if sparkle:
+            put(u0, v0, GLASS_HI)
+
+    def stubs(*axles):
+        for a in axles:
+            for row in (-2, -1, Wd, Wd + 1):
+                put(a, row, K)
+                put(a + 1, row, TYRE)
+                put(a + 2, row, TYRE)
+                put(a + 3, row, K)
+
+    if kind == "car":
+        outline(0, 0, L - 1, Wd - 1)
+        prect(1, 1, L - 2, Wd - 2, base)
+        outline(8, 2, 21, 7)
+        glass(9, 3, 10, 6, sparkle=False)
+        prect(11, 3, 17, 6, hi)
+        glass(18, 3, 20, 6)
+        for v in (2, 7):
+            put(1, v, RED_HI)
+            put(L - 2, v, HEADLIGHT)
+        stubs(3, 21)
+    elif kind == "pickup":
+        outline(0, 0, L - 1, Wd - 1)
+        prect(1, 1, L - 2, Wd - 2, base)
+        outline(13, 2, 21, 7)
+        glass(14, 3, 14, 6, sparkle=False)
+        prect(15, 3, 17, 6, hi)
+        glass(18, 3, 20, 6)
+        outline(2, 2, 12, 7)
+        prect(3, 3, 11, 6, A1)
+        prect(3, 4, 11, 4, ADARK)
+        prect(3, 6, 11, 6, ADARK)
+        for v in (2, 7):
+            put(1, v, RED_HI)
+            put(L - 2, v, HEADLIGHT)
+        stubs(3, 21)
+    elif kind == "bus":
+        outline(0, 0, L - 1, Wd - 1)
+        prect(1, 1, L - 2, Wd - 2, base)
+        prect(6, 3, 37, 5, ROOF_PANEL)
+        prect(20, 3, 23, 5, STEEL)
+        for u in range(4, 38):
+            put(u, 7, base if (u - 4) % 4 == 3 else TEAL)
+        prect(1, 8, 38, 8, BUS_BLUE)
+        prect(1, 9, 38, 9, BUS_NAVY)
+        prect(39, 1, 39, 9, K)
+        glass(40, 1, 42, 9)
+        put(42, 1, HEADLIGHT)
+        put(42, 9, HEADLIGHT)
+        prect(1, 2, 2, 8, STEEL)
+        put(1, 1, RED_HI)
+        put(1, 9, RED_HI)
+        stubs(6, 32)
+    elif kind == "schoolbus":
+        outline(0, 0, 37, Wd - 1)
+        prect(1, 1, 36, Wd - 2, base)
+        outline(37, 1, L - 1, Wd - 2)
+        prect(38, 2, L - 2, Wd - 3, base)
+        prect(38, 2, L - 2, 2, hi)
+        prect(38, Wd - 3, L - 2, Wd - 3, dark)
+        for u in range(4, 33):
+            put(u, 7, K if (u - 4) % 4 == 3 else TEAL)
+        prect(1, 8, 36, 8, K)
+        prect(1, 9, 36, 9, dark)
+        prect(33, 1, 33, 9, K)
+        glass(34, 1, 36, 9)
+        prect(L - 2, 4, L - 2, 6, K)
+        put(L - 2, 3, HEADLIGHT)
+        put(L - 2, 7, HEADLIGHT)
+        put(1, 2, RED_HI)
+        put(1, 8, RED_HI)
+        stubs(6, 28)
+    else:
+        raise ValueError(kind)
+
+    # lighting: the north-most body row catches light, the south-most falls
+    # into shade — whichever end that is once the vehicle is oriented
+    if orient == "h":
+        for u in range(1, L - 1):
+            if get(u, 1) == base:
+                put(u, 1, hi)
+            if get(u, Wd - 2) == base:
+                put(u, Wd - 2, dark)
+    else:
+        for v in range(1, Wd - 1):
+            if get(1, v) == base:
+                put(1, v, hi)
+            if get(L - 2, v) == base:
+                put(L - 2, v, dark)
+
+    if orient == "v":
+        cs = cs.transpose(Image.Transpose.TRANSPOSE)
+    big = _Big(len(names[0]), len(names))
+    if orient == "h":
+        big.img.alpha_composite(cs, (2, 0))
+        y = cs.height
+        if y + 1 < big.size[1]:
+            big.shadow_rows(3, 2 + L - 1 - 1, y)
+        else:
+            for x in range(3, 2 + L - 2):
+                big.px(x, y, GROUND_SHADOW)
+    else:
+        ox = (big.size[0] - cs.width) // 2
+        big.img.alpha_composite(cs, (ox, 2))
+        big.shadow_rows(ox + VO + 1, ox + VO + Wd - 2, 2 + L)
+    return big.tiles(names)
+
+
+def _vehicles() -> dict[str, object]:
+    out: dict[str, object] = {}
+    for c in CAR_COLORS:
+        out.update(_vehicle("car", CAR_TONES[c], "h", [[f"car_{c}_h_b", f"car_{c}_h_a"]]))
+        out.update(_vehicle("car", CAR_TONES[c], "v", [[f"car_{c}_v_b"], [f"car_{c}_v_a"]]))
+    out.update(_vehicle("pickup", PICKUP_TONES, "h", [["pickup_h_b", "pickup_h_a"]]))
+    out.update(_vehicle("pickup", PICKUP_TONES, "v", [["pickup_v_b"], ["pickup_v_a"]]))
+    out.update(_vehicle("bus", BUS_TONES, "h", [["bus_h_c", "bus_h_b", "bus_h_a"]]))
+    out.update(_vehicle("bus", BUS_TONES, "v", [["bus_v_c"], ["bus_v_b"], ["bus_v_a"]]))
+    out.update(
+        _vehicle(
+            "schoolbus", SCHOOL_TONES, "h", [["schoolbus_h_c", "schoolbus_h_b", "schoolbus_h_a"]]
+        )
+    )
+    return out
+
+
+def _hedge_tiles() -> dict[str, object]:
+    """Hedge pieces from a mask: each piece is drawn on a 3x3-tile canvas
+    with its runs extended into the neighbour tiles, outlined automatically
+    (mask pixels touching non-mask), shaded by distance to the mask's
+    north / south / side boundaries, then the centre tile is cropped."""
+    pieces = {
+        "hedge_h": "we",
+        "hedge_v": "ns",
+        "hedge_end_w": "e",
+        "hedge_end_e": "w",
+        "hedge_end_n": "s",
+        "hedge_end_s": "n",
+        "hedge_nw": "es",
+        "hedge_ne": "ws",
+        "hedge_sw": "en",
+        "hedge_se": "wn",
+    }
+    out: dict[str, object] = {}
+    OFF = 16  # centre tile offset on the 48x48 canvas
+    LO, HI = OFF + 3, OFF + 12  # band extent inside the centre tile (10 px)
+    for name, runs in pieces.items():
+        rng = random.Random(_stable_seed(name))
+        mask: set[tuple[int, int]] = set()
+        if "w" in runs or "e" in runs:
+            x0 = 0 if "w" in runs else LO
+            x1 = 47 if "e" in runs else HI
+            mask |= {(x, y) for x in range(x0, x1 + 1) for y in range(LO, HI + 1)}
+        if "n" in runs or "s" in runs:
+            y0 = 0 if "n" in runs else LO
+            y1 = 47 if "s" in runs else HI
+            mask |= {(x, y) for y in range(y0, y1 + 1) for x in range(LO, HI + 1)}
+        # round every free corner of the silhouette (caps and outer corners)
+        for x, y in list(mask):
+            free = sum(
+                (x + dx, y + dy) not in mask for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            )
+            if free >= 2:
+                mask.discard((x, y))
+        big = _Big(3, 3)
+
+        def inside(x, y, mask=mask):
+            if not (0 <= x < 48 and 0 <= y < 48):
+                return True  # runs continue off-canvas
+            return (x, y) in mask
+
+        def run(x, y, dx, dy):
+            n = 0
+            while inside(x + dx * (n + 1), y + dy * (n + 1)) and n < 20:
+                n += 1
+            return n
+
+        for x, y in mask:
+            if not all(inside(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                big.px(x, y, K)
+                continue
+            dn, ds = run(x, y, 0, -1), run(x, y, 0, 1)
+            dw, de = run(x, y, -1, 0), run(x, y, 1, 0)
+            if dn <= 2:
+                tones = (HEDGE_HI, HEDGE_HI, HEDGE_BASE)
+            elif ds <= 2:
+                tones = (HEDGE_D, HEDGE_D, HEDGE_DD, HEDGE_BASE)
+            elif dw <= 1 or de <= 1:
+                tones = (HEDGE_BASE, HEDGE_D)
+            else:
+                tones = (HEDGE_BASE, HEDGE_BASE, HEDGE_BASE, HEDGE_HI, HEDGE_D)
+            big.px(x, y, rng.choice(tones))
+        # SE contact shadow: solid strip, then a checker strip
+        for y in range(48):
+            for x in range(48):
+                if (x, y) in mask:
+                    continue
+                if (x, y - 1) in mask or (x - 1, y) in mask:
+                    big.px(x, y, GROUND_SHADOW)
+                elif ((x, y - 2) in mask or (x - 2, y) in mask) and (x + y) % 2 == 0:
+                    big.px(x, y, GROUND_SHADOW)
+        out[name] = big.img.crop((OFF, OFF, OFF + T, OFF + T))
+    return out
+
+
+def _street_and_suburb() -> dict[str, object]:
+    out: dict[str, object] = {}
+
+    def make(name: str, fn, shadow: bool = True) -> None:
+        p = Painter()
+        fn(p)
+        if shadow:
+            _ground_shadow(p)
+        out[name] = p.img
+
+    post = {"o": K, "g": STEEL, "d": STEEL_D, "s": SHADOW}
+    POST_ROW = "......ogdo......"
+
+    # -- utility pole + wires ------------------------------------------------
+    def pole_top(p):
+        p.grid(
+            [
+                "...oo......oo...",
+                "...hh......hh...",
+                ".oooooooooooooo.",
+                ".owwwwwwwwwwwwo.",
+                ".oddddddddddddo.",
+                ".oooooooooooooo.",
+            ]
+            + ["......owdo......"] * 10,
+            {"o": K, "w": WOOD, "d": WOOD_D, "h": (204, 217, 206)},
+        )
+        for x in (0, 1, 2, 13, 14, 15):  # wire stubs meet the insulators
+            p.px(x, 1, WIRE)
+
+    make("pole_top", pole_top, shadow=False)
+    make(
+        "pole_base",
+        lambda p: p.grid(
+            ["......owdo......"] * 13 + [".....oooooo.....", "....ssssssss...."],
+            {"o": K, "w": WOOD, "d": WOOD_D, "s": SHADOW},
+        ),
+    )
+    make("wire_h", lambda p: [p.px(x, 1, WIRE) for x in range(T)], shadow=False)
+    make("wire_v", lambda p: [p.px(x, y, WIRE) for x in (3, 12) for y in range(T)], shadow=False)
+
+    # -- traffic signal ---------------------------------------------------------
+    def signal(p, lit: str):
+        red = LAMP_RED if lit == "red" else LAMP_RED_OFF
+        green = LAMP_GREEN if lit == "green" else LAMP_GREEN_OFF
+        p.grid(
+            [
+                ".....oooooo.....",
+                ".....obbbbo.....",
+                ".....obRRbo.....",
+                ".....obRRbo.....",
+                ".....obbbbo.....",
+                ".....obAAbo.....",
+                ".....obAAbo.....",
+                ".....obbbbo.....",
+                ".....obGGbo.....",
+                ".....obGGbo.....",
+                ".....obbbbo.....",
+                ".....oooooo.....",
+            ]
+            + [POST_ROW] * 4,
+            {**post, "b": SIGNAL_BODY, "R": red, "A": LAMP_AMBER_OFF, "G": green},
+        )
+        lx, ly = (7, 2) if lit == "red" else (7, 8)
+        p.px(lx, ly, (255, 231, 213))
+
+    make("signal_red", lambda p: signal(p, "red"), shadow=False)
+    make("signal_green", lambda p: signal(p, "green"), shadow=False)
+    make(
+        "signal_pole",
+        lambda p: p.grid([POST_ROW] * 13 + [".....oooooo.....", "....ssssssss...."], post),
+    )
+
+    # -- stop sign, shared sign post, street-name blade ------------------------
+    def stop_top(p):
+        cx, cy = 7, 5
+        octo = {
+            (x, y)
+            for y in range(T)
+            for x in range(T)
+            if abs(x - cx) <= 4 and abs(y - cy) <= 4 and abs(x - cx) + abs(y - cy) <= 6
+        }
+        for x, y in octo:
+            edge = any(
+                (x + dx, y + dy) not in octo for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            )
+            ring = any(
+                (x + dx, y + dy) not in octo
+                for dx, dy in ((2, 0), (-2, 0), (0, 2), (0, -2), (1, 1), (-1, 1), (1, -1), (-1, -1))
+            )
+            p.px(x, y, K if edge else SIGN_WHITE if ring else RED)
+        for x in range(5, 10):
+            p.px(x, cy, SIGN_WHITE)
+        p.grid([POST_ROW] * 6, post, 0, 10)
+
+    make("stop_top", stop_top, shadow=False)
+    make(
+        "sign_post",
+        lambda p: p.grid([POST_ROW] * 13 + [".....oooooo.....", "....ssssssss...."], post),
+    )
+
+    def blade_top(p):
+        p.rect(2, 2, 13, 6, K)
+        p.rect(3, 3, 12, 5, BLADE_GREEN)
+        p.rect(5, 4, 10, 4, SIGN_WHITE)
+        p.grid([POST_ROW] * 9, post, 0, 7)
+
+    make("blade_top", blade_top, shadow=False)
+
+    # -- suburb kit ------------------------------------------------------------
+    make(
+        "steps",
+        lambda p: p.grid(
+            [
+                "....oooooooo....",
+                "....ohhhhhho....",
+                "....ommmmmmo....",
+                "..oooooooooooo..",
+                "..ohhhhhhhhhho..",
+                "..ommmmmmmmmmo..",
+                "..oooooooooooo..",
+                "..ssssssssssss..",
+            ],
+            {"o": K, "h": CURB_HI, "m": CURB_MID, "s": SHADOW},
+            0,
+            7,
+        ),
+    )
+    make(
+        "house_num",
+        lambda p: p.grid(
+            [".....oooooo.....", ".....oWWWWo.....", ".....oWkWko.....", ".....oooooo....."],
+            {"o": K, "W": SIGN_WHITE, "k": K},
+            0,
+            6,
+        ),
+        shadow=False,
+    )
+    make(
+        "ac_window",
+        lambda p: p.grid(
+            [
+                "....oooooooo....",
+                "....ohhhhhho....",
+                "....oglglglo....",
+                "....oglglglo....",
+                "....oggggggo....",
+                "....oooooooo....",
+                "....ssssssss....",
+            ],
+            {"o": K, "h": STEEL_HI, "g": STEEL, "l": STEEL_D, "s": SHADOW},
+            0,
+            5,
+        ),
+        shadow=False,
+    )
+    return out
+
+
+def _garage_and_shed() -> dict[str, object]:
+    out: dict[str, object] = {}
+
+    # -- 2x2 panelled garage door: opaque stone surround like WINDOW ----------
+    g = _Big(2, 2)
+    g.rect(0, 0, 31, 31, CURB_MID)
+    g.rect(1, 1, 30, 2, CURB_HI)
+    g.outline_rect(0, 0, 31, 31, K, chamfer=False)
+    g.rect(3, 3, 28, 28, K)
+    g.rect(4, 4, 27, 27, SIGN_WHITE)
+    for y in (10, 16, 22):
+        g.rect(4, y, 27, y, CJOINT)
+        g.rect(4, y + 1, 27, y + 1, CURB_HI)
+    for x0 in (6, 12, 18, 24):
+        g.rect(x0, 5, x0 + 2, 8, TEAL)
+        g.rect(x0, 8, x0 + 2, 8, TEAL_D)
+        g.px(x0, 5, GLASS_HI)
+    g.rect(15, 25, 16, 26, K)
+    g.rect(1, 29, 30, 30, CJOINT)
+    out.update(
+        g.tiles([["garage_door_tl", "garage_door_tr"], ["garage_door_bl", "garage_door_br"]])
+    )
+
+    # -- 2x2 clapboard shed with a cedar shingle roof ----------------------
+    s = _Big(2, 2)
+    t = SHINGLE_TONES["cedar"]
+    for y in range(1, 12):
+        yy = y - 1
+        cy, course = yy % 4, yy // 4
+        joint = 0 if course % 2 == 0 else 4
+        for x in range(32):
+            at_joint = (x + joint) % 8 == 0
+            if cy == 0:
+                c = t["base"] if at_joint else t["hi"]
+            elif cy == 3:
+                c = t["line"]
+            else:
+                c = t["dark"] if at_joint else t["base"]
+            s.px(x, y, c)
+    s.rect(0, 0, 31, 0, K)
+    s.rect(0, 12, 31, 12, t["line"])
+    s.rect(0, 13, 31, 13, K)
+    s.rect(0, 1, 0, 12, K)
+    s.rect(31, 1, 31, 12, K)
+    cw = CHURCH_TONES["cw"]
+    for y in range(14, 30):
+        for x in range(2, 30):
+            s.px(x, y, cw["line"] if y % 4 == 1 else cw["fill"])
+    s.rect(3, 14, 28, 14, cw["shade"])
+    s.rect(2, 14, 2, 30, K)
+    s.rect(3, 15, 3, 29, cw["trim"])
+    s.rect(28, 15, 28, 29, cw["shade"])
+    s.rect(29, 14, 29, 30, K)
+    s.rect(12, 19, 19, 29, K)
+    s.rect(13, 20, 18, 29, WOOD)
+    for x in (15, 16):
+        s.rect(x, 20, x, 29, WOOD_D)
+    s.px(17, 25, K)
+    s.rect(2, 30, 29, 30, K)
+    s.shadow_rows(3, 30, 31)
+    out.update(s.tiles([["shed_tl", "shed_tr"], ["shed_bl", "shed_br"]]))
+    return out
+
+
+def _set_pieces() -> dict[str, object]:
+    out: dict[str, object] = {}
+
+    # -- glass bus shelter 3x2 -------------------------------------------------
+    b = _Big(3, 2)
+    b.outline_rect(1, 1, 46, 7, K)
+    b.rect(2, 2, 45, 6, STEEL_HI)
+    b.rect(2, 2, 45, 2, ROOF_PANEL)
+    b.rect(2, 6, 45, 6, STEEL)
+    for x0 in (1, 22, 43):  # posts
+        b.rect(x0, 8, x0 + 3, 27, K)
+        b.rect(x0 + 1, 8, x0 + 1, 27, STEEL)
+        b.rect(x0 + 2, 8, x0 + 2, 27, STEEL_D)
+    for x0, x1 in ((5, 21), (26, 42)):  # glass back panels
+        b.rect(x0, 8, x1, 19, TEAL)
+        b.rect(x0, 17, x1, 19, TEAL_D)
+        b.rect(x0, 20, x1, 20, K)
+        for i in range(4):
+            b.px(x0 + 2 + i, 13 - i, GLASS_HI)
+            b.px(x0 + 3 + i, 13 - i, GLASS_HI)
+    b.outline_rect(8, 21, 39, 24, K)
+    b.rect(9, 22, 38, 22, WOOD)
+    b.rect(9, 23, 38, 23, WOOD_D)
+    for x0 in (9, 37):
+        b.rect(x0, 25, x0 + 1, 26, K)
+    b.shadow_rows(2, 45, 28)
+    out.update(b.tiles([[f"shelter_0{c}" for c in range(3)], [f"shelter_1{c}" for c in range(3)]]))
+
+    # -- chain-link backstop 3x2 ----------------------------------------------
+    k = _Big(3, 2)
+    for y in range(3, 26):
+        for x in range(4, 44):
+            if (x + y) % 4 == 0 or (x - y) % 4 == 0:
+                k.px(x, y, MESH)
+    for x0 in (1, 22, 44):
+        k.rect(x0, 1, x0 + 2, 27, K)
+        k.rect(x0 + 1, 2, x0 + 1, 26, STEEL)
+    k.rect(1, 1, 46, 1, K)
+    k.rect(2, 2, 45, 2, STEEL_HI)
+    k.rect(2, 26, 45, 26, STEEL_D)
+    k.rect(1, 27, 46, 27, K)
+    k.shadow_rows(2, 45, 28)
+    out.update(
+        k.tiles([[f"backstop_0{c}" for c in range(3)], [f"backstop_1{c}" for c in range(3)]])
+    )
+
+    # -- stone fountain 2x2 ---------------------------------------------------
+    f = _Big(2, 2)
+    cx, cy = 16.0, 16.0
+    for y in range(32):
+        for x in range(32):
+            d = math.hypot(x + 0.5 - cx, y + 0.5 - cy)
+            if d > 15.0:
+                continue
+            if d > 13.5:
+                if y >= 16 and ((x + y) % 2 == 0 or d < 14.3):
+                    f.px(x, y, GROUND_SHADOW)
+            elif d > 12.5:
+                f.px(x, y, K)
+            elif d > 10.5:
+                f.px(x, y, CURB_HI if y < 14 else CJOINT if y > 20 else CURB_MID)
+            elif d > 9.5:
+                f.px(x, y, K)
+            else:
+                ring = 5.5 < d < 7.0 and (x + y) % 3 == 0
+                f.px(x, y, WATER_RIPPLE if ring else WATER)
+    f.rect(14, 8, 17, 15, K)
+    f.rect(15, 9, 16, 14, CURB_HI)
+    f.rect(16, 9, 16, 14, CURB_MID)
+    for x, y in ((15, 6), (16, 6), (14, 7), (17, 7), (13, 8), (18, 8), (12, 10), (19, 10)):
+        f.px(x, y, GLASS_HI)
+    for x, y in ((12, 14), (19, 14), (11, 17), (20, 17)):
+        f.px(x, y, WATER_HI)
+    out.update(f.tiles([["fountain_tl", "fountain_tr"], ["fountain_bl", "fountain_br"]]))
+
+    # -- blank green exit sign 1x2 -------------------------------------------
+    e = _Big(1, 2)
+    e.rect(1, 1, 14, 12, K)
+    e.rect(2, 2, 13, 11, SIGN_WHITE)
+    e.rect(3, 3, 12, 10, SIGN_GREEN)
+    for x0 in (3, 11):
+        e.rect(x0, 13, x0 + 1, 28, K)
+        e.rect(x0 + 1, 13, x0 + 1, 27, STEEL)
+    e.rect(2, 29, 5, 29, K)
+    e.rect(10, 29, 13, 29, K)
+    e.shadow_rows(2, 13, 30)
+    out.update(e.tiles([["exit_sign_t"], ["exit_sign_b"]]))
+    return out
+
+
+_BIKE = [
+    "................",
+    "................",
+    "...oo.......ooo.",
+    "....f........f..",
+    "....ffffffffff..",
+    "....f......f.f..",
+    "....f.....f..f..",
+    "...ofo...f.oof..",
+    "..o.f.o.f.o..fo.",
+    ".o..f..f.o..f..o",
+    ".o..hooo.o..h..o",
+    ".o.....o.o.....o",
+    "..o...o...o...o.",
+    "...ooo.....ooo..",
+    ".ssssssssssssss.",
+    "................",
+]
+
+
+def _bikes() -> dict[str, object]:
+    out: dict[str, object] = {}
+
+    def make(name, art, frame) -> None:
+        p = Painter()
+        p.grid(art, {"o": K, "f": frame, "h": STEEL_HI, "s": SHADOW})
+        _ground_shadow(p)
+        out[name] = p.img
+
+    make("bike_a", _BIKE, RED)
+    make("bike_b", [row[::-1] for row in _BIKE], BLUE)
+    p = Painter()
+    hoop = [
+        "..oooo..",
+        ".ohhhho.",
+        ".oh..ho.",
+        ".oh..ho.",
+        ".oh..ho.",
+        ".oh..ho.",
+        ".oh..ho.",
+        ".oo..oo.",
+    ]
+    for ox in (1, 8):
+        p.grid(hoop, {"o": K, "h": STEEL_HI}, ox, 4)
+    for x in range(1, 15):
+        p.px(x, 12, SHADOW)
+    _ground_shadow(p)
+    out["bike_rack"] = p.img
+    return out
+
+
+def _kit_tiles() -> dict[str, object]:
+    """Every tile of rows 17-29, by name."""
+    out: dict[str, object] = {}
+    out.update(_shadow_and_litter())
+    out.update(_ground_blobs())
+    out.update(_vehicles())
+    out.update(_hedge_tiles())
+    out.update(_street_and_suburb())
+    out.update(_garage_and_shed())
+    out.update(_set_pieces())
+    out.update(_bikes())
+    return out
+
+
 def generate() -> None:
     from PIL import Image
 
@@ -1937,13 +3232,15 @@ def generate() -> None:
 
     sheet = Image.new("RGBA", (MODERN_COLUMNS * T, MODERN_ROWS * T), (0, 0, 0, 0))
     for tid, img in _draw_tiles().items():
-        # quantize opaque pixels to the rpg-tileset palette
+        # quantize opaque pixels to the rpg-tileset palette (GRASS_DARK is
+        # derived from sampled grass pixels and stays as painted)
         out = img.copy()
-        for y in range(T):
-            for x in range(T):
-                r, g, b, a = out.getpixel((x, y))
-                if a == 255:
-                    out.putpixel((x, y), (*q((r, g, b)), 255))
+        if tid not in NO_QUANTIZE:
+            for y in range(T):
+                for x in range(T):
+                    r, g, b, a = out.getpixel((x, y))
+                    if a == 255:
+                        out.putpixel((x, y), (*q((r, g, b)), 255))
         row, col = divmod(tid, MODERN_COLUMNS)
         sheet.alpha_composite(out, (col * T, row * T))
     OUT_IMAGE.parent.mkdir(parents=True, exist_ok=True)
@@ -2094,8 +3391,12 @@ def _render_contact_sheet(sheet) -> None:
     put_stamp(DINER_DOOR, 40, 4)
     bscene_z = bscene.resize((bscene.width * Z, bscene.height * Z), Image.NEAREST)
 
-    W = max(per_row * cell + 20, scene_z.width + 20, bscene_z.width + 20)
-    H = grid_h + scene_z.height + bscene_z.height + 110
+    # -- part 4: kit strip — rows 17-29 assembled in context
+    kscene = _kit_scene(any_tile, R)
+    kscene_z = kscene.resize((kscene.width * Z, kscene.height * Z), Image.NEAREST)
+
+    W = max(per_row * cell + 20, scene_z.width + 20, bscene_z.width + 20, kscene_z.width + 20)
+    H = grid_h + scene_z.height + bscene_z.height + kscene_z.height + 140
     out = Image.new("RGBA", (W, H), (24, 26, 32, 255))
     draw = ImageDraw.Draw(out)
     draw.text((10, 4), "TOWNSHIP-MODERN TILES (quantized to rpg palette)", fill=(255, 200, 80))
@@ -2121,9 +3422,195 @@ def _render_contact_sheet(sheet) -> None:
         fill=(255, 200, 80),
     )
     out.alpha_composite(bscene_z, (10, y_b + 16))
+    y_k = y_b + 16 + bscene_z.height + 8
+    draw.text(
+        (10, y_k),
+        "KIT STRIP (lot + vehicles | street furniture | hedges | grass_dark / worn | set-pieces | suburb)",
+        fill=(255, 200, 80),
+    )
+    out.alpha_composite(kscene_z, (10, y_k + 16))
     SHEET_PATH.parent.mkdir(parents=True, exist_ok=True)
     out.save(SHEET_PATH)
     print(f"wrote {SHEET_PATH}")
+
+
+def _kit_scene(any_tile, R):
+    """A 46x17-tile scene placing every row 17-29 piece in context (used by
+    the contact sheet and by the scratch inspection renders)."""
+    from PIL import Image
+
+    W, H = 46, 17
+    scene = Image.new("RGBA", (W * T, H * T))
+    rng = random.Random(17)
+
+    def put(g: int, tx: int, ty: int) -> None:
+        if g and 0 <= tx < W and 0 <= ty < H:
+            scene.alpha_composite(any_tile(g), (tx * T, ty * T))
+
+    def stamp(s: TileStamp, tx: int, ty: int) -> None:
+        for r, c, g in s.cells():
+            put(g, tx + c, ty + r)
+
+    def blob(b: Blob, cells: set[tuple[int, int]]) -> None:
+        """The build_maps autotiler rules: edges / convex corners inside the
+        mask, hole fillets just outside its concave bends."""
+        for x, y in cells:
+            n, s_, w_, e = (
+                (x, y - 1) not in cells,
+                (x, y + 1) not in cells,
+                (x - 1, y) not in cells,
+                (x + 1, y) not in cells,
+            )
+            if n and w_:
+                g = b.nw
+            elif n and e:
+                g = b.ne
+            elif s_ and w_:
+                g = b.sw
+            elif s_ and e:
+                g = b.se
+            elif n:
+                g = b.n[0]
+            elif s_:
+                g = b.s[0]
+            elif w_:
+                g = b.w[0]
+            elif e:
+                g = b.e[0]
+            else:
+                g = rng.choice(b.fill)
+            put(g, x, y)
+        if not b.hole_nw:
+            return
+        for x, y in cells:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    px_, py_ = x + dx, y + dy
+                    if (px_, py_) in cells:
+                        continue
+                    nin, sin = (px_, py_ - 1) in cells, (px_, py_ + 1) in cells
+                    win, ein = (px_ - 1, py_) in cells, (px_ + 1, py_) in cells
+                    if nin and win and (px_ - 1, py_ - 1) in cells:
+                        put(b.hole_nw, px_, py_)
+                    elif nin and ein and (px_ + 1, py_ - 1) in cells:
+                        put(b.hole_ne, px_, py_)
+                    elif sin and win and (px_ - 1, py_ + 1) in cells:
+                        put(b.hole_sw, px_, py_)
+                    elif sin and ein and (px_ + 1, py_ + 1) in cells:
+                        put(b.hole_se, px_, py_)
+
+    def blob_rect(b: Blob, x: int, y: int, w: int, h: int) -> None:
+        blob(b, {(xx, yy) for xx in range(x, x + w) for yy in range(y, y + h)})
+
+    for y in range(H):
+        for x in range(W):
+            put(rng.choice(R.GRASS.fill), x, y)
+
+    # A) parking lot with every vehicle
+    for y in range(1, 9):
+        for x in range(1, 24):
+            put(ASPHALT.fill[(x + y) % 4], x, y)
+    for x in range(1, 24):
+        put(mg("asp_n"), x, 1)
+        put(mg("asp_s"), x, 8)
+    for i, c in enumerate(CAR_COLORS):
+        stamp(CAR_H[c], 2 + i * 3, 2)
+        stamp(CAR_V[c], 2 + i * 2, 4)
+    stamp(PICKUP_H, 17, 2)
+    stamp(PICKUP_V, 12, 4)
+    stamp(BUS_H, 14, 4)
+    stamp(SCHOOLBUS_H, 14, 6)
+    stamp(BUS_V, 19, 4)
+    put(mg("bike_a"), 21, 2)
+    put(mg("bike_b"), 22, 2)
+    stamp(BIKE_RACK, 22, 4)
+    # B) sidewalk with the street kit and the shelter
+    for y in range(1, 4):
+        for x in range(25, 46):
+            put(rng.choice(SIDEWALK.fill), x, y)
+    stamp(SHELTER, 26, 1)
+    stamp(POLE, 30, 1)
+    for x in range(31, 35):
+        put(mg("wire_h"), x, 1)
+    stamp(POLE, 35, 1)
+    for y in range(3, 5):
+        put(mg("wire_v"), 35, y)
+    stamp(SIGNAL, 37, 1)
+    stamp(SIGNAL_GREEN, 38, 1)
+    stamp(STOP_SIGN, 40, 1)
+    stamp(STREET_BLADE, 42, 1)
+    stamp(EXIT_SIGN, 44, 1)
+    put(mg("steps"), 32, 3)
+    # C) hedge runs: an open run with a corner, and a closed rectangle
+    stamp(HEDGE["end_w"], 1, 10)
+    for x in range(2, 6):
+        stamp(HEDGE["h"], x, 10)
+    stamp(HEDGE["corner_ne"], 6, 10)
+    stamp(HEDGE["v"], 6, 11)
+    stamp(HEDGE["end_s"], 6, 12)
+    stamp(HEDGE["corner_nw"], 9, 10)
+    stamp(HEDGE["h"], 10, 10)
+    stamp(HEDGE["h"], 11, 10)
+    stamp(HEDGE["corner_ne"], 12, 10)
+    stamp(HEDGE["v"], 9, 11)
+    stamp(HEDGE["v"], 12, 11)
+    stamp(HEDGE["corner_sw"], 9, 12)
+    stamp(HEDGE["h"], 10, 12)
+    stamp(HEDGE["h"], 11, 12)
+    stamp(HEDGE["corner_se"], 12, 12)
+    stamp(HEDGE["end_n"], 2, 13)
+    stamp(HEDGE["v"], 2, 14)
+    stamp(HEDGE["end_s"], 2, 15)
+    stamp(HEDGE["end_w"], 4, 15)
+    stamp(HEDGE["end_e"], 5, 15)
+    # D) an L-shaped GRASS_DARK lawn (hole fillets at the concave bend) with
+    # a fountain; a WORN desire line joining a worn patch
+    lawn = {(x, y) for x in range(14, 21) for y in range(10, 15)}
+    lawn |= {(x, y) for x in range(18, 22) for y in range(14, 17)}
+    blob(GRASS_DARK, lawn)
+    stamp(FOUNTAIN, 15, 11)
+    blob(
+        WORN,
+        {(x, 10) for x in range(23, 29)} | {(x, y) for x in range(24, 27) for y in range(11, 16)},
+    )
+    # E) backstop, mulch bed with litter and clover, building shadows
+    stamp(BACKSTOP, 29, 10)
+    put(mg("mulch_a"), 33, 10)
+    put(mg("mulch_b"), 34, 10)
+    put(mg("mulch_b"), 33, 11)
+    put(mg("mulch_a"), 34, 11)
+    put(mg("clover_a"), 35, 10)
+    put(mg("clover_b"), 36, 10)
+    put(mg("litter_a"), 35, 11)
+    put(mg("litter_b"), 36, 11)
+    put(mg("litter_a"), 34, 12)
+    put(mg("clover_b"), 33, 12)
+    # F) suburb: garage door + steps + plaque + AC on a cream wall, shed
+    stamp(shingle_stamp("slate", 6, 2), 38, 9)
+    for r, row_ in enumerate(R.FACADE_CREAM.gids[2:5]):
+        for c in range(6):
+            put(row_[[0, 5, 6, 5, 6, 7][c]], 38 + c, 11 + r)
+    stamp(GARAGE_DOOR, 39, 12)
+    stamp(R.DOOR_WOOD, 42, 12)
+    put(mg("house_num"), 42, 11)
+    put(mg("ac_window"), 41, 11)
+    put(mg("steps"), 42, 14)
+    put(mg("sh_full"), 44, 12)
+    put(mg("sh_full"), 44, 13)
+    put(mg("sh_corner"), 44, 11)
+    for x in range(39, 44):
+        put(mg("sh_fade_n"), x, 15)
+    put(mg("sh_fade_w"), 38, 15)
+    put(mg("sh_full"), 44, 14)
+    put(mg("sh_fade_n"), 44, 15)
+    stamp(SHED, 30, 13)
+    put(mg("sh_fade_w"), 32, 13)
+    put(mg("sh_full"), 32, 14)
+    put(mg("sh_fade_n"), 30, 15)
+    put(mg("sh_fade_n"), 31, 15)
+    put(mg("sh_corner"), 32, 15)
+    stamp(R.TREE_ROUND_SMALL, 27, 14)
+    return scene
 
 
 if __name__ == "__main__":

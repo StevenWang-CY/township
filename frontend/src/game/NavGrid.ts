@@ -20,7 +20,7 @@
 export const WORLD_W = 1200;
 export const WORLD_H = 800;
 /** Walkable inset from the map edge (keeps feet off the border tiles). */
-export const WORLD_MARGIN = 40;
+export const WORLD_MARGIN = 48;
 
 /** Grid resolution. 4 px = a quarter tile: fine enough to thread the
  *  16 px gaps between props and building aprons that an 8 px grid sealed

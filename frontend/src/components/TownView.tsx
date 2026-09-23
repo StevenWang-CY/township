@@ -328,6 +328,7 @@ export default function TownView({ ws }: TownViewProps) {
         reducedMotion: Boolean(profile?.reducedMotion),
         population: Number(String(meta.population ?? "").replace(/[^0-9]/g, "")) || undefined,
         startClock: firstRoundClock(scen.roundPlan),
+        seasonDate: scen.scenario.dates?.decision_day,
       });
     } catch {
       disposeDprScale?.();

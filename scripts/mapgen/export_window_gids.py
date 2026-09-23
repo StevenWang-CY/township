@@ -12,9 +12,14 @@ hardcodes a GID:
   shutter windows, the church lancets, the diner's glass band and the small
   shop window here is what turns dusk into a town-wide ignition.
 * ``frontend/src/game/stampDefs.json`` — multi-tile prop stamps (trees,
-  lamppost, flowers, the civic kit) as GID grids, plus single-tile props, so
-  ``SceneAmbience`` / ``CivicLayer`` can blit textures from either tileset
-  without a hand-maintained mirror of the registry.
+  lamppost, flowers, the civic kit, the vehicles / street / suburb kits and
+  the set-pieces of ``township-modern`` rows 17-29) as GID grids, plus
+  single-tile props, so ``SceneAmbience`` / ``CivicLayer`` can blit
+  textures from either tileset without a hand-maintained mirror of the
+  registry.
+* ``frontend/src/game/seasons.json`` — the seasonal exact-colour LUTs of
+  ``scripts/mapgen/seasons.py`` (``{"seasons": {name: [[from, to], ...]},
+  "byMonth": [...]}``) so the frontend can remap both sheets at runtime.
 
 Run:  python3 scripts/mapgen/export_window_gids.py
 """
@@ -27,11 +32,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mapgen import moderntiles as M  # noqa: E402
+from mapgen import seasons  # noqa: E402
 from mapgen import tiles as R  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT = REPO_ROOT / "frontend/src/game/windowGids.json"
 OUT_STAMPS = REPO_ROOT / "frontend/src/game/stampDefs.json"
+OUT_SEASONS = REPO_ROOT / "frontend/src/game/seasons.json"
 
 
 def _quad(stamp, panes: list[dict[str, int]]) -> dict:
@@ -114,6 +121,8 @@ def main() -> None:
         "vote_sign": M.VOTE_SIGN,
         "notice_board": M.NOTICE_BOARD,
         "banner_plain": M.BANNER_PLAIN,
+        # rows 17-29: vehicles, hedge pieces, street / suburb kits, set-pieces
+        **M.KIT_STAMPS,
     }
     singles = {
         n: M.mg(n)
@@ -129,6 +138,25 @@ def main() -> None:
             "bunting_h",
             "chimney",
             "brazier",
+            # rows 17-29
+            "sh_full",
+            "sh_fade_n",
+            "sh_fade_w",
+            "sh_corner",
+            "clover_a",
+            "clover_b",
+            "litter_a",
+            "litter_b",
+            "mulch_a",
+            "mulch_b",
+            "wire_h",
+            "wire_v",
+            "steps",
+            "house_num",
+            "ac_window",
+            "bike_a",
+            "bike_b",
+            "bike_rack",
         )
     }
     stamp_payload = {
@@ -144,6 +172,12 @@ def main() -> None:
     OUT_STAMPS.write_text(json.dumps(stamp_payload, indent=2, ensure_ascii=False) + "\n")
     print(
         f"wrote {OUT_STAMPS.relative_to(REPO_ROOT)}: {len(stamps)} stamps, {len(singles)} singles"
+    )
+
+    seasons.write_json(OUT_SEASONS)
+    print(
+        f"wrote {OUT_SEASONS.relative_to(REPO_ROOT)}: "
+        + ", ".join(f"{name} x{len(lut)}" for name, lut in seasons.LUTS.items())
     )
 
 

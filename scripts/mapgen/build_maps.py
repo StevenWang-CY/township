@@ -238,6 +238,9 @@ class MapCanvas:
         #: and emitted by ``emit_spot_anchors`` once every prop is placed,
         #: so a seat stamped early never ends up under a later planter.
         self.spot_requests: list[dict] = []
+        #: Lane polylines and stop lines derived from the road network by
+        #: ``emit_traffic`` (the frontend's TrafficLayer drives cars on them).
+        self.traffic: list[dict] = []
         self.landmarks: dict[str, Landmark] = {}
         for lm in town.get("landmarks", []):
             self.landmarks[lm["name"]] = Landmark(
@@ -559,30 +562,32 @@ class MapCanvas:
                     g = M.mg("dash_h") if seg.orient == "h" else M.mg("dash_v")
                     self.set("ground-detail", *cell, g)
         if crosswalks:
-            for jx0, jy0, jx1, jy1 in junctions:
-                # crosswalks only where streets actually cross: an L-bend
-                # (two segments meeting end-to-end, 2 road arms) gets none
-                arms = sum(
-                    all(c in road for c in band)
-                    for band in (
-                        [(jx0 - 1, y) for y in range(jy0, jy1 + 1)],
-                        [(jx1 + 1, y) for y in range(jy0, jy1 + 1)],
-                        [(x, jy0 - 1) for x in range(jx0, jx1 + 1)],
-                        [(x, jy1 + 1) for x in range(jx0, jx1 + 1)],
-                    )
-                )
-                if arms < 3:
-                    continue
-                for x in (jx0 - 1, jx1 + 1):
-                    band = [(x, y) for y in range(jy0, jy1 + 1)]
-                    if all(c in road for c in band):
-                        for c in band:
-                            self.set("ground-detail", *c, M.mg("crosswalk_h"))
-                for y in (jy0 - 1, jy1 + 1):
-                    band = [(x, y) for x in range(jx0, jx1 + 1)]
-                    if all(c in road for c in band):
-                        for c in band:
-                            self.set("ground-detail", *c, M.mg("crosswalk_v"))
+            for _j, side, band in self.crosswalk_bands():
+                g = M.mg("crosswalk_h") if side in ("w", "e") else M.mg("crosswalk_v")
+                for c in band:
+                    self.set("ground-detail", *c, g)
+
+    def crosswalk_bands(self) -> list[tuple[tuple[int, int, int, int], str, list[tuple[int, int]]]]:
+        """Crosswalk bands at every real crossing: ``(junction, side, cells)``
+        where side is the junction edge the band sits on (w/e bands cross
+        the horizontal street, n/s bands cross the vertical one). An L-bend
+        (two segments meeting end-to-end, only 2 road arms) gets none."""
+        road = self.road_mask
+        out = []
+        for jx0, jy0, jx1, jy1 in self._junctions():
+            bands = {
+                "w": [(jx0 - 1, y) for y in range(jy0, jy1 + 1)],
+                "e": [(jx1 + 1, y) for y in range(jy0, jy1 + 1)],
+                "n": [(x, jy0 - 1) for x in range(jx0, jx1 + 1)],
+                "s": [(x, jy1 + 1) for x in range(jx0, jx1 + 1)],
+            }
+            live = {k: b for k, b in bands.items() if all(c in road for c in b)}
+            if len(live) < 3:
+                continue
+            for side in ("w", "e", "n", "s"):
+                if side in live:
+                    out.append(((jx0, jy0, jx1, jy1), side, live[side]))
+        return out
 
     def _junctions(self) -> list[tuple[int, int, int, int]]:
         out = []
@@ -1358,6 +1363,87 @@ def emit_spot_anchors(m: MapCanvas) -> None:
 # ---------------------------------------------------------------------------
 
 
+def emit_traffic(m: MapCanvas) -> None:
+    """Derive the ``traffic`` object layer from the road network.
+
+    Right-hand traffic: every street gets one lane per direction on its
+    outer tile row/column (a 2x1 car sprite then sits on whole tiles), as a
+    polyline from one end of the segment to the other in driving order.
+    ``through`` marks lanes whose ends touch the map edge — cars enter and
+    leave the world on those. A stop line sits 2 px before every crosswalk
+    band a lane crosses; it is ``signal``-governed when a ``signal`` anchor
+    stands within two tiles of that junction. Coordinates are world px.
+    """
+    m.traffic = []
+    signal_pts = [(a["x"] / T, a["y"] / T) for a in m.anchors if a["props"].get("kind") == "signal"]
+
+    def signalled(j: tuple[int, int, int, int]) -> bool:
+        jx0, jy0, jx1, jy1 = j
+        return any(
+            jx0 - 2 <= sx <= jx1 + 3 and jy0 - 2 <= sy <= jy1 + 3 for sx, sy in signal_pts
+        )
+
+    bands = m.crosswalk_bands()
+    for seg in m.road_segs:
+        first = seg.c  # outer row/column on the near side
+        last = seg.c + seg.width - 1
+        # driving directions: h-road east on the south row, west on the north
+        # row; v-road south on the west column, north on the east column
+        lanes = (
+            [("e", last), ("w", first)] if seg.orient == "h" else [("s", first), ("n", last)]
+        )
+        a_lo, a_hi = seg.a0 * T, (seg.a1 + 1) * T
+        for d, row in lanes:
+            centre = (row + 0.5) * T
+            if seg.orient == "h":
+                pts = [(a_lo, centre), (a_hi, centre)]
+            else:
+                pts = [(centre, a_lo), (centre, a_hi)]
+            if d in ("w", "n"):
+                pts.reverse()
+            through = (a_lo <= T and a_hi >= (m.w if seg.orient == "h" else m.h) * T - T)
+            m.traffic.append(
+                {
+                    "kind": "lane",
+                    "dir": d,
+                    "road": f"{seg.orient}{seg.c}",
+                    "through": through,
+                    "points": pts,
+                }
+            )
+            # stop lines: the crosswalk bands this lane drives through
+            for j, side, band in bands:
+                if seg.orient == "h" and side in ("w", "e"):
+                    bx = band[0][0]
+                    if not (seg.a0 <= bx <= seg.a1) or not (j[1] <= row <= j[3]):
+                        continue
+                    # eastbound stops before the west band, westbound before the east band
+                    if d == "e" and side == "w":
+                        x = bx * T - 2
+                    elif d == "w" and side == "e":
+                        x = (bx + 1) * T + 2
+                    else:
+                        continue
+                    m.traffic.append(
+                        {"kind": "stopline", "axis": "h", "dir": d, "x": x, "y": centre,
+                         "signal": signalled(j)}
+                    )
+                elif seg.orient == "v" and side in ("n", "s"):
+                    by = band[0][1]
+                    if not (seg.a0 <= by <= seg.a1) or not (j[0] <= row <= j[2]):
+                        continue
+                    if d == "s" and side == "n":
+                        y = by * T - 2
+                    elif d == "n" and side == "s":
+                        y = (by + 1) * T + 2
+                    else:
+                        continue
+                    m.traffic.append(
+                        {"kind": "stopline", "axis": "v", "dir": d, "x": centre, "y": y,
+                         "signal": signalled(j)}
+                    )
+
+
 def interpret_landmarks(m: MapCanvas) -> None:
     lms = list(m.landmarks.values())
     for lm in lms:
@@ -1507,6 +1593,67 @@ def to_tmj(m: MapCanvas) -> dict:
         }
     )
     lid += 1
+    tobjs = []
+    for t in m.traffic:
+        if t["kind"] == "lane":
+            (x0, y0), *rest = t["points"]
+            tobjs.append(
+                {
+                    "id": oid,
+                    "name": t["road"],
+                    "type": "",
+                    "rotation": 0,
+                    "visible": True,
+                    "x": round(x0, 1),
+                    "y": round(y0, 1),
+                    "width": 0,
+                    "height": 0,
+                    "polyline": [{"x": 0, "y": 0}]
+                    + [{"x": round(px - x0, 1), "y": round(py - y0, 1)} for px, py in rest],
+                    "properties": [
+                        {"name": "kind", "type": "string", "value": "lane"},
+                        {"name": "dir", "type": "string", "value": t["dir"]},
+                        {"name": "road", "type": "string", "value": t["road"]},
+                        {"name": "through", "type": "string", "value": "1" if t["through"] else "0"},
+                    ],
+                }
+            )
+        else:
+            tobjs.append(
+                {
+                    "id": oid,
+                    "name": "",
+                    "type": "",
+                    "rotation": 0,
+                    "point": True,
+                    "visible": True,
+                    "x": round(t["x"], 1),
+                    "y": round(t["y"], 1),
+                    "width": 0,
+                    "height": 0,
+                    "properties": [
+                        {"name": "kind", "type": "string", "value": "stopline"},
+                        {"name": "axis", "type": "string", "value": t["axis"]},
+                        {"name": "dir", "type": "string", "value": t["dir"]},
+                        {"name": "signal", "type": "string", "value": "1" if t["signal"] else "0"},
+                    ],
+                }
+            )
+        oid += 1
+    layers.append(
+        {
+            "id": lid,
+            "name": "traffic",
+            "type": "objectgroup",
+            "visible": False,
+            "opacity": 1,
+            "x": 0,
+            "y": 0,
+            "draworder": "topdown",
+            "objects": tobjs,
+        }
+    )
+    lid += 1
 
     return {
         "type": "map",
@@ -1554,6 +1701,7 @@ def build_town(scenario: str, town_id: str, out_dir: Path = MAPS_DIR) -> Path:
         interpret_landmarks(m)
     emit_civic_anchors(m)
     emit_spot_anchors(m)
+    emit_traffic(m)
     out = _map_output_path(out_dir, scenario, town_id)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(to_tmj(m), separators=(",", ":")))
