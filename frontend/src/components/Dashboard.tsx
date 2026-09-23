@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import OpinionChart from "./OpinionChart";
+import BallotBar from "./charts/BallotBar";
+import IssueChips from "./charts/IssueChips";
+import TrajectoryChart from "./charts/TrajectoryChart";
+import { trajectoryFromEvents } from "../lib/election";
 import AgentCard from "./AgentCard";
 import PlayerHUD from "./PlayerHUD";
 import { useUserProfile } from "../context/UserProfileContext";
@@ -255,6 +258,7 @@ export default function Dashboard({ ws }: DashboardProps) {
     [overallOpinions],
   );
   const hasOpinionData = opinionTotal > 0;
+  const trajectory = useMemo(() => trajectoryFromEvents(ws.events ?? []), [ws.events]);
 
   // Filtered agents
   const filteredAgents = useMemo(() => {
@@ -430,30 +434,19 @@ export default function Dashboard({ ws }: DashboardProps) {
           animationDelay: "80ms",
         }}
       >
-        <div style={{ filter: "drop-shadow(0 0 8px rgba(196,163,90,0.15))" }}>
-          <OpinionChart opinions={overallOpinions} size={120} />
-        </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-sm mb-2" style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", letterSpacing: "0.5px" }}>
-            District-Wide Sentiment {hasOpinionData ? `(${opinionTotal} agents)` : ""}
+            District-Wide Sentiment {hasOpinionData ? `(${opinionTotal} residents)` : ""}
           </h3>
           {hasOpinionData ? (
-            <div className="flex gap-6 mb-3 flex-wrap">
-              {stanceIds.map((k) => (
-                <div key={k} className="text-center">
-                  <div
-                    className="text-2xl font-bold"
-                    data-stance-id={k}
-                    data-stance-count={overallOpinions[k] || 0}
-                    style={{ color: readableInk(optionColor(k)) }}
-                  >
-                    {overallOpinions[k] || 0}
-                  </div>
-                  <div className="text-xs" style={{ color: "var(--township-ink-muted)" }}>
-                    {optionLabel(k)}
-                  </div>
+            <div className="dashboard-district-bar mb-3">
+              <BallotBar counts={overallOpinions} />
+              {trajectory.length >= 2 && (
+                <div className="dashboard-trajectory">
+                  <p className="dashboard-trajectory-title">Round by round</p>
+                  <TrajectoryChart points={trajectory} />
                 </div>
-              ))}
+              )}
             </div>
           ) : (
             <p className="text-sm mb-3 italic" style={{ color: "var(--township-ink-muted)" }}>
@@ -636,25 +629,16 @@ export default function Dashboard({ ws }: DashboardProps) {
                 </span>
               </div>
 
-              <div className="flex justify-center mb-2">
-                <OpinionChart opinions={townOpinions[t]} size={80} showLegend={false} />
+              <div className="mb-3">
+                <BallotBar counts={townOpinions[t]} compact />
               </div>
 
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ fontFamily: "var(--font-display)", color: "var(--gold-ink)", letterSpacing: "1.5px", fontSize: "10px" }}>
+                <h4 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ fontFamily: "var(--font-display)", color: "var(--gold-ink)", letterSpacing: "1.5px", fontSize: "var(--text-2xs)" }}>
                   Top Issues
                 </h4>
                 {issues.length > 0 ? (
-                  issues.slice(0, 2).map((issue: string, i: number) => (
-                    <div
-                      key={i}
-                      className="dashboard-town-issue flex items-start gap-1.5 text-xs"
-                      style={{ color: "var(--township-ink)" }}
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color, opacity: 0.5 }} />
-                      <span className="dashboard-town-issue-text">{issue}</span>
-                    </div>
-                  ))
+                  <IssueChips issues={issues} accent={meta.color} max={3} />
                 ) : ws.simulationRunning ? (
                   <p className="text-xs italic py-0.5 dashboard-working" style={{ color: "var(--township-ink-muted)" }}>
                     Residents are deliberating — issues surface after round 1

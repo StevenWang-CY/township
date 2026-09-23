@@ -4,7 +4,7 @@
  * environment the scene dresses itself with. Scenario-agnostic — phase
  * names come from the plan, option ids from the roster.
  */
-import type { AgentState, DistrictSummary, ScenarioRoundPlanEntry } from "../types/messages";
+import type { AgentState, DistrictSummary, ScenarioRoundPlanEntry, SimulationEvent } from "../types/messages";
 import type { RoundSignals } from "../hooks/useWebSocket";
 import type { CivicEnv, ElectionPhase } from "../game/CivicLayer";
 
@@ -125,4 +125,122 @@ export function buildCivicEnv(input: CivicEnvInput): CivicEnv {
     result,
     labels: input.labels,
   };
+}
+
+/* ── Results of a finished run ─────────────────────────────── */
+
+export interface TownResult {
+  town: string;
+  counts: Record<string, number>;
+  /** Residents counted, undecided included. */
+  total: number;
+  undecided: number;
+  winner: string | null;
+  /** Lead of the first option over the second, in residents and as a share of decided. */
+  margin: number;
+  marginPct: number;
+}
+
+export interface SwingResident {
+  agentId: string;
+  name: string;
+  town: string;
+  from: string;
+  to: string;
+  round: number;
+  kind: "switched" | "decided";
+}
+
+export interface RunResults {
+  winner: string | null;
+  district: Omit<TownResult, "town">;
+  towns: TownResult[];
+  swing: SwingResident[];
+}
+
+function tallyResult(counts: Record<string, number>, undecidedId: string): Omit<TownResult, "town"> {
+  const decided: Record<string, number> = {};
+  let total = 0;
+  for (const [id, n] of Object.entries(counts)) {
+    total += n;
+    if (id !== undecidedId && n > 0) decided[id] = n;
+  }
+  const ranked = Object.values(decided).sort((a, b) => b - a);
+  const decidedTotal = ranked.reduce((a, b) => a + b, 0);
+  const margin = (ranked[0] ?? 0) - (ranked[1] ?? 0);
+  return {
+    counts,
+    total,
+    undecided: counts[undecidedId] ?? 0,
+    winner: leaderOf(decided),
+    margin,
+    marginPct: decidedTotal > 0 ? margin / decidedTotal : 0,
+  };
+}
+
+/**
+ * Everything the results moment needs, from the final district summary
+ * and the run's events: the winner, district and per-town tallies, and
+ * the residents who moved — switched between options, or came off the
+ * fence — with the round it happened in. Pure and scenario-agnostic.
+ */
+export function resultsFromRun(
+  summary: DistrictSummary,
+  events: SimulationEvent[],
+  undecidedId: string,
+): RunResults {
+  const towns = summary.town_summaries.map((t) => ({ town: t.town, ...tallyResult(t.opinions ?? {}, undecidedId) }));
+  const districtCounts: Record<string, number> = { ...(summary.overall_opinions ?? {}) };
+  if (Object.keys(districtCounts).length === 0) {
+    for (const t of towns) for (const [id, n] of Object.entries(t.counts)) districtCounts[id] = (districtCounts[id] ?? 0) + n;
+  }
+  const district = tallyResult(districtCounts, undecidedId);
+
+  // First stance per resident (the seed) and the last change that moved them.
+  const first = new Map<string, string>();
+  const last = new Map<string, SwingResident>();
+  for (const evt of events) {
+    if (evt.type === "simulation_started") {
+      for (const a of evt.agents) first.set(a.id, a.opinion?.candidate ?? undecidedId);
+      continue;
+    }
+    if (evt.type !== "opinion_changed") continue;
+    const to = evt.new_opinion?.candidate ?? undecidedId;
+    if (!first.has(evt.agent_id)) { first.set(evt.agent_id, evt.old_opinion?.candidate ?? to); }
+    const from = last.get(evt.agent_id)?.to ?? first.get(evt.agent_id) ?? undecidedId;
+    if (from === to) continue;
+    const round = evt.new_opinion?.round_number ?? 0;
+    if (round === 0) { first.set(evt.agent_id, to); continue; }
+    last.set(evt.agent_id, {
+      agentId: evt.agent_id,
+      name: evt.agent_name,
+      town: evt.town,
+      from,
+      to,
+      round,
+      kind: from === undecidedId ? "decided" : "switched",
+    });
+  }
+  const swing = [...last.values()]
+    .filter((s) => s.to !== undecidedId)
+    .sort((a, b) => (a.kind === b.kind ? b.round - a.round : a.kind === "switched" ? -1 : 1));
+  return { winner: district.winner, district, towns, swing };
+}
+
+/** Per-round district (or one town's) tallies from the run's round_ended events. */
+export function trajectoryFromEvents(
+  events: SimulationEvent[],
+  town?: string | null,
+): Array<{ round: number; counts: Record<string, number> }> {
+  const byRound = new Map<number, Record<string, number>>();
+  for (const evt of events) {
+    if (evt.type !== "round_ended") continue;
+    const counts = byRound.get(evt.round) ?? {};
+    for (const t of evt.summary ?? []) {
+      if (town && t.town !== town) continue;
+      for (const [id, n] of Object.entries(t.opinions ?? {}) as Array<[string, number]>) counts[id] = (counts[id] ?? 0) + n;
+    }
+    byRound.set(evt.round, counts);
+  }
+  return [...byRound.entries()].sort((a, b) => a[0] - b[0]).map(([round, counts]) => ({ round, counts }));
 }

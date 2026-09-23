@@ -27,6 +27,8 @@ import ActivityFeed from "./ActivityFeed";
 import MediaBar from "./MediaBar";
 import Icon from "./Icon";
 import { activityEntries } from "../lib/activity";
+import ResultsOverlay from "./ResultsOverlay";
+import { resultsFromRun } from "../lib/election";
 import MiniMap from "./MiniMap";
 import Tutorial from "./Tutorial";
 import DebugOverlay from "./DebugOverlay";
@@ -87,6 +89,14 @@ export default function TownView({ ws }: TownViewProps) {
   const [sceneError, setSceneError] = useState<string | null>(null);
   const [sceneBootAttempt, setSceneBootAttempt] = useState(0);
   const [sidebarTab, setSidebarTab] = useState<"residents" | "today" | "activity">("residents");
+  // The results moment shows once per finished run; a backward seek (which
+  // clears finalSummary) arms it again for the next time the run ends.
+  const [resultsDismissed, setResultsDismissed] = useState(false);
+  useEffect(() => { if (ws.finalSummary === null) setResultsDismissed(false); }, [ws.finalSummary]);
+  const runResults = useMemo(
+    () => (ws.finalSummary ? resultsFromRun(ws.finalSummary, ws.events, scen.undecidedId) : null),
+    [ws.finalSummary, ws.events, scen.undecidedId],
+  );
   // The keyboard hint must never mount UNDER the tutorial modal — its 5s
   // auto-dismiss would expire unseen behind the backdrop.
   const [tutorialDone, setTutorialDone] = useState<boolean>(() => {
@@ -1104,6 +1114,11 @@ export default function TownView({ ws }: TownViewProps) {
           {/* The hosted replay is immediately explorable without a player;
               movement onboarding belongs to the interactive local flow. */}
           {playerInTown && <Tutorial onDismiss={() => setTutorialDone(true)} />}
+
+          {/* Results moment: the winner, the towns, who moved. */}
+          {runResults && !resultsDismissed && !chatOpen && (
+            <ResultsOverlay results={runResults} townId={town} onDismiss={() => setResultsDismissed(true)} />
+          )}
 
           {/* Debug overlay (toggled with ~) */}
           {debugOpen && (
