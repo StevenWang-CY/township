@@ -29,7 +29,7 @@ import {
 } from "./AgentSprite";
 import { stanceChangeKind, stanceTier, type StanceChange, type StanceState } from "../lib/stance";
 import { PlayerSprite } from "./PlayerSprite";
-import { townAccent, townBgColor, townMapKey } from "./config";
+import { RENDER_DPR, townAccent, townBgColor, townMapKey } from "./config";
 import type { AgentState, TownId, LandmarkData, TownData, WeatherKind } from "../types/messages";
 import type { UserProfile } from "../context/UserProfileContext";
 import {
@@ -1987,6 +1987,25 @@ export class TownScene extends Phaser.Scene {
     return data;
   }
 
+  /**
+   * Project a world point to CSS pixels inside the canvas box, for DOM
+   * overlays. Phaser draws in device pixels (the backing store is the canvas
+   * CSS size × RENDER_DPR — see config.ts), so the camera projection is
+   * divided back down; Phaser's own pointer input needs no such step.
+   */
+  screenFromWorld(x: number, y: number): { x: number; y: number } {
+    const cam = this.cameras.main;
+    if (!cam) return { x, y };
+    // Scroll + zoom about the viewport centre — what preRender folds into
+    // the camera matrix — rather than `worldView`, which only refreshes on
+    // the next frame and would lag a setZoom/centerOn made this tick.
+    const z = cam.zoom;
+    return {
+      x: ((x - cam.scrollX) * z + (cam.width / 2) * (1 - z)) / RENDER_DPR,
+      y: ((y - cam.scrollY) * z + (cam.height / 2) * (1 - z)) / RENDER_DPR,
+    };
+  }
+
   /** Minimap data — small representation of the current town. */
   getMiniMapData(): {
     width: number; height: number;
@@ -2096,13 +2115,17 @@ export class TownScene extends Phaser.Scene {
   }
 
   /**
-   * Follow-camera zoom scaled to the canvas. The old fixed 1.5 framed ~260
-   * world-px on a 390-px phone — a wall of grass with one giant sprite. Wider
-   * canvases keep the intimate 1.5; phones pull back to show the town.
+   * Follow-camera zoom scaled to the canvas, in device space (`scale.width`
+   * is backing-store pixels, so width/520 already carries RENDER_DPR). The
+   * old fixed 1.5 framed ~260 world-px on a 390-px phone — a wall of grass
+   * with one giant sprite. Wider canvases keep the intimate 1.5 (CSS);
+   * phones pull back to show the town. Snapped crisp so sprites never
+   * shimmer under the follow camera.
    */
   private playerFollowZoom(): number {
     // A wheel/pinch override wins; otherwise scale with the canvas.
-    return this.userZoom ?? Phaser.Math.Clamp(this.scale.width / 520, 0.75, 1.5);
+    return this.userZoom ?? this.snapZoomCrisp(
+      Phaser.Math.Clamp(this.scale.width / 520, 0.75 * RENDER_DPR, 1.5 * RENDER_DPR));
   }
 
   getPlayerSprite(): PlayerSprite | null {
@@ -2909,7 +2932,7 @@ export class TownScene extends Phaser.Scene {
           color: "#3f3226",
           backgroundColor: "rgba(255,250,238,0.88)",
           padding: { x: 5, y: 2 },
-          resolution: 2,
+          resolution: RENDER_DPR,
         }).setOrigin(0.5, 0).setDepth(4);
         this.fallbackWorld.add(label);
         this.mapLabels.set(landmark.name, { x: x + width / 2, y: y + height + 5 });
@@ -3010,7 +3033,10 @@ export class TownScene extends Phaser.Scene {
       this.applyOverviewBase(true);
       return;
     }
-    const zoom = this.userZoom ?? Math.max(this.scale.width / W, this.scale.height / H);
+    // scale.width/height are backing-store pixels, so this fill zoom is in
+    // device space already; snap it crisp without uncovering parchment.
+    const fill = Math.max(this.scale.width / W, this.scale.height / H);
+    const zoom = this.userZoom ?? this.snapZoomCrisp(fill, "ceil");
     cam.setZoom(zoom);
     cam.centerOn(W / 2, H / 2);
   }
@@ -3018,17 +3044,34 @@ export class TownScene extends Phaser.Scene {
   /* ── Overview camera — the no-player default framing ────── */
 
   /**
-   * Composed base zoom for the overview. Wide canvases fit the full map with
-   * a small parchment margin; tall/narrow canvases (phones) would render the
-   * town as a thumbnail strip at true fit, so they use the fill zoom instead
-   * and rely on the drift to tour the map.
+   * Composed base zoom for the overview, in device space (`scale.width` and
+   * `scale.height` are backing-store pixels — see RENDER_DPR), snapped
+   * crisp. Wide canvases fit the full map with a parchment margin;
+   * tall/narrow canvases (phones) would render the town as a thumbnail
+   * strip at true fit, so they use the fill zoom instead and rely on the
+   * drift to tour the map.
    */
   private overviewBaseZoom(): number {
     const W = Number(this.game.config.width);
     const H = Number(this.game.config.height);
-    const fit = Math.min(this.scale.width / W, this.scale.height / H) * 0.98;
+    const fit = Math.min(this.scale.width / W, this.scale.height / H);
     const fill = Math.max(this.scale.width / W, this.scale.height / H);
-    return fit >= fill * 0.62 ? fit : fill;
+    if (fit * 0.98 >= fill * 0.62) {
+      // The full-town shot must not crop the map: the largest crisp zoom at
+      // or under true fit (a ~1% overshoot only trims the map's own border
+      // tiles); the margin comes for free. This framing is only ever held
+      // still (the drift glides at the anchor zoom and eases out here), so
+      // when the half-step grid would shrink the town past 80% of fit — a
+      // 1x display whose canvas is smaller than the map — a quarter step
+      // keeps the composition instead: no motion, so nothing shimmers.
+      const half = this.snapZoomCrisp(fit * 1.012, "floor");
+      if (half >= fit * 0.8) return half;
+      return Math.max(0.5, Math.floor(fit * 1.012 / 0.25 + 1e-6) * 0.25);
+    }
+    // Phones: cover the viewport. The nearest crisp step when it leaves at
+    // most a 5% parchment band, else the next step up.
+    const near = this.snapZoomCrisp(fill);
+    return near >= fill * 0.95 ? near : this.snapZoomCrisp(fill, "ceil");
   }
 
   /** Snap (or ease) the overview camera to its wide base framing. */
@@ -3047,8 +3090,9 @@ export class TownScene extends Phaser.Scene {
       cam.setZoom(zoom);
       cam.centerOn(W / 2, H / 2);
     } else {
-      cam.zoomTo(zoom, 900, "Sine.easeInOut");
-      cam.pan(W / 2, H / 2, 900, "Sine.easeInOut");
+      // Forced: the base framing must win over any drift move still easing.
+      cam.zoomTo(zoom, 900, "Sine.easeInOut", true);
+      cam.pan(W / 2, H / 2, 900, "Sine.easeInOut", true);
     }
   }
 
@@ -3134,7 +3178,11 @@ export class TownScene extends Phaser.Scene {
 
   /**
    * One leg of the extremely slow overview drift: three set-piece anchors at
-   * a gentle close-in zoom, then a long wide beat back at the base framing.
+   * a crisp close-in zoom, then a long wide beat back at the base framing.
+   * Zoom and pan never run together: a leg eases to its crisp zoom (~2.4 s)
+   * and only then glides (~12 s) at constant zoom — the wide beat glides
+   * home first, then eases out — so tiles sit on whole device pixels for
+   * the whole glide and the labels never step mid-drift.
    */
   private overviewDriftTick() {
     if (!this.overviewMode || this.playerSprite) return;
@@ -3147,52 +3195,101 @@ export class TownScene extends Phaser.Scene {
     const H = Number(this.game.config.height);
     const base = this.overviewBaseZoom();
     const fill = Math.max(this.scale.width / W, this.scale.height / H);
-    const driftZoom = Math.max(base * 1.22, fill * 1.06);
+    // Anchor legs glide, so they need a crisp zoom (an integer when one is
+    // near): closer than base, and never under fill, so the bounds below
+    // keep edge waypoints from panning into parchment.
+    let driftZoom = this.snapZoomCrisp(Math.max(base * 1.22, fill * 1.06));
+    if (driftZoom < fill) driftZoom = this.snapZoomCrisp(fill, "ceil");
+    if (driftZoom <= base) driftZoom = this.snapZoomCrisp(base + 0.5, "ceil");
+    const ZOOM_MS = 2400;
+    const PAN_MS = 12000;
+    // A chained move must not outlive a pause: the hold timer is cleared the
+    // moment the user (or a scene beat) takes the camera.
+    const driftLive = () => this.overviewMode && !this.playerSprite && this.overviewDriftTimer !== undefined;
 
     const CYCLE = 4; // 3 anchor legs, then one wide beat
     const phase = this.overviewStep % CYCLE;
     this.overviewStep += 1;
     let holdMs: number;
     if (phase === CYCLE - 1) {
-      // Wide beat: ease back out to the composed full-town shot (unbounded
-      // so the map centers in its margin — see applyOverviewBase).
+      // Wide beat: glide home at the anchor zoom, then ease out to the
+      // composed full-town shot (unbounded so the map centers in its margin
+      // — see applyOverviewBase).
       cam.removeBounds();
-      cam.pan(W / 2, H / 2, 9000, "Sine.easeInOut");
-      cam.zoomTo(base, 9000, "Sine.easeInOut");
-      holdMs = 15000;
+      cam.pan(W / 2, H / 2, PAN_MS, "Sine.easeInOut", false, (_c: Phaser.Cameras.Scene2D.Camera, progress: number) => {
+        if (progress === 1 && driftLive()) cam.zoomTo(base, ZOOM_MS, "Sine.easeInOut");
+      });
+      holdMs = PAN_MS + ZOOM_MS + 2600;
     } else {
-      // Anchor legs run zoomed past fill, where the bounds keep the pan
-      // from drifting into off-map parchment near edge waypoints.
-      cam.setBounds(0, 0, W, H);
+      // Anchor legs glide zoomed past fill, where the bounds keep the pan
+      // from drifting into off-map parchment near edge waypoints. The bounds
+      // go on only once the zoom is there: while the view is still wider
+      // than the map, Phaser's clamp would snap it to the top-left corner.
       const wp = this.overviewWaypoints[this.overviewLeg % this.overviewWaypoints.length];
       this.overviewLeg += 1;
-      cam.pan(wp.x, wp.y, 15000, "Sine.easeInOut");
-      cam.zoomTo(driftZoom, 15000, "Sine.easeInOut");
-      holdMs = 17000;
+      cam.zoomTo(driftZoom, ZOOM_MS, "Sine.easeInOut", false, (_c: Phaser.Cameras.Scene2D.Camera, progress: number) => {
+        if (progress < 1 || !driftLive()) return;
+        cam.setBounds(0, 0, W, H);
+        cam.pan(wp.x, wp.y, PAN_MS, "Sine.easeInOut");
+      });
+      holdMs = ZOOM_MS + PAN_MS + 1600;
     }
     this.overviewDriftTimer = this.time.delayedCall(holdMs, () => this.overviewDriftTick());
   }
 
   /* ── User camera controls: wheel zoom, pinch, double-click ── */
 
-  /** Snap a zoom value to 0.25 steps inside the 0.75-2.0 clamp. */
+  /**
+   * Nearest crisp zoom in device space: a multiple of 0.5, so every 16-px
+   * tile lands on whole device pixels (1:1 texels at integers, a clean
+   * 1-2-1-2 cadence at halves) — preferring an integer when `z` is within
+   * 12% of one. "floor"/"ceil" pick the crisp value at or below/above `z`
+   * for the fit/fill framings that must not crop or uncover parchment.
+   */
+  private snapZoomCrisp(z: number, mode: "nearest" | "floor" | "ceil" = "nearest"): number {
+    const STEP = 0.5;
+    if (mode === "floor") return Math.max(STEP, Math.floor(z / STEP + 1e-6) * STEP);
+    if (mode === "ceil") return Math.max(STEP, Math.ceil(z / STEP - 1e-6) * STEP);
+    const whole = Math.round(z);
+    if (whole >= 1 && Math.abs(z - whole) <= Math.min(z * 0.12, 0.24)) return whole;
+    return Math.max(STEP, Math.round(z / STEP) * STEP);
+  }
+
+  /** Snap a user zoom crisp inside the 0.75-2.0 (CSS) clamp, in device space. */
   private snapZoom(z: number): number {
-    return Phaser.Math.Clamp(Math.round(z / 0.25) * 0.25, 0.75, 2.0);
+    return this.snapZoomCrisp(Phaser.Math.Clamp(z, 0.75 * RENDER_DPR, 2.0 * RENDER_DPR));
+  }
+
+  /**
+   * Overview bounds follow the user's zoom: on when the view fits inside
+   * the map (pans clamp at its edges), off when the view is wider (Phaser's
+   * clamp would pin a wider-than-map view to the top-left corner — a pop).
+   */
+  private syncOverviewBounds(cam: Phaser.Cameras.Scene2D.Camera, zoom: number) {
+    const W = Number(this.game.config.width);
+    const H = Number(this.game.config.height);
+    if (zoom >= Math.max(this.scale.width / W, this.scale.height / H)) cam.setBounds(0, 0, W, H);
+    else cam.removeBounds();
   }
 
   private installCameraControls() {
-    // Mouse-wheel zoom — 0.25 snaps, clamped. Works over the overview AND
-    // over the follow camera (the follow zoom keeps the override).
+    // Mouse-wheel zoom — crisp half-steps in device space (a quarter of a
+    // CSS step on 2x displays: the old feel), clamped. Works over the
+    // overview AND over the follow camera (the follow zoom keeps the
+    // override). Forced, so a wheel always wins over an easing drift zoom.
+    const wheelStep = Math.max(0.5, 0.25 * RENDER_DPR);
     this.input.on(
       "wheel",
       (_p: Phaser.Input.Pointer, _objs: unknown[], _dx: number, dy: number) => {
         const cam = this.cameras.main;
         if (!cam || dy === 0) return;
         const current = this.userZoom ?? cam.zoom;
-        const next = this.snapZoom(current + (dy > 0 ? -0.25 : 0.25));
+        const next = this.snapZoom(current + (dy > 0 ? -wheelStep : wheelStep));
         if (next === this.userZoom) return;
         this.userZoom = next;
-        cam.zoomTo(next, 200, "Sine.easeOut");
+        cam.panEffect.reset();
+        if (!this.playerSprite) this.syncOverviewBounds(cam, next);
+        cam.zoomTo(next, 200, "Sine.easeOut", true);
         this.pauseOverviewDrift(11000);
       },
     );
@@ -3205,10 +3302,11 @@ export class TownScene extends Phaser.Scene {
       if (detail < 2) return;
       const cam = this.cameras.main;
       if (!cam) return;
-      const next = this.snapZoom((this.userZoom ?? cam.zoom) + 0.5);
+      const next = this.snapZoom((this.userZoom ?? cam.zoom) + 0.5 * RENDER_DPR);
       this.userZoom = next;
-      cam.pan(p.worldX, p.worldY, 450, "Sine.easeInOut");
-      cam.zoomTo(next, 450, "Sine.easeInOut");
+      this.syncOverviewBounds(cam, next);
+      cam.pan(p.worldX, p.worldY, 450, "Sine.easeInOut", true);
+      cam.zoomTo(next, 450, "Sine.easeInOut", true);
       this.pauseOverviewDrift(11000);
     });
 
@@ -3226,12 +3324,15 @@ export class TownScene extends Phaser.Scene {
       if (this.pinchStartDist === null) {
         this.pinchStartDist = dist;
         this.pinchStartZoom = cam.zoom;
+        // Take the camera from any drift move still easing.
+        cam.panEffect.reset();
+        cam.zoomEffect.reset();
         this.pauseOverviewDrift(11000);
         return;
       }
       if (this.pinchStartDist > 0) {
         const z = Phaser.Math.Clamp(
-          this.pinchStartZoom * (dist / this.pinchStartDist), 0.75, 2.0);
+          this.pinchStartZoom * (dist / this.pinchStartDist), 0.75 * RENDER_DPR, 2.0 * RENDER_DPR);
         cam.setZoom(z);
       }
     });
@@ -3241,7 +3342,8 @@ export class TownScene extends Phaser.Scene {
       const cam = this.cameras.main;
       if (!cam || this.playerSprite) return;
       this.userZoom = this.snapZoom(cam.zoom);
-      cam.zoomTo(this.userZoom, 160, "Sine.easeOut");
+      this.syncOverviewBounds(cam, this.userZoom);
+      cam.zoomTo(this.userZoom, 160, "Sine.easeOut", true);
       this.pauseOverviewDrift(11000);
     };
     this.input.on("pointerup", endPinch);
@@ -3316,7 +3418,7 @@ export class TownScene extends Phaser.Scene {
           fontSize: "9px",
           fontStyle: "bold",
           color: "#f5ead2",
-          resolution: 3,
+          resolution: RENDER_DPR,
         }).setOrigin(0.5, 0.5);
       const plate = this.add.image(0, 0, "__WHITE")
         .setTint(0x1c1810)
@@ -3327,18 +3429,30 @@ export class TownScene extends Phaser.Scene {
       chip.setData("lm", lm);
       chip.setData("w", Math.ceil(txt.width) + 6);
       chip.setData("h", Math.ceil(txt.height) + 2);
+      chip.setData("baseY", y);
       this.landmarkLabelTexts.push(chip);
     }
-    // Neighbouring landmarks (a restaurant beside a bodega row) get chips
-    // that would overlap: stagger the later one a line lower.
+    this.staggerLandmarkChips();
+  }
+
+  /**
+   * Neighbouring landmarks (a restaurant beside a bodega row) get chips
+   * that would overlap: stagger the later one a line lower. Footprints are
+   * measured at the current label scale, so the overview (labels drawn
+   * larger) re-staggers instead of letting chips run into each other.
+   */
+  private staggerLandmarkChips() {
+    const k = this.labelScale;
     const placed: Phaser.GameObjects.Container[] = [];
-    for (const chip of [...this.landmarkLabelTexts].sort((a, b) => a.y - b.y || a.x - b.x)) {
-      const w = chip.getData("w") as number;
-      const h = chip.getData("h") as number;
+    const chips = [...this.landmarkLabelTexts];
+    for (const chip of chips) chip.y = chip.getData("baseY") as number;
+    for (const chip of chips.sort((a, b) => a.y - b.y || a.x - b.x)) {
+      const w = (chip.getData("w") as number) * k;
+      const h = (chip.getData("h") as number) * k;
       for (let guard = 0; guard < 4; guard++) {
         const clash = placed.find((other) => {
-          const ow = other.getData("w") as number;
-          const oh = other.getData("h") as number;
+          const ow = (other.getData("w") as number) * k;
+          const oh = (other.getData("h") as number) * k;
           return Math.abs(other.x - chip.x) < (w + ow) / 2 + 4 && Math.abs(other.y - chip.y) < (h + oh) / 2 + 2;
         });
         if (!clash) break;
@@ -3352,21 +3466,28 @@ export class TownScene extends Phaser.Scene {
 
   /**
    * Pixel type is only crisp when a font texel covers a whole number of
-   * screen pixels. Labels live in world space, so their world scale is
-   * k / zoom with k an integer: one screen pixel per texel in the composed
-   * overview, two under the follow and spotlight zooms — the same on-screen
-   * size the old vector labels had, never a fractional resample.
+   * device pixels. Labels live in world space, so their world scale is
+   * texel / zoom with texel = RENDER_DPR × K device px: one CSS pixel per
+   * texel in the composed overview (K = 1), two under the follow camera and
+   * its spotlights (K = 2) — the same on-screen size the old vector labels
+   * had, never a fractional resample. K is fixed per camera mode, so the
+   * scale tracks the zoom continuously (recomputed past a 0.002 change)
+   * instead of stepping at .5 boundaries mid-drift.
    */
   private syncLabelScale() {
     const zoom = this.cameras.main?.zoom ?? 1;
-    if (Math.abs(zoom - this.labelZoom) < 0.002) return;
+    const k = this.playerSprite ? 2 : 1;
+    // The previous K, recovered from the last scale (scale × zoom = RENDER_DPR × K).
+    const prevK = Math.round((this.labelScale * this.labelZoom) / RENDER_DPR);
+    if (k === prevK && Math.abs(zoom - this.labelZoom) < 0.002) return;
     this.labelZoom = zoom;
-    const k = Phaser.Math.Clamp(Math.round(zoom), 1, 3);
-    const want = k / zoom;
+    const want = (RENDER_DPR * k) / zoom;
+    const rescaled = Math.abs(want - this.labelScale) > 0.01;
     this.labelScale = want;
     for (const chip of this.landmarkLabelTexts) chip.setScale(want);
     this.agentSprites.forEach((sprite) => sprite.setLabelScale(want));
     for (const npc of this.ambientNPCs) npc.setLabelScale(want);
+    if (rescaled) this.staggerLandmarkChips();
   }
 
   /* ── Navigation grid ─────────────────────────────────────── */

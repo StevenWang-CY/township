@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { appUrl } from "../lib/assetUrl";
 import { AgentSprite } from "./AgentSprite";
 import type { TownId, PoliticalRegistration } from "../types/messages";
-import { townAccent } from "./config";
+import { RENDER_DPR, townAccent } from "./config";
 
 /** Scenario town info passed in from React (OnboardingView). */
 export interface OnboardingTownInfo {
@@ -186,8 +186,8 @@ export class OnboardingScene extends Phaser.Scene {
     // ── Fade in from black ──────────────────────────────────
     this.cameras.main.fadeIn(1200, 0, 0, 0);
 
-    // ── Camera zoom to create cozy feel ─────────────────────
-    this.cameras.main.setZoom(1.25);
+    // ── Camera zoom to create cozy feel (device space: CSS 1.25 × DPR) ──
+    this.cameras.main.setZoom(1.25 * RENDER_DPR);
     this.cameras.main.centerOn(W * 0.5, H * 0.5);
 
     // ── Start the onboarding sequence ───────────────────────
@@ -400,7 +400,7 @@ export class OnboardingScene extends Phaser.Scene {
         btn.add(cape);
 
         const label = this.add.text(0, 32, o.label, {
-          fontFamily: "Inter, sans-serif", fontSize: "10px", fontStyle: "bold", color: "#332617", resolution: 2,
+          fontFamily: "Inter, sans-serif", fontSize: "10px", fontStyle: "bold", color: "#332617", resolution: RENDER_DPR,
         });
         label.setOrigin(0.5, 0.5);
         btn.add(label);
@@ -481,7 +481,7 @@ export class OnboardingScene extends Phaser.Scene {
     bg.fillRoundedRect(-w / 2 + 2, 1, w - 4, h * 0.45, { tl: r - 1, tr: r - 1, bl: 0, br: 0 });
     btn.add(bg);
     const text = this.add.text(0, h / 2, label, {
-      fontFamily: "Inter, sans-serif", fontSize: "11px", fontStyle: "bold", color: "#ffffff", resolution: 2,
+      fontFamily: "Inter, sans-serif", fontSize: "11px", fontStyle: "bold", color: "#ffffff", resolution: RENDER_DPR,
     });
     text.setOrigin(0.5, 0.5);
     btn.add(text);
@@ -572,7 +572,7 @@ export class OnboardingScene extends Phaser.Scene {
       fontSize: "11px",
       fontStyle: "bold",
       color: "#2C2416",
-      resolution: 2,
+      resolution: RENDER_DPR,
     });
     card.add(name);
 
@@ -580,7 +580,7 @@ export class OnboardingScene extends Phaser.Scene {
       fontFamily: "Inter, sans-serif",
       fontSize: "8px",
       color: "#6B5E4F",
-      resolution: 2,
+      resolution: RENDER_DPR,
     });
     card.add(tagline);
 
@@ -589,7 +589,7 @@ export class OnboardingScene extends Phaser.Scene {
       fontSize: "7px",
       color: accent,
       fontStyle: "bold",
-      resolution: 2,
+      resolution: RENDER_DPR,
     });
     card.add(pop);
 
@@ -713,7 +713,7 @@ export class OnboardingScene extends Phaser.Scene {
       fontSize: "11px",
       fontStyle: "bold",
       color: "#ffffff",
-      resolution: 2,
+      resolution: RENDER_DPR,
     });
     text.setOrigin(0.5, 0.5);
     pill.add(text);
@@ -794,7 +794,7 @@ export class OnboardingScene extends Phaser.Scene {
           fontFamily: "Inter, sans-serif",
           fontSize: "9px",
           color: "#6B5E4F",
-          resolution: 2,
+          resolution: RENDER_DPR,
         });
         text.setOrigin(0, 0.5);
         chip.add(text);
@@ -846,7 +846,7 @@ export class OnboardingScene extends Phaser.Scene {
               fontSize: "10px",
               fontStyle: "bold",
               color: "#3B5998",
-              resolution: 2,
+              resolution: RENDER_DPR,
             });
             check.setOrigin(0.5, 0.5);
             check.setScale(0);
@@ -912,7 +912,7 @@ export class OnboardingScene extends Phaser.Scene {
       fontSize: "11px",
       fontStyle: "bold",
       color: "#ffffff",
-      resolution: 2,
+      resolution: RENDER_DPR,
     });
     text.setOrigin(0.5, 0.5);
     btn.add(text);

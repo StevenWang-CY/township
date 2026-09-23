@@ -1,6 +1,24 @@
 import Phaser from "phaser";
 import type { TownId } from "../types/messages";
 
+/**
+ * Device pixels per CSS pixel the renderer draws at, capped at 2 (a 3x
+ * phone gains nothing visible over 2x and pays triple the fill).
+ *
+ * Phaser's `Scale.RESIZE` sizes the canvas backing store in CSS pixels and
+ * ignores `zoom`, so on a 2x display every 16-px tile was drawn at 1x and
+ * upscaled by the browser — blurry, shimmering pixel art. Instead the game
+ * runs in `Scale.NONE`: `installDprScale` keeps the backing store at the
+ * parent's CSS size × RENDER_DPR and the scale manager's `zoom` shrinks the
+ * canvas's CSS box back down to the parent (ScaleManager.resize applies
+ * zoom to the style size only). Consequences for the scenes: `scale.width`
+ * and `scale.height` are backing-store pixels, pointer coordinates are too,
+ * and every camera zoom is a DEVICE-space value — CSS zoom × RENDER_DPR.
+ */
+export const RENDER_DPR: number = typeof window !== "undefined"
+  ? Math.min(2, window.devicePixelRatio || 1)
+  : 1;
+
 export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   width: 1200,
@@ -14,8 +32,11 @@ export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
     arcade: { gravity: { x: 0, y: 0 } },
   },
   scale: {
-    mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    // `width`/`height` above stay the 1200x800 WORLD size the scenes read
+    // from `game.config`; the canvas itself is sized by installDprScale.
+    mode: Phaser.Scale.NONE,
+    zoom: 1 / RENDER_DPR,
+    autoRound: true,
   },
 };
 

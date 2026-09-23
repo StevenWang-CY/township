@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { RENDER_DPR } from "./config";
 import { AgentSprite, LABEL_Y, SPRITE_SCALE, WALK_SPEED } from "./AgentSprite";
 import type { Direction, MoveOptions } from "./AgentSprite";
 import { WORLD_H, WORLD_MARGIN, WORLD_W, type Pt } from "./NavGrid";
@@ -178,7 +179,7 @@ export class PlayerSprite extends AgentSprite {
       fontSize: "7px",
       fontStyle: "bold",
       color: "#ffffff",
-      resolution: 2,
+      resolution: RENDER_DPR,
     });
     text.setOrigin(0.5, 0.5);
 

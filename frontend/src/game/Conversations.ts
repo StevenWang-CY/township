@@ -13,6 +13,7 @@
  * a replay seek can wipe the stage clean in one call (clearAll).
  */
 import Phaser from "phaser";
+import { RENDER_DPR } from "./config";
 import { AgentSprite, LABEL_Y, type BubbleSentiment, type Direction, type GestureKind } from "./AgentSprite";
 import type { Pt } from "./NavGrid";
 import { PIXEL_FONT, drawPixelPlate, pixelText, reducedMotion } from "./pixelTextures";
@@ -401,7 +402,7 @@ export class ConversationChoreographer {
       align: "center",
       wordWrap: { width: 150, useAdvancedWrap: true },
       lineSpacing: 1,
-      resolution: 3,
+      resolution: RENDER_DPR,
     }).setOrigin(0.5, 0);
     const pad = 7;
     const w = Math.ceil(Math.max(txt.width, header.width) + pad * 2);
@@ -441,7 +442,7 @@ export class ConversationChoreographer {
       fontSize: "7px",
       fontStyle: "bold",
       color: `#${ink.toString(16).padStart(6, "0")}`,
-      resolution: 3,
+      resolution: RENDER_DPR,
     }).setOrigin(0.5, 0.5);
   }
 

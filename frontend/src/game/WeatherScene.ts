@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { RENDER_DPR } from "./config";
 import type { WeatherKind } from "../types/messages";
 
 /**
@@ -64,7 +65,9 @@ export class WeatherScene extends Phaser.Scene {
   }
 
   create() {
-    this.container = this.add.container(0, 0).setDepth(998);
+    // Drops, flakes and bands are sized in CSS pixels; the canvas draws in
+    // device pixels (RENDER_DPR), so the whole field scales up once here.
+    this.container = this.add.container(0, 0).setDepth(998).setScale(RENDER_DPR);
 
     // Honor user "reduce motion" preference from localStorage.
     try {
@@ -140,13 +143,17 @@ export class WeatherScene extends Phaser.Scene {
     cam.setViewport(x, y, Math.round(w), Math.round(h));
     cam.setScroll(0, 0);
 
+    // The particle field is authored in CSS pixels (the container is scaled
+    // by RENDER_DPR — see create), so it sees the clip divided back down.
+    const cw = w / RENDER_DPR;
+    const ch = h / RENDER_DPR;
     // Rebuild when the clip GROWS (new area would be bare) or collapses
     // dramatically. Mild shrinks — conversation-spotlight zooms, drift —
     // are handled by the scissor alone so the storm never visibly resets.
-    const changed = (w - this.viewW > 48 || h - this.viewH > 48)
-      || (w < this.viewW * 0.6 || h < this.viewH * 0.6);
-    this.viewW = w;
-    this.viewH = h;
+    const changed = (cw - this.viewW > 48 || ch - this.viewH > 48)
+      || (cw < this.viewW * 0.6 || ch < this.viewH * 0.6);
+    this.viewW = cw;
+    this.viewH = ch;
     return changed;
   }
 

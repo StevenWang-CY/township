@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { RENDER_DPR } from "./config";
 import { FX_DEPTH, ensureEmoteGlyphTexture, reducedMotion, type EmoteGlyphName } from "./pixelTextures";
 
 /**
@@ -128,7 +129,7 @@ export function playEmote(
       fontSize: r.glyph.length > 1 ? "12px" : "16px",
       fontStyle: "bold",
       color: r.glyphColor ?? "#1f2937",
-      resolution: 2,
+      resolution: RENDER_DPR,
     });
     txt.setOrigin(0.5, 1);
     txt.setDepth(FX_DEPTH);

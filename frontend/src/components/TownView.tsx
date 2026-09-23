@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import Phaser from "phaser";
 import { TownScene, hasAuthoredTownMap } from "../game/TownScene";
 import { GAME_CONFIG } from "../game/config";
+import { installDprScale } from "../game/dprScale";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useTownData } from "../hooks/useTownData";
 import type { ScenarioRoundPlanEntry } from "../types/messages";
@@ -304,15 +305,20 @@ export default function TownView({ ws }: TownViewProps) {
     setSceneError(null);
 
     let game: Phaser.Game;
+    let disposeDprScale: (() => void) | undefined;
     try {
       const scene = new TownScene();
       sceneRef.current = scene;
 
+      const container = gameContainerRef.current;
       game = new Phaser.Game({
         ...GAME_CONFIG,
-        parent: gameContainerRef.current,
+        parent: container,
         scene,
       });
+      // Crisp device pixels: the canvas backing store tracks the container
+      // at RENDER_DPR (sized now, before the scene boots, then on resize).
+      disposeDprScale = installDprScale(game, container);
 
       // Pass townId to scene
       game.scene.start("TownScene", {
@@ -324,6 +330,7 @@ export default function TownView({ ws }: TownViewProps) {
         startClock: firstRoundClock(scen.roundPlan),
       });
     } catch {
+      disposeDprScale?.();
       sceneRef.current = null;
       setSceneError(`We couldn't open ${meta.name}'s map.`);
       return;
@@ -398,6 +405,7 @@ export default function TownView({ ws }: TownViewProps) {
       gameRef.current = null;
       sceneRef.current = null;
       playerSpawnedRef.current = false;
+      disposeDprScale?.();
       game.destroy(true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

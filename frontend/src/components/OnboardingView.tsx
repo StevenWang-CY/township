@@ -7,6 +7,7 @@ import {
   type OnboardingTownInfo,
 } from "../game/OnboardingScene";
 import { GAME_CONFIG } from "../game/config";
+import { installDprScale } from "../game/dprScale";
 import { useUserProfile } from "../context/UserProfileContext";
 import { useScenario } from "../hooks/useScenario";
 import type { TownId } from "../types/messages";
@@ -98,11 +99,14 @@ export default function OnboardingView() {
     if (!gameContainerRef.current || gameRef.current) return;
 
     const scene = new OnboardingScene();
+    const container = gameContainerRef.current;
     const game = new Phaser.Game({
       ...GAME_CONFIG,
-      parent: gameContainerRef.current,
+      parent: container,
       scene,
     });
+    // Crisp device pixels: backing store = container × RENDER_DPR (config.ts).
+    const disposeDprScale = installDprScale(game, container);
     game.scene.start("OnboardingScene", {
       preselectedTown: initialTown,
       towns,
@@ -113,6 +117,7 @@ export default function OnboardingView() {
 
     return () => {
       gameRef.current = null;
+      disposeDprScale();
       game.destroy(true);
     };
   }, [initialTown, stances, towns]);

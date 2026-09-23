@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { RENDER_DPR } from "./config";
 import { playEmote, type EmoteKey } from "./EmoteRegistry";
 import {
   FX_DEPTH,
@@ -364,7 +365,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         fontSize: "12px",
         fontStyle: "bold",
         color: "#fff",
-        resolution: 2,
+        resolution: RENDER_DPR,
       });
       this.initialsText.setOrigin(0.5, 0.5);
       this.add(this.initialsText);
@@ -382,7 +383,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
         color: "#ffffff",
         stroke: "#111111",
         strokeThickness: 3,
-        resolution: 2,
+        resolution: RENDER_DPR,
       });
     }
     this.nameLabel.setOrigin(0.5, 0);
@@ -994,7 +995,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       align: "center",
       wordWrap: { width: emphasis ? 158 : 132, useAdvancedWrap: true },
       lineSpacing: 2,
-      resolution: 3,
+      resolution: RENDER_DPR,
     });
     txt.setOrigin(0.5, 1);
 
@@ -1627,7 +1628,7 @@ export class AgentSprite extends Phaser.GameObjects.Container {
       fontSize: "11px",
       fontStyle: "bold",
       color,
-      resolution: 2,
+      resolution: RENDER_DPR,
     });
     tx.setOrigin(0.5, 1);
     tx.setDepth(FX_DEPTH);

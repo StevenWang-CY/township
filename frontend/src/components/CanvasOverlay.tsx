@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import type Phaser from "phaser";
+import type { TownScene } from "../game/TownScene";
 import ProximityCard from "./ProximityCard";
 import { INTERACTION_RADIUS } from "../game/PlayerSprite";
 import type { AgentState } from "../types/messages";
@@ -104,11 +105,6 @@ export function CanvasOverlay({
       return;
     }
 
-    const gameW = Number(game.config.width);
-    const gameH = Number(game.config.height);
-    const displayW = scale.displaySize.width;
-    const displayH = scale.displaySize.height;
-
     // Offset from the canvas element within the container
     const canvas = game.canvas;
     const canvasRect = canvas.getBoundingClientRect();
@@ -119,10 +115,11 @@ export function CanvasOverlay({
     const items = getOverlayData();
     const activeIds = new Set<string>();
 
+    // The scene projects through its camera and divides the device-pixel
+    // backing store back down to CSS pixels (see RENDER_DPR in config.ts).
     const worldToScreen = (wx: number, wy: number) => {
-      const sx = (wx - cam.scrollX) * cam.zoom * (displayW / gameW) + offsetX;
-      const sy = (wy - cam.scrollY) * cam.zoom * (displayH / gameH) + offsetY;
-      return { sx, sy };
+      const p = (scene as TownScene).screenFromWorld(wx, wy);
+      return { sx: p.x + offsetX, sy: p.y + offsetY };
     };
 
     for (const item of items) {
