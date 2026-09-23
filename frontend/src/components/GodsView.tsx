@@ -93,6 +93,9 @@ export default function GodsView({ ws }: GodsViewProps) {
   const scen = useScenario();
   const { townMeta, optionColor, optionLabel, stanceIds, undecidedId } = scen;
   const [prompt, setPrompt] = useState("");
+  // The preset behind the prompt, when one was picked: the engine then
+  // applies the injection to the preset's towns only.
+  const [selectedPreset, setSelectedPreset] = useState<{ id: string; description: string; affected_towns: string[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reactions, setReactions] = useState<NewsReaction[]>([]);
@@ -157,7 +160,12 @@ export default function GodsView({ ws }: GodsViewProps) {
       const res = await fetch("/api/gods-view", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: prompt.trim() }),
+        body: JSON.stringify({
+          description: prompt.trim(),
+          ...(selectedPreset && selectedPreset.description === prompt.trim()
+            ? { preset_id: selectedPreset.id, affected_towns: selectedPreset.affected_towns }
+            : {}),
+        }),
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -353,7 +361,7 @@ export default function GodsView({ ws }: GodsViewProps) {
                 return (
                   <button
                     key={scenario.id}
-                    onClick={() => setPrompt(scenario.description)}
+                    onClick={() => { setPrompt(scenario.description); setSelectedPreset({ id: scenario.id, description: scenario.description, affected_towns: scenario.affected_towns ?? [] }); }}
                     aria-pressed={isSelected}
                     className="rounded-xl p-4 text-left transition-all hover:scale-[1.01] active:scale-[0.99]"
                     style={{

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AgentState, LeanId } from "../types/messages";
 import { useScenario } from "../hooks/useScenario";
+import Sparkline, { type SparkPoint } from "./charts/Sparkline";
 import TrustBadge from "./TrustBadge";
 import SpritePortrait from "./SpritePortrait";
 import MoodIndicator from "./MoodIndicator";
@@ -18,6 +19,10 @@ interface AgentCardProps {
   compact?: boolean;
   /** Replaces the occupation line (compact): "At work in Parsippany". */
   note?: string;
+  /** Why they last changed their mind: "after talking with Carlos about rent". */
+  cause?: string;
+  /** Their opinion trajectory (the full card draws a sparkline from it). */
+  history?: SparkPoint[];
   onClick?: () => void;
   /** Show the "✓ met" check icon. */
   met?: boolean;
@@ -27,7 +32,7 @@ interface AgentCardProps {
   trust?: number;
 }
 
-export default function AgentCard({ agent, compact = false, onClick, met, persuaded, trust, note }: AgentCardProps) {
+export default function AgentCard({ agent, compact = false, onClick, met, persuaded, trust, note, cause, history }: AgentCardProps) {
   const navigate = useNavigate();
   const { townMeta, optionColor, optionLabel, undecidedId } = useScenario();
   const meta = townMeta(agent.town);
@@ -137,6 +142,11 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
           }}>
             {note ?? agent.occupation}
           </p>
+          {cause && (
+            <p className="truncate resident-card-cause" title={cause}>
+              {cause}
+            </p>
+          )}
         </div>
         {trust !== undefined && (
           <TrustBadge trust={trust} size="small" />
@@ -236,6 +246,16 @@ export default function AgentCard({ agent, compact = false, onClick, met, persua
           </div>
         )}
       </div>
+
+      {/* Trajectory + the reason for the last change of mind */}
+      {((history && history.length > 1) || cause) && (
+        <div className="mt-2 flex items-center gap-2 resident-card-trajectory">
+          {history && history.length > 1 && (
+            <Sparkline points={history} colorFor={(id) => optionColor(id as LeanId)} title={`${history.length} opinions recorded`} />
+          )}
+          {cause && <span className="resident-card-cause truncate" title={cause}>{cause}</span>}
+        </div>
+      )}
 
       {/* Last activity */}
       {agent.current_activity && (

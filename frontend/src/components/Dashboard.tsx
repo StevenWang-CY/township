@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
+import type { WsState } from "../hooks/useWebSocket";
+import { causalFeed, lastCauseOf, swingResidents, topInfluencers } from "../lib/selectors";
 import { useNavigate } from "react-router-dom";
 import BallotBar from "./charts/BallotBar";
 import IssueChips from "./charts/IssueChips";
@@ -200,20 +202,8 @@ function parseRecap(markdown: string): {
 }
 
 interface DashboardProps {
-  ws: {
-    agents: Record<string, AgentState>;
-    townSummaries: Record<TownId, any>;
-    connected: boolean;
-    currentRound: number;
-    totalRounds?: number;
-    simulationRunning: boolean;
-    events?: SimulationEvent[];
-    eventCursor?: number;
-    relationships?: Record<string, Relationship>;
-    newsReactions?: NewsReaction[];
-    /** The campaign calendar (null on the quick plan). */
-    calendar?: CalendarState | null;
-  };
+  /** The reducer state (App passes the live or replay state whole). */
+  ws: WsState;
 }
 
 export default function Dashboard({ ws }: DashboardProps) {
@@ -233,6 +223,10 @@ export default function Dashboard({ ws }: DashboardProps) {
     status: simStatus,
   } = useSimulation({ poll: ws.simulationRunning });
   const [replayLoading, setReplayLoading] = useState(false);
+  // The causal read models (lib/selectors) over the reducer's opinion history.
+  const causal = useMemo(() => causalFeed(ws, null, { limit: 24, undecidedId }), [ws, undecidedId]);
+  const swing = useMemo(() => swingResidents(ws, null, undecidedId, 6), [ws, undecidedId]);
+  const influencers = useMemo(() => topInfluencers(ws, null, 5), [ws]);
 
   // Fetch results — backend now returns a flat DistrictSummary (no envelope).
   const refetchResults = useCallback(() => {
@@ -877,44 +871,92 @@ export default function Dashboard({ ws }: DashboardProps) {
         </div>
       </div>
 
-      {/* Opinion-change timeline */}
-      {ws.events && ws.events.length > 0 && (() => {
-        const shifts = ws.events
-          .filter((e): e is OpinionChangedEvent => e.type === "opinion_changed")
-          .slice(-20)
-          .reverse();
-        if (shifts.length === 0) return null;
-        return (
-          <div className="dashboard-timeline">
-            <h3 className="dashboard-timeline-title">Opinion Timeline</h3>
-            <div className="dashboard-timeline-scroll" role="region" tabIndex={0} aria-label="Recent opinion changes">
-            <ol className="dashboard-timeline-list">
-              {shifts.map((evt, i) => {
-                const oldC = (evt.old_opinion?.candidate as LeanId) ?? undecidedId;
-                const newC = (evt.new_opinion?.candidate as LeanId) ?? undecidedId;
-                return (
-                  <li key={i} className="dashboard-timeline-row">
-                    <span
-                      className="dashboard-timeline-dot"
-                      style={{ background: optionColor(newC) }}
-                    />
-                    <div className="dashboard-timeline-content">
-                      <strong>{evt.agent_name}</strong>
-                      <span>
-                        <span style={{ color: readableInk(optionColor(oldC)) }}>{optionLabel(oldC)}</span>
-                        {" → "}
-                        <span style={{ color: readableInk(optionColor(newC)), fontWeight: 600 }}>{optionLabel(newC)}</span>
-                      </span>
-                      <span className="dashboard-timeline-meta">{townMeta(evt.town).name}</span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+      {/* What moved the district: every change of mind with its cause,
+          the swing residents, and who moved the most minds. */}
+      {causal.length > 0 && (
+        <div className="dashboard-timeline dashboard-causal">
+          <div className="dashboard-causal-main">
+            <h3 className="dashboard-timeline-title">What moved the district</h3>
+            <div className="dashboard-timeline-scroll" role="region" tabIndex={0} aria-label="Changes of mind and their causes">
+              <ol className="dashboard-timeline-list">
+                {causal.map((e) => {
+                  const to = (e.to ?? undecidedId) as LeanId;
+                  return (
+                    <li key={`${e.kind}-${e.agentId}-${e.id}`} className="dashboard-timeline-row">
+                      <span className="dashboard-timeline-dot" style={{ background: optionColor(to) }} />
+                      <div className="dashboard-timeline-content">
+                        <strong>{e.agentName}</strong>
+                        {e.kind === "vote" ? (
+                          <span>
+                            voted{" "}
+                            <span style={{ color: readableInk(optionColor(to)), fontWeight: 600 }}>
+                              {e.to ? optionLabel(to) : "— abstained"}
+                            </span>
+                          </span>
+                        ) : (
+                          <span>
+                            {e.from && (
+                              <>
+                                <span style={{ color: readableInk(optionColor(e.from as LeanId)) }}>{optionLabel(e.from as LeanId)}</span>
+                                {" → "}
+                              </>
+                            )}
+                            <span style={{ color: readableInk(optionColor(to)), fontWeight: 600 }}>{optionLabel(to)}</span>
+                            {e.cause && <span className="dashboard-timeline-cause"> · {e.cause}</span>}
+                          </span>
+                        )}
+                        <span className="dashboard-timeline-meta">
+                          {townMeta(e.town as TownId).name}
+                          {e.day != null ? ` · day ${e.day}` : e.round != null ? ` · r${e.round}` : ""}
+                          {e.crossover ? " · cross-over" : ""}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
             </div>
           </div>
-        );
-      })()}
+          {(swing.length > 0 || influencers.length > 0) && (
+            <aside className="dashboard-causal-side">
+              {swing.length > 0 && (
+                <>
+                  <h4 className="dashboard-causal-h4">Swing residents</h4>
+                  <ul className="dashboard-causal-list">
+                    {swing.map((r) => (
+                      <li key={r.agentId}>
+                        <strong>{r.name}</strong>
+                        <span className="dashboard-causal-path">
+                          {r.path.map((o, i) => (
+                            <span key={`${o}-${i}`}>
+                              {i > 0 && <span aria-hidden="true"> → </span>}
+                              <span style={{ color: readableInk(optionColor(o as LeanId)) }}>{optionLabel(o as LeanId)}</span>
+                            </span>
+                          ))}
+                        </span>
+                        {r.lastCause && <span className="dashboard-causal-cause">{r.lastCause}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {influencers.length > 0 && (
+                <>
+                  <h4 className="dashboard-causal-h4">Who moved minds</h4>
+                  <ul className="dashboard-causal-list">
+                    {influencers.map((r) => (
+                      <li key={r.agentId}>
+                        <strong>{r.name}</strong>
+                        <span className="dashboard-causal-meta">{townMeta(r.town as TownId).name} · {r.count} {r.count === 1 ? "push" : "pushes"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </aside>
+          )}
+        </div>
+      )}
 
       {/* Latest news reactions (live WS) */}
       {ws.newsReactions && ws.newsReactions.length > 0 && (
@@ -985,6 +1027,8 @@ export default function Dashboard({ ws }: DashboardProps) {
             <AgentCard
               key={a.id}
               agent={a}
+              history={ws.opinionHistory[a.id]}
+              cause={lastCauseOf(ws, a.id)}
               met={profile?.metAgents?.includes(a.id)}
               persuaded={profile?.persuadedAgents?.includes(a.id)}
               trust={trustFor(a.id) || undefined}

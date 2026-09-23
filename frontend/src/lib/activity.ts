@@ -29,6 +29,9 @@ export interface ActivityEntry {
 export interface ActivityLookups {
   /** Name for a resident id (undefined when unknown). */
   agentName: (id: string) => string | undefined;
+  /** Why a resident's stance shifted at this absolute event index, when
+   *  attribution knows (lib/attribution via the reducer's opinion history). */
+  causeFor?: (agentId: string, eventIndex: number) => string | undefined;
 }
 
 export interface ActivityOptions {
@@ -75,7 +78,7 @@ export function activityEntries(
       }
       case "opinion_changed":
         if (town && evt.town !== town) break;
-        out.push({ id, kind: "shift", round: evt.new_opinion?.round_number ?? round, actorId: evt.agent_id, actor: evt.agent_name, stanceId: evt.new_opinion?.candidate, town: evt.town });
+        out.push({ id, kind: "shift", round: evt.new_opinion?.round_number ?? round, actorId: evt.agent_id, actor: evt.agent_name, stanceId: evt.new_opinion?.candidate, town: evt.town, cause: lookups.causeFor?.(evt.agent_id, id) });
         break;
       case "news_injected":
         out.push({ id, kind: "news", round: evt.round, target: evt.headline });

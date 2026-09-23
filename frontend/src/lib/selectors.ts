@@ -96,6 +96,21 @@ export function causalFeed(
   return out.slice(0, limit);
 }
 
+/** Why a resident last changed their mind ("after talking with Carlos about
+ *  rent"), or undefined when they never did. */
+export function lastCauseOf(state: WsState, agentId: string, undecidedId = "undecided"): string | undefined {
+  const pts = state.opinionHistory[agentId];
+  if (!pts || pts.length < 2) return undefined;
+  for (let i = pts.length - 1; i >= 1; i--) {
+    if (pts[i].candidate !== pts[i - 1].candidate) {
+      const text = causeText(pts[i].trigger, pts[i].influences, nameOf(state));
+      const to = pts[i].candidate === undecidedId ? "undecided" : pts[i].candidate;
+      return text ? `${to === "undecided" ? "Back on the fence" : "Moved"} ${text}` : undefined;
+    }
+  }
+  return undefined;
+}
+
 /** A resident's opinion trajectory, oldest first. */
 export function trajectory(state: WsState, agentId: string): OpinionPoint[] {
   return state.opinionHistory[agentId] ?? [];

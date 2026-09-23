@@ -1008,3 +1008,37 @@
   color: var(--color-accent-ink);
   font: 700 var(--text-2xs) / 1.2 var(--font-body);
 }
+
+/* ── What moved the district (Evolution) ───────────────────── */
+.dashboard-causal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+@media (width >= 1024px) {
+  .dashboard-causal { grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); }
+}
+.dashboard-causal-main { min-width: 0; }
+.dashboard-timeline-cause { color: var(--text-muted); font-style: italic; }
+.dashboard-causal-side { min-width: 0; }
+.dashboard-causal-h4 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.dashboard-causal-h4 + .dashboard-causal-list { margin-bottom: 14px; }
+.dashboard-causal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+}
+.dashboard-causal-list li { display: grid; gap: 1px; }
+.dashboard-causal-path, .dashboard-causal-meta { color: var(--text-muted); }
+.dashboard-causal-cause { color: var(--text-muted); font-style: italic; }

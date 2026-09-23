@@ -27,6 +27,9 @@ import ActivityFeed from "./ActivityFeed";
 import MediaBar from "./MediaBar";
 import Icon from "./Icon";
 import { activityEntries } from "../lib/activity";
+import { causeText } from "../lib/attribution";
+import { daySummary as daySummaryOf, lastCauseOf, type DaySummary } from "../lib/selectors";
+import DaySummaryCard from "./DaySummaryCard";
 import ResultsOverlay from "./ResultsOverlay";
 import BottomSheet from "./BottomSheet";
 import { useIsPhone } from "../lib/breakpoints";
@@ -92,6 +95,10 @@ export default function TownView({ ws }: TownViewProps) {
   // The results moment shows once per finished run; a backward seek (which
   // clears finalSummary) arms it again for the next time the run ends.
   const [resultsDismissed, setResultsDismissed] = useState(false);
+  // The day in review: shown when the calendar turns by exactly one day
+  // (a seek jumps further), for a few seconds or until dismissed.
+  const [dayInReview, setDayInReview] = useState<DaySummary | null>(null);
+  const prevDayRef = useRef<number | null>(null);
   const isPhone = useIsPhone();
   useEffect(() => {
     if (ws.finalSummary === null && ws.electionResult === null) setResultsDismissed(false);
@@ -204,6 +211,20 @@ export default function TownView({ ws }: TownViewProps) {
     return out;
   })();
   const townNameOf = (id: string) => scen.scenario.towns.find((t) => t.id === id)?.name ?? id;
+  // Why each change of mind happened, keyed by the event cursor it applied at
+  // (an activity row's absolute index + 1) — from the reducer's history.
+  const causeByCursor = useMemo(() => {
+    const names = (id: string) => ws.agents[id]?.name ?? ws.agentRoster[id]?.name;
+    const map = new Map<number, string>();
+    for (const pts of Object.values(ws.opinionHistory)) {
+      for (let i = 1; i < pts.length; i++) {
+        if (pts[i].candidate === pts[i - 1].candidate) continue;
+        map.set(pts[i].eventCursor, causeText(pts[i].trigger, pts[i].influences, names));
+      }
+    }
+    return map;
+  }, [ws.opinionHistory, ws.agents, ws.agentRoster]);
+  const causeFor = (_agentId: string, eventIndex: number) => causeByCursor.get(eventIndex + 1);
   const awayNoteFor = (agent: AgentState): string | undefined => {
     const here = ws.agentTowns[agent.id] ?? agent.town;
     return here !== town ? `Away in ${townNameOf(here)}` : undefined;
@@ -325,6 +346,21 @@ export default function TownView({ ws }: TownViewProps) {
     for (const a of townAgents) map.set(a.id, a);
     return map;
   }, [townAgents]);
+
+  useEffect(() => {
+    const day = ws.calendar?.day ?? null;
+    const prev = prevDayRef.current;
+    prevDayRef.current = day;
+    if (day == null || prev == null || day !== prev + 1) return;
+    const summary = daySummaryOf(ws, prev, scen.undecidedId);
+    if (!summary || (summary.flips.length === 0 && summary.headlines.length === 0 && summary.votes === 0)) return;
+    setDayInReview(summary);
+    const timer = window.setTimeout(() => setDayInReview(null), 9000);
+    return () => window.clearTimeout(timer);
+    // The summary is a snapshot at the moment the day turns; re-running on
+    // every event would re-open it mid-day.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.calendar?.day]);
 
   /* ── Initialize Phaser ───────────────────────────────────── */
 
@@ -1034,6 +1070,7 @@ export default function TownView({ ws }: TownViewProps) {
               agent={agent}
               compact
               note={awayNoteFor(agent)}
+              cause={lastCauseOf(ws, agent.id, scen.undecidedId)}
               onClick={() => requestChat(agent.id, "sidebar")}
               met={profile?.metAgents?.includes(agent.id)}
               persuaded={profile?.persuadedAgents?.includes(agent.id)}
@@ -1057,6 +1094,7 @@ export default function TownView({ ws }: TownViewProps) {
                   agent={agent}
                   compact
                   note={awayNoteFor(agent)}
+                  cause={lastCauseOf(ws, agent.id, scen.undecidedId)}
                   onClick={() => requestChat(agent.id, "sidebar")}
                   met={profile?.metAgents?.includes(agent.id)}
                   persuaded={profile?.persuadedAgents?.includes(agent.id)}
@@ -1090,7 +1128,7 @@ export default function TownView({ ws }: TownViewProps) {
       {sidebarTab === "activity" && (
         <div className="sidebar-panel sidebar-panel--list" role="tabpanel" id="sidebar-panel-activity" aria-labelledby="sidebar-tab-activity">
           <ActivityFeed
-            entries={activityEntries(ws.events, town, { agentName: (id) => agentLookup.get(id)?.name }, { startIndex: ws.eventHistoryStart, limit: 40 })}
+            entries={activityEntries(ws.events, town, { agentName: (id) => agentLookup.get(id)?.name, causeFor }, { startIndex: ws.eventHistoryStart, limit: 40 })}
             accent={meta.color}
             onSelect={(id) => requestChat(id, "activity")}
             emptyText={DEMO_MODE ? "Press play — the town's day unfolds here." : "Waiting for simulation events…"}
@@ -1309,6 +1347,11 @@ export default function TownView({ ws }: TownViewProps) {
           {/* The hosted replay is immediately explorable without a player;
               movement onboarding belongs to the interactive local flow. */}
           {playerInTown && <Tutorial onDismiss={() => setTutorialDone(true)} />}
+
+          {/* The day in review, when the calendar turns. */}
+          {dayInReview && !runResults && !chatOpen && (
+            <DaySummaryCard summary={dayInReview} townId={town} onDismiss={() => setDayInReview(null)} />
+          )}
 
           {/* Results moment: the winner, the towns, who moved. */}
           {runResults && !resultsDismissed && !chatOpen && (
