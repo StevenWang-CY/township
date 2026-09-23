@@ -50,6 +50,9 @@ root `.env`, without overriding variables already exported by your shell.
 | `BEDROCK_CACHE_SYSTEM` | `0` | Experimental whole-system-block prompt caching; `1` enables after you verify cache reads for your workload |
 | `ANTHROPIC_CACHE_SYSTEM` | `0` | Direct-Anthropic equivalent of `BEDROCK_CACHE_SYSTEM` |
 | `LLM_MAX_CONCURRENT` | `10` | Maximum provider calls in flight |
+| `CLAUDE_CLI_MODEL` | `claude-sonnet-5` | Model id the `claude-cli` provider passes to the Claude Code CLI (use a full id; the `sonnet` alias resolves differently across CLI builds) |
+| `TOWNSHIP_BEAT_PAUSE_S` | `6` on the API server, `0` for the CLI and tests | Seconds between campaign beats at 1× (divided by the transport speed) so a live viewer can follow a mock run; long real runs are paced by the model anyway |
+| `LLM_BUDGET_USD` | unset | Stop a paid campaign cleanly when the next beat would exceed this spend (`--budget` on the CLI); the mock and `claude-cli` are free and never stop |
 | `TOWNSHIP_SCENARIOS_DIR` | `./scenarios` before the bundled packages | Optional scenario search and authoring root; relative paths resolve from the launch directory |
 | `BEDROCK_MAX_RETRIES` | `2` | SDK retry budget for Bedrock throttling |
 | `ELEVENLABS_API_KEY` | — | Server-side TTS proxy for `POST /api/tts`; absent → 503 `tts_unavailable` |

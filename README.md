@@ -143,6 +143,19 @@ Prefer the terminal?
 township run --scenario millbrook-budget --provider mock
 ```
 
+A run can be one day of deliberation (the `quick` plan) or a whole campaign —
+three weeks of mornings, middays and evenings, Sunday reflection, a debate
+night, election day and the morning after:
+
+```bash
+# on your Claude subscription, no API key (Claude Code CLI installed and logged in)
+LLM_PROVIDER=claude-cli township run --scenario nj11-2026 --preset campaign --days 21
+# the same campaign on the free deterministic engine, in seconds
+township run --scenario nj11-2026 --preset campaign --days 21 --provider mock
+# resume a long run that stopped (usage limit, budget, a closed laptop)
+township run --scenario nj11-2026 --resume <run_id>
+```
+
 That command runs the full deliberation and, when the best-effort finalization steps
 succeed, prints a recap and leaves a portable artifact in `runs/<run_id>/`. Useful
 next commands:
@@ -162,12 +175,14 @@ live chat, new simulations, voice, and God's View need a local backend.
 
 | Surface | What it reveals |
 |---|---|
-| **Living town** | The landing view: routines, weather, time of day, conversations, gossip, gestures, and opinion ripples rendered in Phaser |
+| **Living town** | The landing view: a town of voices and neighbors keeping routines — indoors and out, at work and back, commuting to the next town over — with weather, seasons, traffic, conversations, gossip, gestures, and opinion ripples rendered in Phaser |
+| **Campaign calendar** | Days and beats on the HUD and the Today strip, a live transport (pause, 1×/4×/16×, skip a day), the day in review when the calendar turns, election day and the results moment |
+| **Why they moved** | Every change of mind carries its cause — "after talking with Carlos about rent" — in the activity feed, on resident cards with their trajectory, and on the dashboard's "what moved the district" beside the swing residents and who moved minds |
 | **District atlas** | A storybook pixel overworld drawn from the towns' own tileset — vignettes, nameplates, and each town's cast and leading option |
 | **Resident chat** | In-character conversation with private relationship context, trust, voice hooks, and a capability-protected personal journal |
 | **Dashboard** | Cross-town patterns, issue fault lines, conversations, and stance trajectories |
 | **God's View** | A transparent intervention sandbox for asking how agents react to a hypothetical development |
-| **Replay timeline** | Pause, seek, change speed, or jump between rounds in a recorded run |
+| **Replay timeline** | Pause, seek, change speed, or jump between rounds or days in a recorded run — and switch between a scenario's recordings (the one-day deliberation, the full campaign) |
 
 ## How it works
 
@@ -186,6 +201,21 @@ The frontend's simulation timeline sees exactly what the event log sees;
 Pydantic event models in the backend mirror a TypeScript discriminated union in
 the frontend, guarded by a contract test. Recorded, live, headless, and visual
 runs are different views of the same simulation—not products that can drift.
+
+Underneath, a campaign is a calendar expanded into beats (`backend/simulation/
+calendar.py`), and every beat starts with a presence table: who is in which
+town — commuters at work in the next town, visitors drawn to a debate — so
+conversations and local headlines happen where people are. Each resident
+carries an influence ledger (`influence.py`): every exchange, headline and
+piece of gossip pushes their issue-weighted view of the options a little,
+bounded by how far apart they already stand, softened by repetition and by
+loyalty, drifting back toward who they were; fence-sitters break with what
+they hear and late deciders break with their lean as the vote nears. The
+hand-written **voices** speak through the model and their stated stances are
+adopted into the ledger; the generated **neighbors** live in the ledger alone,
+so a town of eighty runs on the calls of its twenty-six voices. Every
+`opinion_changed` cites what caused it, and the player derives the same
+citations for recordings that predate them.
 
 Read the [architecture guide](docs/architecture.md) for the prompt pipeline,
 wire contract, persistence model, cost accounting, and module-by-module tour.
@@ -249,8 +279,12 @@ Secrets belong only in environment variables.
 
 | Scenario | Cast | What ships |
 |---|---:|---|
-| **The Millbrook Surplus** | 8 residents · 2 towns | A fictional direct-democracy vote over a one-time $12M surplus, plus a zero-cost mock replay. It proves the engine is not election-specific. |
-| **NJ-11 Special Election** | 26 residents · 4 towns | A retrospective of the certified April 2026 race, with a complete Bedrock/Claude replay and a published error analysis. |
+| **The Millbrook Surplus** | 8 voices + 30 neighbors · 2 towns | A fictional direct-democracy vote over a one-time $12M surplus: a zero-cost one-day replay and a 10-day town-meeting campaign feed. It proves the engine is not election-specific. |
+| **NJ-11 Special Election** | 26 voices + 58 neighbors · 4 towns | A retrospective of the certified April 2026 race: the complete one-day Bedrock/Claude replay with its published error analysis, and a 21-day campaign feed (the deterministic engine's, labelled as a placeholder until the Claude Sonnet recording replaces it). |
+
+Neighbors are generated composites committed as scenario data
+(`agents/<town>/_neighbors.json`, drawn from `community.json` by
+`township new-neighbors`); they never call a model.
 
 ### The shipped NJ run, without spin
 
@@ -272,11 +306,13 @@ the claims are reproducible.
 | Path | Purpose |
 |---|---|
 | `backend/core/` | Pydantic domain models, scenario/persona loading, wire DTOs, storage, EventBus |
-| `backend/simulation/` | Multi-round loop, multi-town orchestration, replay, recap, run persistence |
+| `backend/simulation/` | The beat loop, multi-town orchestration and presence, the campaign calendar, the influence ledger and attribution, budget guard, checkpoints, replay, recap, run persistence |
+| `backend/community/` | The neighbors tier: generator, grammar, generic pools |
 | `backend/providers/` | Bedrock, Anthropic, OpenAI-compatible, local, and mock adapters |
 | `backend/routes/` | Simulation, chat, God's View, scenarios, towns, journal, runs, voice |
 | `frontend/src/game/` | Phaser world, resident sprites, clock, weather, routines, capture hooks |
-| `frontend/src/components/` | Map, town, chat, journal, dashboard, replay player, accessibility controls |
+| `frontend/src/components/` | Map, town, chat, journal, dashboard, replay player, live transport, results and day-in-review cards, accessibility controls |
+| `frontend/src/lib/` | Pure read models: attribution and the causal selectors, the calendar strings, election phases and results, activity rows |
 | `scenarios/<id>/` | All domain-specific content and optional demo replay |
 | `tests/` | Offline backend, provider, persona, scenario, CLI, replay, and wire-contract tests |
 
