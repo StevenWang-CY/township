@@ -35,6 +35,18 @@ class StartRequest(BaseModel):
     # this route, knows how many rounds it has. An explicit value caps the
     # run at the first N rounds of the plan.
     num_rounds: int | None = Field(default=None, alias="rounds", ge=1)
+    # ── Campaign controls (all optional; the API default stays the quick plan) ──
+    preset: str = Field(default="quick", pattern=r"^(quick|campaign)$")
+    days: int | None = Field(default=None, ge=1, le=120)
+    until_election: bool = False
+    speed: float = Field(default=1.0, ge=0.25, le=64.0)
+    budget_usd: float | None = Field(default=None, gt=0)
+    # Resume a persisted campaign from its latest day checkpoint.
+    resume: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,120}$")
+
+
+class SpeedRequest(BaseModel):
+    multiplier: float = Field(ge=0.25, le=64.0)
 
 
 class ReplayRequest(BaseModel):
@@ -103,12 +115,47 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
     """Start simulation as a background task. Returns immediately."""
     orchestrator = request.app.state.orchestrator
 
+    scenario = request.app.state.scenario
+    if req.preset == "campaign" and scenario.campaign is None:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": f"scenario {scenario.id!r} declares no campaign calendar",
+            },
+            status_code=400,
+        )
     # Resolved for the response body; the orchestrator applies the same
-    # default (None -> full scenario round plan) internally.
-    scenario_rounds = request.app.state.scenario.total_rounds
+    # defaults internally.
+    try:
+        plan = scenario.plan_for(req.preset, days=req.days, until_election=req.until_election)
+    except ValueError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+    scenario_rounds = len(plan)
     resolved_rounds = (
         scenario_rounds if req.num_rounds is None else min(req.num_rounds, scenario_rounds)
     )
+    run_kwargs = {
+        "preset": req.preset,
+        "days": req.days,
+        "until_election": req.until_election,
+        "speed": req.speed,
+        "budget_usd": req.budget_usd,
+    }
+    resume_checkpoint = None
+    if req.resume:
+        if req.town:
+            return JSONResponse(
+                {"status": "error", "message": "resume runs the whole district"}, status_code=400
+            )
+        if not RUN_ID_RE.fullmatch(req.resume):
+            return JSONResponse({"status": "error", "message": "invalid run id"}, status_code=400)
+        run_dir = resolve_run_dir(req.resume)
+        if run_dir is None:
+            return JSONResponse({"status": "error", "message": "run not found"}, status_code=404)
+        try:
+            resume_checkpoint = orchestrator.load_checkpoint(run_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            return JSONResponse({"status": "error", "message": str(exc)}, status_code=404)
 
     if req.town:
         if req.town not in orchestrator.agent_states:
@@ -131,6 +178,7 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
                 req.town,
                 req.num_rounds,
                 _operation_token=operation_token,
+                **run_kwargs,
             )
         except Exception:
             orchestrator.release_operation(operation_token)
@@ -140,6 +188,7 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
             "town": req.town,
             "num_rounds": resolved_rounds,
             "agents": len(orchestrator.agent_states[req.town]),
+            "preset": req.preset,
         }
     else:
         total_agents = sum(len(v) for v in orchestrator.agent_states.values())
@@ -154,6 +203,8 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
                 orchestrator.run_full_simulation,
                 req.num_rounds,
                 _operation_token=operation_token,
+                resume=resume_checkpoint,
+                **run_kwargs,
             )
         except Exception:
             orchestrator.release_operation(operation_token)
@@ -163,7 +214,48 @@ async def start_simulation(req: StartRequest, request: Request, background_tasks
             "towns": list(orchestrator.agent_states.keys()),
             "num_rounds": resolved_rounds,
             "total_agents": total_agents,
+            "preset": req.preset,
+            "resumed_from": req.resume,
         }
+
+
+@router.post("/pause")
+async def pause_simulation(request: Request):
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator.is_running:
+        return JSONResponse(
+            {"status": "error", "message": "No simulation is running"}, status_code=409
+        )
+    orchestrator.control.pause("paused")
+    return {"status": "paused", **orchestrator.status_dict()}
+
+
+@router.post("/resume")
+async def resume_simulation(request: Request):
+    orchestrator = request.app.state.orchestrator
+    orchestrator.control.resume()
+    return {
+        "status": "running" if orchestrator.is_running else "idle",
+        **orchestrator.status_dict(),
+    }
+
+
+@router.post("/speed")
+async def set_speed(req: SpeedRequest, request: Request):
+    orchestrator = request.app.state.orchestrator
+    orchestrator.control.set_speed(req.multiplier)
+    return {"status": "ok", "speed": orchestrator.control.speed}
+
+
+@router.post("/skip-day")
+async def skip_day(request: Request):
+    orchestrator = request.app.state.orchestrator
+    if not orchestrator.is_running:
+        return JSONResponse(
+            {"status": "error", "message": "No simulation is running"}, status_code=409
+        )
+    orchestrator.control.skip_day(orchestrator.calendar.get("day"))
+    return {"status": "skipping", "to_day": orchestrator.control.skip_to_day}
 
 
 @router.get("/status")
@@ -216,6 +308,8 @@ async def simulation_status(request: Request):
         "current_round": orchestrator.current_round,
         "total_rounds": orchestrator.total_rounds,
         "agents_loaded": agents_loaded,
+        # Campaign calendar + transport (additive).
+        **orchestrator.status_dict(),
     }
 
 

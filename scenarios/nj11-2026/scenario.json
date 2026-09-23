@@ -165,6 +165,71 @@
         "randolph",
         "dover"
       ]
+    },
+    {
+      "id": "debate-night",
+      "headline": "Candidates Meet in a Televised NJ-11 Debate",
+      "description": "The three candidates traded positions on healthcare subsidies, immigration enforcement and property taxes in a debate broadcast across the district. Reported exchanges are summarized in the campaign's debate notes.",
+      "effects": [],
+      "towns": []
+    },
+    {
+      "id": "early-voting-opens",
+      "headline": "Early Voting Opens Across Morris County",
+      "description": "Polling sites for early voting are open through April 14, with the special election on April 16. County officials expect steady turnout at libraries and municipal buildings.",
+      "effects": [],
+      "towns": []
+    },
+    {
+      "id": "commuter-service-changes",
+      "headline": "NJ Transit Announces Weekend Service Changes on the Morris & Essex Line",
+      "description": "Weekend trains into New York will run on a reduced schedule for track work through the spring, adding transfer time for commuters from Dover, Montclair and Parsippany.",
+      "effects": [
+        {
+          "issue": "transit",
+          "option": "mejia",
+          "delta": 0.2
+        },
+        {
+          "issue": "transit",
+          "option": "hathaway",
+          "delta": 0.2
+        }
+      ],
+      "towns": [
+        "dover",
+        "montclair",
+        "parsippany"
+      ]
+    },
+    {
+      "id": "county-budget-hearing",
+      "headline": "Morris County Budget Hearing Draws a Crowd Over Rising Assessments",
+      "description": "Residents packed a county budget hearing to question how reassessments will change next year's property tax bills. Officials said appeals remain open through the spring.",
+      "effects": [
+        {
+          "issue": "taxes",
+          "option": "hathaway",
+          "delta": 0.3
+        }
+      ],
+      "towns": [
+        "randolph",
+        "montclair"
+      ]
+    },
+    {
+      "id": "bond-record",
+      "headline": "Independent Candidate's Fraud Conviction Resurfaces in Campaign Coverage",
+      "description": "Local coverage revisited Alan Bond's documented fraud conviction as early voting continued, with the campaign framing it as a settled matter and opponents calling it a question of trust.",
+      "effects": [
+        {
+          "issue": "trust",
+          "option": "bond",
+          "delta": -0.5
+        }
+      ],
+      "towns": []
     }
   ],
   "cross_town_pairs": [
@@ -361,5 +426,239 @@
         "party line"
       ]
     }
-  ]
+  ],
+  "campaign": {
+    "start_date": "2026-03-27",
+    "election_date": "2026-04-16",
+    "aftermath_days": 1,
+    "beats": {
+      "weekday": [
+        {
+          "beat": "morning",
+          "clock": "07:30",
+          "phases": [
+            "converse"
+          ]
+        },
+        {
+          "beat": "midday",
+          "clock": "12:30",
+          "phases": [
+            "news",
+            "converse"
+          ]
+        },
+        {
+          "beat": "evening",
+          "clock": "18:30",
+          "phases": [
+            "converse",
+            "opinion"
+          ]
+        }
+      ],
+      "saturday": [
+        {
+          "beat": "morning",
+          "clock": "09:00",
+          "phases": [
+            "converse"
+          ]
+        },
+        {
+          "beat": "midday",
+          "clock": "12:30",
+          "phases": [
+            "news",
+            "converse"
+          ]
+        },
+        {
+          "beat": "evening",
+          "clock": "18:00",
+          "phases": [
+            "converse",
+            "opinion"
+          ]
+        }
+      ],
+      "sunday": [
+        {
+          "beat": "morning",
+          "clock": "10:00",
+          "phases": [
+            "converse"
+          ]
+        },
+        {
+          "beat": "evening",
+          "clock": "18:00",
+          "phases": [
+            "reflect"
+          ]
+        }
+      ],
+      "election": [
+        {
+          "beat": "early",
+          "clock": "07:00",
+          "phases": [
+            "vote"
+          ]
+        },
+        {
+          "beat": "midday",
+          "clock": "12:30",
+          "phases": [
+            "converse",
+            "vote"
+          ]
+        },
+        {
+          "beat": "evening",
+          "clock": "18:30",
+          "phases": [
+            "vote"
+          ]
+        },
+        {
+          "beat": "night",
+          "clock": "21:00",
+          "phases": [
+            "results"
+          ]
+        }
+      ],
+      "aftermath": [
+        {
+          "beat": "morning",
+          "clock": "08:30",
+          "phases": [
+            "aftermath"
+          ]
+        }
+      ]
+    },
+    "news_schedule": [
+      {
+        "day": 2,
+        "beat": "midday",
+        "news_id": "aca-subsidies"
+      },
+      {
+        "day": 4,
+        "beat": "midday",
+        "news_id": "commuter-service-changes"
+      },
+      {
+        "day": 6,
+        "beat": "midday",
+        "news_id": "ice-enforcement"
+      },
+      {
+        "day": 11,
+        "beat": "midday",
+        "news_id": "early-voting-opens"
+      },
+      {
+        "day": 12,
+        "beat": "midday",
+        "news_id": "property-tax"
+      },
+      {
+        "day": 15,
+        "beat": "midday",
+        "news_id": "county-budget-hearing"
+      },
+      {
+        "day": 18,
+        "beat": "midday",
+        "news_id": "bond-record"
+      }
+    ],
+    "events": [
+      {
+        "day": 6,
+        "beat": "morning",
+        "kind": "market",
+        "label": "Saturday market in Dover",
+        "host_town": "dover"
+      },
+      {
+        "day": 9,
+        "beat": "evening",
+        "kind": "debate",
+        "label": "Debate night in Montclair",
+        "host_town": "montclair",
+        "news_id": "debate-night",
+        "effect": {
+          "kind": "confidence",
+          "delta": 6
+        }
+      },
+      {
+        "day": 13,
+        "beat": "morning",
+        "kind": "canvass",
+        "label": "Canvass weekend in Dover",
+        "host_town": "dover",
+        "effect": {
+          "kind": "undecided_nudge",
+          "delta": 0.15,
+          "towns": [
+            "dover"
+          ]
+        }
+      },
+      {
+        "day": 16,
+        "beat": "morning",
+        "kind": "fair",
+        "label": "Spring fair in Randolph",
+        "host_town": "randolph"
+      },
+      {
+        "day": 20,
+        "beat": "evening",
+        "kind": "rally",
+        "label": "Get-out-the-vote rally in Parsippany",
+        "host_town": "parsippany",
+        "effect": {
+          "kind": "confidence",
+          "delta": 4,
+          "towns": [
+            "parsippany"
+          ]
+        }
+      }
+    ],
+    "weather": [
+      "clear",
+      "cloudy",
+      "rain",
+      "clear",
+      "clear",
+      "cloudy",
+      "clear",
+      "rain",
+      "clear",
+      "clear",
+      "fog",
+      "clear",
+      "cloudy",
+      "clear",
+      "rain",
+      "clear",
+      "clear",
+      "cloudy",
+      "clear",
+      "clear",
+      "clear",
+      "cloudy"
+    ],
+    "budget_hints": {
+      "llm_beats_per_day": 3,
+      "voices_only_off_days": true
+    }
+  }
 }

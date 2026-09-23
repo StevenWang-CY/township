@@ -76,11 +76,7 @@ async def list_runs():
     restricted_legacy_runs = 0
     if root.is_dir():
         for run_dir in sorted(root.iterdir(), reverse=True):
-            if (
-                run_dir.is_symlink()
-                or not run_dir.is_dir()
-                or not RUN_ID_RE.match(run_dir.name)
-            ):
+            if run_dir.is_symlink() or not run_dir.is_dir() or not RUN_ID_RE.match(run_dir.name):
                 continue
             summary = load_json(run_dir / "summary.json", {}) or {}
             if not is_public_artifact(summary):

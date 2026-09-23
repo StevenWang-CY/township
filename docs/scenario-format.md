@@ -175,6 +175,55 @@ an `election` block (`mode: ballots | straw_poll`, tally, winner, margin,
 turnout, abstained). The deterministic mock provider renders the ledger
 directly, so a keyless run changes its mind for real.
 
+### Campaign calendar (`campaign`) — optional
+
+`round_plan` is the **quick** preset: a handful of rounds in one day. A
+scenario that declares `campaign` also gets the **campaign** preset, a
+multi-day calendar the engine expands into beats (`township run --preset
+campaign`, or `POST /api/simulation/start {"preset": "campaign"}`):
+
+```jsonc
+"campaign": {
+  "start_date": "2026-03-27", "election_date": "2026-04-16", "aftermath_days": 1,
+  "beats": {
+    "weekday":  [ { "beat": "morning", "clock": "07:30", "phases": ["converse"] },
+                  { "beat": "midday",  "clock": "12:30", "phases": ["news", "converse"] },
+                  { "beat": "evening", "clock": "18:30", "phases": ["converse", "opinion"] } ],
+    "saturday": [ … ], "sunday": [ { "beat": "evening", "clock": "18:00", "phases": ["reflect"] } ],
+    "election": [ { "beat": "early", "clock": "07:00", "phases": ["vote"] }, …,
+                  { "beat": "night", "clock": "21:00", "phases": ["results"] } ],
+    "aftermath": [ { "beat": "morning", "clock": "08:30", "phases": ["aftermath"] } ]
+  },
+  "news_schedule": [ { "day": 2, "beat": "midday", "news_id": "aca-subsidies" } ],
+  "events": [ { "day": 9, "beat": "evening", "kind": "debate", "label": "Debate night in Montclair",
+                "host_town": "montclair", "news_id": "debate-night",
+                "effect": { "kind": "confidence", "delta": 6 } } ],
+  "weather": ["clear", "cloudy", "rain", …]
+}
+```
+
+- Day types: `weekday`, `saturday`, `sunday`, `election`, `aftermath` (the
+  weekday template fills any missing weekend type; election and aftermath
+  must be explicit to exist). Phases beyond the quick set: `reflect` (a
+  week's read-out), `vote` (a share of residents casts ballots on each
+  election beat — early 35 %, midday 30 %, evening everyone left), `results`
+  (publishes `election_result` per town and for the district) and
+  `aftermath` (residents react to the result as a headline).
+- `news_schedule` places headlines on days (and optionally beats); a beat
+  whose `news` phase has nothing scheduled runs without it.
+- `events` land on a beat and may carry a headline (`news_id`) and an
+  `effect`: `confidence` (a shared moment firms everyone up), `undecided_nudge`
+  (fence-sitters in `towns` lean, seeded), `alignment` (a permanent change to
+  an option's stance on an issue), `presence` (who travels where — Phase 7).
+- `weather` is one entry per day, repeating if shorter than the calendar.
+- Day 1 is `start_date`; `--days N` keeps the last N days so the election is
+  always reached; `--until-election` drops the aftermath.
+
+Every round the calendar emits carries `day`, `date`, `weekday`, `beat` and
+`label` on `round_started` (and `day`/`date` on `world_clock_tick`); the run
+persists a rollup per day under `runs/<id>/days/` and a resumable checkpoint
+under `runs/<id>/checkpoints/` (`township run --resume <run_id>`).
+
 ### Cross-town gossip
 
 `cross_town_pairs` entries name exactly two agents (display names, case-insensitive) and the backstory that explains why they know each other:

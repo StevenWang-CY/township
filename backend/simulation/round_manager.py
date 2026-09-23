@@ -18,6 +18,7 @@ from ..core.types import (
     ConversationRecord,
     ConversationStartedEvent,
     CrossTownGossipEvent,
+    ElectionResultEvent,
     InfluenceRef,
     NewsInjectedEvent,
     NewsReaction,
@@ -94,6 +95,11 @@ class RoundManager:
         # kwarg; every other provider keeps the plain contract.
         self._prior_capable = bool(getattr(anthropic_client, "supports_engine_prior", False))
         self.divergence = {"checked": 0, "diverged": 0}
+        # Set by the orchestrator: "quick" | "campaign" (stamped on round_started).
+        self.preset: str | None = None
+        # The district count, stashed by the orchestrator after the results beat
+        # so the morning-after headline names the real winner.
+        self.district_election: dict | None = None
 
     # ── Seeded randomness ───────────────────────────────────────────
     #
@@ -202,6 +208,12 @@ class RoundManager:
                 round=round_num,
                 town=town,
                 total_rounds=total_rounds,
+                day=spec.day,
+                date=spec.date,
+                weekday=spec.weekday,
+                beat=spec.beat,
+                label=spec.label,
+                preset=self.preset,
             )
         )
 
@@ -213,8 +225,14 @@ class RoundManager:
                 hour=hour,
                 minute=minute,
                 town=town,
+                day=spec.day,
+                date=spec.date,
             )
         )
+
+        # Campaign event effects land before the beat's phases run.
+        if spec.event:
+            self._apply_event_effect(town, agent_states, spec)
 
         news_by_id = self.scenario.news_by_id
         decided_ids: list[str] = []
@@ -239,6 +257,9 @@ class RoundManager:
                     await self._run_news_round(agent_states, news_events, round_num)
             elif phase == "opinion":
                 await self._run_opinion_round(agent_states, round_num)
+            elif phase == "reflect":
+                # Sunday: the same read-out, framed as a week's reflection.
+                await self._run_opinion_round(agent_states, round_num, reflect=True)
             elif phase == "decide":
                 for agent in agent_states:
                     if agent.state == CivicAgentState.ERROR:
@@ -246,6 +267,12 @@ class RoundManager:
                     await self._cast_ballot(agent, town, round_num)
                     agent.state = CivicAgentState.DECIDED
                     decided_ids.append(agent.agent_id)
+            elif phase == "vote":
+                decided_ids.extend(await self._run_vote_beat(town, agent_states, spec))
+            elif phase == "results":
+                await self._publish_town_result(town, agent_states, spec)
+            elif phase == "aftermath":
+                await self._run_aftermath(town, agent_states, spec)
 
         await self.event_bus.publish(
             RoundEndedEvent(
@@ -686,6 +713,135 @@ class RoundManager:
         except Exception:  # pragma: no cover — defensive
             pass
 
+    # ── Campaign beats ─────────────────────────────────────────────────
+
+    VOTE_SHARES = {"early": 0.35, "midday": 0.30}
+
+    async def _run_vote_beat(
+        self, town: str, agents: list[AgentState], spec: RoundSpec
+    ) -> list[str]:
+        """Election day: a share of the residents goes to the polls on each
+        beat (the evening takes everyone who is left). Each voter rolls
+        turnout inside the ballot; failures abstain. Stances freeze once the
+        ballot is in."""
+        round_num = spec.round
+        share = self.VOTE_SHARES.get(spec.beat or "")
+        pending = [a for a in agents if a.state != CivicAgentState.ERROR and a.ballot is None]
+        if not pending:
+            return []
+        rng = self._rng(f"vote:{spec.beat}", town, round_num)
+        if share is None:
+            voters = list(pending)
+        else:
+            order = sorted(pending, key=lambda a: rng.random())
+            voters = order[: max(1, round(len(agents) * share))]
+        decided: list[str] = []
+        for agent in voters:
+            await self._cast_ballot(agent, town, round_num)
+            agent.state = CivicAgentState.DECIDED
+            decided.append(agent.agent_id)
+        return decided
+
+    async def _publish_town_result(
+        self, town: str, agents: list[AgentState], spec: RoundSpec
+    ) -> None:
+        election = self._election_for(agents, {s: 0 for s in self.scenario.valid_stance_ids})
+        await self.event_bus.publish(
+            ElectionResultEvent(
+                town=town,
+                per_town={town: election},
+                district=None,
+                round=spec.round,
+                day=spec.day,
+                date=spec.date,
+            )
+        )
+
+    async def _run_aftermath(self, town: str, agents: list[AgentState], spec: RoundSpec) -> None:
+        """The morning after: residents react to the result as a headline."""
+        election = self.district_election or self._election_for(
+            agents, {s: 0 for s in self.scenario.valid_stance_ids}
+        )
+        winner = election.get("winner")
+        label = self.scenario.option_label.get(winner, winner) if winner else None
+        headline = (
+            f"Result: {label} carries {self.scenario.title}"
+            if winner
+            else f"Result: {self.scenario.title} ends without a clear winner"
+        )
+        tally = ", ".join(
+            f"{self.scenario.option_label.get(o, o)} {n}" for o, n in election["tally"].items()
+        )
+        news = {
+            "id": f"result-{spec.day or spec.round}",
+            "headline": headline,
+            "description": f"The count: {tally}. Turnout {round(election.get('turnout', 0) * 100)}%.",
+            "towns": [],
+        }
+        await self.event_bus.publish(
+            NewsInjectedEvent(
+                headline=news["headline"],
+                description=news["description"],
+                round=spec.round,
+                news_id=news["id"],
+                towns=[town],
+            )
+        )
+        tasks = [
+            self._react_to_news(agent, news, spec.round)
+            for agent in agents
+            if agent.state != CivicAgentState.ERROR
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _apply_event_effect(self, town: str, agents: list[AgentState], spec: RoundSpec) -> None:
+        """Authored campaign events push the ledger directly (presence is Phase 7)."""
+        event = spec.event or {}
+        effect = event.get("effect") or {}
+        kind = effect.get("kind")
+        if not kind:
+            return
+        towns = effect.get("towns") or []
+        if towns and town not in towns:
+            return
+        ref = f"event:{spec.day or spec.round}-{event.get('kind', 'event')}"
+        rng = self._rng(f"event:{ref}", town, spec.round)
+        for agent in agents:
+            if agent.beliefs is None or agent.ballot is not None:
+                continue
+            if kind == "confidence":
+                # A shared moment firms everyone up a little.
+                agent.beliefs.evidence += 1
+                top = self.model.readout(agent.beliefs).top
+                if top:
+                    self.model.apply_event(
+                        agent,
+                        top,
+                        float(effect.get("delta", 4)) / 100.0,
+                        spec.round,
+                        ref,
+                        note=event.get("label", ""),
+                    )
+            elif kind == "undecided_nudge":
+                r = self.model.readout(agent.beliefs)
+                if r.stance == self.scenario.undecided_id and r.top and rng.random() < 0.6:
+                    self.model.apply_event(
+                        agent,
+                        r.top,
+                        float(effect.get("delta", 0.15)),
+                        spec.round,
+                        ref,
+                        note=event.get("label", ""),
+                    )
+            elif kind == "alignment":
+                option, issue = effect.get("option"), effect.get("issue")
+                delta = float(effect.get("delta", 0.0))
+                if option in self.model.alignment and issue in self.model.alignment[option]:
+                    self.model.alignment[option][issue] = max(
+                        -1.0, min(1.0, self.model.alignment[option][issue] + delta)
+                    )
+                break  # alignment is global; apply once
+
     async def _cast_ballot(self, agent: AgentState, town: str, round_num: int) -> None:
         """Decision day: the ballot follows the ledger and the stated opinion;
         turnout is a seeded roll. Abstainers still count as decided."""
@@ -723,6 +879,8 @@ class RoundManager:
                     headline=news["headline"],
                     description=news["description"],
                     round=round_num,
+                    news_id=news.get("id"),
+                    towns=list(news.get("towns") or []),
                 )
             )
 
@@ -831,16 +989,20 @@ class RoundManager:
             logger.error(f"Error in news reaction for {agent.agent_id}: {e}")
             agent.state = CivicAgentState.ERROR
 
-    async def _run_opinion_round(self, agents: list[AgentState], round_num: int):
-        """Get updated FormOpinion from all agents."""
-        logger.info(f"Running opinion round {round_num}")
+    async def _run_opinion_round(
+        self, agents: list[AgentState], round_num: int, *, reflect: bool = False
+    ):
+        """Get updated FormOpinion from all agents (a week's reflection on Sundays)."""
+        logger.info(f"Running opinion round {round_num}{' (reflect)' if reflect else ''}")
 
         tasks = []
         for agent in agents:
-            tasks.append(self._form_opinion(agent, round_num))
+            if agent.ballot is not None:
+                continue  # stances freeze once the ballot is in
+            tasks.append(self._form_opinion(agent, round_num, reflect=reflect))
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _form_opinion(self, agent: AgentState, round_num: int):
+    async def _form_opinion(self, agent: AgentState, round_num: int, *, reflect: bool = False):
         """Get a single agent's updated opinion."""
         try:
             agent.state = CivicAgentState.REFLECTING
@@ -856,8 +1018,8 @@ class RoundManager:
                 {
                     "role": "user",
                     "content": (
-                        f"It's round {round_num} of the deliberation. Take a moment to reflect "
-                        f"on everything you've heard and experienced.\n\n"
+                        f"{'It is Sunday evening — take stock of the week.' if reflect else f'It is round {round_num} of the deliberation.'} "
+                        f"Take a moment to reflect on everything you've heard and experienced.\n\n"
                         f"{digest}\n\n"
                         f"Now, considering all of this — your conversations, the news, your personal "
                         f"circumstances — update your opinion on the question: {self.scenario.question} "
@@ -943,7 +1105,9 @@ class RoundManager:
                         old_opinion=before,
                         new_opinion=opinion,
                         round=round_num,
-                        trigger=self._trigger_for(influences, "reflection", agent),
+                        trigger=OpinionTrigger(kind="reflection")
+                        if reflect
+                        else self._trigger_for(influences, "reflection", agent),
                         influences=influences,
                         reason=reason,
                         delta_confidence=(opinion.confidence - before.confidence)

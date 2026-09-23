@@ -41,7 +41,17 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS_DIR = PROJECT_ROOT / "scenarios"
 
-VALID_PHASES = ("seed", "converse", "news", "opinion", "decide")
+VALID_PHASES = (
+    "seed",
+    "converse",
+    "news",
+    "opinion",
+    "decide",
+    "reflect",
+    "vote",
+    "results",
+    "aftermath",
+)
 
 _CLOCK_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 _PACKAGE_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -216,6 +226,14 @@ class RoundSpec(BaseModel):
     clock: str = "12:00"  # in-game wall clock "HH:MM"
     phases: list[str] = Field(default_factory=list)
     news_ids: list[str] = Field(default_factory=list)
+    # ── Campaign calendar (set by calendar.expand_campaign; absent on the quick plan) ──
+    day: int | None = None  # 1-based campaign day
+    date: str | None = None  # ISO date
+    weekday: str | None = None  # "monday" … "sunday"
+    beat: str | None = None  # "morning" | "midday" | "evening" | "early" | "night" …
+    label: str | None = None  # "Debate night in Montclair"
+    event: dict | None = None  # the CampaignEventSpec that lands on this beat
+    weather: str | None = None  # emitted once, on the day's first beat
 
     @field_validator("phases")
     @classmethod
@@ -640,6 +658,155 @@ class GodScenarioSpec(BaseModel):
         return cleaned
 
 
+class CampaignBeatSpec(BaseModel):
+    """One beat of a day: a clock and the phases that run at it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    beat: str
+    clock: str
+    phases: list[str] = Field(min_length=1)
+
+    @field_validator("beat")
+    @classmethod
+    def _beat_slug(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not _SLUG_RE.fullmatch(value):
+            raise ValueError("beat must be a slug (morning, midday, evening …)")
+        return value
+
+    @field_validator("clock")
+    @classmethod
+    def _beat_clock(cls, v: str) -> str:
+        if not _CLOCK_RE.match(v):
+            raise ValueError(f"beat clock must be 'HH:MM' (24h), got {v!r}")
+        return v
+
+    @field_validator("phases")
+    @classmethod
+    def _beat_phases(cls, v: list[str]) -> list[str]:
+        unknown = [p for p in v if p not in VALID_PHASES]
+        if unknown:
+            raise ValueError(f"unknown phases {unknown}; valid phases: {list(VALID_PHASES)}")
+        if len(set(v)) != len(v):
+            raise ValueError("a beat must not repeat a phase")
+        return v
+
+
+CAMPAIGN_EVENT_KINDS = (
+    "debate",
+    "town_hall",
+    "canvass",
+    "mailer",
+    "endorsement",
+    "market",
+    "fair",
+    "rally",
+    "scandal",
+    "weather",
+    "holiday",
+)
+CAMPAIGN_EFFECT_KINDS = ("confidence", "undecided_nudge", "alignment", "presence")
+
+
+class CampaignEffectSpec(BaseModel):
+    """What an event does to the influence model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["confidence", "undecided_nudge", "alignment", "presence"]
+    delta: float = 0.0
+    option: str | None = None
+    issue: str | None = None
+    towns: list[str] = Field(default_factory=list)
+
+
+class CampaignEventSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day: int = Field(ge=1)
+    beat: str | None = None
+    kind: str
+    label: str
+    host_town: str | None = None
+    towns: list[str] = Field(default_factory=list)
+    news_id: str | None = None
+    effect: CampaignEffectSpec | None = None
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in CAMPAIGN_EVENT_KINDS:
+            raise ValueError(f"unknown event kind {value!r}; valid: {list(CAMPAIGN_EVENT_KINDS)}")
+        return value
+
+    @field_validator("label")
+    @classmethod
+    def _visible_label(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("event label must not be empty")
+        return value
+
+
+class NewsScheduleSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day: int = Field(ge=1)
+    beat: str | None = None
+    news_id: str
+    towns: list[str] = Field(default_factory=list)
+
+
+class CampaignSpec(BaseModel):
+    """A multi-day campaign: day templates the calendar expands into rounds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: str
+    election_date: str
+    aftermath_days: int = Field(default=1, ge=0, le=7)
+    beats: dict[str, list[CampaignBeatSpec]]
+    events: list[CampaignEventSpec] = Field(default_factory=list)
+    news_schedule: list[NewsScheduleSpec] = Field(default_factory=list)
+    weather: list[Literal["clear", "cloudy", "rain", "snow", "fog"]] = Field(default_factory=list)
+    budget_hints: dict = Field(default_factory=dict)
+
+    @field_validator("start_date", "election_date")
+    @classmethod
+    def _iso(cls, value: str) -> str:
+        value = value.strip()
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(f"campaign dates must be ISO YYYY-MM-DD, got {value!r}") from exc
+        return value
+
+    @field_validator("beats")
+    @classmethod
+    def _templates(
+        cls, value: dict[str, list[CampaignBeatSpec]]
+    ) -> dict[str, list[CampaignBeatSpec]]:
+        allowed = {"weekday", "saturday", "sunday", "election", "aftermath"}
+        unknown = [k for k in value if k not in allowed]
+        if unknown:
+            raise ValueError(f"unknown beat templates {unknown}; valid: {sorted(allowed)}")
+        if "weekday" not in value or not value["weekday"]:
+            raise ValueError("campaign beats need at least a 'weekday' template")
+        for name, beats in value.items():
+            names = [b.beat for b in beats]
+            if len(set(names)) != len(names):
+                raise ValueError(f"template {name!r} repeats a beat name")
+        return value
+
+    @model_validator(mode="after")
+    def _dates_in_order(self) -> Self:
+        if date.fromisoformat(self.election_date) < date.fromisoformat(self.start_date):
+            raise ValueError("campaign election_date must not precede start_date")
+        return self
+
+
 class ScenarioConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -665,6 +832,8 @@ class ScenarioConfig(BaseModel):
     # ── Model II: the issue space the influence model scores options on.
     #    Optional — without it the engine derives issues from option positions.
     issues: list[IssueSpec] = Field(default_factory=list)
+    # ── Campaign calendar (optional): `round_plan` stays the quick preset.
+    campaign: CampaignSpec | None = None
 
     @field_validator("id")
     @classmethod
@@ -748,6 +917,25 @@ class ScenarioConfig(BaseModel):
                     raise ValueError(
                         f"news {item.id!r} effect references unknown issue {effect.issue!r}"
                     )
+
+        if self.campaign is not None:
+            news_ids = {item.id for item in self.news}
+            for sched in self.campaign.news_schedule:
+                if sched.news_id not in news_ids:
+                    raise ValueError(
+                        f"campaign news_schedule references unknown news {sched.news_id!r}"
+                    )
+            for ev in self.campaign.events:
+                if ev.news_id and ev.news_id not in news_ids:
+                    raise ValueError(
+                        f"campaign event {ev.label!r} references unknown news {ev.news_id!r}"
+                    )
+                if ev.effect and ev.effect.option and ev.effect.option not in option_ids:
+                    raise ValueError(
+                        f"campaign event {ev.label!r} effect references unknown option"
+                    )
+                if ev.effect and ev.effect.issue and issue_ids and ev.effect.issue not in issue_ids:
+                    raise ValueError(f"campaign event {ev.label!r} effect references unknown issue")
 
         rounds = {spec.round for spec in self.round_plan}
         if len(set(self.gossip_rounds)) != len(self.gossip_rounds):
@@ -839,6 +1027,29 @@ class Scenario:
     @property
     def issues(self) -> list[IssueSpec]:
         return list(self.config.issues)
+
+    @property
+    def campaign(self) -> CampaignSpec | None:
+        return self.config.campaign
+
+    @property
+    def presets(self) -> list[str]:
+        return ["quick", "campaign"] if self.config.campaign is not None else ["quick"]
+
+    def plan_for(
+        self, preset: str = "quick", *, days: int | None = None, until_election: bool = False
+    ):
+        """The round plan for a preset: the manifest's `round_plan` (quick) or
+        the calendar expanded from `campaign` (campaign)."""
+        from ..simulation.calendar import expand_campaign
+
+        if preset in (None, "", "quick"):
+            return list(self.config.round_plan)
+        if preset != "campaign":
+            raise ValueError(f"unknown preset {preset!r}; valid: {self.presets}")
+        if self.config.campaign is None:
+            raise ValueError(f"scenario {self.id!r} declares no campaign calendar")
+        return expand_campaign(self.config, days=days, until_election=until_election)
 
     @property
     def issue_ids(self) -> list[str]:
@@ -1324,6 +1535,17 @@ def load_scenario(scenario_dir: Path | str) -> Scenario:
         unknown_towns = [town for town in item.towns if town not in towns]
         if unknown_towns:
             raise ValueError(f"news {item.id!r} references unknown towns: {unknown_towns}")
+    if config.campaign is not None:
+        for ev in config.campaign.events:
+            for town in [ev.host_town, *ev.towns]:
+                if town and town not in towns:
+                    raise ValueError(
+                        f"campaign event {ev.label!r} references unknown town {town!r}"
+                    )
+        for sched in config.campaign.news_schedule:
+            unknown = [t for t in sched.towns if t not in towns]
+            if unknown:
+                raise ValueError(f"campaign news_schedule references unknown towns: {unknown}")
     declared_issues = {issue.id for issue in config.issues}
     if declared_issues:
         for option_id, data in options_data.items():

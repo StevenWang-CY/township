@@ -68,7 +68,8 @@ def test_nj11_scenario_loads_and_matches_legacy_behavior():
     assert [r.clock for r in plan] == ["08:00", "10:00", "13:00", "16:00", "19:00"]
     assert plan[1].news_ids == ["aca-subsidies", "ice-enforcement"]
     assert plan[3].news_ids == ["property-tax"]
-    assert set(s.news_by_id) == {"aca-subsidies", "ice-enforcement", "property-tax"}
+    # The quick plan's three headlines are still there; the campaign calendar adds more.
+    assert {"aca-subsidies", "ice-enforcement", "property-tax"} <= set(s.news_by_id)
 
     # Cross-town machinery preserved verbatim.
     assert len(s.config.cross_town_pairs) == 6

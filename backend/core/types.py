@@ -362,6 +362,13 @@ class RoundStartedEvent(BaseModel):
     round: int
     town: str | None = None
     total_rounds: int
+    # ── Campaign calendar (additive; the quick plan leaves these None) ──
+    day: int | None = None
+    date: str | None = None
+    weekday: str | None = None
+    beat: str | None = None
+    label: str | None = None
+    preset: str | None = None
 
 
 class RoundEndedEvent(BaseModel):
@@ -469,6 +476,21 @@ class NewsInjectedEvent(BaseModel):
     headline: str
     description: str
     round: int = 0
+    # ── additive: the scenario's news id and the towns it reached (empty = all) ──
+    news_id: str | None = None
+    towns: list[str] = Field(default_factory=list)
+
+
+class ElectionResultEvent(BaseModel):
+    """The tally published on the results beat (per town, then the district)."""
+
+    type: Literal["election_result"] = "election_result"
+    town: str | None = None  # None = the district roll-up
+    per_town: dict[str, dict] = Field(default_factory=dict)
+    district: dict | None = None
+    round: int = 0
+    day: int | None = None
+    date: str | None = None
 
 
 class NewsReactionEvent(BaseModel):
@@ -504,6 +526,11 @@ class SimulationStartedEvent(BaseModel):
     type: Literal["simulation_started"] = "simulation_started"
     agents: list[dict] = Field(default_factory=list)
     towns: list[str] = Field(default_factory=list)
+    # ── Campaign calendar (additive) ──
+    preset: str | None = None
+    # [{round, phases, clock, day, date, beat, label}] — the run's own plan
+    plan: list[dict] = Field(default_factory=list)
+    resumed_from_day: int | None = None
 
 
 class SimulationEndedEvent(BaseModel):
@@ -520,6 +547,8 @@ class WorldClockTickEvent(BaseModel):
     hour: int
     minute: int
     town: str | None = None
+    day: int | None = None
+    date: str | None = None
 
 
 class WeatherChangedEvent(BaseModel):

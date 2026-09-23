@@ -171,6 +171,10 @@ class EventBus:
         self._recorders[token] = []
         return token
 
+    def get_recording(self, token: str) -> list[Any]:
+        """A snapshot of a recording in progress (the run's events so far)."""
+        return list(self._recorders.get(token, []))
+
     def stop_recording(self, token: str) -> list[Any]:
         """Finish a run-scoped capture and return its complete event sequence."""
         return self._recorders.pop(token, [])

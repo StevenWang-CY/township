@@ -9,6 +9,8 @@ import logging
 
 from fastapi import APIRouter, Request
 
+from ..simulation.calendar import campaign_facts
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/scenario", tags=["scenario"])
@@ -58,6 +60,8 @@ async def get_scenario(request: Request):
             {"round": r.round, "phases": list(r.phases), "clock": r.clock}
             for r in config.round_plan
         ],
+        "campaign": campaign_facts(config),
+        "presets": scenario.presets,
         "dates": {
             "decision_day": config.dates.decision_day,
             "prose": config.dates.prose,

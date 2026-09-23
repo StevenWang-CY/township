@@ -286,5 +286,163 @@
         "reserve"
       ]
     }
-  ]
+  ],
+  "campaign": {
+    "start_date": "2026-10-25",
+    "election_date": "2026-11-03",
+    "aftermath_days": 1,
+    "beats": {
+      "weekday": [
+        {
+          "beat": "morning",
+          "clock": "07:30",
+          "phases": [
+            "converse"
+          ]
+        },
+        {
+          "beat": "midday",
+          "clock": "12:30",
+          "phases": [
+            "news",
+            "converse"
+          ]
+        },
+        {
+          "beat": "evening",
+          "clock": "18:00",
+          "phases": [
+            "converse",
+            "opinion"
+          ]
+        }
+      ],
+      "saturday": [
+        {
+          "beat": "morning",
+          "clock": "09:00",
+          "phases": [
+            "converse"
+          ]
+        },
+        {
+          "beat": "evening",
+          "clock": "17:30",
+          "phases": [
+            "converse",
+            "opinion"
+          ]
+        }
+      ],
+      "sunday": [
+        {
+          "beat": "morning",
+          "clock": "10:00",
+          "phases": [
+            "converse"
+          ]
+        },
+        {
+          "beat": "evening",
+          "clock": "17:30",
+          "phases": [
+            "reflect"
+          ]
+        }
+      ],
+      "election": [
+        {
+          "beat": "early",
+          "clock": "07:00",
+          "phases": [
+            "vote"
+          ]
+        },
+        {
+          "beat": "midday",
+          "clock": "12:30",
+          "phases": [
+            "converse",
+            "vote"
+          ]
+        },
+        {
+          "beat": "evening",
+          "clock": "18:00",
+          "phases": [
+            "vote"
+          ]
+        },
+        {
+          "beat": "night",
+          "clock": "20:30",
+          "phases": [
+            "results"
+          ]
+        }
+      ],
+      "aftermath": [
+        {
+          "beat": "morning",
+          "clock": "08:30",
+          "phases": [
+            "aftermath"
+          ]
+        }
+      ]
+    },
+    "news_schedule": [
+      {
+        "day": 2,
+        "beat": "midday",
+        "news_id": "bridge-estimate"
+      },
+      {
+        "day": 5,
+        "beat": "midday",
+        "news_id": "greenway-match"
+      },
+      {
+        "day": 8,
+        "beat": "midday",
+        "news_id": "pension-warning"
+      }
+    ],
+    "events": [
+      {
+        "day": 4,
+        "beat": "evening",
+        "kind": "town_hall",
+        "label": "Town hall at the village hall",
+        "host_town": "millbrook-village",
+        "effect": {
+          "kind": "confidence",
+          "delta": 5
+        }
+      },
+      {
+        "day": 7,
+        "beat": "morning",
+        "kind": "fair",
+        "label": "Harvest fair at Harlow Crossing",
+        "host_town": "harlow-crossing"
+      }
+    ],
+    "weather": [
+      "clear",
+      "cloudy",
+      "rain",
+      "clear",
+      "fog",
+      "clear",
+      "clear",
+      "cloudy",
+      "rain",
+      "clear",
+      "clear"
+    ],
+    "budget_hints": {
+      "llm_beats_per_day": 3
+    }
+  }
 }

@@ -111,6 +111,30 @@ def run(
     town: str = typer.Option(None, help="Run a single town instead of the whole district."),
     rounds: int = typer.Option(None, help="Cap the run at the first N rounds of the plan."),
     provider: str = typer.Option(None, help="LLM provider (sets LLM_PROVIDER)."),
+    preset: str = typer.Option(
+        None,
+        help="quick (the manifest's round plan) or campaign (the multi-day calendar; default when the scenario declares one).",
+    ),
+    days: int = typer.Option(
+        None, help="Campaign only: run the last N days so the election is reached."
+    ),
+    until_election: bool = typer.Option(
+        False, "--until-election", help="Campaign only: stop on election night."
+    ),
+    budget: float = typer.Option(
+        None, help="Stop cleanly before spending more than this many USD (paid providers)."
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip the cost confirmation for paid campaign runs."
+    ),
+    demo_out: str = typer.Option(
+        None, "--demo-out", help="Also write the run as a demo replay cache (JSON path)."
+    ),
+    resume: str = typer.Option(
+        None,
+        "--resume",
+        help="Resume a persisted campaign run from its latest day checkpoint (runs/<run_id>).",
+    ),
 ):
     """Run a headless simulation, then print the recap and the run directory."""
     if provider:
@@ -120,6 +144,7 @@ def run(
 
     from .core.event_bus import EventBus
     from .core.scenario import load_scenario_with_fallback
+    from .core.storage import runs_root
     from .providers import create_provider
     from .simulation.orchestrator import SimulationOrchestrator
 
@@ -129,12 +154,55 @@ def run(
     bus = EventBus()
     orch = SimulationOrchestrator(anthropic_client=llm, event_bus=bus, scenario=sc)
 
+    chosen_preset = preset or ("campaign" if sc.campaign is not None else "quick")
+    if chosen_preset not in sc.presets:
+        raise typer.BadParameter(
+            f"scenario {sc.id!r} has presets {sc.presets}, not {chosen_preset!r}"
+        )
+    plan = sc.plan_for(chosen_preset, days=days, until_election=until_election)
+    if rounds:
+        plan = plan[:rounds]
+
     n_agents = sum(len(v) for v in orch.agent_states.values())
-    provider_name = llm.get_usage_report().get("provider", "?")
+    usage0 = llm.get_usage_report()
+    provider_name = usage0.get("provider", "?")
     typer.echo(f"Scenario: {sc.id} — {sc.title}")
     typer.echo(
         f"Provider: {provider_name} | {n_agents} agents | towns: {', '.join(orch.agent_states)}"
     )
+    plan_days = sorted({r.day for r in plan if r.day is not None})
+    typer.echo(
+        f"Preset: {chosen_preset} | {len(plan)} rounds"
+        + (f" over {len(plan_days)} days ({plan[0].date} → {plan[-1].date})" if plan_days else "")
+    )
+
+    # Paid providers confirm a campaign's rough cost first; the mock and the
+    # subscription CLI bill nothing at the margin.
+    if chosen_preset == "campaign" and provider_name not in ("mock", "claude-cli") and not yes:
+        from .simulation.budget import DEFAULT_MEAN_COST_USD
+
+        voices = n_agents if not town else len(orch.agent_states.get(town, []))
+        calls = sum(
+            (voices if "seed" in r.phases else 0)
+            + (max(1, voices // 2) * 3 if "converse" in r.phases else 0)
+            + (voices * len(r.news_ids) if "news" in r.phases else 0)
+            + (voices if any(p in r.phases for p in ("opinion", "reflect", "aftermath")) else 0)
+            for r in plan
+        )
+        est = calls * DEFAULT_MEAN_COST_USD
+        typer.echo(
+            f"Estimated {calls} model calls ≈ ${est:.2f} at ~${DEFAULT_MEAN_COST_USD:.3f}/call."
+        )
+        if budget is None:
+            typer.confirm("Continue?", abort=True)
+        else:
+            typer.echo(f"Budget guard armed at ${budget:.2f}.")
+
+    resume_checkpoint = None
+    if resume:
+        run_dir = runs_root() / resume
+        resume_checkpoint = SimulationOrchestrator.load_checkpoint(run_dir)
+        typer.echo(f"Resuming {resume} from day {resume_checkpoint.get('day')}")
 
     async def _on_round_started(e):
         where = f" [{e.town}]" if getattr(e, "town", None) else ""
@@ -151,15 +219,30 @@ def run(
     bus.subscribe("round_ended", _on_round_ended)
     bus.subscribe("news_injected", _on_news)
 
+    run_kwargs = dict(
+        preset=chosen_preset, days=days, until_election=until_election, budget_usd=budget
+    )
     if town:
-        summary = asyncio.run(orch.run_single_town(town, rounds))
+        summary = asyncio.run(orch.run_single_town(town, rounds, **run_kwargs))
         typer.echo(
             f"\n{town}: {summary.total_conversations} conversations, "
             f"distribution {summary.opinion_distribution}"
         )
     else:
-        district = asyncio.run(orch.run_full_simulation(rounds))
+        district = asyncio.run(
+            orch.run_full_simulation(rounds, resume=resume_checkpoint, **run_kwargs)
+        )
         typer.echo(f"\nDistrict prediction: {district.prediction}")
+        if district.election and district.election.get("district"):
+            d = district.election["district"]
+            typer.echo(
+                f"Election ({district.election['mode']}): {d['tally']} — winner {d['winner']}, turnout {d['turnout']:.0%}"
+            )
+    if orch.stopped_reason:
+        typer.echo(f"Stopped early: {orch.stopped_reason} at {orch.stopped_at}")
+    if demo_out:
+        asyncio.run(orch.save_cache(demo_out, usage=llm.get_usage_report()))
+        typer.echo(f"Demo cache written to: {demo_out}")
 
     usage = llm.get_usage_report()
     typer.echo(
