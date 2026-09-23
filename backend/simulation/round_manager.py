@@ -100,6 +100,9 @@ class RoundManager:
         # The district count, stashed by the orchestrator after the results beat
         # so the morning-after headline names the real winner.
         self.district_election: dict | None = None
+        # What each town is talking about: issue → salience (renormalised per beat).
+        self._salience: dict[str, dict[str, float]] = {}
+        self._beat_topics: dict[str, dict[str, float]] = {}
 
     # ── Seeded randomness ───────────────────────────────────────────
     #
@@ -273,6 +276,8 @@ class RoundManager:
                 await self._publish_town_result(town, agent_states, spec)
             elif phase == "aftermath":
                 await self._run_aftermath(town, agent_states, spec)
+
+        self._end_of_beat(town, agent_states, spec)
 
         await self.event_bus.publish(
             RoundEndedEvent(
@@ -640,8 +645,15 @@ class RoundManager:
 
                     # The argument lands on the listener's ledger.
                     entry = self.model.apply_exchange(
-                        listener, speaker, topic, round_num, conv_ref, relationship=relationship
+                        listener,
+                        speaker,
+                        topic,
+                        round_num,
+                        conv_ref,
+                        relationship=relationship,
+                        salience=self.salience_for(town),
                     )
+                    self._note_topic(town, topic, 0.5)
                     moved = abs(entry.delta) if entry else 0.0
                     speaker.remember(
                         "conversation",
@@ -696,6 +708,11 @@ class RoundManager:
         )
         agent_a.conversations.append(convo)
         agent_b.conversations.append(convo)
+        same_stance = (
+            len(set(partner_stances.values())) == 1
+            and self.scenario.undecided_id not in partner_stances.values()
+        )
+        self._grow_relationship(agent_a, agent_b, same_stance)
         # Preserve ERROR state set by a failed exchange; otherwise return to idle.
         if agent_a.state != CivicAgentState.ERROR:
             agent_a.state = CivicAgentState.IDLE
@@ -712,6 +729,45 @@ class RoundManager:
             )
         except Exception:  # pragma: no cover — defensive
             pass
+
+    # ── Long-run dynamics at the beat boundary ─────────────────────────
+
+    def _note_topic(self, town: str, text: str, weight: float) -> None:
+        issue = self.model.match_issue(text)
+        if issue:
+            bucket = self._beat_topics.setdefault(town, {})
+            bucket[issue] = bucket.get(issue, 0.0) + weight
+
+    def salience_for(self, town: str) -> dict[str, float]:
+        return self._salience.get(town, {})
+
+    def _end_of_beat(self, town: str, agents: list[AgentState], spec: RoundSpec) -> None:
+        # Town salience: 0.9 × old + 0.1 × this beat's talk, renormalised.
+        fresh = self._beat_topics.pop(town, {})
+        old = self._salience.get(town, {})
+        keys = set(old) | set(fresh)
+        if keys:
+            total_fresh = sum(fresh.values()) or 1.0
+            mixed = {
+                k: 0.9 * old.get(k, 0.0) + 0.1 * (fresh.get(k, 0.0) / total_fresh) for k in keys
+            }
+            norm = sum(mixed.values()) or 1.0
+            self._salience[town] = {k: v / norm for k, v in mixed.items()}
+        # Drift toward the persona anchor; a Sunday reflection resets habituation.
+        for agent in sorted(agents, key=lambda a: a.agent_id):
+            if agent.beliefs is None or agent.ballot is not None:
+                continue
+            self.model.end_of_beat(agent.beliefs)
+            if "reflect" in spec.phases:
+                self.model.weekly_reset(agent.beliefs)
+
+    @staticmethod
+    def _grow_relationship(a: AgentState, b: AgentState, same_stance: bool) -> None:
+        for x, y in ((a, b), (b, a)):
+            t = x.relationships_dyn.get(y.agent_id, 0.0)
+            x.relationships_dyn[y.agent_id] = round(
+                min(1.0, t + 0.06 * (1.0 - t) * (1.0 if same_stance else 0.3)), 4
+            )
 
     # ── Campaign beats ─────────────────────────────────────────────────
 
@@ -898,7 +954,12 @@ class RoundManager:
             item = self.scenario.news_by_id.get(news.get("id", ""))
             if item is None:
                 item = _AdHocNews(news["headline"], news.get("description", ""))
-            entries, derived = self.model.apply_news(agent, item, round_num, news_ref)
+            entries, derived = self.model.apply_news(
+                agent, item, round_num, news_ref, salience=self.salience_for(agent.definition.town)
+            )
+            self._note_topic(
+                agent.definition.town, f"{news['headline']} {news.get('description', '')}", 1.0
+            )
             moved = sum(abs(e.delta) for e in entries)
             prior = {"phase": "news", **derived, "headline": news["headline"]}
             system_prompt = self._build_agent_system_prompt(agent, round_num=round_num)
@@ -1087,6 +1148,7 @@ class RoundManager:
                             note=f"settled on {opinion.candidate} after reflecting",
                         )
                     agent.beliefs.last_reflection_round = round_num
+                    self.model.note_readout(agent.beliefs, opinion.candidate)
                 reason = self._first_sentence(tool_input.get("reason") or opinion.reasoning)
                 agent.remember(
                     "reflection",
@@ -1511,6 +1573,12 @@ class RoundManager:
                         best = max(best, float(rel.get("strength", 0.5)))
                     except (TypeError, ValueError):
                         best = max(best, 0.5)
+        # Ties that grew during the run count too.
+        best = max(
+            best,
+            agent_a.relationships_dyn.get(agent_b.agent_id, 0.0),
+            agent_b.relationships_dyn.get(agent_a.agent_id, 0.0),
+        )
         return best
 
     def _recently_paired(self, town: str, key: frozenset[str], round_num: int) -> bool:

@@ -285,6 +285,14 @@ class Beliefs(BaseModel):
     evidence: int = 0
     # the round of the resident's last opinion read-out
     last_reflection_round: int = 0
+    # ── long-run dynamics ──
+    # the persona's own utilities; pushes decay back toward them beat by beat
+    anchor: dict[str, float] = Field(default_factory=dict)
+    # "speaker:option" → how often that argument has landed (0.6^n gain)
+    habituation: dict[str, int] = Field(default_factory=dict)
+    # consecutive read-outs with the same favourite (firms confidence)
+    streak: int = 0
+    last_top: str | None = None
 
 
 class MemoryRecord(BaseModel):
@@ -322,6 +330,8 @@ class AgentState(BaseModel):
     current_town: str | None = None
     # Gossip waiting to be retold: (topic, ref)
     pending_topics: list[list[str]] = Field(default_factory=list)
+    # Relationships that grew during the run: agent id → trust 0..1
+    relationships_dyn: dict[str, float] = Field(default_factory=dict)
 
     @property
     def current_opinion(self) -> Opinion | None:

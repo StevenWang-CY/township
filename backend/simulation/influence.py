@@ -40,6 +40,12 @@ REINFORCE_GAIN = 0.5  # share of Δ applied when speaker and listener agree
 NEWS_GAIN = 0.45
 GOSSIP_KAPPA = 0.25
 CONFIRMATION = 0.8  # pushes away from the current favourite land a little softer
+DRIFT = 0.04  # per-beat relaxation toward the persona anchor (half-life ≈ 17 beats)
+HABITUATION = 0.6  # gain multiplier per repeat of the same speaker's case for the same option
+HABITUATION_CAP = 4
+STREAK_CONF = 15.0  # extra confidence from a stable favourite: 15·tanh(streak/3)
+SALIENCE_FLOOR = 0.7
+SALIENCE_GAIN = 0.6
 UNDECIDED_MARGIN = 0.12
 CONFIDENCE_BASE = 30.0
 CONFIDENCE_SPAN = 55.0
@@ -318,6 +324,7 @@ class InfluenceModel:
         beliefs = Beliefs(utilities=utilities, weights=weights, traits=traits)
         if (stance or defn.initial_lean) == self.undecided_id:
             self._compress_to_undecided(beliefs)
+        beliefs.anchor = dict(beliefs.utilities)
         beliefs.ledger.append(
             LedgerEntry(
                 round=0,
@@ -409,6 +416,7 @@ class InfluenceModel:
         relationship: float = 0.0,
         kappa: float = 1.0,
         kind: str = "conversation",
+        salience: dict[str, float] | None = None,
     ) -> LedgerEntry | None:
         """One spoken argument landing on the listener. Returns the ledger entry."""
         if listener.beliefs is None:
@@ -460,6 +468,14 @@ class InfluenceModel:
             delta *= REINFORCE_GAIN
         elif listener_top is not None:
             delta *= CONFIRMATION
+        # The same person making the same case again lands softer each time.
+        hkey = f"{speaker.agent_id}:{speaker_stance}"
+        repeats = b.habituation.get(hkey, 0)
+        delta *= HABITUATION**repeats
+        b.habituation[hkey] = min(HABITUATION_CAP, repeats + 1)
+        # What the town is talking about lands harder.
+        if salience and issue:
+            delta *= SALIENCE_FLOOR + SALIENCE_GAIN * salience.get(issue, 0.0)
         self._push(b, speaker_stance, delta)
         b.evidence += 1
         note = f"{speaker.definition.name} made the case for {speaker_stance}" + (
@@ -478,7 +494,13 @@ class InfluenceModel:
         return entry
 
     def apply_news(
-        self, agent: AgentState, news, round_num: int, ref: str
+        self,
+        agent: AgentState,
+        news,
+        round_num: int,
+        ref: str,
+        *,
+        salience: dict[str, float] | None = None,
     ) -> tuple[list[LedgerEntry], dict]:
         """A headline lands. Returns (entries, derived reaction {impact, emotion})."""
         if agent.beliefs is None:
@@ -506,6 +528,8 @@ class InfluenceModel:
             delta = NEWS_GAIN * media * delta_spec * (0.25 + w)
             if before.top is not None and option != before.top and delta > 0:
                 delta *= CONFIRMATION
+            if salience and issue_id:
+                delta *= SALIENCE_FLOOR + SALIENCE_GAIN * salience.get(issue_id, 0.0)
             self._push(b, option, delta)
             entries.append(
                 LedgerEntry(
@@ -611,11 +635,34 @@ class InfluenceModel:
         conf = _clamp(
             CONFIDENCE_BASE
             + CONFIDENCE_SPAN * math.tanh(margin / CONFIDENCE_SCALE)
-            + EVIDENCE_BONUS * min(beliefs.evidence, EVIDENCE_CAP),
+            + EVIDENCE_BONUS * min(beliefs.evidence, EVIDENCE_CAP)
+            + STREAK_CONF * math.tanh(beliefs.streak / 3.0),
             5,
             95,
         )
         return Readout(top, int(round(conf)), margin, top, second)
+
+    # ── Long-run dynamics (called by the engine at beat boundaries) ────────
+    def end_of_beat(self, beliefs: Beliefs) -> None:
+        """Drift: every push relaxes toward the persona's anchor a little."""
+        if not beliefs.anchor:
+            beliefs.anchor = dict(beliefs.utilities)
+            return
+        for o, u in beliefs.utilities.items():
+            a = beliefs.anchor.get(o, u)
+            beliefs.utilities[o] = a + (u - a) * (1.0 - DRIFT)
+
+    def note_readout(self, beliefs: Beliefs, stance: str) -> None:
+        """Track how long the favourite has held (feeds the confidence streak)."""
+        if stance == beliefs.last_top and stance != self.undecided_id:
+            beliefs.streak += 1
+        else:
+            beliefs.streak = 0 if stance == self.undecided_id else 1
+        beliefs.last_top = stance
+
+    def weekly_reset(self, beliefs: Beliefs) -> None:
+        """Sunday: arguments feel fresh again."""
+        beliefs.habituation = {k: max(0, v - 1) for k, v in beliefs.habituation.items() if v > 1}
 
     def prior_for(self, agent: AgentState, since_round: int = 0) -> dict:
         """What the ledger says now — handed to providers that render from it."""
