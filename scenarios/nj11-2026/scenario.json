@@ -49,31 +49,52 @@
   "round_plan": [
     {
       "round": 0,
-      "phases": ["seed"],
+      "phases": [
+        "seed"
+      ],
       "clock": "08:00",
       "news_ids": []
     },
     {
       "round": 1,
-      "phases": ["converse", "news"],
+      "phases": [
+        "converse",
+        "news"
+      ],
       "clock": "10:00",
-      "news_ids": ["aca-subsidies", "ice-enforcement"]
+      "news_ids": [
+        "aca-subsidies",
+        "ice-enforcement"
+      ]
     },
     {
       "round": 2,
-      "phases": ["converse", "opinion"],
+      "phases": [
+        "converse",
+        "opinion"
+      ],
       "clock": "13:00",
       "news_ids": []
     },
     {
       "round": 3,
-      "phases": ["news", "converse", "opinion"],
+      "phases": [
+        "news",
+        "converse",
+        "opinion"
+      ],
       "clock": "16:00",
-      "news_ids": ["property-tax"]
+      "news_ids": [
+        "property-tax"
+      ]
     },
     {
       "round": 4,
-      "phases": ["converse", "opinion", "decide"],
+      "phases": [
+        "converse",
+        "opinion",
+        "decide"
+      ],
       "clock": "19:00",
       "news_ids": []
     }
@@ -82,47 +103,263 @@
     {
       "id": "aca-subsidies",
       "headline": "ACA Subsidies at Risk in One Big Beautiful Bill",
-      "description": "Congressional Republicans are pushing the 'One Big Beautiful Bill' which would end enhanced ACA subsidies. For NJ-11, this could mean 40,000+ residents losing health insurance subsidies worth $400-$800/month per family."
+      "description": "Congressional Republicans are pushing the 'One Big Beautiful Bill' which would end enhanced ACA subsidies. For NJ-11, this could mean 40,000+ residents losing health insurance subsidies worth $400-$800/month per family.",
+      "effects": [
+        {
+          "issue": "healthcare",
+          "option": "mejia",
+          "delta": 0.6
+        },
+        {
+          "issue": "healthcare",
+          "option": "hathaway",
+          "delta": -0.6
+        },
+        {
+          "issue": "national",
+          "option": "hathaway",
+          "delta": -0.2
+        }
+      ],
+      "towns": []
     },
     {
       "id": "ice-enforcement",
       "headline": "ICE Enforcement Increases in Morris County",
-      "description": "Immigration and Customs Enforcement has increased operations in Morris County, with reports of workplace raids in Dover and Parsippany. Community organizations report a chilling effect on residents seeking public services."
+      "description": "Immigration and Customs Enforcement has increased operations in Morris County, with reports of workplace raids in Dover and Parsippany. Community organizations report a chilling effect on residents seeking public services.",
+      "effects": [
+        {
+          "issue": "immigration",
+          "option": "mejia",
+          "delta": 0.5
+        },
+        {
+          "issue": "immigration",
+          "option": "hathaway",
+          "delta": -0.3
+        }
+      ],
+      "towns": [
+        "dover",
+        "parsippany"
+      ]
     },
     {
       "id": "property-tax",
       "headline": "Property Tax Reassessment Coming to Morris County",
-      "description": "Morris County has announced a county-wide property tax reassessment for 2027. Homeowners in rapidly appreciating areas like Montclair and Randolph could see significant increases, while some Dover properties may see decreases."
+      "description": "Morris County has announced a county-wide property tax reassessment for 2027. Homeowners in rapidly appreciating areas like Montclair and Randolph could see significant increases, while some Dover properties may see decreases.",
+      "effects": [
+        {
+          "issue": "taxes",
+          "option": "hathaway",
+          "delta": 0.5
+        },
+        {
+          "issue": "taxes",
+          "option": "mejia",
+          "delta": -0.2
+        }
+      ],
+      "towns": [
+        "montclair",
+        "randolph",
+        "dover"
+      ]
     }
   ],
   "cross_town_pairs": [
     {
-      "agents": ["Carlos Restrepo", "Pawan Sharma"],
+      "agents": [
+        "Carlos Restrepo",
+        "Pawan Sharma"
+      ],
       "connection": "Fellow restaurant owners who met at a Morris County Restaurant Association mixer. They bonded over the challenges of running a small food business in NJ."
     },
     {
-      "agents": ["Maria Santos", "Grace Reyes"],
+      "agents": [
+        "Maria Santos",
+        "Grace Reyes"
+      ],
       "connection": "Both healthcare workers who occasionally cross paths at Morristown Medical Center during shift changes. They share frustrations about insurance paperwork and patient loads."
     },
     {
-      "agents": ["Tom Kowalski", "Frank DeLuca"],
+      "agents": [
+        "Tom Kowalski",
+        "Frank DeLuca"
+      ],
       "connection": "Veterans who know each other from the Morris County VFW post. They served in different eras but share a deep bond over military service and VA healthcare struggles."
     },
     {
-      "agents": ["Sofia Ramirez", "Jordan Williams"],
+      "agents": [
+        "Sofia Ramirez",
+        "Jordan Williams"
+      ],
       "connection": "Connected on social media through mutual activist friends. Both are young, frustrated with the political establishment, and active in local organizing circles."
     },
     {
-      "agents": ["Raj & Sunita Krishnamurthy", "Vikram Iyer"],
+      "agents": [
+        "Raj & Sunita Krishnamurthy",
+        "Vikram Iyer"
+      ],
       "connection": "Indian-American tech professionals who know each other from the Parsippany-area tech meetup circuit. Their families attend some of the same community events."
     },
     {
-      "agents": ["Priya Patel", "Jennifer \"Jen\" Russo"],
+      "agents": [
+        "Priya Patel",
+        "Jennifer \"Jen\" Russo"
+      ],
       "connection": "Suburban moms whose kids played in the same Morris County youth soccer league. They chat at games about schools, property taxes, and local politics."
     }
   ],
   "cross_town_meeting_place": "Morris County Community Event",
-  "weather_schedule": ["clear", "cloudy", "rain", "clear", "snow"],
-  "gossip_rounds": [2, 3],
-  "town_order": ["dover", "montclair", "parsippany", "randolph"]
+  "weather_schedule": [
+    "clear",
+    "cloudy",
+    "rain",
+    "clear",
+    "snow"
+  ],
+  "gossip_rounds": [
+    2,
+    3
+  ],
+  "town_order": [
+    "dover",
+    "montclair",
+    "parsippany",
+    "randolph"
+  ],
+  "issues": [
+    {
+      "id": "healthcare",
+      "label": "Healthcare and the ACA",
+      "keywords": [
+        "aca",
+        "medicare",
+        "medicaid",
+        "premium",
+        "insurance",
+        "subsid",
+        "health",
+        "hospital",
+        "prescription"
+      ]
+    },
+    {
+      "id": "immigration",
+      "label": "Immigration and ICE",
+      "keywords": [
+        "ice",
+        "immigra",
+        "deport",
+        "daca",
+        "raid",
+        "citizenship",
+        "undocumented",
+        "border"
+      ]
+    },
+    {
+      "id": "taxes",
+      "label": "Property taxes and SALT",
+      "keywords": [
+        "property tax",
+        "salt",
+        "tax",
+        "reassess",
+        "assessment",
+        "levy"
+      ]
+    },
+    {
+      "id": "cost-of-living",
+      "label": "Cost of living and wages",
+      "keywords": [
+        "rent",
+        "wage",
+        "minimum wage",
+        "afford",
+        "grocer",
+        "lease",
+        "inflation",
+        "cost of living",
+        "housing",
+        "paycheck"
+      ]
+    },
+    {
+      "id": "jobs",
+      "label": "Jobs and the local economy",
+      "keywords": [
+        "job",
+        "layoff",
+        "employer",
+        "union",
+        "small business",
+        "pharma",
+        "contract",
+        "labor",
+        "work"
+      ]
+    },
+    {
+      "id": "transit",
+      "label": "Transit and the Gateway tunnel",
+      "keywords": [
+        "gateway",
+        "tunnel",
+        "transit",
+        "train",
+        "commut",
+        "nj transit",
+        "bus",
+        "traffic",
+        "route 80",
+        "i-287"
+      ]
+    },
+    {
+      "id": "education",
+      "label": "Education and college costs",
+      "keywords": [
+        "college",
+        "tuition",
+        "school",
+        "student",
+        "loan",
+        "ccm",
+        "class"
+      ]
+    },
+    {
+      "id": "trust",
+      "label": "Integrity and trust",
+      "keywords": [
+        "fraud",
+        "conviction",
+        "corrupt",
+        "trust",
+        "honest",
+        "integrity",
+        "rubber stamp",
+        "follow through",
+        "promise"
+      ]
+    },
+    {
+      "id": "national",
+      "label": "National politics and the One Big Beautiful Bill",
+      "keywords": [
+        "trump",
+        "one big beautiful bill",
+        "obbb",
+        "congress",
+        "national",
+        "supreme court",
+        "israel",
+        "gaza",
+        "party line"
+      ]
+    }
+  ]
 }

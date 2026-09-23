@@ -16,6 +16,7 @@ export const EVENT_DELAYS: Record<string, number> = {
   conversation_started: 0.5,
   conversation_ended: 0.3,
   opinion_changed: 0.8,
+  ballot_cast: 0.6,
   news_injected: 2.0,
   news_reaction: 0.4,
   cross_town_gossip: 1.0,

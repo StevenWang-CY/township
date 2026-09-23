@@ -108,6 +108,18 @@ export interface NewsReaction {
 
 /* ── Summaries ─────────────────────────────────────────────── */
 
+export interface ElectionTally {
+  mode: "ballots" | "straw_poll";
+  tally: Record<string, number>;
+  winner: string | null;
+  margin: number;
+  margin_pct: number;
+  turnout: number;
+  undecided?: number;
+  abstained: number;
+  eligible: number;
+}
+
 export interface TownSummary {
   town: TownId;
   round: number;
@@ -116,6 +128,18 @@ export interface TownSummary {
   consensus_points: string[];
   fault_lines: string[];
   notable_conversations: string[];
+  /** Additive: the town's ballot tally (or straw poll) when the engine computed one. */
+  election?: ElectionTally | null;
+}
+
+export interface SwingResidentWire {
+  agent_id: string;
+  name: string;
+  town: TownId;
+  from: string;
+  to: string;
+  round: number;
+  kind: "switched" | "decided";
 }
 
 export interface DistrictSummary {
@@ -125,6 +149,13 @@ export interface DistrictSummary {
   cross_town_themes: string[];
   consensus_zones: string[];
   fault_lines: string[];
+  /** Additive: district and per-town election tallies plus who moved. */
+  election?: {
+    mode: "ballots" | "straw_poll";
+    per_town: Record<string, ElectionTally>;
+    district: Omit<ElectionTally, "mode" | "undecided">;
+    swing_residents: SwingResidentWire[];
+  } | null;
 }
 
 /* ── Chat ───────────────────────────────────────────────────── */
@@ -162,6 +193,25 @@ export interface ConversationEndedEvent {
   summary: string;
 }
 
+/** One cited cause of an opinion change (validated against the engine's ledger). */
+export interface InfluenceRef {
+  kind: "conversation" | "news" | "gossip" | "persona" | "seed" | "god_view" | "event";
+  /** "conv:<id>" | "news:<id>" | "gossip:<id>" | "persona:<issue>" | "god:<n>" */
+  ref: string;
+  agent_id?: string | null;
+  direction: "toward" | "away";
+  weight: number;
+  note?: string;
+}
+
+export interface OpinionTrigger {
+  kind: "seed" | "conversation" | "news" | "reflection" | "decision" | "god_view" | "gossip";
+  conversation_id?: string | null;
+  partner_ids?: string[];
+  news_id?: string | null;
+  headline?: string | null;
+}
+
 export interface OpinionChangedEvent {
   type: "opinion_changed";
   agent_id: string;
@@ -170,6 +220,24 @@ export interface OpinionChangedEvent {
   old_opinion?: Opinion | null;
   new_opinion: Opinion;
   confidence_delta?: number; // optional; frontend will compute if missing
+  /** Causal fields (additive; recordings before them omit these). */
+  round?: number | null;
+  trigger?: OpinionTrigger | null;
+  influences?: InfluenceRef[];
+  reason?: string | null;
+  delta_confidence?: number | null;
+}
+
+/** A resident's ballot on decision day (option null = abstained). */
+export interface BallotCastEvent {
+  type: "ballot_cast";
+  agent_id: string;
+  agent_name: string;
+  town: TownId;
+  option: string | null;
+  confidence: number;
+  reason: string;
+  round: number;
 }
 
 export interface NewsInjectedEvent {
@@ -290,7 +358,9 @@ export type SimulationEvent =
   | WeatherChangedEvent
   | RelationshipUpdateEvent
   | CrossTownGossipEvent
-  | GodViewInjectionEvent;
+  | GodViewInjectionEvent
+  | BallotCastEvent
+;
 
 /* ── Relationships (player ↔ agent) ────────────────────────── */
 

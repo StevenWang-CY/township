@@ -46,6 +46,22 @@ class AgentDefinition(BaseModel):
     goals: dict[str, str] = Field(default_factory=dict)
     # e.g. {"round_0": "Learn what each candidate stands for.", ...}
 
+    # ── Influence-model traits (all OPTIONAL; the engine derives defaults
+    #    from registration and lean when a persona leaves them out) ──
+    # How readily the resident moves toward an argument (0 = immovable).
+    persuadability: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Pull toward the option that shares their political group.
+    party_loyalty: float | None = Field(default=None, ge=0.0, le=1.0)
+    # How much headlines land relative to conversations.
+    media_diet: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Explicit issue weights (issue id → weight) override the top_concerns rank.
+    issue_weights: dict[str, float] = Field(default_factory=dict)
+    # Probability of turning out on decision day.
+    turnout: float | None = Field(default=None, ge=0.0, le=1.0)
+    # "voice" personas speak through the LLM; "neighbor" residents (generated
+    # background population) live entirely in the influence model.
+    tier: Literal["voice", "neighbor"] = "voice"
+
     @field_validator(
         "name",
         "town",
@@ -219,6 +235,12 @@ class ConversationRecord(BaseModel):
     dialogue: str
     key_takeaways: dict[str, str]
     round_number: int
+    # ── Model II additions (optional for persisted states) ──
+    id: str | None = None
+    # agent id → stance held when they spoke
+    partner_stances: dict[str, str] = Field(default_factory=dict)
+    # agent id → sentiment of their lines
+    sentiments: dict[str, str] = Field(default_factory=dict)
 
 
 class NewsReaction(BaseModel):
@@ -236,6 +258,54 @@ class NewsReaction(BaseModel):
     reasoning: str
 
 
+class LedgerEntry(BaseModel):
+    """One recorded push on a resident's beliefs (the source of every cause)."""
+
+    round: int
+    kind: Literal["seed", "conversation", "news", "gossip", "god_view", "event", "reflection"]
+    # "conv:<id>" | "news:<id>" | "gossip:<id>" | "persona:<concern>" | "god:<id>"
+    ref: str
+    agent_id: str | None = None  # the other party, when there is one
+    option: str
+    delta: float
+    note: str = ""
+
+
+class Beliefs(BaseModel):
+    """The influence model's per-resident state (see simulation/influence.py)."""
+
+    # option id → utility (higher = preferred); the read-out stance is the argmax
+    utilities: dict[str, float] = Field(default_factory=dict)
+    # issue id → normalised weight
+    weights: dict[str, float] = Field(default_factory=dict)
+    # persuadability, party_loyalty, media_diet
+    traits: dict[str, float] = Field(default_factory=dict)
+    ledger: list[LedgerEntry] = Field(default_factory=list)
+    # count of distinct pushes since the seed (feeds confidence)
+    evidence: int = 0
+    # the round of the resident's last opinion read-out
+    last_reflection_round: int = 0
+
+
+class MemoryRecord(BaseModel):
+    """Typed memory with the refs the resident may cite when they change their mind."""
+
+    kind: Literal[
+        "seed", "conversation", "news", "gossip", "reflection", "ballot", "god_view", "event"
+    ]
+    round: int
+    text: str
+    refs: list[str] = Field(default_factory=list)
+    salience: float = 0.5
+
+
+class Ballot(BaseModel):
+    option: str | None  # None = abstained
+    confidence: int = Field(ge=0, le=100)
+    reason: str = ""
+    round: int
+
+
 class AgentState(BaseModel):
     agent_id: str  # slug from filename
     definition: AgentDefinition
@@ -244,6 +314,14 @@ class AgentState(BaseModel):
     opinions: list[Opinion] = Field(default_factory=list)
     conversations: list[ConversationRecord] = Field(default_factory=list)
     state: CivicAgentState = CivicAgentState.IDLE
+    # ── Model II (all optional so persisted states before it still load) ──
+    beliefs: Beliefs | None = None
+    memory_records: list[MemoryRecord] = Field(default_factory=list)
+    ballot: Ballot | None = None
+    # The town the resident is in right now (commuting, events); None = home.
+    current_town: str | None = None
+    # Gossip waiting to be retold: (topic, ref)
+    pending_topics: list[list[str]] = Field(default_factory=list)
 
     @property
     def current_opinion(self) -> Opinion | None:
@@ -251,6 +329,26 @@ class AgentState(BaseModel):
 
     def add_memory(self, memory: str):
         self.memories.append(memory)
+
+    def remember(
+        self,
+        kind: str,
+        round_num: int,
+        text: str,
+        refs: list[str] | None = None,
+        salience: float = 0.5,
+    ) -> None:
+        """Record a memory both as the legacy string and as a typed record."""
+        self.memories.append(text)
+        self.memory_records.append(
+            MemoryRecord(
+                kind=kind,  # type: ignore[arg-type]
+                round=round_num,
+                text=text,
+                refs=list(refs or []),
+                salience=salience,
+            )
+        )
 
     def get_recent_memories(self, n: int = 10) -> list[str]:
         return self.memories[-n:]
@@ -317,6 +415,27 @@ class AgentSpeechEvent(BaseModel):
     gesture: str | None = None  # nod | shake_head | shrug | laugh | point | none
 
 
+class InfluenceRef(BaseModel):
+    """One cited cause of an opinion change (validated against the ledger)."""
+
+    kind: Literal["conversation", "news", "gossip", "persona", "seed", "god_view", "event"]
+    ref: str  # "conv:<id>" | "news:<id>" | "gossip:<id>" | "persona:<concern>" | "god:<id>"
+    agent_id: str | None = None
+    direction: Literal["toward", "away"] = "toward"
+    weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    note: str = Field(default="", max_length=160)
+
+
+class OpinionTrigger(BaseModel):
+    """What prompted the read-out that changed (or restated) the opinion."""
+
+    kind: Literal["seed", "conversation", "news", "reflection", "decision", "god_view", "gossip"]
+    conversation_id: str | None = None
+    partner_ids: list[str] = Field(default_factory=list)
+    news_id: str | None = None
+    headline: str | None = None
+
+
 class OpinionChangedEvent(BaseModel):
     type: Literal["opinion_changed"] = "opinion_changed"
     agent_id: str
@@ -324,6 +443,25 @@ class OpinionChangedEvent(BaseModel):
     town: str
     old_opinion: Opinion | None = None
     new_opinion: Opinion
+    # ── Causal fields (additive; recordings before them omit these) ──
+    round: int | None = None
+    trigger: OpinionTrigger | None = None
+    influences: list[InfluenceRef] = Field(default_factory=list)
+    reason: str | None = Field(default=None, max_length=200)
+    delta_confidence: int | None = None
+
+
+class BallotCastEvent(BaseModel):
+    """A resident's ballot on decision day (option None = abstained)."""
+
+    type: Literal["ballot_cast"] = "ballot_cast"
+    agent_id: str
+    agent_name: str
+    town: str
+    option: str | None
+    confidence: int = Field(ge=0, le=100)
+    reason: str = ""
+    round: int
 
 
 class NewsInjectedEvent(BaseModel):
@@ -441,6 +579,14 @@ class TownSummary(BaseModel):
     total_conversations: int
     rounds_completed: int
     failed_agents: int = 0  # agents whose LLM calls errored out
+    # ── Model II (additive) ──
+    # {"mode": "ballots"|"straw_poll", "tally": {...}, "winner": id|None, "margin": int,
+    #  "margin_pct": float, "turnout": float, "undecided": int, "abstained": int, "eligible": int}
+    election: dict | None = None
+    # "Carlos & Tom at Bodega Row (r2): rent" — the conversations that moved people most
+    notable_conversations: list[str] = Field(default_factory=list)
+    # issues most residents rank at the top
+    consensus_points: list[str] = Field(default_factory=list)
 
 
 class DistrictSummary(BaseModel):
@@ -452,3 +598,9 @@ class DistrictSummary(BaseModel):
     total_conversations: int
     total_cost: float
     failed_agents: int = 0  # sum of failed agents across all towns
+    # ── Model II (additive) ──
+    # {"mode", "per_town": {town: TownSummary.election}, "district": {...},
+    #  "swing_residents": [{agent_id, name, town, from, to, round, trigger}]}
+    election: dict | None = None
+    # top gossip topics that crossed town lines
+    cross_town_themes: list[str] = Field(default_factory=list)

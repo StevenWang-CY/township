@@ -37,5 +37,16 @@
   "sources": [
     "Ballotpedia (ballotpedia.org/Alan_Bond)",
     "Patch.com Montclair (March 28, 2026)"
-  ]
+  ],
+  "alignment": {
+    "healthcare": 0.0,
+    "immigration": 0.0,
+    "taxes": 0.3,
+    "cost-of-living": 0.0,
+    "jobs": 0.3,
+    "transit": 0.0,
+    "education": 0.0,
+    "trust": -1.0,
+    "national": 0.0
+  }
 }

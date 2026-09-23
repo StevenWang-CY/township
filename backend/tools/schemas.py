@@ -114,8 +114,79 @@ def make_form_opinion(stances: list[str], topic_phrase: str = "the question at h
                         "Null if nothing would change your mind."
                     ),
                 },
+                "influences": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "description": (
+                        "What actually moved you since your last reflection. Cite only the "
+                        "bracketed ids from your recent experiences (conv:…, news:…, gossip:…, "
+                        "persona:…). Leave empty if nothing moved you."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "ref": {
+                                "type": "string",
+                                "description": "A bracketed id, e.g. conv:3f2a",
+                            },
+                            "direction": {
+                                "type": "string",
+                                "enum": ["toward", "away"],
+                                "description": "Did it pull you toward your current stance, or away from your previous one?",
+                            },
+                            "weight": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                                "description": "How much it mattered, 0-1.",
+                            },
+                            "note": {
+                                "type": "string",
+                                "description": "One short clause on why (<= 120 chars).",
+                            },
+                        },
+                        "required": ["ref", "direction", "weight"],
+                    },
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "One sentence (<= 160 chars) a neighbour could repeat: why you stand here now.",
+                },
             },
             "required": ["candidate", "confidence", "reasoning", "top_issues"],
+        },
+    }
+
+
+def make_cast_ballot(option_ids: list[str], topic_phrase: str = "the question at hand") -> dict:
+    """Build a CastBallot tool: the options plus 'abstain'."""
+    return {
+        "name": "CastBallot",
+        "description": (
+            f"It is decision day for {topic_phrase}. Cast your ballot for one option, or abstain "
+            "if you genuinely cannot choose. This is final: it reflects everything you have "
+            "heard, read and lived through during the deliberation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "option": {
+                    "type": "string",
+                    "enum": [*option_ids, "abstain"],
+                    "description": "The option you vote for, or 'abstain'.",
+                },
+                "confidence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "How sure you are as you mark the ballot (0-100).",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "One sentence (<= 160 chars) on why, in your own voice.",
+                },
+            },
+            "required": ["option", "confidence", "reason"],
         },
     }
 
@@ -225,12 +296,14 @@ _DEFAULT_STANCES = ["option-a", "option-b", "undecided"]
 discuss_tool = _base_discuss(_DEFAULT_TOPIC_PHRASE)
 form_opinion_tool = make_form_opinion(_DEFAULT_STANCES, _DEFAULT_TOPIC_PHRASE)
 react_to_news_tool = _base_react_to_news(_DEFAULT_TOPIC_PHRASE)
+cast_ballot_tool = make_cast_ballot(_DEFAULT_STANCES[:-1], _DEFAULT_TOPIC_PHRASE)
 
 TOOL_REGISTRY: dict[str, dict] = {
     "Discuss": discuss_tool,
     "FormOpinion": form_opinion_tool,
     "ReactToNews": react_to_news_tool,
     "ClassifyInteraction": classify_interaction_tool,
+    "CastBallot": cast_ballot_tool,
 }
 
 
@@ -248,6 +321,7 @@ def build_tools(scenario) -> dict[str, dict]:
         "FormOpinion": make_form_opinion(scenario.valid_stance_ids, topic_phrase),
         "ReactToNews": _base_react_to_news(topic_phrase),
         "ClassifyInteraction": copy.deepcopy(classify_interaction_tool),
+        "CastBallot": make_cast_ballot(scenario.option_ids, topic_phrase),
     }
 
 

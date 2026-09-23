@@ -8,6 +8,7 @@ Covers:
   - a short full-district run (simulation_started/_ended envelope,
     district summary aggregation, cache write)
 """
+
 import asyncio
 
 import pytest
@@ -36,6 +37,7 @@ def _events_of(bus: EventBus, event_type: str) -> list:
 
 
 # ── Single town, all 5 rounds ──────────────────────────────────
+
 
 def test_single_town_five_round_mock_sim(mock_orchestrator):
     orch, scenario = mock_orchestrator
@@ -72,11 +74,13 @@ def test_single_town_five_round_mock_sim(mock_orchestrator):
     log = bus.get_event_log()
     for rnd in range(5):
         start_idx = next(
-            i for i, e in enumerate(log)
+            i
+            for i, e in enumerate(log)
             if getattr(e, "type", None) == "round_started" and e.round == rnd
         )
         end_idx = next(
-            i for i, e in enumerate(log)
+            i
+            for i, e in enumerate(log)
             if getattr(e, "type", None) == "round_ended" and e.round == rnd
         )
         assert start_idx < end_idx
@@ -101,6 +105,47 @@ def test_single_town_five_round_mock_sim(mock_orchestrator):
     assert _events_of(bus, "conversation_started")
     assert _events_of(bus, "agent_speech")
 
+    # ── Model II: opinions move for a reason ──
+    flips = [
+        e
+        for e in opinion_events
+        if e.old_opinion is not None and e.old_opinion.candidate != e.new_opinion.candidate
+    ]
+    assert 1 <= len(flips) <= 8, f"expected a few real changes of mind, got {len(flips)}"
+    for e in flips:
+        assert e.trigger is not None and e.trigger.kind != "seed"
+        assert e.influences, f"{e.agent_name} changed their mind in round {e.round} with no cause"
+        for inf in e.influences:
+            assert inf.ref.split(":", 1)[0] in {
+                "conv",
+                "news",
+                "gossip",
+                "persona",
+                "god",
+                "reflection",
+            }
+            assert 0.0 <= inf.weight <= 1.0
+    for e in opinion_events:
+        if e.round == 0:
+            assert e.trigger is not None and e.trigger.kind == "seed"
+        assert e.reason is None or len(e.reason) <= 200
+
+    # ── Ballots: one per resident in the decide round; abstentions stay rare ──
+    ballots = _events_of(bus, "ballot_cast")
+    assert sorted(b.agent_id for b in ballots) == sorted(a.agent_id for a in dover_agents)
+    assert {b.round for b in ballots} == {4}
+    assert sum(1 for b in ballots if b.option is None) <= 1
+    election = summary.election
+    assert election is not None and election["mode"] == "ballots"
+    assert (
+        sum(election["tally"].values()) + election["abstained"]
+        == election["eligible"]
+        == len(dover_agents)
+    )
+    assert summary.notable_conversations, (
+        "the summary should name the conversations that moved people"
+    )
+
     # ── Agent end-state ──
     for agent in dover_agents:
         assert agent.state == CivicAgentState.DECIDED
@@ -110,6 +155,7 @@ def test_single_town_five_round_mock_sim(mock_orchestrator):
 
 
 # ── Full district run (trimmed to 2 rounds for speed) ─────────
+
 
 def test_full_district_mock_sim(mock_orchestrator, monkeypatch, tmp_path):
     orch, scenario = mock_orchestrator
@@ -138,6 +184,12 @@ def test_full_district_mock_sim(mock_orchestrator, monkeypatch, tmp_path):
 
     # District summary aggregates every town and every roster stance.
     assert set(district.by_town) == set(scenario.town_ids)
+    # Model II: the wire carries the district election block (straw poll after 2 rounds).
+    assert district.election is not None
+    assert set(district.election["per_town"]) == set(scenario.town_ids)
+    assert district.election["mode"] == "straw_poll"
+    assert set(ended[0].summary["overall_opinions"]) >= set(scenario.valid_stance_ids)
+    assert "election" in ended[0].summary
     assert district.total_agents == total_agents
     for stance in scenario.valid_stance_ids:
         assert stance in district.prediction

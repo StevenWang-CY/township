@@ -130,6 +130,51 @@ Each `RoundSpec`:
 
 A typical arc (both shipped scenarios use it): round 0 seeds, middle rounds interleave `converse` + `news`, the final round runs `converse` + `opinion` (NJ-11 adds `decide`).
 
+### Issues, alignment and news effects (the influence model)
+
+Township's engine keeps a deterministic **influence ledger** for every
+resident (see `backend/simulation/influence.py`): a utility per option that
+conversations, headlines and gossip push by bounded amounts. Three optional
+blocks make that model speak the scenario's language. Without them the engine
+derives issues from the options' `positions` and treats every stated position
+as "for", which works but is flat.
+
+```jsonc
+"issues": [
+  { "id": "healthcare", "label": "Healthcare and the ACA",
+    "keywords": ["aca", "medicare", "premium", "insurance"] },
+  { "id": "taxes", "label": "Property taxes and SALT", "keywords": ["property tax", "salt"] }
+]
+```
+
+- `issues[].id` — a slug; `label` is shown in summaries ("consensus points");
+  `keywords` (lower-case substrings) map residents' `top_concerns`, conversation
+  topics and headlines onto the issue. The engine adds its own generic
+  synonyms.
+- `options/<id>.json` gains `"alignment": { "<issue-id>": -1..1 }` — where the
+  option stands on each issue (1 = for, −1 = against, 0 = silent). Keys must be
+  declared issue ids when `issues` exists.
+- `news[].effects` — `[{ "issue", "option", "delta" }]` (−1..1): how a headline
+  moves the case for an option on an issue, scaled by each resident's weight on
+  that issue and their `media_diet`. `news[].towns` (optional) limits a
+  headline to the listed towns; empty means district-wide.
+
+Personas may pin the model's traits in frontmatter (all optional):
+`persuadability` (0–1, default 0.35 registered / 0.6 unaffiliated, +0.15 when
+undecided), `party_loyalty` (0–1, default 0.5 / 0.1), `media_diet` (0–1,
+default 0.5), `turnout` (0–1, default from confidence and registration),
+`issue_weights` (`{ "<issue-id>": weight }`, replaces the rank of
+`top_concerns`), and `tier` (`voice` speaks through the model; `neighbor`
+lives in the ledger only).
+
+What comes out: every `opinion_changed` after the seed carries a `trigger`,
+`influences` (bracketed refs the resident cited, validated against the ledger,
+or filled from it), a one-line `reason` and `delta_confidence`; the decide
+phase emits one `ballot_cast` per resident; town and district summaries carry
+an `election` block (`mode: ballots | straw_poll`, tally, winner, margin,
+turnout, abstained). The deterministic mock provider renders the ledger
+directly, so a keyless run changes its mind for real.
+
 ### Cross-town gossip
 
 `cross_town_pairs` entries name exactly two agents (display names, case-insensitive) and the backstory that explains why they know each other:

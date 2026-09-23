@@ -244,9 +244,18 @@ def _last_user_message(messages: list[dict]) -> str:
 
 
 class MockProvider:
-    """Fully deterministic, zero-network stand-in with the standard contract."""
+    """Fully deterministic, zero-network stand-in with the standard contract.
+
+    With an engine ``prior`` (the influence ledger's read-out, passed by the
+    round manager because ``supports_engine_prior`` is true) the mock renders
+    that prior verbatim: stances follow the ledger and change when it does,
+    sentiments follow agreement, news reactions follow the derived impact.
+    Without a prior it keeps its legacy hash-seeded behaviour, so provider
+    contract tests are unchanged.
+    """
 
     provider_name = "mock"
+    supports_engine_prior = True
 
     def __init__(self, max_concurrent: int = 10):
         # max_concurrent accepted for interface parity; the mock has no
@@ -261,10 +270,43 @@ class MockProvider:
 
     # ── Tool handlers ──────────────────────────────────────────
 
-    def _discuss(self, tool: dict, seed: int, name: str, concerns: list[str]) -> dict:
+    def _discuss(
+        self, tool: dict, seed: int, name: str, concerns: list[str], prior: dict | None = None
+    ) -> dict:
         concern = _pick(concerns, seed)
         sentiments = _schema_enum(tool, "sentiment", ["positive", "negative", "neutral"])
         gestures = _schema_enum(tool, "gesture", ["nod", "shrug", "point", "none"])
+        if prior and prior.get("phase") == "discuss":
+            topic = prior.get("topic") or concern
+            partner = prior.get("partner") or "you"
+            stance = prior.get("stance") or "undecided"
+            agree = bool(prior.get("agree"))
+            partner_stance = prior.get("partner_stance") or "undecided"
+            if stance == "undecided":
+                line = (
+                    f"Honestly, on {topic} I'm still torn. What's pushing you toward {partner_stance}?"
+                    if partner_stance != "undecided"
+                    else f"On {topic} I go back and forth. Nobody's convinced me yet."
+                )
+                sentiment = "neutral"
+                takeaway = f"{partner} and I are both still weighing {topic}."
+            elif agree:
+                line = f"Glad we see {topic} the same way — {stance} is the one who'll actually deal with it."
+                sentiment = "positive"
+                takeaway = f"{partner} backs {stance} too; that settles {topic} a bit more for me."
+            else:
+                line = f"Here's my problem with that on {topic}: {stance} is the only one with a real plan for it."
+                sentiment = "negative" if partner_stance != "undecided" else "neutral"
+                takeaway = (
+                    f"Made the case for {stance} on {topic} to {partner}; not sure it landed."
+                )
+            return {
+                "response": line,
+                "topic": topic,
+                "sentiment": sentiment if sentiment in sentiments else sentiments[-1],
+                "key_takeaway": takeaway,
+                "gesture": _pick(gestures, seed >> 24),
+            }
         return {
             "response": _pick(_DISCUSS_TEMPLATES, seed).format(concern=concern),
             "topic": concern,
@@ -272,6 +314,54 @@ class MockProvider:
             "key_takeaway": _pick(_TAKEAWAY_TEMPLATES, seed >> 16).format(concern=concern),
             "gesture": _pick(gestures, seed >> 24),
         }
+
+    def _form_opinion_from_prior(
+        self, tool: dict, name: str, concerns: list[str], prior: dict
+    ) -> dict:
+        stances = _schema_enum(tool, "candidate", ["undecided"])
+        stance = prior.get("stance") if prior.get("stance") in stances else stances[-1]
+        confidence = int(max(0, min(100, prior.get("confidence", 40))))
+        seed = _seed(name, "FormOpinionPrior", str(prior.get("margin", 0)))
+        concern = _pick(concerns, seed >> 8) if concerns else "what I keep hearing"
+        influences = prior.get("influences") or []
+        top = influences[0] if influences else None
+        if stance == "undecided":
+            lean = "I'm still not settled on anyone"
+        else:
+            lean = f"I'm leaning {stance}"
+        if top and top.get("note"):
+            reasoning = (
+                f"{lean[0].upper() + lean[1:]} — {top['note']}. It keeps coming back to {concern}."
+            )
+        else:
+            reasoning = _pick(_REASONING_TEMPLATES, seed >> 16).format(
+                lean=lean,
+                lean_cap=lean[0].upper() + lean[1:],
+                concern=concern,
+                concern_cap=concern[0].upper() + concern[1:],
+            )
+        result: dict = {
+            "candidate": stance,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "top_issues": concerns[:3],
+            "reason": (
+                f"{top['note']}." if top and top.get("note") else f"{lean}, mostly over {concern}."
+            ),
+            "influences": [
+                {
+                    "ref": inf["ref"],
+                    "direction": "toward" if inf.get("option") == stance else "away",
+                    "weight": round(min(1.0, abs(float(inf.get("delta", 0.0))) * 4), 3),
+                    "note": (inf.get("note") or "")[:120],
+                }
+                for inf in influences[:4]
+                if inf.get("ref")
+            ],
+        }
+        if "dealbreaker" in _schema_props(tool) and seed % 3 != 0:
+            result["dealbreaker"] = f"Anyone reversing course on {concern} would lose me entirely."
+        return result
 
     def _form_opinion(self, tool: dict, name: str, concerns: list[str]) -> dict:
         # The stance roster comes from the tool schema (build_tools() bakes the
@@ -311,7 +401,9 @@ class MockProvider:
             result["dealbreaker"] = f"Anyone reversing course on {concern} would lose me entirely."
         return result
 
-    def _react_to_news(self, tool: dict, seed: int, concerns: list[str], news: str) -> dict:
+    def _react_to_news(
+        self, tool: dict, seed: int, concerns: list[str], news: str, prior: dict | None = None
+    ) -> dict:
         emotions = _schema_enum(
             tool,
             "emotional_response",
@@ -338,6 +430,11 @@ class MockProvider:
             "reasoning": f"{hook} {stake}",
             "would_share_with": _pick(_SHARE_WITH, seed >> 32),
         }
+        if prior and prior.get("phase") == "news":
+            if prior.get("emotional_response") in emotions:
+                result["emotional_response"] = prior["emotional_response"]
+            if prior.get("impact_on_vote") in impacts:
+                result["impact_on_vote"] = prior["impact_on_vote"]
         if "magnitude" in _schema_props(tool):
             magnitudes = _schema_enum(tool, "magnitude", ["none", "minor", "moderate", "major"])
             result["magnitude"] = _pick(magnitudes, seed >> 40)
@@ -393,6 +490,7 @@ class MockProvider:
         tools: list[dict] | None = None,
         max_tokens: int = 500,
         model: str | None = None,
+        prior: dict | None = None,
     ) -> dict:
         if self._delay > 0:
             await asyncio.sleep(self._delay)
@@ -425,11 +523,14 @@ class MockProvider:
             seed = _seed(system_prompt or "", last_user, tool_name)
 
             if tool_name == "Discuss":
-                tool_input = self._discuss(tool, seed, name, concerns)
+                tool_input = self._discuss(tool, seed, name, concerns, prior=prior)
             elif tool_name == "FormOpinion":
-                tool_input = self._form_opinion(tool, name, concerns)
+                if prior and prior.get("stance") and prior.get("phase") in ("seed", "opinion"):
+                    tool_input = self._form_opinion_from_prior(tool, name, concerns, prior)
+                else:
+                    tool_input = self._form_opinion(tool, name, concerns)
             elif tool_name == "ReactToNews":
-                tool_input = self._react_to_news(tool, seed, concerns, last_user)
+                tool_input = self._react_to_news(tool, seed, concerns, last_user, prior=prior)
             elif tool_name == "ClassifyInteraction":
                 tool_input = self._classify_interaction(tool, seed)
             else:

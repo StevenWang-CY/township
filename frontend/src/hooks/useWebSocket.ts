@@ -86,6 +86,8 @@ export interface WsState {
   headlines: Headline[];
   /** The district summary once the run has ended. */
   finalSummary: DistrictSummary | null;
+  /** Ballots cast this run, by resident (option null = abstained). */
+  ballots: Record<string, { option: string | null; confidence: number; reason: string; round: number }>;
 }
 
 export const initialState: WsState = {
@@ -108,6 +110,7 @@ export const initialState: WsState = {
   roundSignals: {},
   headlines: [],
   finalSummary: null,
+  ballots: {},
 };
 
 /* ── Reducer ────────────────────────────────────────────────── */
@@ -169,6 +172,7 @@ function reduceWithEventLimit(
             roundSignals: {},
             headlines: [],
             finalSummary: null,
+  ballots: {},
           };
         }
 
@@ -331,6 +335,15 @@ function reduceWithEventLimit(
           };
         }
 
+        case "ballot_cast": {
+          return {
+            ...state,
+            ballots: {
+              ...state.ballots,
+              [evt.agent_id]: { option: evt.option, confidence: evt.confidence, reason: evt.reason, round: evt.round },
+            },
+          };
+        }
         case "cross_town_gossip":
           // Just record into the events stream — consumers handle UI side-effects.
           return base;

@@ -189,10 +189,11 @@ def town_summary_to_wire(s: TownSummary) -> dict:
         "round": s.rounds_completed,
         "opinions": dict(s.opinion_distribution),
         "top_issues": issues_flat,
-        "consensus_points": [],
+        "consensus_points": list(s.consensus_points),
         "fault_lines": [],
-        "notable_conversations": [],
+        "notable_conversations": list(s.notable_conversations),
         "failed_agents": s.failed_agents,
+        "election": s.election,
     }
 
 
@@ -221,7 +222,8 @@ def district_summary_to_wire(d: DistrictSummary, scenario=None) -> dict:
         "round": round_num,
         "town_summaries": town_wires,
         "overall_opinions": _aggregate_opinions(d, scenario),
-        "cross_town_themes": [],
+        "cross_town_themes": list(d.cross_town_themes),
+        "election": d.election,
         "consensus_zones": list(d.consensus_zones),
         "fault_lines": list(d.fault_lines),
         # Bonus fields the dashboard may want (non-breaking — frontend ignores

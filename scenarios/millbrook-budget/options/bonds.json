@@ -42,5 +42,14 @@
     "Pension markets move; one strong year could shrink the gap on its own, making the $4.8M paydown look like panic priced at par.",
     "It fixes no pothole, opens no trail, and shortens no fire response — every physical problem on the warrant remains.",
     "Prepaying some obligations carries call premiums and lost-arbitrage costs the headline numbers gloss over."
-  ]
+  ],
+  "alignment": {
+    "development": -0.2,
+    "heritage": 0.0,
+    "flood": 0.0,
+    "youth": -0.1,
+    "roads": -0.1,
+    "debt": 1.0,
+    "windfall": 0.8
+  }
 }

@@ -16,7 +16,7 @@ when recap generation succeeds; completed artifacts are served via `/api/runs`.
 | Path | What lives there |
 |------|------------------|
 | `backend/core/` | Pydantic types, scenario loader (`scenario.py`), persona loader, event bus, wire DTOs (`wire.py`), atomic JSON persistence (`storage.py`) |
-| `backend/simulation/` | `round_manager.py` (the core loop), `orchestrator.py` (multi-town parallel + run persistence), `recap.py`, `replay.py` |
+| `backend/simulation/` | `round_manager.py` (the core loop), `orchestrator.py` (multi-town parallel + run persistence), `influence.py` (the deterministic influence ledger every opinion change cites), `attribution.py` (reflection digests + citation validation), `recap.py`, `replay.py` |
 | `backend/providers/` | `base.py` interface, `factory.py` selection, bedrock / anthropic / openai-compat / mock backends |
 | `backend/routes/` | REST + WS routers: simulation, chat, gods_view, scenario, towns, journal, runs, transcribe, tts |
 | `backend/cli.py` | The `township` CLI (Typer): serve, run, replay, scenarios, new-scenario, new-agent |

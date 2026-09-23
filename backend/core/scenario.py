@@ -45,6 +45,8 @@ VALID_PHASES = ("seed", "converse", "news", "opinion", "decide")
 
 _CLOCK_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 _PACKAGE_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+# Issue ids and alignment keys share the package-id slug shape.
+_SLUG_RE = _PACKAGE_ID_RE
 _STANCE_ID_RE = re.compile(r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -249,12 +251,58 @@ class RoundSpec(BaseModel):
         return int(hour), int(minute)
 
 
+class IssueSpec(BaseModel):
+    """An axis of the deliberation the influence model scores options on."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    keywords: list[str] = Field(default_factory=list)
+
+    @field_validator("id")
+    @classmethod
+    def _safe_issue_id(cls, value: str) -> str:
+        value = value.strip()
+        if not _SLUG_RE.fullmatch(value):
+            raise ValueError("issue id must use lowercase letters, numbers, and single hyphens")
+        return value
+
+    @field_validator("label")
+    @classmethod
+    def _visible_issue_label(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("issue label must not be empty")
+        return value
+
+    @field_validator("keywords")
+    @classmethod
+    def _clean_keywords(cls, values: list[str]) -> list[str]:
+        cleaned = [v.strip().lower() for v in values if v and v.strip()]
+        return list(dict.fromkeys(cleaned))
+
+
+class NewsEffectSpec(BaseModel):
+    """How a headline moves the case for an option on one issue (-1..1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue: str
+    option: str
+    delta: float = Field(ge=-1.0, le=1.0)
+
+
 class NewsItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     headline: str
     description: str
+    # ── Model II (optional) ──
+    effects: list[NewsEffectSpec] = Field(default_factory=list)
+    # Empty = district-wide; otherwise only these towns' residents react.
+    towns: list[str] = Field(default_factory=list)
 
     @field_validator("id", "headline", "description")
     @classmethod
@@ -263,6 +311,16 @@ class NewsItem(BaseModel):
         if not value:
             raise ValueError("news id, headline, and description must not be empty")
         return value
+
+    @field_validator("towns")
+    @classmethod
+    def _clean_towns(cls, values: list[str]) -> list[str]:
+        cleaned = [v.strip().lower() for v in values]
+        if any(not v for v in cleaned):
+            raise ValueError("news towns must not contain blank ids")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("news towns must not contain duplicates")
+        return cleaned
 
 
 class CrossTownPair(BaseModel):
@@ -453,6 +511,18 @@ class OptionDataSpec(BaseModel):
     positions: list[OptionPositionSpec] = Field(default_factory=list)
     endorsements: list[str] = Field(default_factory=list)
     fraud_conviction: OptionNarrativeNoteSpec | None = None
+    # ── Model II: issue id → where this option stands (-1 against .. 1 for) ──
+    alignment: dict[str, float] = Field(default_factory=dict)
+
+    @field_validator("alignment")
+    @classmethod
+    def _alignment_range(cls, values: dict[str, float]) -> dict[str, float]:
+        for key, value in values.items():
+            if not _SLUG_RE.fullmatch(key):
+                raise ValueError(f"alignment key {key!r} must be an issue id slug")
+            if not -1.0 <= float(value) <= 1.0:
+                raise ValueError(f"alignment[{key!r}] must be within -1..1")
+        return {k: float(v) for k, v in values.items()}
 
     @field_validator("name", "background", "summary", "party")
     @classmethod
@@ -592,6 +662,9 @@ class ScenarioConfig(BaseModel):
     )
     gossip_rounds: list[int] = Field(default_factory=list)
     town_order: list[str] | None = None
+    # ── Model II: the issue space the influence model scores options on.
+    #    Optional — without it the engine derives issues from option positions.
+    issues: list[IssueSpec] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -660,6 +733,21 @@ class ScenarioConfig(BaseModel):
         folded = [stance.casefold() for stance in stance_ids]
         if len(set(folded)) != len(folded):
             raise ValueError(f"option and undecided ids must be unique ignoring case: {stance_ids}")
+
+        issue_ids = [issue.id for issue in self.issues]
+        if len(set(issue_ids)) != len(issue_ids):
+            raise ValueError(f"duplicate issue ids: {issue_ids}")
+        option_ids = {option.id for option in self.options}
+        for item in self.news:
+            for effect in item.effects:
+                if effect.option not in option_ids:
+                    raise ValueError(
+                        f"news {item.id!r} effect references unknown option {effect.option!r}"
+                    )
+                if issue_ids and effect.issue not in issue_ids:
+                    raise ValueError(
+                        f"news {item.id!r} effect references unknown issue {effect.issue!r}"
+                    )
 
         rounds = {spec.round for spec in self.round_plan}
         if len(set(self.gossip_rounds)) != len(self.gossip_rounds):
@@ -747,6 +835,19 @@ class Scenario:
         labels = {o.id: o.label for o in self.config.options}
         labels[self.undecided_id] = self.config.undecided.label
         return labels
+
+    @property
+    def issues(self) -> list[IssueSpec]:
+        return list(self.config.issues)
+
+    @property
+    def issue_ids(self) -> list[str]:
+        return [issue.id for issue in self.config.issues]
+
+    def option_alignment(self, option_id: str) -> dict[str, float]:
+        """Authored issue alignment for an option (empty when unauthored)."""
+        data = self.options_data.get(option_id, {}) or {}
+        return dict(data.get("alignment", {}) or {})
 
     @property
     def news_by_id(self) -> dict[str, NewsItem]:
@@ -1216,6 +1317,21 @@ def load_scenario(scenario_dir: Path | str) -> Scenario:
         "demo/simulation_cache.json",
         label="demo replay cache",
     )
+
+    # Model II references: news towns must exist; option alignment keys must be
+    # declared issues when the scenario declares an issue space.
+    for item in config.news:
+        unknown_towns = [town for town in item.towns if town not in towns]
+        if unknown_towns:
+            raise ValueError(f"news {item.id!r} references unknown towns: {unknown_towns}")
+    declared_issues = {issue.id for issue in config.issues}
+    if declared_issues:
+        for option_id, data in options_data.items():
+            unknown_issues = [k for k in (data.get("alignment") or {}) if k not in declared_issues]
+            if unknown_issues:
+                raise ValueError(
+                    f"option {option_id!r} alignment references unknown issues: {unknown_issues}"
+                )
 
     # News-id sanity: every round_plan news_id must exist.
     news_ids = {n.id for n in config.news}

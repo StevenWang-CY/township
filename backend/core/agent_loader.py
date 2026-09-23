@@ -25,6 +25,13 @@ _PERSONA_FRONTMATTER_FIELDS = frozenset(
         "relationships",
         "idle_thoughts",
         "goals",
+        # influence-model traits (optional)
+        "persuadability",
+        "party_loyalty",
+        "media_diet",
+        "issue_weights",
+        "turnout",
+        "tier",
     }
 )
 _REQUIRED_PERSONA_FRONTMATTER_FIELDS = _PERSONA_FRONTMATTER_FIELDS - {
@@ -34,6 +41,12 @@ _REQUIRED_PERSONA_FRONTMATTER_FIELDS = _PERSONA_FRONTMATTER_FIELDS - {
     "relationships",
     "idle_thoughts",
     "goals",
+    "persuadability",
+    "party_loyalty",
+    "media_diet",
+    "issue_weights",
+    "turnout",
+    "tier",
 }
 
 

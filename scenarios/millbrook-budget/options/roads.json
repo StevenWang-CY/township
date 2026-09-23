@@ -43,5 +43,14 @@
     "The wait-listed state bridge grant could eventually cover much of the $6.8M; spending surplus on it may mean leaving state money on the table.",
     "It offers no relief on the tax levy and no reduction of the pension gap the comptroller just flagged.",
     "Consultants' estimates have already doubled once; construction overruns would come back to the town with no reserve left."
-  ]
+  ],
+  "alignment": {
+    "development": 0.2,
+    "heritage": 0.0,
+    "flood": 0.3,
+    "youth": 0.0,
+    "roads": 1.0,
+    "debt": 0.2,
+    "windfall": 0.4
+  }
 }

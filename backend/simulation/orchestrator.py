@@ -21,9 +21,11 @@ from ..core.types import (
     CivicAgentState,
     DistrictSummary,
     GodViewInjectionEvent,
+    InfluenceRef,
     NewsReaction,
     Opinion,
     OpinionChangedEvent,
+    OpinionTrigger,
     SimulationEndedEvent,
     SimulationStartedEvent,
     TownSummary,
@@ -31,6 +33,7 @@ from ..core.types import (
     is_private_event,
 )
 from ..core.wire import agent_state_to_wire, district_summary_to_wire
+from ..simulation.influence import InfluenceModel
 from ..simulation.recap import generate_recap
 from ..simulation.round_manager import RoundManager
 from ..tools.schemas import build_tools
@@ -588,7 +591,82 @@ class SimulationOrchestrator:
             total_conversations=total_conversations,
             total_cost=usage["total_cost"],
             failed_agents=total_failed_agents,
+            election=self._district_election(town_summaries),
+            cross_town_themes=self._cross_town_themes(),
         )
+
+    def _district_election(self, town_summaries: dict[str, TownSummary]) -> dict | None:
+        """Per-town and district tallies plus the residents who moved."""
+        per_town = {t: s.election for t, s in town_summaries.items() if s.election}
+        if not per_town:
+            return None
+        modes = {e["mode"] for e in per_town.values()}
+        mode = "ballots" if modes == {"ballots"} else "straw_poll"
+        tally: Counter = Counter()
+        eligible = 0
+        voted = 0
+        abstained = 0
+        for e in per_town.values():
+            for option, n in e["tally"].items():
+                tally[option] += int(n)
+            eligible += int(e.get("eligible", 0))
+            abstained += int(e.get("abstained", 0))
+            voted += int(round(e.get("turnout", 0.0) * e.get("eligible", 0)))
+        ranked = sorted(tally.values(), reverse=True)
+        top = ranked[0] if ranked else 0
+        second = ranked[1] if len(ranked) > 1 else 0
+        leaders = [o for o, n in tally.items() if n == top and top > 0]
+        decided_total = sum(tally.values())
+        undecided = self.scenario.undecided_id
+        swing: list[dict] = []
+        for town, agents in self.agent_states.items():
+            for a in agents:
+                if len(a.opinions) < 2:
+                    continue
+                first = a.opinions[0].candidate
+                last = a.opinions[-1].candidate
+                if first == last:
+                    continue
+                change_round = next(
+                    (o.round_number for o in a.opinions if o.candidate == last),
+                    a.opinions[-1].round_number,
+                )
+                swing.append(
+                    {
+                        "agent_id": a.agent_id,
+                        "name": a.definition.name,
+                        "town": town,
+                        "from": first,
+                        "to": last,
+                        "round": change_round,
+                        "kind": "decided" if first == undecided else "switched",
+                    }
+                )
+        swing.sort(key=lambda d: (d["kind"] != "switched", -d["round"]))
+        return {
+            "mode": mode,
+            "per_town": per_town,
+            "district": {
+                "tally": dict(tally),
+                "winner": leaders[0] if len(leaders) == 1 else None,
+                "margin": top - second,
+                "margin_pct": round((top - second) / decided_total, 4) if decided_total else 0.0,
+                "turnout": round(voted / eligible, 4) if eligible else 0.0,
+                "abstained": abstained,
+                "eligible": eligible,
+            },
+            "swing_residents": swing[:12],
+        }
+
+    def _cross_town_themes(self, limit: int = 5) -> list[str]:
+        """Topics that crossed town lines, most retold first."""
+        counts: Counter = Counter()
+        for agents in self.agent_states.values():
+            for a in agents:
+                for c in a.conversations:
+                    if c.location == self.scenario.config.cross_town_meeting_place and c.topic:
+                        counts[c.topic] += 1
+        return [topic for topic, _ in counts.most_common(limit)]
 
     def _serialized_events(self, events: list | None = None) -> list[dict]:
         """Serialize one explicit run capture (never the global diagnostic tail)."""
@@ -929,10 +1007,23 @@ class SimulationOrchestrator:
             round_number=((prev.round_number if prev else 0) or 0) + 1,
         )
         agent.opinions.append(new_opinion)
-        agent.add_memory(
+        god_ref = f"god:{new_opinion.round_number}"
+        agent.remember(
+            "god_view",
+            new_opinion.round_number,
             f"God's View shifted my view: now leaning {new_opinion.candidate} "
-            f"(confidence: {new_opinion.confidence}%)."
+            f"(confidence: {new_opinion.confidence}%).",
+            refs=[god_ref],
+            salience=0.7,
         )
+        if agent.beliefs is not None:
+            InfluenceModel(self.scenario).adopt_stance(
+                agent.beliefs,
+                new_opinion.candidate,
+                new_opinion.round_number,
+                god_ref,
+                note=f"a development changed things: {description[:80]}",
+            )
 
         try:
             await self.event_bus.publish(
@@ -942,6 +1033,19 @@ class SimulationOrchestrator:
                     town=agent.definition.town,
                     old_opinion=prev,
                     new_opinion=new_opinion,
+                    round=new_opinion.round_number,
+                    trigger=OpinionTrigger(kind="god_view", headline=description[:120]),
+                    influences=[
+                        InfluenceRef(
+                            kind="god_view",
+                            ref=god_ref,
+                            direction="toward",
+                            weight=1.0,
+                            note=description[:120],
+                        )
+                    ],
+                    reason=reaction_reasoning[:160] if reaction_reasoning else None,
+                    delta_confidence=(new_opinion.confidence - prev.confidence) if prev else None,
                 )
             )
         except Exception as e:  # pragma: no cover — defensive

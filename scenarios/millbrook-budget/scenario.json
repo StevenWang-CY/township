@@ -48,31 +48,51 @@
   "round_plan": [
     {
       "round": 0,
-      "phases": ["seed"],
+      "phases": [
+        "seed"
+      ],
       "clock": "08:00",
       "news_ids": []
     },
     {
       "round": 1,
-      "phases": ["converse", "news"],
+      "phases": [
+        "converse",
+        "news"
+      ],
       "clock": "10:00",
-      "news_ids": ["bridge-estimate"]
+      "news_ids": [
+        "bridge-estimate"
+      ]
     },
     {
       "round": 2,
-      "phases": ["converse", "news"],
+      "phases": [
+        "converse",
+        "news"
+      ],
       "clock": "13:00",
-      "news_ids": ["greenway-match"]
+      "news_ids": [
+        "greenway-match"
+      ]
     },
     {
       "round": 3,
-      "phases": ["converse", "news"],
+      "phases": [
+        "converse",
+        "news"
+      ],
       "clock": "16:00",
-      "news_ids": ["pension-warning"]
+      "news_ids": [
+        "pension-warning"
+      ]
     },
     {
       "round": 4,
-      "phases": ["converse", "opinion"],
+      "phases": [
+        "converse",
+        "opinion"
+      ],
       "clock": "19:00",
       "news_ids": []
     }
@@ -81,31 +101,190 @@
     {
       "id": "bridge-estimate",
       "headline": "Engineering Report Doubles Main Street Bridge Repair Estimate to $6.8M",
-      "description": "The structural review the Select Board commissioned from Hartwell & Sloane Engineering finds pier scour and deck delamination on the 1936 Main Street Bridge, doubling the repair estimate from $3.2M to $6.8M. The weight limit drops from 15 tons to 8 tons effective immediately: Engine 2 and the school buses must now detour the Route 9 loop, adding roughly eleven minutes to any cross-river run."
+      "description": "The structural review the Select Board commissioned from Hartwell & Sloane Engineering finds pier scour and deck delamination on the 1936 Main Street Bridge, doubling the repair estimate from $3.2M to $6.8M. The weight limit drops from 15 tons to 8 tons effective immediately: Engine 2 and the school buses must now detour the Route 9 loop, adding roughly eleven minutes to any cross-river run.",
+      "effects": [
+        {
+          "issue": "roads",
+          "option": "roads",
+          "delta": 0.6
+        },
+        {
+          "issue": "windfall",
+          "option": "greenway",
+          "delta": -0.3
+        }
+      ],
+      "towns": []
     },
     {
       "id": "greenway-match",
       "headline": "Anonymous Donor Pledges $2M Match for the Riverwalk Greenway",
-      "description": "A letter delivered through the Millbrook Community Trust pledges a dollar-for-dollar match, up to $2 million, for Riverwalk Greenway construction — contingent on the town committing the surplus at the November 3 meeting. The donor is unnamed. The Trust says the match would extend the trail across the river to Community Fields. The letter was read aloud twice on the Wheelhouse Diner porch before lunch."
+      "description": "A letter delivered through the Millbrook Community Trust pledges a dollar-for-dollar match, up to $2 million, for Riverwalk Greenway construction — contingent on the town committing the surplus at the November 3 meeting. The donor is unnamed. The Trust says the match would extend the trail across the river to Community Fields. The letter was read aloud twice on the Wheelhouse Diner porch before lunch.",
+      "effects": [
+        {
+          "issue": "development",
+          "option": "greenway",
+          "delta": 0.6
+        },
+        {
+          "issue": "windfall",
+          "option": "greenway",
+          "delta": 0.4
+        }
+      ],
+      "towns": []
     },
     {
       "id": "pension-warning",
       "headline": "State Comptroller Warns Towns: Pension Fund Returns 'Overstated'",
-      "description": "A state comptroller bulletin lowers the assumed rate of return on municipal pension funds from 6.9% to 6.0%. Recalculated overnight, Millbrook's unfunded pension liability grows from $4.1M to $5.9M, and the finance committee schedules an emergency session. Older residents remember 1998, when a mid-year aid cut and a failed revaluation left the town eleven days from missing payroll."
+      "description": "A state comptroller bulletin lowers the assumed rate of return on municipal pension funds from 6.9% to 6.0%. Recalculated overnight, Millbrook's unfunded pension liability grows from $4.1M to $5.9M, and the finance committee schedules an emergency session. Older residents remember 1998, when a mid-year aid cut and a failed revaluation left the town eleven days from missing payroll.",
+      "effects": [
+        {
+          "issue": "debt",
+          "option": "bonds",
+          "delta": 0.7
+        },
+        {
+          "issue": "windfall",
+          "option": "greenway",
+          "delta": -0.3
+        }
+      ],
+      "towns": []
     }
   ],
   "cross_town_pairs": [
     {
-      "agents": ["Adele Pruitt", "Cass Malone"],
+      "agents": [
+        "Adele Pruitt",
+        "Cass Malone"
+      ],
       "connection": "Their husbands — Walter Pruitt, the loom fixer, and Roy Malone of the dye house — worked side by side at the Harrow Mill for eighteen years. Now the two widows meet Saturdays at the cider stand at the farmers market and talk about everything except the mill, which is how they talk about the mill."
     },
     {
-      "agents": ["Marcus Bell", "Rocco DiSanto"],
+      "agents": [
+        "Marcus Bell",
+        "Rocco DiSanto"
+      ],
       "connection": "Rocco has sponsored Marcus's rec league since the coach arrived two years ago, and feeds the team after every game — win or lose, so the kids learn it isn't about the score. The coach from away and the pizza man of thirty-one years argue trails versus roads across a counter dusted with flour."
     }
   ],
   "cross_town_meeting_place": "Millbrook Farmers Market",
-  "weather_schedule": ["clear", "cloudy", "rain", "clear", "clear"],
-  "gossip_rounds": [2, 3],
-  "town_order": ["millbrook-village", "harlow-crossing"]
+  "weather_schedule": [
+    "clear",
+    "cloudy",
+    "rain",
+    "clear",
+    "clear"
+  ],
+  "gossip_rounds": [
+    2,
+    3
+  ],
+  "town_order": [
+    "millbrook-village",
+    "harlow-crossing"
+  ],
+  "issues": [
+    {
+      "id": "development",
+      "label": "Main Street and economic development",
+      "keywords": [
+        "main street",
+        "vacancy",
+        "storefront",
+        "tourism",
+        "destination",
+        "foot traffic",
+        "downtown",
+        "business",
+        "develop"
+      ]
+    },
+    {
+      "id": "heritage",
+      "label": "Mill heritage",
+      "keywords": [
+        "mill",
+        "ruins",
+        "smokestack",
+        "heritage",
+        "historic",
+        "memory",
+        "landmark"
+      ]
+    },
+    {
+      "id": "flood",
+      "label": "Flood resilience and the river",
+      "keywords": [
+        "flood",
+        "river",
+        "erosion",
+        "riverbank",
+        "storm",
+        "dam",
+        "water"
+      ]
+    },
+    {
+      "id": "youth",
+      "label": "Keeping young families",
+      "keywords": [
+        "youth",
+        "young",
+        "kids",
+        "families",
+        "trail",
+        "put-in",
+        "commons",
+        "league",
+        "school"
+      ]
+    },
+    {
+      "id": "roads",
+      "label": "Roads, bridges and basic upkeep",
+      "keywords": [
+        "road",
+        "bridge",
+        "pothole",
+        "plow",
+        "culvert",
+        "repair",
+        "upkeep",
+        "maintenance",
+        "engineering"
+      ]
+    },
+    {
+      "id": "debt",
+      "label": "Debt, pensions and the town's books",
+      "keywords": [
+        "debt",
+        "bond",
+        "pension",
+        "interest",
+        "borrow",
+        "comptroller",
+        "books",
+        "credit rating",
+        "fund"
+      ]
+    },
+    {
+      "id": "windfall",
+      "label": "How to use a one-time windfall",
+      "keywords": [
+        "surplus",
+        "windfall",
+        "one-time",
+        "one time",
+        "match",
+        "donor",
+        "pledge",
+        "reserve"
+      ]
+    }
+  ]
 }

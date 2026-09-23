@@ -43,5 +43,14 @@
     "The riverfront sits in the flood plain; a bad spring could put sections of new trail underwater and the repair bills on the town.",
     "The benefits concentrate on the Village side of the river while the tax base that pays is majority Harlow Crossing.",
     "Rising riverfront desirability cuts both ways: the same amenity that fills storefronts can raise rents on Chestnut Row and push out the mill families the park claims to honor."
-  ]
+  ],
+  "alignment": {
+    "development": 0.9,
+    "heritage": 0.7,
+    "flood": 0.8,
+    "youth": 0.9,
+    "roads": -0.2,
+    "debt": -0.3,
+    "windfall": 0.6
+  }
 }

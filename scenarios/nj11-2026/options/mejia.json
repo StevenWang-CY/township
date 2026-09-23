@@ -71,5 +71,16 @@
     "Wikipedia (en.wikipedia.org/wiki/Analilia_Mejia)",
     "Ballotpedia",
     "analiliafornj.com/economy-for-everyone"
-  ]
+  ],
+  "alignment": {
+    "healthcare": 1.0,
+    "immigration": 1.0,
+    "taxes": 0.0,
+    "cost-of-living": 0.9,
+    "jobs": 0.5,
+    "transit": 0.8,
+    "education": 0.9,
+    "trust": 0.2,
+    "national": -0.8
+  }
 }
