@@ -33,9 +33,9 @@ boto3==1.43.52 \
     # via
     #   anthropic
     #   township
-botocore==1.43.52 \
-    --hash=sha256:3c25e11796ae6e295f1cc3a7760e808c26c432cd580d6a608f32da24715c389b \
-    --hash=sha256:43715e971b306f86d5918b3b728ec62aae3f4be49e1606058ef1f0b87dcbad9e
+botocore==1.43.56 \
+    --hash=sha256:6c01f85f0ff9863076f4c761e74ee3aa96c5ccc1ad09fc1efd62ef8f2d22bf57 \
+    --hash=sha256:aafc741f1b10f6fd63253eaf6ea029680c1ff436d87e1b8969d62aefa0c76976
     # via
     #   anthropic
     #   boto3
